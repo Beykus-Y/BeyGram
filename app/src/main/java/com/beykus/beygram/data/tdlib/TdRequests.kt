@@ -10,6 +10,7 @@ import com.beykus.beygram.domain.model.SpeechRecognitionFailure
 import com.beykus.beygram.domain.model.SpeechRecognitionFailureReason
 import com.beykus.beygram.domain.model.SpeechRecognitionTrial
 import com.beykus.beygram.domain.model.StealthBlockedException
+import kotlinx.coroutines.CancellableContinuation
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.suspendCancellableCoroutine
@@ -22,7 +23,11 @@ internal class TdRequestError(val code: Int, message: String) : IllegalStateExce
 
 private const val DEFAULT_REQUEST_TIMEOUT_MS = 30_000L
 
-internal class TdRequests(private val client: () -> Client) {
+/**
+ * Requests made through this class reach TDLib only in [handOff]. Tests replace [handOff] to answer requests without a
+ * native client.
+ */
+internal open class TdRequests(private val client: () -> Client) {
     suspend operator fun <T : TdApi.Object> invoke(function: TdApi.Function<T>, timeoutMillis: Long = DEFAULT_REQUEST_TIMEOUT_MS): T = withTimeout(timeoutMillis) {
         awaitResponse(function)
     }
@@ -34,14 +39,44 @@ internal class TdRequests(private val client: () -> Client) {
      */
     internal suspend fun <T : TdApi.Object> awaitResponse(function: TdApi.Function<T>): T =
         suspendCancellableCoroutine { continuation ->
-            client().send(function, Client.ResultHandler { result ->
-                if (continuation.isActive) {
-                    if (result is TdApi.Error) continuation.resumeWith(Result.failure(TdRequestError(result.code, result.message)))
-                    else { @Suppress("UNCHECKED_CAST") continuation.resume(result as T) }
-                }
-            })
+            handOff(function, resultHandler(continuation))
         }
+
+    internal open fun handOff(function: TdApi.Function<*>, handler: Client.ResultHandler) {
+        client().send(function, handler)
+    }
+
+    /**
+     * Sends [function] only if [admit] passes, both under [lock] (see StealthSettingsStore.whileUnchanged), so a settings
+     * change cannot land between the decision and the hand-off to TDLib. [admit] throws to refuse; nothing is sent then.
+     * The lock is a blocking monitor, so the caller can be cancelled or time out while it waits for it. A caller that
+     * is no longer waiting is not admitted, and nothing is handed to TDLib for it.
+     */
+    suspend fun <T : TdApi.Object> invokeAdmitted(
+        function: TdApi.Function<T>,
+        lock: (() -> Unit) -> Unit,
+        admit: () -> Unit,
+        timeoutMillis: Long = DEFAULT_REQUEST_TIMEOUT_MS
+    ): T = withTimeout(timeoutMillis) {
+        suspendCancellableCoroutine<T> { continuation ->
+            lock {
+                if (continuation.isActive) {
+                    admit()
+                    handOff(function, resultHandler(continuation))
+                }
+            }
+        }
+    }
 }
+
+/** Resumes [continuation] with TDLib's answer: an error becomes a [TdRequestError], any other object is the expected result. */
+private fun <T : TdApi.Object> resultHandler(continuation: CancellableContinuation<T>): Client.ResultHandler =
+    Client.ResultHandler { result ->
+        if (continuation.isActive) {
+            if (result is TdApi.Error) continuation.resumeWith(Result.failure(TdRequestError(result.code, result.message)))
+            else { @Suppress("UNCHECKED_CAST") continuation.resume(result as T) }
+        }
+    }
 
 private val MESSAGE_TIMEOUT = UiText.Res(R.string.err_tdlib_message_timeout)
 private val REQUEST_TIMEOUT = UiText.Res(R.string.err_tdlib_request_timeout)

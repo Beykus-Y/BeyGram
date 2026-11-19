@@ -22,7 +22,6 @@ import androidx.compose.material.icons.rounded.Pause
 import com.beykus.beygram.ui.components.BeyGramPopover
 import com.beykus.beygram.playback.PlaybackEngine
 import androidx.compose.material3.Button
-import androidx.compose.material3.FilterChip
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.FilledIconButton
@@ -79,6 +78,7 @@ import com.beykus.beygram.ui.screens.music.MusicSearchSection
 import com.beykus.beygram.ui.screens.music.MusicSearchSkeletonRows
 import com.beykus.beygram.ui.screens.music.ProviderTrackMenuItems
 import com.beykus.beygram.ui.screens.music.MusicCardColumn
+import com.beykus.beygram.ui.screens.music.MusicChoiceChip
 import com.beykus.beygram.ui.screens.music.MusicCoverCard
 import com.beykus.beygram.ui.screens.music.MusicEmptyText
 import com.beykus.beygram.ui.screens.music.MusicGroupHeading
@@ -574,10 +574,10 @@ class YandexMusicHost : ProviderMusicHost {
                 YandexWave.Diversity.POPULAR to R.string.yandex_wave_diversity_popular,
             )
             options.forEach { (value, label) ->
-                FilterChip(
+                MusicChoiceChip(
+                    label = stringResource(label),
                     selected = selected == value,
                     onClick = { onSelect(value) },
-                    label = { Text(stringResource(label)) },
                 )
             }
         }

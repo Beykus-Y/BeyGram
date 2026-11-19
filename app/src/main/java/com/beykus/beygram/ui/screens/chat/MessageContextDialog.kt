@@ -32,6 +32,7 @@ import com.beykus.beygram.domain.repository.ConversationRepository
 import com.beykus.beygram.ui.components.beyGramPalette
 import com.beykus.beygram.ui.accessibility.errorAnnouncement
 import com.beykus.beygram.ui.text.userMessage
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
 
@@ -126,18 +127,22 @@ internal fun MessageContextDialog(chatId: Long, targetId: Long, conversation: Co
                                 }
                             },
                             onPollStop = { messageId ->
-                                reactionScope.launch {
-                                    conversation.stopPoll(message.chatId, messageId)
-                                        .onSuccess { reloadSnapshot() }
-                                        .onFailure { Toast.makeText(androidContext, it.userMessage(androidContext, R.string.chat_poll_stop_failed), Toast.LENGTH_SHORT).show() }
+                                riskGuard.run {
+                                    reactionScope.launch {
+                                        conversation.stopPoll(message.chatId, messageId)
+                                            .onSuccess { reloadSnapshot() }
+                                            .onFailure { Toast.makeText(androidContext, it.userMessage(androidContext, R.string.chat_poll_stop_failed), Toast.LENGTH_SHORT).show() }
+                                    }
                                 }
                             },
                             onLoadPollVoters = { messageId, optionIndex, offset ->
                                 conversation.pollVoters(message.chatId, messageId, optionIndex, offset)
                             },
                             onAddPollOption = { messageId, text ->
-                                conversation.addPollOption(message.chatId, messageId, text)
-                                    .onSuccess { reloadSnapshot() }
+                                if (riskGuard.confirm()) {
+                                    conversation.addPollOption(message.chatId, messageId, text)
+                                        .onSuccess { reloadSnapshot() }
+                                } else Result.failure(CancellationException("stealth risk declined"))
                             },
                             paidContent = rememberPaidContentActions(conversation) { reloadSnapshot() },
                             onOpenMessageEntity = onOpenMessageEntity)

@@ -21,11 +21,12 @@ internal class TdConversationActions(
     private val map: (TdApi.Message) -> ChatMessage,
     private val mapLastMessage: (TdApi.Message) -> ForumTopicLastMessage? = { null },
     private val onTopicDraft: (Long, Int, TdApi.DraftMessage?) -> Unit = { _, _, _ -> },
-    stealthDelaySeconds: () -> Int? = { null }
+    stealthDelaySeconds: () -> Int? = { null },
+    stealthLock: (() -> Unit) -> Unit = { it() }
 ) {
     private val request = TdRequests(client)
     // Every send below passes through it, so stealth mode schedules them on the server or refuses them (#541).
-    private val stealth = TdStealthScheduler(request, stealthDelaySeconds)
+    private val stealth = TdStealthScheduler(request, stealthDelaySeconds, stealthLock)
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val replyRequests = ConcurrentHashMap.newKeySet<Pair<Long, Long>>()
     // Нажатия на одно сообщение идут по очереди: каждое читает реакции, которые меняет. Другие сообщения не ждут.
@@ -196,9 +197,7 @@ internal class TdConversationActions(
             clearDraft = false
         }
         val resolved = stealth.resolve(discussionChatId, MessageSendOptions(sendNowConsent = sendNowConsent))
-        val sent = stealth.scheduledRequest(resolved) {
-            request(threadReplyRequest(discussionChatId, threadId, replyTarget?.id, content, sendOptions(resolved.options)))
-        }
+        val sent = stealth.scheduledRequest(resolved, threadReplyRequest(discussionChatId, threadId, replyTarget?.id, content, sendOptions(resolved.options)))
         // A comment scheduled by stealth mode waits in the server's queue and is not part of the thread yet.
         if (sent.schedulingState != null) return@conversationResult null
         history.put(map(sent))
@@ -318,23 +317,49 @@ internal class TdConversationActions(
         }
     }
 
-    suspend fun createTopic(chatId: Long, title: String): Result<Long> = conversationResult {
+    suspend fun createTopic(chatId: Long, title: String, icon: ForumTopicIcon): Result<Long> = conversationResult {
         val name = title.trim()
         require(name.isNotEmpty() && name.codePointCount(0, name.length) <= 128)
+        // TDLib refuses a colour outside its fixed set, so a value the UI could not have produced falls back to the default.
+        val topicIcon = TdApi.ForumTopicIcon(forumTopicCreationColor(icon.colorArgb), icon.customEmojiId)
         val info = request(TdApi.CreateForumTopic().apply {
             this.chatId = chatId
             this.name = name
             isNameImplicit = false
-            icon = TdApi.ForumTopicIcon(0x6FB9F0, 0L)
+            this.icon = topicIcon
         })
         info.forumTopicId.toLong()
     }
 
-    suspend fun renameTopic(chatId: Long, topicId: Long, title: String): Result<Unit> = conversationResult {
+    /** A null [iconCustomEmojiId] keeps the server icon, 0 removes its custom emoji and any other id sets it. */
+    suspend fun editTopic(chatId: Long, topicId: Long, title: String, iconCustomEmojiId: Long?): Result<Unit> = conversationResult {
         val name = title.trim()
         require(name.isNotEmpty() && name.codePointCount(0, name.length) <= 128)
-        request(TdApi.EditForumTopic(chatId, topicId.toInt(), name, false, 0L))
+        request(TdApi.EditForumTopic(chatId, topicId.toInt(), name, iconCustomEmojiId != null, iconCustomEmojiId ?: 0L))
         Unit
+    }
+
+    /** Telegram's default topic icons are the same for every account, so one successful answer is kept for the session. */
+    @Volatile private var defaultTopicIconIds: List<Long>? = null
+
+    suspend fun forumTopicDefaultIcons(): Result<List<Long>> {
+        defaultTopicIconIds?.let { return Result.success(it) }
+        return requestResult {
+            val ids = request(TdApi.GetForumTopicDefaultIcons()).stickers.mapNotNull { it?.customEmojiIdOrNull() }
+            if (ids.isNotEmpty()) defaultTopicIconIds = ids
+            ids
+        }
+    }
+
+    /** The custom emoji sets the account has installed. A set's covers are custom emoji too, so the editor can preview each set. */
+    suspend fun installedCustomEmojiSets(): Result<List<CustomEmojiSetBrief>> = requestResult {
+        request(TdApi.GetInstalledStickerSets(TdApi.StickerTypeCustomEmoji())).sets.orEmpty()
+            .mapNotNull { it?.toCustomEmojiSetBrief() }
+    }
+
+    /** The custom emoji of one installed set, in the set's order. */
+    suspend fun customEmojiSetIds(setId: Long): Result<List<Long>> = requestResult {
+        request(TdApi.GetStickerSet(setId)).customEmojiIds()
     }
 
     suspend fun closeTopic(chatId: Long, topicId: Long, closed: Boolean): Result<Unit> = conversationResult {
@@ -347,8 +372,21 @@ internal class TdConversationActions(
         Unit
     }
 
+    /** TDLib replaces the pinned set with [topicIds], so the caller sends every pinned topic in its new display order. */
+    suspend fun setPinnedTopicsOrder(chatId: Long, topicIds: List<Long>): Result<Unit> = conversationResult {
+        request(TdApi.SetPinnedForumTopics(chatId, forumTopicIdArray(topicIds)))
+        Unit
+    }
+
     suspend fun deleteTopic(chatId: Long, topicId: Long): Result<Unit> = conversationResult {
         request(TdApi.DeleteForumTopic(chatId, topicId.toInt()))
+        Unit
+    }
+
+    /** Reads the topic's current settings first, so everything except the mute state goes back to TDLib as it was. */
+    suspend fun setTopicMuted(chatId: Long, topicId: Long, muted: Boolean?): Result<Unit> = conversationResult {
+        val topic = request(TdApi.GetForumTopic(chatId, topicId.toInt()))
+        request(TdApi.SetForumTopicNotificationSettings(chatId, topicId.toInt(), forumTopicMuteSettings(topic.notificationSettings, muted)))
         Unit
     }
 
@@ -498,14 +536,14 @@ internal class TdConversationActions(
         requireFutureSchedule(options)
         send(chatId, replyId, forumTopicId, options) { contactMessageContent(contact) }
     }.onFailure { recordSendFailure("contact", it) }
-    suspend fun sendMedia(chatId: Long, media: OutgoingMedia, caption: String, replyId: Long?, entities: List<MessageTextEntity> = emptyList(), forumTopicId: Long = 0L, options: MessageSendOptions = MessageSendOptions()): Result<Unit> {
+    suspend fun sendMedia(chatId: Long, media: OutgoingMedia, caption: String, replyId: Long?, entities: List<MessageTextEntity> = emptyList(), forumTopicId: Long = 0L, options: MessageSendOptions = MessageSendOptions(), onVisibleIds: (List<Long>) -> Unit = {}): Result<Unit> {
         val handoff = ShareMediaHandoff()
         val result = conversationResult<Unit> {
             requireFutureSchedule(options)
             requireViewOnceSupported(media, options)
             android.util.Log.i(TAG, "send_media_requested kind=${media.kind} bytes=${media.size} path=${media.path}")
             val bounded = boundTelegramText(caption, entities, limits.value.caption)
-            send(chatId, replyId, forumTopicId, options, media = listOf(media), onMediaHandoff = handoff::markHandedOff) { uploaded ->
+            send(chatId, replyId, forumTopicId, options, media = listOf(media), onMediaHandoff = handoff::markHandedOff, onVisibleId = { onVisibleIds(listOf(it)) }) { uploaded ->
                 uploaded.single().toInputContent(bounded.text, bounded.entities, selfDestructType(options))
             }
             android.util.Log.i(TAG, "send_media_request_accepted kind=${media.kind}")
@@ -520,7 +558,7 @@ internal class TdConversationActions(
         send(chatId, replyId, forumTopicId, options) { sticker.toInputContent("") }
     }.onSuccess { recordMediaAccepted("sticker") }.onFailure { recordSendFailure("sticker", it) }
 
-    suspend fun sendMediaAlbum(chatId: Long, media: List<OutgoingMedia>, caption: String, replyId: Long?, entities: List<MessageTextEntity> = emptyList(), forumTopicId: Long = 0L, options: MessageSendOptions = MessageSendOptions()): Result<Unit> {
+    suspend fun sendMediaAlbum(chatId: Long, media: List<OutgoingMedia>, caption: String, replyId: Long?, entities: List<MessageTextEntity> = emptyList(), forumTopicId: Long = 0L, options: MessageSendOptions = MessageSendOptions(), onVisibleIds: (List<Long>) -> Unit = {}): Result<Unit> {
         val handoff = ShareMediaHandoff()
         val result = conversationResult<Unit> {
             require(media.size in 2..10 && media.all { it.kind == MediaKind.Photo || it.kind == MediaKind.Video })
@@ -533,7 +571,7 @@ internal class TdConversationActions(
             }
             val resolved = stealth.resolve(chatId, options, media, onMediaHandoff = handoff::markHandedOff)
             val protocolOptions = sendOptions(resolved.options)
-            val messages = stealth.scheduledRequest(resolved) { handoff.markHandedOff(); request(TdApi.SendMessageAlbum().apply {
+            val messages = stealth.scheduledRequest(resolved, TdApi.SendMessageAlbum().apply {
                 this.chatId = chatId
                 this.options = protocolOptions
                 inputMessageContents = resolved.media.mapIndexed { index, item -> item.toInputContent(if (index == 0) boundedCaption.text else "", if (index == 0) boundedCaption.entities else emptyList()) }.toTypedArray()
@@ -543,7 +581,7 @@ internal class TdConversationActions(
                 } else if (forumTopicId > 0L) {
                     topicId = TdApi.MessageTopicForum(forumTopicId.toInt())
                 }
-            }) }
+            }, beforeSend = { handoff.markHandedOff() })
             // A scheduled album belongs to TDLib's schedule queue, not to the visible chat history.
             val returned = messages.messages.orEmpty()
             try {
@@ -552,12 +590,16 @@ internal class TdConversationActions(
             catch (failure: Exception) { throw ShareOutcomeUncertainException(failure) }
             if (options.shareDelivery && (returned.size != media.size || returned.any { it == null }))
                 throw com.beykus.beygram.share.ShareOutcomeUncertainException()
+            // A partial/mixed receipt cannot establish a one-to-one mapping for a visual flight.
+            if (returned.size == media.size && returned.all { it != null && it.schedulingState == null }) {
+                onVisibleIds(returned.filterNotNull().map { it.id })
+            }
         }.onSuccess { recordMediaAccepted("album") }.onFailure { recordSendFailure("album", it) }
         return if (options.shareDelivery) handoff.classify(result) else result
     }
 
-    suspend fun pinnedMessages(chatId: Long, fromMessageId: Long, forumTopicId: Long = 0L): Result<PinnedMessagePage> = conversationResult {
-        val page = request(pinnedMessagesRequest(chatId, fromMessageId, forumTopicId))
+    suspend fun pinnedMessages(chatId: Long, fromMessageId: Long, forumTopicId: Long = 0L, query: String = ""): Result<PinnedMessagePage> = conversationResult {
+        val page = request(pinnedMessagesRequest(chatId, fromMessageId, forumTopicId, query))
         PinnedMessagePage(page.messages.orEmpty().filterNotNull().map(map), page.totalCount, page.nextFromMessageId)
     }
 
@@ -565,8 +607,7 @@ internal class TdConversationActions(
         val orderedIds = messageIds.distinct().sorted()
         require(orderedIds.isNotEmpty()) { "Нет сообщений для повтора" }
         // A resend goes out as the message was; in stealth mode only one still waiting in the scheduled queue may go.
-        stealth.checkResend(chatId, orderedIds, sendNowConsent)
-        request(TdApi.ResendMessages(chatId, orderedIds.toLongArray(), null, 0L))
+        stealth.resend(chatId, orderedIds, sendNowConsent)
         Unit
     }
     /** [forumTopicId] is used only without a reply target: a reply already carries its topic. */
@@ -576,6 +617,7 @@ internal class TdConversationActions(
         media: List<OutgoingMedia> = emptyList(), liveLocation: Boolean = false,
         confirmedPaidStars: Long = 0L,
         onMediaHandoff: () -> Unit = {},
+        onVisibleId: (Long) -> Unit = {},
         content: (List<OutgoingMedia>) -> TdApi.InputMessageContent
     ) {
         val replyTarget = replyId?.let {
@@ -606,7 +648,7 @@ internal class TdConversationActions(
         }
         val protocolOptions = sendOptions(resolved.options).apply { paidMessageStarCount = confirmedPaidStars }
         val inputContent = content(resolved.media)
-        val message = stealth.scheduledRequest(resolved) { onMediaHandoff(); request(TdApi.SendMessage().apply {
+        val message = stealth.scheduledRequest(resolved, TdApi.SendMessage().apply {
             this.chatId = chatId; inputMessageContent = inputContent; this.options = protocolOptions
             if (replyTarget != null) {
                 topicId = replyTarget.topicId
@@ -614,12 +656,13 @@ internal class TdConversationActions(
             } else if (forumTopicId > 0L) {
                 topicId = TdApi.MessageTopicForum(forumTopicId.toInt())
             }
-        }) }
+        }, beforeSend = onMediaHandoff)
         // TDLib keeps scheduled messages in a separate server-side queue.
         try {
             if (message.schedulingState == null) { history.put(map(message)); hydrateReply(message) }
         } catch (cancelled: CancellationException) { throw cancelled }
         catch (failure: Exception) { throw ShareOutcomeUncertainException(failure) }
+        if (message.schedulingState == null) onVisibleId(message.id)
     }
 
     /** All scheduled messages in the chat, newest first, straight from TDLib (the only scheduled-message store). */
@@ -768,9 +811,7 @@ internal class TdConversationActions(
         ))
         requireFutureSchedule(options)
         val resolved = stealth.resolve(toChatId, options)
-        val forwarded = stealth.scheduledRequest(resolved) {
-            request(forwardMessagesRequest(toChatId, fromChatId, ids, asCopy, messageThreadId, sendOptions(resolved.options), options.removeForwardCaption))
-        }
+        val forwarded = stealth.scheduledRequest(resolved, forwardMessagesRequest(toChatId, fromChatId, ids, asCopy, messageThreadId, sendOptions(resolved.options), options.removeForwardCaption))
         val returned = forwarded.messages.orEmpty()
         val forwardedIds = ids.filterIndexed { index, _ -> returned.getOrNull(index) != null }
         val forwardedSet = forwardedIds.toSet()
@@ -1173,10 +1214,10 @@ internal fun forwardMessagesRequest(toChatId: Long, fromChatId: Long, messageId:
 internal fun deleteMessagesRequest(chatId: Long, messageIds: List<Long>, revoke: Boolean) =
     TdApi.DeleteMessages(chatId, messageIds.toLongArray(), revoke)
 
-internal fun pinnedMessagesRequest(chatId: Long, fromMessageId: Long, forumTopicId: Long = 0L) = TdApi.SearchChatMessages().apply {
+internal fun pinnedMessagesRequest(chatId: Long, fromMessageId: Long, forumTopicId: Long = 0L, query: String = "") = TdApi.SearchChatMessages().apply {
     this.chatId = chatId
     topicId = if (forumTopicId > 0L) TdApi.MessageTopicForum(forumTopicId.toInt()) else null
-    query = ""
+    this.query = query
     this.fromMessageId = fromMessageId
     limit = 50
     filter = TdApi.SearchMessagesFilterPinned()
@@ -1257,6 +1298,9 @@ internal fun redactedTdlibMessage(message: String?): String? {
 internal fun forumTopicsPageComplete(hasMorePages: Boolean, cursorRepeated: Boolean): Boolean =
     !hasMorePages && !cursorRepeated
 
+/** TDLib's pinned-order request takes the topic ids as an int array, in display order (first id on top). */
+internal fun forumTopicIdArray(topicIds: List<Long>): IntArray = IntArray(topicIds.size) { topicIds[it].toInt() }
+
 /** The Telegram server can overlap pages while topic positions change; Compose list keys must be unique. */
 internal fun uniqueForumTopics(topics: List<ForumTopic>): List<ForumTopic> =
     topics.distinctBy(ForumTopic::id).sortedByDescending(ForumTopic::order)
@@ -1296,3 +1340,27 @@ internal fun hasDraftContent(draft: TdApi.DraftMessage?): Boolean {
 /** The short text of a topic draft, or an empty string for a reply-only draft. */
 internal fun forumTopicDraftPreview(draft: TdApi.DraftMessage?): String =
     ((draft?.content as? TdApi.DraftMessageContentText)?.text?.text ?: "").trim().take(180)
+
+/**
+ * The settings a forum topic gets for a mute change: null hands the topic back to the group, true mutes it for good and
+ * false unmutes it. [current] is the object TDLib returned for this topic, so its other fields (sounds, previews, story
+ * and pinned-message switches) keep their values; the same in-place update is used for chat mute settings.
+ */
+internal fun forumTopicMuteSettings(current: TdApi.ChatNotificationSettings?, muted: Boolean?): TdApi.ChatNotificationSettings =
+    (current ?: TdApi.ChatNotificationSettings()).apply {
+        useDefaultMuteFor = muted == null
+        muteFor = if (muted == true) Int.MAX_VALUE else 0
+    }
+
+/** The custom emoji id of a sticker that is a custom emoji; null for a regular sticker and for an id TDLib left at 0. */
+internal fun TdApi.Sticker.customEmojiIdOrNull(): Long? =
+    (fullType as? TdApi.StickerFullTypeCustomEmoji)?.customEmojiId?.takeIf { it != 0L }
+
+internal fun TdApi.StickerSetInfo.toCustomEmojiSetBrief(): CustomEmojiSetBrief = CustomEmojiSetBrief(
+    id = id,
+    title = title.orEmpty(),
+    covers = covers.orEmpty().mapNotNull { it?.customEmojiIdOrNull() }
+)
+
+/** The custom emoji ids of a set's stickers, in the order TDLib gives them; regular stickers are skipped. */
+internal fun TdApi.StickerSet.customEmojiIds(): List<Long> = stickers.orEmpty().mapNotNull { it?.customEmojiIdOrNull() }

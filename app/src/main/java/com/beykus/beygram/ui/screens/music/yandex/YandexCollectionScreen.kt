@@ -1,31 +1,21 @@
 package com.beykus.beygram.ui.screens.music.yandex
 
-import androidx.compose.foundation.background
-import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.rounded.ArrowBack
-import androidx.compose.material.icons.rounded.Favorite
 import androidx.compose.material.icons.rounded.MoreVert
-import androidx.compose.material3.Button
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
-import androidx.compose.material3.Text
-import androidx.compose.material3.TopAppBar
-import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
@@ -36,10 +26,11 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
+import com.beykus.beygram.BeyGramApplication
 import com.beykus.beygram.ui.components.BeyGramPopover
 import com.beykus.beygram.ui.components.BeyGramPopoverItem
 import com.beykus.beygram.R
@@ -50,22 +41,31 @@ import com.beykus.beygram.data.music.provider.ProviderPlaylist
 import com.beykus.beygram.data.music.provider.ProviderResult
 import com.beykus.beygram.data.music.provider.ProviderTrack
 import com.beykus.beygram.data.music.provider.ProviderTracks
+import com.beykus.beygram.data.music.provider.YANDEX_TRACK_KEY_PREFIX
 import com.beykus.beygram.data.yandex.YandexMusicProvider
 import com.beykus.beygram.data.yandex.YandexWave
 import com.beykus.beygram.data.yandex.YandexWaveLauncher
+import com.beykus.beygram.playback.PlaybackEngine
+import com.beykus.beygram.playback.YandexTrackResolver
 import com.beykus.beygram.ui.components.beyGramPalette
-import com.beykus.beygram.ui.components.topAppBarSurface
-import com.beykus.beygram.ui.design.styledShape
+import com.beykus.beygram.ui.design.LocalDesignSystem
+import com.beykus.beygram.ui.design.glassScreenBackground
 import com.beykus.beygram.ui.screens.chat.openInBrowser
+import com.beykus.beygram.ui.screens.music.MusicCollectionActions
 import com.beykus.beygram.ui.screens.music.MusicCollectionHeader
+import com.beykus.beygram.ui.screens.music.MusicCollectionTopBar
 import com.beykus.beygram.ui.screens.music.MusicEmptyText
 import com.beykus.beygram.ui.screens.music.MusicLoadingRow
+import com.beykus.beygram.ui.screens.music.MusicPlaylistCoverFill
+import com.beykus.beygram.ui.screens.music.MusicRetryRow
 import com.beykus.beygram.ui.screens.music.MusicScreenGutter
 import com.beykus.beygram.ui.screens.music.ProviderTrackMenuItems
 import com.beykus.beygram.ui.screens.music.ProviderTrackRow
 import com.beykus.beygram.ui.screens.music.musicCollectionSummary
 import com.beykus.beygram.ui.screens.music.rememberProviderCover
-import com.beykus.beygram.ui.screens.playback.TrackArtwork
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Deferred
+import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.distinctUntilChanged
@@ -99,8 +99,11 @@ internal fun YandexCollectionScreen(
     linkedPlaylist: ProviderPlaylist? = null
 ) {
     val palette = beyGramPalette()
+    val design = LocalDesignSystem.current
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
+    // The queue extension of a liked tap outlives the screen, so it runs in the application scope.
+    val appScope = remember(context) { (context.applicationContext as BeyGramApplication).applicationScope }
     val likedTitle = stringResource(R.string.yandex_library_liked)
     val playlistTitle = stringResource(R.string.yandex_library_playlists)
 
@@ -128,10 +131,47 @@ internal fun YandexCollectionScreen(
     var failure by remember(ref) { mutableStateOf<MusicProviderFailure?>(null) }
     // The liked list: every id at once, the tracks a page at a time.
     var likedIds by remember(ref) { mutableStateOf<List<String>?>(null) }
+    // All liked tracks, loaded in the background after the first page; a tap queues the rest as soon as it has loaded.
+    var allLiked by remember(ref) { mutableStateOf<LikedPreload<MusicProvider>?>(null) }
+    // The queue extension of the latest liked tap. It may outlive the screen, because playback still waits for its rest.
+    var extendJob by remember(ref) { mutableStateOf<Job?>(null) }
     var attempt by remember(ref) { mutableStateOf(0) }
+
+    /** Starts the whole-list load for [owner] and the liked [ids] it is given. */
+    fun startLikedPreload(owner: MusicProvider, ids: List<String>): LikedPreload<MusicProvider> {
+        // Likes the user changes while this load runs win over the state it fetched.
+        val startedAt = ProviderTracks.likeRevision()
+        return LikedPreload(
+            scope = appScope,
+            dispatcher = Dispatchers.IO,
+            owner = owner,
+            ids = ids.toList(),
+            startedAt = startedAt,
+            fetch = { likedIdsCopy -> loadAllLiked(owner, likedIdsCopy) },
+            publish = { list -> ProviderTracks.remember(list, startedAt) },
+        )
+    }
+
+    /** Retires a load made for another provider or other liked ids: its tracks never reach the cache or a queue. */
+    fun retireStaleLikedPreload(owner: MusicProvider, ids: List<String>?) {
+        val preload = allLiked ?: return
+        if (preload.isStaleFor(owner, ids)) {
+            preload.retire()
+            allLiked = null
+        }
+    }
+
+    // Leaving the screen stops the warm-up, unless a tap still waits for the rest of its list.
+    DisposableEffect(ref) {
+        onDispose {
+            if (extendJob?.isActive != true) allLiked?.retire()
+        }
+    }
 
     LaunchedEffect(ref, provider, attempt) {
         if (provider == null) return@LaunchedEffect
+        // A load made for another provider stops before anything is asked of the service.
+        retireStaleLikedPreload(provider, null)
         loading = true
         failure = null
         val result: ProviderResult<List<ProviderTrack>> = withContext(Dispatchers.IO) {
@@ -142,6 +182,8 @@ internal fun YandexCollectionScreen(
                             is ProviderResult.Failure -> return@withContext fresh
                             is ProviderResult.Success -> fresh.value
                         }
+                    // A load made for other liked ids stops before its tracks can reach the cache.
+                    retireStaleLikedPreload(provider, ids)
                     likedIds = ids
                     ProviderTracks.rememberLikedIds(ids)
                     provider.tracks(ids.take(LIKED_PAGE))
@@ -172,6 +214,15 @@ internal fun YandexCollectionScreen(
             is ProviderResult.Failure -> failure = result.failure
         }
         loading = false
+    }
+
+    // The rest of the liked list loads once the first page shows, so a tap can queue it without waiting.
+    LaunchedEffect(ref, provider, likedIds, loading) {
+        val ids = likedIds
+        if (ref != YandexCollectionRef.Liked || provider == null || loading || ids == null) return@LaunchedEffect
+        retireStaleLikedPreload(provider, ids)
+        if (ids.size <= tracks.size || allLiked != null) return@LaunchedEffect
+        allLiked = startLikedPreload(provider, ids)
     }
 
     // Next liked page once the list nears its end.
@@ -209,41 +260,69 @@ internal fun YandexCollectionScreen(
         }
     }
 
-    // The latest tap wins: a queue still loading for an earlier tap is dropped.
+    // The latest tap wins: a shuffle still waiting for an earlier tap is dropped, and so is an earlier queue extension.
     var playJob by remember(ref) { mutableStateOf<Job?>(null) }
 
-    /** Plays from [index]; the liked list loads all of its tracks first, so the queue holds the whole collection. */
+    /**
+     * Plays from [index]. A tapped liked row starts at once with the tracks loaded so far, and the rest of the liked list
+     * joins its queue when the whole list has loaded. A shuffle waits for the whole list, so its queue holds all of it.
+     */
     fun play(index: Int, shuffle: Boolean) {
         playJob?.cancel()
         playJob = null
+        extendJob?.cancel()
+        extendJob = null
         val ids = likedIds
-        if (ref == YandexCollectionRef.Liked && provider != null && ids != null && ids.size > tracks.size) {
-            val startId = tracks.getOrNull(index)?.trackId
-            playJob = scope.launch {
-                // Every liked id, not a prefix: the queue, the shuffle and the BG Mix session cover the whole list.
-                val all = withContext(Dispatchers.IO) { provider.tracks(ids) }
-                val list = (all as? ProviderResult.Success)?.value ?: tracks
-                val start = list.indexOfFirst { it.trackId == startId }
-                // A row past the first tracks plays from the pages loaded so far.
-                if (start < 0 && !shuffle) startList(context, tracks, index, false)
-                else startList(context, list, start.coerceAtLeast(0), shuffle)
-            }
-        } else {
+        if (ref != YandexCollectionRef.Liked || provider == null || ids == null || ids.size <= tracks.size) {
             startList(context, tracks, index, shuffle)
+            return
+        }
+        retireStaleLikedPreload(provider, ids)
+        // The preload is reused; one that failed is started again.
+        val preload = allLiked?.takeUnless { it.tracks.failedOrEmpty() } ?: startLikedPreload(provider, ids).also { allLiked = it }
+        val loaded = tracks
+        if (shuffle) {
+            playJob = scope.launch {
+                startList(context, preload.tracks.await() ?: loaded, 0, true)
+            }
+            return
+        }
+        val tapped = loaded.getOrNull(index) ?: return
+        // The tapped file downloads now; the player asks for the same key and reuses this download.
+        if (tapped.isAvailable) {
+            YandexTrackResolver.ensureConfigured(context)
+            YandexTrackResolver.request(tapped.key)
+        }
+        val queued = loaded.drop(index).mapTo(HashSet()) { it.trackId }
+        val headKeys = loaded.drop(index).filter { it.isAvailable }.map { it.key }
+        // Not the screen scope: the rest still joins the queue after the screen is left. A later tap or list retires it.
+        extendJob = appScope.launch(Dispatchers.Main.immediate) {
+            playLikedTap(
+                tappedId = tapped.trackId,
+                headKeys = headKeys,
+                queued = queued,
+                startNow = {
+                    if (startList(context, loaded, index, false)) {
+                        PlaybackEngine.state.value.queue.map { it.key } to PlaybackEngine.queueGeneration
+                    } else {
+                        emptyList<String>() to 0L
+                    }
+                },
+                loadAll = { preload.tracks.await() },
+                appendRest = { generation, rest ->
+                    if (PlaybackEngine.appendYandexTracks(rest, generation)) ProviderTracks.remember(rest, preload.startedAt)
+                },
+            )
         }
     }
 
     Scaffold(
-        containerColor = palette.screen,
+        modifier = Modifier.glassScreenBackground(design, palette.screen),
+        containerColor = Color.Transparent,
         topBar = {
-            TopAppBar(
-                modifier = Modifier.topAppBarSurface(),
-                title = {},
-                navigationIcon = {
-                    IconButton(onClick = onBack) {
-                        Icon(Icons.AutoMirrored.Rounded.ArrowBack, stringResource(R.string.common_back), tint = palette.textPrimary)
-                    }
-                },
+            MusicCollectionTopBar(
+                title = head.title,
+                onBack = onBack,
                 actions = {
                     if (ref is YandexCollectionRef.Album) {
                         val menuTitle = head.title
@@ -297,8 +376,7 @@ internal fun YandexCollectionScreen(
                             ProviderTracks.sharePlaylistLink(context, menuTitle, uuid, label)
                         }
                     }
-                },
-                colors = TopAppBarDefaults.topAppBarColors(containerColor = palette.surface)
+                }
             )
         }
     ) { padding ->
@@ -313,44 +391,25 @@ internal fun YandexCollectionScreen(
                         if (tracks.size >= count) tracks.sumOf { it.durationMs } / 1_000L else 0L
                     )
                 ) { modifier ->
-                    if (ref == YandexCollectionRef.Liked) {
-                        Box(modifier.clip(styledShape(20.dp)).background(palette.accentSoft), contentAlignment = Alignment.Center) {
-                            Icon(Icons.Rounded.Favorite, null, tint = palette.accentInk, modifier = Modifier.size(44.dp))
-                        }
-                    } else {
-                        TrackArtwork(
-                            artworkPath = rememberProviderCover(head.coverUrl),
-                            audioPath = null,
-                            modifier = modifier,
-                            background = palette.accentSoft,
-                            tint = palette.accentInk,
-                            symbolSize = 40.dp,
-                            cornerRadius = 20.dp
-                        )
-                    }
+                    MusicPlaylistCoverFill(
+                        coverPath = rememberProviderCover(head.coverUrl),
+                        modifier = modifier,
+                        liked = ref == YandexCollectionRef.Liked
+                    )
                 }
             }
             item(key = "actions") {
-                val playable = tracks.any { it.isAvailable }
-                Row(
-                    Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
-                    horizontalArrangement = Arrangement.spacedBy(10.dp)
-                ) {
-                    Button(onClick = { play(0, false) }, enabled = playable, modifier = Modifier.weight(1f)) {
-                        Text(stringResource(R.string.yandex_library_play))
-                    }
-                    OutlinedButton(onClick = { play(0, true) }, enabled = playable, modifier = Modifier.weight(1f)) {
-                        Text(stringResource(R.string.player_shuffle))
-                    }
-                }
+                MusicCollectionActions(
+                    enabled = tracks.any { it.isAvailable },
+                    onPlay = { play(0, false) },
+                    onShuffle = { play(0, true) }
+                )
             }
             val error = failure
             when {
                 loading -> item(key = "loading") { MusicLoadingRow() }
                 error != null -> item(key = "failure") {
-                    Box(Modifier.fillMaxWidth().padding(16.dp)) {
-                        Button(onClick = { attempt++ }) { Text(stringResource(R.string.yandex_library_retry)) }
-                    }
+                    MusicRetryRow(stringResource(R.string.music_collection_failed), onRetry = { attempt++ })
                 }
                 tracks.isEmpty() -> item(key = "empty") { MusicEmptyText(stringResource(R.string.yandex_library_empty)) }
                 // One lazy item per row: a liked list of thousands composes only what is on screen, and the list
@@ -369,9 +428,7 @@ internal fun YandexCollectionScreen(
             }
             if (pageLoading) item(key = "page-loading") { MusicLoadingRow() }
             if (pageFailed) item(key = "page-failure") {
-                Box(Modifier.fillMaxWidth().padding(16.dp)) {
-                    Button(onClick = { pageFailed = false }) { Text(stringResource(R.string.yandex_library_retry)) }
-                }
+                MusicRetryRow(stringResource(R.string.music_collection_failed), onRetry = { pageFailed = false })
             }
         }
     }
@@ -392,22 +449,24 @@ private fun TrackRowWithMenu(
         number = number,
         onClick = onClick,
         trailing = {
-            Box {
-                IconButton(onClick = { menu = true }) {
-                    Icon(Icons.Rounded.MoreVert, stringResource(R.string.music_track_menu), tint = palette.textSecondary)
-                }
-                BeyGramPopover(expanded = menu, onDismissRequest = { menu = false }) {
-                    ProviderTrackMenuItems(
-                        track = track,
-                        onDismiss = { menu = false },
-                        showPlayNext = true,
-                        // Inside its own album the entry would reopen the same screen.
-                        onOpenAlbum = if (track.albumId != null && track.albumId != inAlbum) {
-                            { albumId -> onOpenCollection(YandexCollectionRef.album(albumId)) }
-                        } else {
-                            null
-                        }
-                    )
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Box {
+                    IconButton(onClick = { menu = true }) {
+                        Icon(Icons.Rounded.MoreVert, stringResource(R.string.music_track_menu), tint = palette.textSecondary)
+                    }
+                    BeyGramPopover(expanded = menu, onDismissRequest = { menu = false }) {
+                        ProviderTrackMenuItems(
+                            track = track,
+                            onDismiss = { menu = false },
+                            showPlayNext = true,
+                            // Inside its own album the entry would reopen the same screen.
+                            onOpenAlbum = if (track.albumId != null && track.albumId != inAlbum) {
+                                { albumId -> onOpenCollection(YandexCollectionRef.album(albumId)) }
+                            } else {
+                                null
+                            }
+                        )
+                    }
                 }
             }
         }
@@ -464,14 +523,51 @@ private fun YandexCollectionMenu(
 private fun ProviderPlaylist.isRefOf(ref: YandexCollectionRef.Playlist): Boolean =
     kind == ref.kind && (ref.ownerUid == null && isOwn || ownerUid == ref.ownerUid)
 
-/** Starts [list] at [index], or shuffled when [shuffle] is set. */
-private fun startList(context: android.content.Context, list: List<ProviderTrack>, index: Int, shuffle: Boolean) {
+/**
+ * Tracks of every liked id, in id order. Tracks already known are reused and the rest come in one request; ids the
+ * service does not return are left out. Null when the request fails.
+ */
+private suspend fun loadAllLiked(provider: MusicProvider, ids: List<String>): List<ProviderTrack>? =
+    try {
+        collectAllLiked(provider, ids)
+    } catch (cancelled: CancellationException) {
+        throw cancelled
+    } catch (_: Exception) {
+        // A failed request is not a crash: the tap then queues only the tracks loaded so far.
+        null
+    }
+
+/** Whether a finished preload gave nothing, so a tap starts it again. */
+@OptIn(ExperimentalCoroutinesApi::class)
+private fun Deferred<List<ProviderTrack>?>.failedOrEmpty(): Boolean =
+    isCompleted && (getCompletionExceptionOrNull() != null || getCompleted() == null)
+
+private suspend fun collectAllLiked(provider: MusicProvider, ids: List<String>): List<ProviderTrack>? {
+    val known = ids.mapNotNull { ProviderTracks.byKey(YANDEX_TRACK_KEY_PREFIX + it) }
+    val knownIds = known.mapTo(HashSet()) { it.trackId }
+    val missing = ids.filter { it !in knownIds }
+    val fetched = if (missing.isEmpty()) {
+        emptyList()
+    } else {
+        when (val result = provider.tracks(missing)) {
+            is ProviderResult.Failure -> return null
+            is ProviderResult.Success -> result.value
+        }
+    }
+    val byId = (known + fetched).associateBy { it.trackId }
+    // Published by the preload that asked for them, and only while that load is still current.
+    return ids.mapNotNull { byId[it]?.copy(liked = true) }
+}
+
+/** Starts [list] at [index], or shuffled when [shuffle] is set. Returns false when no track of it can play. */
+private fun startList(context: android.content.Context, list: List<ProviderTrack>, index: Int, shuffle: Boolean): Boolean {
     val playable = list.filter { it.isAvailable }
-    if (playable.isEmpty()) return
+    if (playable.isEmpty()) return false
     if (shuffle) {
         ProviderArtwork.playTracks(context, playable.shuffled(), 0)
     } else {
         ProviderArtwork.playTracks(context, list, index)
     }
+    return true
 }
 

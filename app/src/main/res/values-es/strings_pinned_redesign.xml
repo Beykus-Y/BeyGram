@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="chat_pinned_short_title">Fijados</string>
+    <string name="chat_pinned_unknown_sender">Remitente desconocido</string>
+    <plurals name="chat_pinned_message_count">
+        <item quantity="one">%d mensaje</item>
+        <item quantity="other">%d mensajes</item>
+    </plurals>
+</resources>

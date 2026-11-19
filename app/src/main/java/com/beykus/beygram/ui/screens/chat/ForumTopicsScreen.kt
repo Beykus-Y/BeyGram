@@ -29,6 +29,7 @@ import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyItemScope
 import androidx.compose.foundation.lazy.LazyListState
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
@@ -37,12 +38,17 @@ import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material.icons.rounded.Close
+import androidx.compose.material.icons.rounded.Dashboard
 import androidx.compose.material.icons.rounded.Delete
+import androidx.compose.material.icons.rounded.DragHandle
 import androidx.compose.material.icons.rounded.Edit
 import androidx.compose.material.icons.rounded.ErrorOutline
 import androidx.compose.material.icons.rounded.Forum
 import androidx.compose.material.icons.rounded.Lock
 import androidx.compose.material.icons.rounded.LockOpen
+import androidx.compose.material.icons.rounded.Notifications
+import androidx.compose.material.icons.rounded.NotificationsOff
+import androidx.compose.material.icons.rounded.People
 import androidx.compose.material.icons.rounded.PushPin
 import androidx.compose.material.icons.rounded.Search
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -50,13 +56,13 @@ import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -67,6 +73,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalFocusManager
@@ -83,13 +90,18 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.zIndex
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.beykus.beygram.R
 import com.beykus.beygram.data.appearance.DesignStyle
+import com.beykus.beygram.data.settings.ForumNavigationMode
 import com.beykus.beygram.ui.accessibility.errorAnnouncement
 import com.beykus.beygram.domain.model.ChatPreview
 import com.beykus.beygram.domain.model.CustomEmoji
+import com.beykus.beygram.domain.model.CustomEmojiSetBrief
 import com.beykus.beygram.domain.model.ForumTopic
+import com.beykus.beygram.domain.model.ForumTopicDefaultColor
+import com.beykus.beygram.domain.model.ForumTopicIcon
 import com.beykus.beygram.domain.model.ForumTopicsPage
 import com.beykus.beygram.domain.model.MediaFileState
 import com.beykus.beygram.domain.model.ProfileInfo
@@ -118,9 +130,6 @@ import kotlinx.coroutines.flow.StateFlow
 /** Debounce of the topic search; typing a name must not fire a TDLib request per keystroke. */
 private const val ForumTopicSearchDelayMillis = 280L
 
-/** TDLib's createForumTopic and editForumTopic both accept at most 128 code points in a name. */
-private const val ForumTopicNameLimit = 128
-
 private sealed interface TopicSearchState {
     data object Idle : TopicSearchState
     data object Loading : TopicSearchState
@@ -137,6 +146,53 @@ internal fun orderedForumTopics(topics: List<ForumTopic>): List<ForumTopic> {
 /** The All/Unread chip filter; unknown unread data never becomes a zero count. */
 internal fun filteredForumTopics(topics: List<ForumTopic>, unreadOnly: Boolean): List<ForumTopic> =
     if (unreadOnly) topics.filter(ForumTopic::hasUnread) else topics
+
+/**
+ * Shows a dropped pinned order over the server order. [ordered] is [orderedForumTopics] output, so the pinned topics
+ * come first. Pinned topics that [pinnedOrder] does not name keep their server order after the named ones; a name that is
+ * no longer pinned is ignored. The regular topics are untouched.
+ */
+internal fun applyPinnedOrder(ordered: List<ForumTopic>, pinnedOrder: List<Long>?): List<ForumTopic> {
+    if (pinnedOrder == null) return ordered
+    val pinned = ordered.filter(ForumTopic::isPinned)
+    val byId = pinned.associateBy(ForumTopic::id)
+    val named = pinnedOrder.mapNotNull { byId[it] }
+    val namedIds = named.mapTo(HashSet(), ForumTopic::id)
+    return named + pinned.filterNot { it.id in namedIds } + ordered.filterNot(ForumTopic::isPinned)
+}
+
+/** The order after the item at [fromIndex] moves to [toIndex], which is its final index. Equal or out-of-range indices keep [order]. */
+internal fun moveForumTopicId(order: List<Long>, fromIndex: Int, toIndex: Int): List<Long> {
+    if (fromIndex !in order.indices || toIndex !in order.indices || fromIndex == toIndex) return order
+    return order.toMutableList().apply { add(toIndex, removeAt(fromIndex)) }
+}
+
+/**
+ * The pinned index a dragged row drops to. [baseRank] is the rank of the first pinned row on screen, and [otherCentres]
+ * are the vertical centres of the other pinned rows on screen. Every row whose centre is above the dragged row's centre
+ * stays before it, so the row lands after those rows.
+ */
+internal fun pinnedDropIndex(baseRank: Int, otherCentres: List<Float>, draggedCentre: Float): Int =
+    baseRank + otherCentres.count { it < draggedCentre }
+
+/**
+ * Whether the pinned order can be reordered at all: only from the full topic list once it has settled. A partial page, a
+ * page still loading or a failed load shows only some of the pinned topics.
+ */
+internal fun pinnedReorderAllowed(topicsComplete: Boolean, loadingTopics: Boolean, loadError: Boolean): Boolean =
+    topicsComplete && !loadingTopics && !loadError
+
+/**
+ * Whether a dropped pinned order may be written. TDLib replaces the whole pinned set, so [sent] must name exactly the
+ * topics pinned in the settled full list [pinnedNow], each once: only their order may differ.
+ */
+internal fun pinnedOrderWriteAllowed(
+    topicsComplete: Boolean,
+    loadingTopics: Boolean,
+    loadError: Boolean,
+    sent: List<Long>,
+    pinnedNow: List<Long>
+): Boolean = pinnedReorderAllowed(topicsComplete, loadingTopics, loadError) && sent.sorted() == pinnedNow.sorted()
 
 /**
  * The pre-first-page shell. It keeps the parent group in the header and paints row geometry instead of a full-screen
@@ -235,13 +291,32 @@ fun ForumTopicsScreen(
     onBack: () -> Unit,
     onOpenGroupInfo: () -> Unit,
     onTopic: (ForumTopic) -> Unit,
-    /** Reports null on success or a user-visible error while keeping the dialog and its input open. */
-    onCreate: (String, (String?) -> Unit) -> Unit,
-    onRename: (ForumTopic, String, (String?) -> Unit) -> Unit,
+    /** Reports null on success or a user-visible error while keeping the editor and its input open. */
+    onCreate: (String, ForumTopicIcon, (String?) -> Unit) -> Unit,
+    /** The custom emoji id is null when the icon is left as it is; 0 removes the custom emoji. */
+    onEdit: (ForumTopic, String, Long?, (String?) -> Unit) -> Unit,
+    loadDefaultIcons: suspend () -> Result<List<Long>>,
+    /** Premium accounts get their installed custom emoji sets in the icon editor; other accounts get a hint. */
+    premium: Boolean = false,
+    loadCustomEmojiSets: suspend () -> Result<List<CustomEmojiSetBrief>> = { Result.success(emptyList()) },
+    loadCustomEmojiSetIds: suspend (Long) -> Result<List<Long>> = { Result.success(emptyList()) },
     onClosed: (ForumTopic, Boolean) -> Unit,
     onPinned: (ForumTopic, Boolean) -> Unit,
+    /**
+     * The whole new order of the pinned topics, first on top. The reply is null on success or a user-visible error; a
+     * failure also puts the server order back on screen.
+     */
+    onPinnedOrder: (List<Long>, (String?) -> Unit) -> Unit,
+    /** Null hands the topic back to the group's notification setting. */
+    onMuted: (ForumTopic, Boolean?) -> Unit = { _, _ -> },
     onDelete: (ForumTopic) -> Unit,
-    onDismissActionError: () -> Unit = {}
+    onDismissActionError: () -> Unit = {},
+    /** The forum's view of its topics. Classic is this list; the other views open a topic at once and keep the list one tap away. */
+    navigationMode: ForumNavigationMode = ForumNavigationMode.Classic,
+    /** Null hides the view button; the button and its sheet appear only when the host can store the choice. */
+    onNavigationMode: ((ForumNavigationMode) -> Unit)? = null,
+    /** Opens the feed of every topic's messages from the view sheet; null leaves that action out. */
+    onAllMessages: (() -> Unit)? = null
 ) {
     val palette = beyGramPalette()
     val haptics = LocalHapticFeedback.current
@@ -253,21 +328,30 @@ fun ForumTopicsScreen(
     var unreadOnly by rememberSaveable(accountId, chatId) { mutableStateOf(false) }
     var creating by rememberSaveable(accountId, chatId) { mutableStateOf(false) }
     var name by rememberSaveable(accountId, chatId) { mutableStateOf("") }
+    var colorArgb by rememberSaveable(accountId, chatId) { mutableStateOf(ForumTopicDefaultColor) }
+    var iconEmojiId by rememberSaveable(accountId, chatId) { mutableStateOf(0L) }
     var editing by remember(accountId, chatId) { mutableStateOf<ForumTopic?>(null) }
     var deleting by remember(accountId, chatId) { mutableStateOf<ForumTopic?>(null) }
     var managing by remember(accountId, chatId) { mutableStateOf<ForumTopic?>(null) }
+    var modeSheetOpen by remember(accountId, chatId) { mutableStateOf(false) }
     var submitting by remember(accountId, chatId) { mutableStateOf(false) }
-    var dialogError by remember(accountId, chatId) { mutableStateOf<String?>(null) }
+    var editorError by remember(accountId, chatId) { mutableStateOf<String?>(null) }
     var searchAttempt by remember(accountId, chatId) { mutableIntStateOf(0) }
     var searchState by remember(accountId, chatId) { mutableStateOf<TopicSearchState>(TopicSearchState.Idle) }
     var searchDebouncing by remember(accountId, chatId) { mutableStateOf(false) }
     var searchPaging by remember(accountId, chatId) { mutableStateOf(false) }
+    // Reorder mode drags pinned topics only; the filter and search are out of the way while it lasts.
+    var reordering by rememberSaveable(accountId, chatId) { mutableStateOf(false) }
+    // The pinned order the user dropped. It stays on screen until the server list arrives or the request fails.
+    var pinnedDraft by remember(accountId, chatId) { mutableStateOf<List<Long>?>(null) }
+    // Pinned topics can be dragged only from the settled full list: a partial or failed load would write a partial set.
+    val reorderAllowed = pinnedReorderAllowed(topicsComplete, loadingTopics, loadError)
     val normalizedQuery = query.trim()
     val searchActive = searchOpen && normalizedQuery.isNotEmpty()
     val page = remember(topics, totalCount, topicsComplete) {
         ForumTopicsPage(topics = topics, totalCount = totalCount, isComplete = topicsComplete)
     }
-    val orderedLocal = remember(page.topics) { orderedForumTopics(page.topics) }
+    val orderedLocal = remember(page.topics, pinnedDraft) { applyPinnedOrder(orderedForumTopics(page.topics), pinnedDraft) }
     val visibleLocal = remember(orderedLocal, unreadOnly) { filteredForumTopics(orderedLocal, unreadOnly) }
     val searchResult = searchState as? TopicSearchState.Loaded
     val orderedSearch = remember(searchResult) { searchResult?.let { orderedForumTopics(it.topics) }.orEmpty() }
@@ -293,6 +377,17 @@ fun ForumTopicsScreen(
     LaunchedEffect(searchActive, normalizedQuery) {
         // A new query starts at the top; keeping the old index would land the user in the middle of new results.
         if (searchActive) searchListState.scrollToItem(0)
+    }
+    // The dropped order stays until the server list shows it, or until the server's pinned set changes (a topic was
+    // pinned or unpinned elsewhere). An unrelated update in between, such as a new message, keeps the dropped order.
+    LaunchedEffect(topics) {
+        val draft = pinnedDraft ?: return@LaunchedEffect
+        val serverPinned = orderedForumTopics(topics).filter(ForumTopic::isPinned).map(ForumTopic::id)
+        if (serverPinned == draft || serverPinned.toSet() != draft.toSet()) pinnedDraft = null
+    }
+    LaunchedEffect(reordering) {
+        // The pinned block sits at the top of the list, and a reorder needs all of it on screen.
+        if (reordering && listState.firstVisibleItemIndex > 0) listState.animateScrollToItem(0)
     }
     LaunchedEffect(accountId, chatId, searchActive, normalizedQuery, searchAttempt) {
         if (!searchActive) {
@@ -331,17 +426,42 @@ fun ForumTopicsScreen(
         keyboard?.hide()
         focusManager.clearFocus()
     }
-    val back: () -> Unit = { if (searchOpen || normalizedQuery.isNotEmpty()) closeSearch() else onBack() }
+    // Back leaves reorder mode first, so the list the user was reordering stays on screen.
+    val back: () -> Unit = { if (reordering) reordering = false else if (searchOpen || normalizedQuery.isNotEmpty()) closeSearch() else onBack() }
     val openCreate: () -> Unit = {
         name = ""
+        colorArgb = ForumTopicDefaultColor
+        iconEmojiId = 0L
         editing = null
-        dialogError = null
+        editorError = null
         creating = true
     }
     val manageTopic: (ForumTopic) -> Unit = { topic ->
         haptics.performHapticFeedback(HapticFeedbackType.LongPress)
         managing = topic
     }
+    // Reorder mode takes the whole list: search and the unread filter would show only part of the pinned order.
+    val startReorder: () -> Unit = {
+        if (searchOpen) closeSearch()
+        unreadOnly = false
+        reordering = true
+    }
+    // A drop or an accessibility move shows the new pinned order at once and sends the whole order. A move while the
+    // screen is busy is ignored, so the shown order never gets ahead of the server without a request behind it. The order
+    // is written only when it names exactly the pinned topics of the settled list; otherwise the list is reloaded instead.
+    val movePinned: (List<Long>) -> Unit = { next ->
+        val current = orderedLocal.filter(ForumTopic::isPinned).map(ForumTopic::id)
+        if (!busy && next != current) {
+            val pinnedNow = topics.filter(ForumTopic::isPinned).map(ForumTopic::id)
+            if (pinnedOrderWriteAllowed(topicsComplete, loadingTopics, loadError, sent = next, pinnedNow = pinnedNow)) {
+                pinnedDraft = next
+                onPinnedOrder(next) { error -> if (error != null) pinnedDraft = null }
+            } else if (!loadingTopics) {
+                onRetryLoad()
+            }
+        }
+    }
+    val openModeSheet: () -> Unit = { modeSheetOpen = true }
     BackHandler(onBack = back)
 
     Column(
@@ -362,8 +482,12 @@ fun ForumTopicsScreen(
                     searchOpen = searchOpen,
                     canCreate = canCreate,
                     busy = busy,
-                    onToggleSearch = { if (searchOpen) closeSearch() else searchOpen = true },
-                    onCreate = openCreate
+                    onToggleSearch = {
+                        reordering = false
+                        if (searchOpen) closeSearch() else searchOpen = true
+                    },
+                    onCreate = openCreate,
+                    onViewMode = if (onNavigationMode != null) openModeSheet else null
                 )
             }
         ) {
@@ -378,25 +502,29 @@ fun ForumTopicsScreen(
                     )
                 }
             }
-            Row(
-                Modifier
-                    .fillMaxWidth()
-                    .horizontalScroll(rememberScrollState())
-                    .padding(horizontal = 8.dp, vertical = 2.dp),
-                horizontalArrangement = Arrangement.spacedBy(4.dp)
-            ) {
-                ForumFilterChip(
-                    title = stringResource(R.string.forum_topics_filter_all),
-                    selected = !unreadOnly,
-                    count = null,
-                    onClick = { unreadOnly = false }
-                )
-                ForumFilterChip(
-                    title = stringResource(R.string.forum_topics_filter_unread),
-                    selected = unreadOnly,
-                    count = unreadTopicCount.takeIf { it > 0 },
-                    onClick = { unreadOnly = true }
-                )
+            if (reordering) {
+                ForumReorderBar(onDone = { reordering = false })
+            } else {
+                Row(
+                    Modifier
+                        .fillMaxWidth()
+                        .horizontalScroll(rememberScrollState())
+                        .padding(horizontal = 8.dp, vertical = 2.dp),
+                    horizontalArrangement = Arrangement.spacedBy(4.dp)
+                ) {
+                    ForumFilterChip(
+                        title = stringResource(R.string.forum_topics_filter_all),
+                        selected = !unreadOnly,
+                        count = null,
+                        onClick = { unreadOnly = false }
+                    )
+                    ForumFilterChip(
+                        title = stringResource(R.string.forum_topics_filter_unread),
+                        selected = unreadOnly,
+                        count = unreadTopicCount.takeIf { it > 0 },
+                        onClick = { unreadOnly = true }
+                    )
+                }
             }
             if (busy || loadingTopics || searchDebouncing || searchPaging ||
                 searchState is TopicSearchState.Loading
@@ -482,67 +610,66 @@ fun ForumTopicsScreen(
                     downloadFile = downloadFile,
                     observeCustomEmoji = observeCustomEmoji,
                     onTopic = onTopic,
-                    onManage = manageTopic
+                    onManage = manageTopic,
+                    reordering = reordering,
+                    reorderAllowed = reorderAllowed,
+                    onMovePinned = movePinned
                 )
             }
         }
     }
 
     if (creating || editing != null) {
-        val nameLength = name.codePointCount(0, name.length)
-        val dismissDialog = {
+        val target = editing
+        val dismissEditor = {
             if (!busy && !submitting) {
                 creating = false
                 editing = null
             }
         }
-        BeyGramDialog(
-            onDismissRequest = dismissDialog,
-            title = stringResource(if (creating) R.string.forum_create else R.string.forum_rename),
-            content = {
-                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                    OutlinedTextField(
-                        value = name,
-                        onValueChange = { name = it; dialogError = null },
-                        singleLine = true,
-                        label = { Text(stringResource(R.string.forum_topic_name)) },
-                        isError = nameLength > ForumTopicNameLimit,
-                        supportingText = {
-                            Text(stringResource(R.string.forum_topic_name_counter, nameLength, ForumTopicNameLimit))
-                        }
-                    )
-                    if (dialogError != null) {
-                        Text(
-                            dialogError.orEmpty(),
-                            color = palette.danger,
-                            fontSize = 13.sp,
-                            modifier = Modifier.errorAnnouncement()
-                        )
-                    }
-                }
+        ForumTopicEditorSheet(
+            topic = target,
+            name = name,
+            onNameChange = {
+                name = it
+                editorError = null
             },
-            confirmText = stringResource(R.string.common_save),
-            confirmEnabled = !busy && !submitting && name.isNotBlank() && nameLength <= ForumTopicNameLimit,
-            onConfirm = {
-                dialogError = null
+            colorArgb = colorArgb,
+            onColorChange = { colorArgb = it },
+            iconEmojiId = iconEmojiId,
+            onIconChange = { iconEmojiId = it },
+            loadDefaultIcons = loadDefaultIcons,
+            premium = premium,
+            loadCustomEmojiSets = loadCustomEmojiSets,
+            loadCustomEmojiSetIds = loadCustomEmojiSetIds,
+            observeFile = observeFile,
+            downloadFile = downloadFile,
+            observeCustomEmoji = observeCustomEmoji,
+            busy = busy,
+            submitting = submitting,
+            error = editorError,
+            onSave = {
+                editorError = null
                 submitting = true
                 val done: (String?) -> Unit = { error ->
                     submitting = false
                     if (error == null) {
-                        // A rename changes the row in an open search result; reload it once the server accepted it.
-                        if (!creating) searchAttempt++
+                        // An edit changes the row in an open search result; reload it once the server accepted it.
+                        if (target != null) searchAttempt++
                         creating = false
                         editing = null
                     } else {
-                        // Keep the dialog and the typed name: a failed save must not throw away the user's input.
-                        dialogError = error
+                        // Keep the editor and the typed input: a failed save must not throw away the user's work.
+                        editorError = error
                     }
                 }
-                if (creating) onCreate(name.trim(), done) else editing?.let { onRename(it, name.trim(), done) }
+                if (target == null) {
+                    onCreate(name.trim(), ForumTopicIcon(colorArgb = colorArgb, customEmojiId = iconEmojiId), done)
+                } else {
+                    onEdit(target, name.trim(), forumTopicIconUpdate(target, iconEmojiId), done)
+                }
             },
-            dismissText = stringResource(R.string.common_cancel),
-            onDismiss = dismissDialog,
-            dismissEnabled = !busy && !submitting
+            onDismiss = dismissEditor
         )
     }
 
@@ -572,12 +699,13 @@ fun ForumTopicsScreen(
             if (topic.canManage) {
                 SheetActionRow(
                     icon = Icons.Rounded.Edit,
-                    title = stringResource(R.string.forum_rename),
+                    title = stringResource(R.string.forum_edit),
                     enabled = !busy,
                     onClick = {
                         managing = null
                         name = topic.title
-                        dialogError = null
+                        iconEmojiId = topic.icon?.customEmojiId ?: 0L
+                        editorError = null
                         creating = false
                         editing = topic
                     }
@@ -604,6 +732,42 @@ fun ForumTopicsScreen(
                         onPinned(topic, !topic.isPinned)
                     }
                 )
+                // The order only means something between two or more pinned topics, and only from the full list.
+                if (topic.isPinned && !searchActive && reorderAllowed && orderedLocal.count(ForumTopic::isPinned) >= 2) {
+                    SheetActionRow(
+                        icon = Icons.Rounded.DragHandle,
+                        title = stringResource(R.string.forum_topics_reorder),
+                        enabled = !busy,
+                        onClick = {
+                            managing = null
+                            startReorder()
+                        }
+                    )
+                }
+            }
+            // Mute works for every topic. A topic that inherits the group reads the group's state; the reset row hands it back.
+            val topicMuted = topic.isMutedIn(chat.isMuted)
+            SheetActionRow(
+                icon = if (topicMuted) Icons.Rounded.Notifications else Icons.Rounded.NotificationsOff,
+                title = stringResource(if (topicMuted) R.string.feature_unmute_chat else R.string.feature_mute_chat),
+                enabled = !busy,
+                onClick = {
+                    managing = null
+                    searchAttempt++
+                    onMuted(topic, !topicMuted)
+                }
+            )
+            if (!topic.useDefaultMuteFor) {
+                SheetActionRow(
+                    icon = Icons.Rounded.People,
+                    title = stringResource(R.string.forum_topic_mute_default),
+                    enabled = !busy,
+                    onClick = {
+                        managing = null
+                        searchAttempt++
+                        onMuted(topic, null)
+                    }
+                )
             }
             if (canDeleteForumTopic(topic)) {
                 SheetActionRow(
@@ -618,6 +782,26 @@ fun ForumTopicsScreen(
                 )
             }
         }
+    }
+
+    val setNavigationMode = onNavigationMode
+    val openAllMessagesFromSheet: (() -> Unit)? = onAllMessages?.let { open ->
+        val action: () -> Unit = {
+            modeSheetOpen = false
+            open()
+        }
+        action
+    }
+    if (modeSheetOpen && setNavigationMode != null) {
+        ForumNavigationModeSheet(
+            current = navigationMode,
+            onSelect = { mode ->
+                modeSheetOpen = false
+                setNavigationMode(mode)
+            },
+            onDismiss = { modeSheetOpen = false },
+            onAllMessages = openAllMessagesFromSheet
+        )
     }
 }
 
@@ -697,10 +881,76 @@ private fun ForumTopicList(
     downloadFile: (Int) -> Unit,
     observeCustomEmoji: (Long) -> StateFlow<CustomEmoji?>,
     onTopic: (ForumTopic) -> Unit,
-    onManage: (ForumTopic) -> Unit
+    onManage: (ForumTopic) -> Unit,
+    /** Reorder mode: pinned rows show a drag handle, and every row stops opening or opening its menu until it ends. */
+    reordering: Boolean = false,
+    /** False while the full topic list is not settled: pinned rows then cannot be dragged or moved. */
+    reorderAllowed: Boolean = true,
+    /** The whole pinned order after a drag or an accessibility move; the caller checks it, applies it and sends it. */
+    onMovePinned: (List<Long>) -> Unit = {}
 ) {
+    val haptics = LocalHapticFeedback.current
     val pinned = remember(topics) { topics.filter(ForumTopic::isPinned) }
+    val pinnedIds = remember(pinned) { pinned.map(ForumTopic::id) }
     val regular = remember(topics) { topics.filterNot(ForumTopic::isPinned) }
+    // The dragged pinned row. Its position follows the finger; the order changes once, on drop.
+    var drag by remember { mutableStateOf<PinnedTopicDrag?>(null) }
+    LaunchedEffect(reordering) { if (!reordering) drag = null }
+    fun startDrag(topicId: Long) {
+        // A row that left composition mid-drag never cancels its drag, so a new drag simply replaces the old one.
+        if (busy || !reorderAllowed) return
+        val fromRank = pinned.indexOfFirst { it.id == topicId }
+        if (fromRank < 0) return
+        val onScreen = listState.layoutInfo.visibleItemsInfo
+        // Only rows on screen have a known position. The pinned block is contiguous, so the rows on screen are a run of
+        // ranks, and the drop is worked out from their centres.
+        val rows = pinned.mapIndexedNotNull { rank, topic ->
+            onScreen.firstOrNull { it.key == forumTopicItemKey(topic.id) }?.let { rank to it }
+        }
+        val dragged = rows.firstOrNull { it.first == fromRank }?.second ?: return
+        drag = PinnedTopicDrag(
+            topicId = topicId,
+            pinnedIds = pinnedIds,
+            fromRank = fromRank,
+            baseRank = rows.first().first,
+            startCentre = (dragged.offset + dragged.size / 2).toFloat(),
+            otherCentres = rows.filter { it.first != fromRank }.map { (_, info) -> (info.offset + info.size / 2).toFloat() }
+        )
+        haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+    }
+    fun dragBy(amount: Float) {
+        val session = drag ?: return
+        session.offset += amount
+        session.dropRank = pinnedDropIndex(session.baseRank, session.otherCentres, session.startCentre + session.offset)
+    }
+    fun endDrag() {
+        val session = drag ?: return
+        drag = null
+        // The move only applies to the row that was grabbed, if it is still at the rank it was grabbed from.
+        val stillThere = pinned.getOrNull(session.fromRank)?.id == session.topicId
+        // The order is moved from the pinned order the drag began with, the one its ranks were measured on.
+        if (stillThere && session.dropRank != session.fromRank) {
+            onMovePinned(moveForumTopicId(session.pinnedIds, session.fromRank, session.dropRank))
+        }
+    }
+    fun cancelDrag() {
+        drag = null
+    }
+    fun pinnedReorder(rank: Int, topic: ForumTopic): ForumTopicRowReorder {
+        val session = drag
+        val movable = !busy && reorderAllowed
+        val moveUp = { onMovePinned(moveForumTopicId(pinnedIds, rank, rank - 1)) }
+        val moveDown = { onMovePinned(moveForumTopicId(pinnedIds, rank, rank + 1)) }
+        return ForumTopicRowReorder(
+            onDragStart = { startDrag(topic.id) },
+            onDrag = { amount -> dragBy(amount) },
+            onDragEnd = { endDrag() },
+            onDragCancel = { cancelDrag() },
+            onMoveUp = if (rank > 0 && movable) moveUp else null,
+            onMoveDown = if (rank < pinned.lastIndex && movable) moveDown else null,
+            highlighted = session != null && session.dropRank != session.fromRank && session.dropRank == rank
+        )
+    }
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
         state = listState,
@@ -714,7 +964,7 @@ private fun ForumTopicList(
                         pinned.size.takeIf { showSectionCounts }
                     )
                 }
-                items(pinned, key = { "forum-topic:${it.id}" }) { topic ->
+                itemsIndexed(pinned, key = { _, topic -> forumTopicItemKey(topic.id) }) { rank, topic ->
                     ForumTopicListItem(
                         topic = topic,
                         parentMuted = parentMuted,
@@ -725,7 +975,10 @@ private fun ForumTopicList(
                         downloadFile = downloadFile,
                         observeCustomEmoji = observeCustomEmoji,
                         onTopic = onTopic,
-                        onManage = onManage
+                        onManage = onManage,
+                        reordering = reordering,
+                        reorder = if (reordering) pinnedReorder(rank, topic) else null,
+                        dragging = drag?.takeIf { it.topicId == topic.id }
                     )
                 }
             }
@@ -749,7 +1002,8 @@ private fun ForumTopicList(
                         downloadFile = downloadFile,
                         observeCustomEmoji = observeCustomEmoji,
                         onTopic = onTopic,
-                        onManage = onManage
+                        onManage = onManage,
+                        reordering = reordering
                     )
                 }
             }
@@ -786,26 +1040,99 @@ private fun LazyItemScope.ForumTopicListItem(
     downloadFile: (Int) -> Unit,
     observeCustomEmoji: (Long) -> StateFlow<CustomEmoji?>,
     onTopic: (ForumTopic) -> Unit,
-    onManage: (ForumTopic) -> Unit
+    onManage: (ForumTopic) -> Unit,
+    reordering: Boolean = false,
+    reorder: ForumTopicRowReorder? = null,
+    /** The drag of this row, or null when another row or nothing is being dragged. */
+    dragging: PinnedTopicDrag? = null
 ) {
+    val palette = beyGramPalette()
     Box(
-        Modifier.animateItem(
-            fadeInSpec = listFadeSpec,
-            placementSpec = listPlacementSpec,
-            fadeOutSpec = listFadeSpec
-        )
+        Modifier
+            // Reorder mode moves rows at once: a placement animation would race the finger and the drop.
+            .then(
+                if (reordering) {
+                    Modifier
+                } else {
+                    Modifier.animateItem(
+                        fadeInSpec = listFadeSpec,
+                        placementSpec = listPlacementSpec,
+                        fadeOutSpec = listFadeSpec
+                    )
+                }
+            )
+            // The dragged row follows the finger over its neighbours, lifted on its own background.
+            .then(
+                if (dragging != null) {
+                    Modifier
+                        .zIndex(1f)
+                        .graphicsLayer { translationY = dragging.offset }
+                        .background(palette.surface)
+                } else {
+                    Modifier
+                }
+            )
     ) {
         ForumTopicRow(
             topic = topic,
             parentMuted = parentMuted,
             // Opening a topic is safe while another topic's rename is in flight; only management waits for busy.
-            enabled = true,
+            // In reorder mode rows are inert: a drag starts on the handle, and a tap would open the topic instead.
+            enabled = !reordering,
             onOpen = { onTopic(topic) },
-            onLongPress = if (!busy && (topic.canManage || topic.canPin)) ({ onManage(topic) }) else null,
+            // Every topic opens the sheet, where mute is always offered; the management rows inside still follow permissions.
+            onLongPress = if (!busy && !reordering) ({ onManage(topic) }) else null,
             observeFile = observeFile,
             downloadFile = downloadFile,
-            observeCustomEmoji = observeCustomEmoji
+            observeCustomEmoji = observeCustomEmoji,
+            reorder = reorder
         )
+    }
+}
+
+/** The LazyColumn key of a topic row. A stable key keeps the row's state, and its drag, on the same topic across updates. */
+private fun forumTopicItemKey(topicId: Long): String = "forum-topic:$topicId"
+
+/** One drag of a pinned row in reorder mode: how far the finger has moved and the pinned rank the row would drop to. */
+private class PinnedTopicDrag(
+    val topicId: Long,
+    /** The pinned order when the drag began; the drop moves within it, so the order is the one the ranks were measured on. */
+    val pinnedIds: List<Long>,
+    val fromRank: Int,
+    /** The rank of the first pinned row on screen; rows above it are off screen and cannot be passed. */
+    val baseRank: Int,
+    /** The dragged row's vertical centre when the drag began, in list coordinates. */
+    val startCentre: Float,
+    /** The vertical centres of the other pinned rows on screen, top to bottom. */
+    val otherCentres: List<Float>
+) {
+    var offset by mutableFloatStateOf(0f)
+    var dropRank by mutableIntStateOf(fromRank)
+}
+
+/** The bar that replaces the filter chips in reorder mode: what the mode does, and the way out. */
+@Composable
+private fun ForumReorderBar(onDone: () -> Unit) {
+    val palette = beyGramPalette()
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .padding(start = 16.dp, end = 4.dp, top = 2.dp, bottom = 2.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Text(
+            stringResource(R.string.forum_topics_reorder_hint),
+            color = palette.textSecondary,
+            fontSize = 13.sp,
+            modifier = Modifier.weight(1f)
+        )
+        TextButton(onClick = onDone) {
+            Text(
+                stringResource(R.string.forum_topics_reorder_done),
+                color = palette.accent,
+                fontWeight = FontWeight.SemiBold
+            )
+        }
     }
 }
 
@@ -914,9 +1241,17 @@ private fun RowScope.ForumHeaderActions(
     canCreate: Boolean,
     busy: Boolean,
     onToggleSearch: () -> Unit,
-    onCreate: () -> Unit
+    onCreate: () -> Unit,
+    onViewMode: (() -> Unit)? = null
 ) {
     val palette = beyGramPalette()
+    if (onViewMode != null) IconButton(onClick = onViewMode) {
+        Icon(
+            Icons.Rounded.Dashboard,
+            stringResource(R.string.forum_navigation_title),
+            tint = palette.textPrimary
+        )
+    }
     IconButton(onClick = onToggleSearch) {
         Icon(
             if (searchOpen) Icons.Rounded.Close else Icons.Rounded.Search,

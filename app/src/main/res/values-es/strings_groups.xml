@@ -103,7 +103,7 @@
     <string name="group_invites_default_name">Enlace adicional</string>
     <string name="group_invites_approval">Se requieren solicitudes de unión</string>
     <string name="group_invites_subscription">Suscripción de pago · %1$d Stars</string>
-    <string name="group_invites_subscription_hint">La configuración de la suscripción de pago se cambia en el cliente oficial; aquí solo se puede revocar el enlace.</string>
+    <string name="group_invites_subscription_hint">La configuración de la suscripción de pago se cambia en el cliente oficial; aquí el enlace solo se puede renombrar o revocar.</string>
     <string name="group_invites_expires">Caduca el %1$s</string>
     <string name="group_invites_never_expires">Sin caducidad</string>
     <string name="group_invites_limit">Límite: %1$d</string>
@@ -131,6 +131,18 @@
     <string name="group_invites_primary_hint">El enlace principal solo se puede revocar: no se puede editar.</string>
     <string name="group_invites_share_chooser">Compartir enlace</string>
     <string name="group_invites_share_text">Únete a «%1$s» en Telegram: %2$s</string>
+    <string name="group_invites_section_active">Activos</string>
+    <string name="group_invites_section_paid">De pago</string>
+    <string name="group_invites_section_inactive">Inactivos</string>
+    <string name="group_invites_status_primary">Principal</string>
+    <string name="group_invites_status_paid">De pago</string>
+    <string name="group_invites_status_approval">Con solicitud</string>
+    <string name="group_invites_status_revoked">Revocado</string>
+    <string name="group_invites_expired_on">Caducado el %1$s</string>
+    <string name="group_invites_joined">Se han unido: %1$d</string>
+    <string name="group_invites_open_details">Abrir detalles del enlace</string>
+    <string name="group_invites_creator_you">Creado por ti</string>
+    <string name="group_invites_created_on">Creado el %1$s</string>
     <string name="group_requests_title">Solicitudes de unión</string>
     <string name="group_requests_empty">No hay solicitudes</string>
     <string name="group_requests_count">Solicitudes: %1$d</string>

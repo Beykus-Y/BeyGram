@@ -1,6 +1,5 @@
 package com.beykus.beygram.ui.screens.stories
 
-import com.beykus.beygram.ui.components.topAppBarSurface
 import androidx.activity.compose.BackHandler
 import com.beykus.beygram.ui.design.styledShape
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -31,10 +30,8 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.rounded.Archive
 import androidx.compose.material.icons.rounded.Delete
 import androidx.compose.material.icons.rounded.Image
@@ -76,6 +73,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -100,6 +98,7 @@ import com.beykus.beygram.ui.accessibility.errorAnnouncement
 import com.beykus.beygram.ui.components.TelegramAvatar
 import com.beykus.beygram.ui.components.beyGramPalette
 import com.beykus.beygram.ui.screens.chat.LocalMediaImage
+import com.beykus.beygram.ui.screens.profile.ProfileToolbar
 import com.beykus.beygram.ui.text.resolve
 import com.beykus.beygram.ui.text.userMessage
 import kotlinx.coroutines.CoroutineScope
@@ -349,20 +348,7 @@ fun StoryPublisherScreen(
         Modifier.fillMaxSize().background(palette.screen)
             .windowInsetsPadding(WindowInsets.safeDrawing)
     ) {
-        Row(
-            Modifier.fillMaxWidth().topAppBarSurface().padding(horizontal = 6.dp, vertical = 4.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            IconButton(onClick = close) {
-                Icon(Icons.AutoMirrored.Rounded.ArrowBack, stringResource(R.string.common_back), tint = palette.textPrimary)
-            }
-            Text(
-                stringResource(R.string.stories_publish_title),
-                color = palette.textPrimary,
-                fontSize = 20.sp,
-                fontWeight = FontWeight.SemiBold,
-                modifier = Modifier.weight(1f).semantics { heading() }
-            )
+        ProfileToolbar(stringResource(R.string.stories_publish_title), close) {
             IconButton(onClick = { showArchive = true }, enabled = !busy) {
                 Icon(Icons.Rounded.Archive, stringResource(R.string.stories_archive_open), tint = palette.textSecondary)
             }
@@ -430,9 +416,12 @@ fun StoryPublisherScreen(
                 }
                 if (preparing) {
                     Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.3f)), contentAlignment = Alignment.Center) {
-                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                            CircularProgressIndicator(color = Color.White)
-                            Text(stringResource(R.string.stories_preparing), color = Color.White, fontSize = 13.sp, modifier = Modifier.padding(top = 8.dp))
+                        Column(
+                            Modifier.clip(styledShape(16.dp)).background(palette.surface).padding(horizontal = 20.dp, vertical = 14.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally
+                        ) {
+                            CircularProgressIndicator(color = palette.accent)
+                            Text(stringResource(R.string.stories_preparing), color = palette.textPrimary, fontSize = 13.sp, modifier = Modifier.padding(top = 8.dp))
                         }
                     }
                 }
@@ -577,15 +566,17 @@ fun StoryPublisherScreen(
             error?.let {
                 Text(it, color = palette.danger, fontSize = 14.sp, modifier = Modifier.padding(top = 10.dp).errorAnnouncement())
             }
+        }
 
+        Box(Modifier.fillMaxWidth().background(palette.screen).padding(horizontal = 20.dp, vertical = 10.dp)) {
             Button(
                 onClick = startPublish,
                 enabled = !preparing && !busy && !permissionLoading && media != null &&
                     permission !is StoryPostPermission.Denied && permissionError == null,
-                modifier = Modifier.fillMaxWidth().heightIn(min = 52.dp).padding(top = 16.dp)
+                modifier = Modifier.fillMaxWidth().heightIn(min = 52.dp)
             ) {
                 if (publishing) {
-                    CircularProgressIndicator(color = Color.White, modifier = Modifier.size(18.dp), strokeWidth = 2.dp)
+                    CircularProgressIndicator(color = palette.onAccent, modifier = Modifier.size(18.dp), strokeWidth = 2.dp)
                     Spacer(Modifier.width(8.dp))
                 }
                 Text(stringResource(if (publishing) R.string.stories_publishing else R.string.stories_publish), fontSize = 16.sp)
@@ -716,8 +707,9 @@ internal fun StoryRecipientsDialog(
         }
     }
     Dialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false)) {
+        val maxHeight = (LocalConfiguration.current.screenHeightDp * 0.9f).dp
         Column(
-            Modifier.padding(horizontal = 20.dp).fillMaxWidth().clip(styledShape(24.dp))
+            Modifier.padding(horizontal = 20.dp).fillMaxWidth().heightIn(max = maxHeight).clip(styledShape(24.dp))
                 .background(palette.surface).padding(18.dp)
         ) {
             Text(
@@ -755,7 +747,7 @@ internal fun StoryRecipientsDialog(
                     color = palette.textSecondary,
                     modifier = Modifier.padding(vertical = 18.dp)
                 )
-                else -> LazyColumn(Modifier.fillMaxWidth().heightIn(max = 340.dp).padding(top = 6.dp)) {
+                else -> LazyColumn(Modifier.fillMaxWidth().weight(1f, fill = false).padding(top = 6.dp)) {
                     items(filtered, key = { it.userId }) { contact ->
                         val checked = contact.userId in chosen
                         Row(
@@ -848,8 +840,9 @@ private fun StoryArchiveDialog(
         }
     }
     Dialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false)) {
+        val maxHeight = (LocalConfiguration.current.screenHeightDp * 0.9f).dp
         Column(
-            Modifier.padding(horizontal = 20.dp).fillMaxWidth().clip(styledShape(24.dp))
+            Modifier.padding(horizontal = 20.dp).fillMaxWidth().heightIn(max = maxHeight).clip(styledShape(24.dp))
                 .background(palette.surface).padding(18.dp)
         ) {
             Text(
@@ -874,7 +867,7 @@ private fun StoryArchiveDialog(
                     color = palette.textSecondary,
                     modifier = Modifier.padding(vertical = 22.dp)
                 )
-                else -> LazyColumn(Modifier.fillMaxWidth().heightIn(max = 420.dp).padding(top = 8.dp)) {
+                else -> LazyColumn(Modifier.fillMaxWidth().weight(1f, fill = false).padding(top = 8.dp)) {
                     items(stories, key = { it.storyId }) { story ->
                         StoryArchiveRow(
                             story,
@@ -954,7 +947,6 @@ private fun StoryArchiveRow(
     onDelete: () -> Unit
 ) {
     val palette = beyGramPalette()
-    val context = LocalContext.current
     val fileId = story.media?.thumbnailFileId ?: story.media?.fileId
     val file by remember(fileId) {
         fileId?.let(repository::observeFile) ?: kotlinx.coroutines.flow.MutableStateFlow(com.beykus.beygram.domain.model.MediaFileState(0))
@@ -963,26 +955,26 @@ private fun StoryArchiveRow(
     val date = remember(story.dateSeconds) {
         DateFormat.getDateTimeInstance(DateFormat.SHORT, DateFormat.SHORT).format(Date(story.dateSeconds * 1000L))
     }
-    Row(
-        Modifier.fillMaxWidth().heightIn(min = 58.dp).clickable(role = Role.Button, onClick = onOpen).padding(vertical = 6.dp),
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        Box(Modifier.size(42.dp).clip(styledShape(10.dp)).background(palette.surface2), contentAlignment = Alignment.Center) {
-            val path = file.localPath
-            if (path != null) LocalMediaImage(path, Modifier.fillMaxSize())
-            else Icon(Icons.Rounded.Image, null, tint = palette.textSecondary, modifier = Modifier.size(20.dp))
-        }
-        Spacer(Modifier.width(10.dp))
-        Column(Modifier.weight(1f)) {
-            Text(date, color = palette.textPrimary, fontSize = 14.sp, fontWeight = FontWeight.Medium)
-            if (story.caption.isNotBlank()) {
-                Text(story.caption, color = palette.textSecondary, fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+    Row(Modifier.fillMaxWidth().heightIn(min = 58.dp), verticalAlignment = Alignment.CenterVertically) {
+        Row(
+            Modifier.weight(1f).heightIn(min = 58.dp).clickable(role = Role.Button, onClick = onOpen).padding(vertical = 6.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Box(Modifier.size(42.dp).clip(styledShape(10.dp)).background(palette.surface2), contentAlignment = Alignment.Center) {
+                val path = file.localPath
+                if (path != null) LocalMediaImage(path, Modifier.fillMaxSize())
+                else Icon(Icons.Rounded.Image, null, tint = palette.textSecondary, modifier = Modifier.size(20.dp))
+            }
+            Spacer(Modifier.width(10.dp))
+            Column(Modifier.weight(1f)) {
+                Text(date, color = palette.textPrimary, fontSize = 14.sp, fontWeight = FontWeight.Medium)
+                if (story.caption.isNotBlank()) {
+                    Text(story.caption, color = palette.textSecondary, fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                }
             }
         }
-        IconButton(onClick = onDelete, modifier = Modifier.size(48.dp).semantics {
-            contentDescription = context.getString(R.string.stories_archive_delete_description, date)
-        }) {
-            Icon(Icons.Rounded.Delete, null, tint = palette.danger)
+        IconButton(onClick = onDelete, modifier = Modifier.size(48.dp)) {
+            Icon(Icons.Rounded.Delete, stringResource(R.string.stories_archive_delete_description, date), tint = palette.danger)
         }
     }
 }

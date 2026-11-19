@@ -33,6 +33,7 @@ import androidx.compose.material3.Text
 import com.beykus.beygram.ui.components.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
@@ -56,6 +57,7 @@ import com.beykus.beygram.data.appearance.DesignStyle
 import com.beykus.beygram.data.appearance.GlassQuality
 import com.beykus.beygram.data.appearance.NavigationPlacement
 import com.beykus.beygram.ui.components.beyGramPalette
+import com.beykus.beygram.ui.design.designFor
 import com.beykus.beygram.ui.design.recordsGlassBackdrop
 import com.beykus.beygram.ui.design.rememberDesign
 
@@ -159,10 +161,15 @@ internal fun AppearanceStylePage(
                 fontSize = 12.sp,
                 lineHeight = 17.sp
             )
+            // What the style asks for on its own: the Auto row sketches the placement the draft really resolves to.
+            val naturalFloating = remember(draft.designStyle, draft.glassQuality) {
+                designFor(draft.designStyle, draft.glassQuality).navigationFloating
+            }
             Column(Modifier.selectableGroup()) {
                 NavigationPlacement.entries.forEach { placement ->
                     NavigationPlacementRow(
                         placement = placement,
+                        naturalFloating = naturalFloating,
                         selected = draft.navigationPlacement == placement,
                         onSelect = { onDraftChange(draft.copy(navigationPlacement = placement)) }
                     )
@@ -312,12 +319,13 @@ private fun QualityOptionRow(quality: GlassQuality, selected: Boolean, onSelect:
 }
 
 /**
- * One placement of the bottom bar. It is a separate axis from the style, so the row explains the position rather than
+ * One placement of the panels. It is a separate axis from the style, so the row explains the position rather than
  * pretending to be another look; Auto stays the compatibility choice for installations that never touched it.
  */
 @Composable
 private fun NavigationPlacementRow(
     placement: NavigationPlacement,
+    naturalFloating: Boolean,
     selected: Boolean,
     onSelect: () -> Unit
 ) {
@@ -353,38 +361,51 @@ private fun NavigationPlacementRow(
                 lineHeight = 15.sp
             )
         }
-        NavigationPlacementGlyph(placement = placement, selected = selected)
+        NavigationPlacementGlyph(placement = placement, naturalFloating = naturalFloating, selected = selected)
     }
 }
 
-/** A two-line sketch of the placement: the bar either sits on the bottom edge or floats above it with margins. */
+/**
+ * A sketch of the two panels the placement governs: the pinned bar under a header, and the bottom dock. The bars sit
+ * on the edges when attached, and float with margins and rounded corners when not; the Auto row draws the placement
+ * the draft's style actually resolves to, so it never reads as a forced dock.
+ */
 @Composable
-private fun NavigationPlacementGlyph(placement: NavigationPlacement, selected: Boolean) {
+private fun NavigationPlacementGlyph(placement: NavigationPlacement, naturalFloating: Boolean, selected: Boolean) {
     val palette = beyGramPalette()
     val accent = if (selected) palette.accent else palette.textSecondary
+    val quiet = accent.copy(alpha = 0.25f)
     val floating = when (placement) {
-        // Auto is not a placement of its own: the sketch shows both, so it never looks like a forced dock.
-        NavigationPlacement.Auto -> true
+        NavigationPlacement.Auto -> naturalFloating
         NavigationPlacement.Pinned -> false
         NavigationPlacement.Floating -> true
     }
-    Box(Modifier.width(30.dp).height(22.dp).clip(AppearanceDimens.innerShape)) {
-        Box(Modifier.fillMaxSize().background(palette.surface2.copy(alpha = 0.55f)))
-        if (placement == NavigationPlacement.Auto) {
-            // The pinned variant stays visible as a hairline next to the capsule.
+    Column(
+        Modifier.width(44.dp).height(34.dp)
+            .clip(AppearanceDimens.innerShape)
+            .background(palette.surface2.copy(alpha = 0.55f))
+            .padding(3.dp)
+    ) {
+        Box(Modifier.fillMaxWidth().height(4.dp).clip(RoundedCornerShape(1.dp)).background(quiet))
+        // The pinned bar: attached it touches the header without a seam, floating it keeps air around it.
+        if (floating) {
             Box(
-                Modifier.align(Alignment.BottomCenter).fillMaxWidth().height(2.dp)
-                    .background(accent.copy(alpha = 0.45f))
+                Modifier.padding(top = 2.dp).padding(horizontal = 3.dp).fillMaxWidth().height(4.dp)
+                    .clip(RoundedCornerShape(2.dp)).background(accent.copy(alpha = 0.45f))
             )
+        } else {
+            Box(Modifier.padding(top = 1.dp).fillMaxWidth().height(4.dp).background(accent.copy(alpha = 0.45f)))
         }
-        Box(
-            Modifier.align(Alignment.BottomCenter)
-                .padding(start = if (floating) 5.dp else 0.dp, end = if (floating) 5.dp else 0.dp)
-                .padding(bottom = if (floating) 3.dp else 0.dp)
-                .fillMaxWidth()
-                .height(6.dp)
-                .clip(RoundedCornerShape(if (floating) 3.dp else 0.dp))
-                .background(accent)
-        )
+        Box(Modifier.padding(top = 2.dp).fillMaxWidth(0.7f).height(2.dp).clip(RoundedCornerShape(1.dp)).background(quiet))
+        Box(Modifier.fillMaxWidth().weight(1f))
+        // The dock on the bottom edge.
+        if (floating) {
+            Box(
+                Modifier.padding(horizontal = 3.dp).fillMaxWidth().height(6.dp)
+                    .clip(RoundedCornerShape(3.dp)).background(accent)
+            )
+        } else {
+            Box(Modifier.fillMaxWidth().height(6.dp).background(accent))
+        }
     }
 }

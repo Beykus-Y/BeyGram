@@ -262,10 +262,18 @@ interface TelegramRepository : ConversationRepository, NotificationRepository, R
     /** Explicit acknowledgement after the app restarts with an unconfirmed request. */
     fun acknowledgeUncertainGroupCreation()
 
-    /** Current Telegram session and other authorized devices. */
-    suspend fun activeSessions(): Result<List<com.beykus.beygram.domain.model.DeviceSession>>
+    /** Current Telegram session, other authorized devices and the account's inactivity limit. */
+    suspend fun activeSessions(): Result<com.beykus.beygram.domain.model.ActiveSessions>
     suspend fun terminateOtherSession(sessionId: Long): Result<Unit>
     suspend fun terminateAllOtherSessions(): Result<Unit>
+    /** Confirms a login from a new device that the user recognises as their own. */
+    suspend fun confirmSession(sessionId: Long): Result<Unit>
+    /** Days without activity after which Telegram ends a session by itself. TDLib accepts 1 to 366. */
+    suspend fun setInactiveSessionTtl(days: Int): Result<Unit>
+    /** Lets a session accept or refuse incoming calls. */
+    suspend fun setSessionCanAcceptCalls(sessionId: Long, enabled: Boolean): Result<Unit>
+    /** Lets a session accept or refuse secret chats. */
+    suspend fun setSessionCanAcceptSecretChats(sessionId: Long, enabled: Boolean): Result<Unit>
 
     /** Настройка аккаунта: возвращать ли непрочитанный архивный чат в основной список при новом сообщении. */
     suspend fun archiveReturnsOnNewMessage(): Result<Boolean>

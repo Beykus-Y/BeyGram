@@ -1,7 +1,6 @@
 package com.beykus.beygram.ui.screens.music
 
 import android.content.Context
-import com.beykus.beygram.ui.design.styledShape
 import android.widget.Toast
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -161,7 +160,7 @@ internal fun musicCollectionTitleRes(kind: MusicCollectionKind): Int = when (kin
 }
 
 /**
- * A track row: cover (or the note placeholder), title, performer and length. [unavailable] dims the row and replaces
+ * A track row: cover (or the note placeholder), title, performer and length. [unavailable] dims the cover and replaces
  * the performer. The row of the track the player has now gets the accent title and a sound mark over its cover.
  */
 @Composable
@@ -187,7 +186,8 @@ internal fun MusicTrackRow(
 
 /**
  * The one track row of the music screens, for every source: cover, title, subtitle and length. [current] gives the
- * accent title and a sound mark over the cover; [unavailable] dims the row.
+ * accent title and a sound mark over the cover. [unavailable] dims the cover, greys the title and puts the subtitle in
+ * the warning colour; the row and its menu keep full strength, so the action that replaces the track stays easy to find.
  */
 @Composable
 internal fun MusicTrackRowLayout(
@@ -204,21 +204,21 @@ internal fun MusicTrackRowLayout(
     val palette = beyGramPalette()
     val untitled = stringResource(R.string.music_untitled)
     val duration = formatClockDuration(durationSeconds)
+    val coverDim = if (unavailable) Modifier.alpha(0.45f) else Modifier
     Row(
         Modifier.fillMaxWidth().heightIn(min = 64.dp)
-            .alpha(if (unavailable) 0.45f else 1f)
             .then(if (onClick != null) Modifier.clickable(role = Role.Button, onClick = onClick) else Modifier)
             .padding(horizontal = 16.dp, vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
         // An album lists its tracks by number: the cover would be the same on every row.
-        if (number != null) Box(Modifier.size(44.dp), contentAlignment = Alignment.Center) {
+        if (number != null) Box(Modifier.size(44.dp).then(coverDim), contentAlignment = Alignment.Center) {
             if (current) {
                 Icon(Icons.Rounded.GraphicEq, stringResource(R.string.queue_now_playing), tint = palette.accent, modifier = Modifier.size(22.dp))
             } else {
                 Text(number.toString(), color = palette.textSecondary, fontSize = 15.sp, fontWeight = FontWeight.Medium)
             }
-        } else Box(Modifier.size(44.dp), contentAlignment = Alignment.Center) {
+        } else Box(Modifier.size(44.dp).then(coverDim), contentAlignment = Alignment.Center) {
             TrackArtwork(
                 artworkPath = coverPath,
                 audioPath = null,
@@ -229,7 +229,7 @@ internal fun MusicTrackRowLayout(
                 cornerRadius = 12.dp
             )
             if (current) Box(
-                Modifier.size(44.dp).clip(styledShape(12.dp)).background(Color.Black.copy(alpha = 0.42f)),
+                Modifier.size(44.dp).clip(RoundedCornerShape(12.dp)).background(Color.Black.copy(alpha = 0.42f)),
                 contentAlignment = Alignment.Center
             ) {
                 Icon(
@@ -244,14 +244,18 @@ internal fun MusicTrackRowLayout(
         Column(Modifier.weight(1f)) {
             Text(
                 title.ifBlank { untitled },
-                color = if (current) palette.accent else palette.textPrimary,
+                color = when {
+                    current -> palette.accent
+                    unavailable -> palette.textSecondary
+                    else -> palette.textPrimary
+                },
                 fontWeight = if (current) FontWeight.SemiBold else null,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis
             )
             if (subtitle.isNotBlank()) Text(
                 subtitle,
-                color = palette.textSecondary,
+                color = if (unavailable) palette.warningText else palette.textSecondary,
                 fontSize = 13.sp,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis

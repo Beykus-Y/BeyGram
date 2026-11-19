@@ -106,7 +106,7 @@
     <string name="group_invites_default_name">Zusätzlicher Link</string>
     <string name="group_invites_approval">Beitrittsanfragen erforderlich</string>
     <string name="group_invites_subscription">Kostenpflichtiges Abo · %1$d Sterne</string>
-    <string name="group_invites_subscription_hint">Einstellungen für das kostenpflichtige Abo werden im offiziellen Client geändert; der Link kann hier nur widerrufen werden.</string>
+    <string name="group_invites_subscription_hint">Einstellungen für das kostenpflichtige Abo werden im offiziellen Client geändert; hier kann der Link umbenannt oder widerrufen werden.</string>
     <string name="group_invites_expires">Gültig bis %1$s</string>
     <string name="group_invites_never_expires">Kein Ablaufdatum</string>
     <string name="group_invites_limit">Limit: %1$d</string>
@@ -134,6 +134,18 @@
     <string name="group_invites_primary_hint">Der Hauptlink kann nur widerrufen werden: Eine Bearbeitung ist nicht möglich.</string>
     <string name="group_invites_share_chooser">Link teilen</string>
     <string name="group_invites_share_text">Treten Sie „%1$s“ auf Telegram bei: %2$s</string>
+    <string name="group_invites_section_active">Aktiv</string>
+    <string name="group_invites_section_paid">Kostenpflichtig</string>
+    <string name="group_invites_section_inactive">Inaktiv</string>
+    <string name="group_invites_status_primary">Primär</string>
+    <string name="group_invites_status_paid">Kostenpflichtig</string>
+    <string name="group_invites_status_approval">Mit Anfrage</string>
+    <string name="group_invites_status_revoked">Widerrufen</string>
+    <string name="group_invites_expired_on">Abgelaufen am %1$s</string>
+    <string name="group_invites_joined">Beigetreten: %1$d</string>
+    <string name="group_invites_open_details">Linkdetails öffnen</string>
+    <string name="group_invites_creator_you">Von Ihnen erstellt</string>
+    <string name="group_invites_created_on">Erstellt am %1$s</string>
 
     <string name="group_requests_title">Beitrittsanfragen</string>
     <string name="group_requests_empty">Keine Anfragen</string>

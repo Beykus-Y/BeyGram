@@ -160,13 +160,15 @@ internal fun RecordingControlButton(
             }
         }, contentAlignment = Alignment.Center) {
         Box(Modifier.size(ComposerButtonSize).graphicsLayer { translationX = dragX.floatValue; translationY = dragY.floatValue }
-            .clip(CircleShape).background(
+            .clip(CircleShape), contentAlignment = Alignment.Center) {
+            ComposerMaterial(
                 when {
                     active || canceling -> palette.danger
                     tonal -> palette.accentSoft
                     else -> palette.surface2
-                }
-            ), contentAlignment = Alignment.Center) {
+                },
+                CircleShape, embedded = active || canceling
+            )
             Icon(if (mode == ComposerRecordingMode.Voice) Icons.Rounded.Mic else Icons.Rounded.Videocam,
                 contentDescription = null,
                 tint = when {

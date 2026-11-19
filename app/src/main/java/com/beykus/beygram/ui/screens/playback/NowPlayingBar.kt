@@ -21,7 +21,11 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
-import androidx.compose.foundation.gestures.detectHorizontalDragGestures
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.gestures.awaitTouchSlopOrCancellation
+import androidx.compose.foundation.gestures.horizontalDrag
+import androidx.compose.foundation.gestures.verticalDrag
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.composed
 import androidx.compose.foundation.horizontalScroll
@@ -79,6 +83,13 @@ import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.input.pointer.util.VelocityTracker
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.text.TextStyle
+import androidx.compose.material3.LocalTextStyle
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.res.stringResource
@@ -118,6 +129,7 @@ import com.beykus.beygram.ui.motion.rememberMotionSpec
 import com.beykus.beygram.ui.screens.chat.duration
 import com.beykus.beygram.ui.theme.LocalBeyGramTokens
 import kotlinx.coroutines.flow.collect
+import kotlin.math.abs
 import kotlin.math.roundToInt
 
 /** Цвета управления плеером: на светлом листе приложения и на тёмном фоне просмотрщика. */
@@ -204,9 +216,6 @@ internal fun NowPlayingBarHost(
     railCover: Boolean = false,
     compact: Boolean = false
 ) {
-    val providedOpenEqualizer = LocalOpenEqualizer.current
-    val openEqualizer = onOpenEqualizer ?: providedOpenEqualizer
-    val openMusicSearch = LocalOpenMusicSearch.current
     val openMyMusic = LocalOpenMyMusic.current
     val hiddenForIme = hideWhenImeVisible && keyboardVisible
     var lastMini by remember { mutableStateOf(mini) }
@@ -216,12 +225,22 @@ internal fun NowPlayingBarHost(
     val exitSpec = rememberMotionSpec(MotionToken.SheetExit)
 
     LaunchedEffect(Unit) {
+        // Music opens in PlayerExpansionHost; only voice and video notes open the sheet from here.
         MusicPlayerLauncher.openRequests.collect {
-            if (PlaybackEngine.state.value.item != null) fullPlayerOpen = true
+            val item = PlaybackEngine.state.value.item
+            if (item != null && !item.isMusic) fullPlayerOpen = true
         }
     }
     LaunchedEffect(mini == null) {
         if (mini == null) fullPlayerOpen = false
+    }
+    // Music hands the open to the full player, starting from the bar that was tapped.
+    fun openFromBar(bar: MiniPlayerUi, anchorId: Long?) {
+        if (bar.isMusic) {
+            PlayerExpansion.open(anchorId)
+        } else {
+            fullPlayerOpen = true
+        }
     }
 
     if (railCover) {
@@ -233,7 +252,7 @@ internal fun NowPlayingBarHost(
             enter = if (railInstant) EnterTransition.None else enterSpec.fadeEnter(),
             exit = if (railInstant) ExitTransition.None else exitSpec.fadeExit()
         ) {
-            if (shown != null) RailMiniPlayerCover(shown, onOpen = { fullPlayerOpen = true })
+            if (shown != null) RailMiniPlayerCover(shown, onOpen = { anchorId -> openFromBar(shown, anchorId) })
         }
     } else {
         val slot = resolveNowPlayingBarSlot(
@@ -280,7 +299,7 @@ internal fun NowPlayingBarHost(
                             bottomInset = bottomInset,
                             floatingDock = floatingDock,
                             compact = compact,
-                            onOpen = { fullPlayerOpen = true },
+                            onOpen = { anchorId -> openFromBar(shown, anchorId) },
                             // A long press is a shortcut to the library for people who never found it in the menus.
                             onLongOpen = if (shown.isMusic) openMyMusic else null
                         )
@@ -297,22 +316,15 @@ internal fun NowPlayingBarHost(
         }
     }
 
-    if (fullPlayerOpen) {
-        if (mini?.isMusic == true) {
-            MusicPlayerSheet(
-                onDismiss = { fullPlayerOpen = false },
-                onOpenEqualizer = openEqualizer,
-                onOpenMusicSearch = openMusicSearch,
-                onOpenMyMusic = openMyMusic
-            )
-        } else {
-            VoiceNowPlayingSheet(onDismiss = { fullPlayerOpen = false })
-        }
+    // Music is shown by PlayerExpansionHost; this sheet is for voice and video notes only.
+    if (fullPlayerOpen && mini?.isMusic != true) {
+        VoiceNowPlayingSheet(onDismiss = { fullPlayerOpen = false })
     }
 }
 
 @Composable
-private fun MiniPlayerBar(ui: MiniPlayerUi, bottomInset: Boolean, floatingDock: Boolean, compact: Boolean, onOpen: () -> Unit, onLongOpen: (() -> Unit)? = null) {
+private fun MiniPlayerBar(ui: MiniPlayerUi, bottomInset: Boolean, floatingDock: Boolean, compact: Boolean, onOpen: (Long?) -> Unit, onLongOpen: (() -> Unit)? = null) {
+    val anchor = rememberMiniPlayerAnchor()
     // Music takes its tint from the cover, or from the theme accent without one. Voice and circles keep the theme.
     val cover = rememberCoverTokens(
         artworkPath = ui.artworkPath,
@@ -327,9 +339,14 @@ private fun MiniPlayerBar(ui: MiniPlayerUi, bottomInset: Boolean, floatingDock: 
     val artworkTokens = if (inkOnly) cover.tokens else null
     CompositionLocalProvider(LocalBeyGramTokens provides chromeTokens) {
         if (floatingDock) {
-            MiniDockCard { MiniPlayerBarContent(ui, bottomInset, floatingDock = true, compact = compact, onOpen = onOpen, onLongOpen = onLongOpen, artworkTokens = artworkTokens) }
+            // The fade wraps the whole card, glass and shadow included.
+            Box(Modifier.graphicsLayer { alpha = PlayerExpansion.miniChromeAlpha(anchor.id) }) {
+                MiniDockCard {
+                    MiniPlayerBarContent(ui, bottomInset, floatingDock = true, compact = compact, anchor = anchor, onOpen = { onOpen(anchor.id) }, onLongOpen = onLongOpen, artworkTokens = artworkTokens)
+                }
+            }
         } else {
-            MiniPlayerBarContent(ui, bottomInset, floatingDock = false, compact = compact, onOpen = onOpen, onLongOpen = onLongOpen, artworkTokens = artworkTokens)
+            MiniPlayerBarContent(ui, bottomInset, floatingDock = false, compact = compact, anchor = anchor, onOpen = { onOpen(anchor.id) }, onLongOpen = onLongOpen, artworkTokens = artworkTokens)
         }
     }
 }
@@ -401,6 +418,7 @@ private fun MiniPlayerBarContent(
     bottomInset: Boolean,
     floatingDock: Boolean,
     compact: Boolean,
+    anchor: MiniPlayerAnchor,
     onOpen: () -> Unit,
     onLongOpen: (() -> Unit)? = null,
     artworkTokens: com.beykus.beygram.ui.theme.BeyGramTokens? = null
@@ -411,6 +429,14 @@ private fun MiniPlayerBarContent(
     val textSpec = rememberMotionSpec(MotionToken.BannerChange)
     val playSpec = rememberMotionSpec(MotionToken.MicroFeedback)
     val subtitle = miniSubtitle(ui)
+    val density = LocalDensity.current
+    val localTextStyle = LocalTextStyle.current
+    val chromeColor = miniPlayerChromeColor(floatingDock)
+    val containerRadiusPx = if (floatingDock) with(density) { navigationSpecFor(design).dockRadius.toPx() } else 0f
+    SideEffect {
+        anchor.containerColor = chromeColor
+        anchor.containerRadiusPx = containerRadiusPx
+    }
     // Above a rounded dock the top edge is clipped by the corners, so the track is inset by the radius to stay visible.
     val progressInset = if (floatingDock) navigationSpecFor(design).dockRadius else 0.dp
     val rowMinHeight = if (compact) 48.dp else 56.dp
@@ -421,10 +447,17 @@ private fun MiniPlayerBarContent(
     val subtitleSize = if (compact) 11.sp else 12.sp
     val iconModifier = if (compact) Modifier.size(20.dp) else Modifier
     val buttonModifier = if (compact) Modifier.size(width = 44.dp, height = 48.dp) else Modifier
-    Column(miniPlayerChromeModifier(bottomInset = bottomInset, floatingDock = floatingDock)) {
+    // The pinned bar fades as one layer here; the floating card fades in its wrapper instead, so the alpha is applied once.
+    val containerModifier = miniPlayerChromeModifier(bottomInset = bottomInset, floatingDock = floatingDock)
+        .onGloballyPositioned {
+            anchor.container = it
+            anchor.seq = PlayerExpansion.nextSeq()
+        }
+        .then(if (floatingDock) Modifier else Modifier.graphicsLayer { alpha = PlayerExpansion.miniChromeAlpha(anchor.id) })
+    Column(containerModifier) {
         // On a pinned bar the track is the top edge. In a floating capsule it runs along the bottom instead, so it does
         // not compete with the glass rim on the top edge and is not cut by the rounded corners.
-        if (!floatingDock) WithCoverTint(artworkTokens) { MiniPlayerProgress() }
+        if (!floatingDock) WithCoverTint(artworkTokens) { MiniPlayerProgress(anchor = anchor) }
         Row(
             Modifier.fillMaxWidth().heightIn(min = rowMinHeight).padding(start = 8.dp, end = 2.dp),
             verticalAlignment = Alignment.CenterVertically
@@ -434,7 +467,8 @@ private fun MiniPlayerBarContent(
                     .weight(1f)
                     .heightIn(min = if (compact) 44.dp else 48.dp)
                     .clip(styledShape(if (compact) 10.dp else 12.dp))
-                    .miniPlayerSwipe(
+                    .miniPlayerGestures(
+                        anchorId = anchor.id,
                         onPrevious = { PlaybackEngine.previous() },
                         onNext = { PlaybackEngine.next() }
                     )
@@ -450,10 +484,20 @@ private fun MiniPlayerBarContent(
             ) {
                 WithCoverTint(artworkTokens) {
                     val artPalette = beyGramPalette()
+                    val artworkRadiusPx = with(density) { artworkRadius.toPx() }
+                    SideEffect {
+                        anchor.artworkBackground = artPalette.accentSoft
+                        anchor.artworkTint = artPalette.accentInk
+                        anchor.artworkBorder = artPalette.divider.copy(alpha = 0.55f)
+                        anchor.artworkRadiusPx = artworkRadiusPx
+                    }
                     TrackArtwork(
                         artworkPath = ui.artworkPath,
                         audioPath = ui.audioPath,
-                        modifier = Modifier.size(artworkSize),
+                        modifier = Modifier
+                            .size(artworkSize)
+                            .onGloballyPositioned { anchor.artwork = it }
+                            .miniShared(anchor.id, FlightRole.Artwork),
                         background = artPalette.accentSoft,
                         tint = artPalette.accentInk,
                         symbolSize = artworkSymbol,
@@ -463,21 +507,42 @@ private fun MiniPlayerBarContent(
                 }
                 Spacer(Modifier.width(if (compact) 8.dp else 10.dp))
                 Column(Modifier.weight(1f)) {
+                    val target = MiniPlayerText(ui.title, subtitle)
                     Crossfade(
-                        targetState = MiniPlayerText(ui.title, subtitle),
+                        targetState = target,
                         animationSpec = textSpec.animationSpec(),
                         label = "miniPlayerText"
                     ) { text ->
+                        // Only the target text registers for the flight, never the outgoing copy of the crossfade.
+                        val isTarget = text == target
                         Column {
+                            if (isTarget) SideEffect {
+                                anchor.titleText = text.title
+                                anchor.titleStyle = localTextStyle.merge(
+                                    TextStyle(color = palette.textPrimary, fontSize = titleSize, fontWeight = FontWeight.SemiBold)
+                                )
+                                anchor.subtitleText = text.subtitle
+                                anchor.subtitleStyle = localTextStyle.merge(
+                                    TextStyle(color = if (ui.failed) palette.danger else palette.textSecondary, fontSize = subtitleSize)
+                                )
+                            }
                             Text(
                                 text.title,
                                 color = palette.textPrimary,
                                 fontSize = titleSize,
                                 fontWeight = FontWeight.SemiBold,
                                 maxLines = 1,
-                                overflow = TextOverflow.Ellipsis
+                                overflow = TextOverflow.Ellipsis,
+                                modifier = Modifier
+                                    .onGloballyPositioned { if (isTarget) anchor.title = it }
+                                    .miniShared(anchor.id, FlightRole.Title)
                             )
-                            Row(verticalAlignment = Alignment.CenterVertically) {
+                            Row(
+                                Modifier
+                                    .onGloballyPositioned { if (isTarget) anchor.subtitle = it }
+                                    .miniShared(anchor.id, FlightRole.Artist),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
                                 Text(
                                     text.subtitle,
                                     color = if (ui.failed) palette.danger else palette.textSecondary,
@@ -521,11 +586,21 @@ private fun MiniPlayerBarContent(
                 ui.playing || ui.intentPlaying -> stringResource(R.string.common_pause)
                 else -> stringResource(R.string.common_play)
             }
+            val playIconPx = with(density) { (if (compact) 20.dp else 24.dp).toPx() }
+            SideEffect {
+                anchor.playTint = palette.accentInk
+                anchor.playIconPx = playIconPx
+            }
             IconButton(
                 onClick = { PlaybackEngine.togglePlayPause() },
                 modifier = buttonModifier.semantics { contentDescription = playLabel }
             ) {
-                Box(contentAlignment = Alignment.Center) {
+                Box(
+                    Modifier
+                        .onGloballyPositioned { anchor.play = it }
+                        .miniShared(anchor.id, FlightRole.Play),
+                    contentAlignment = Alignment.Center
+                ) {
                     Crossfade(
                         targetState = playIcon,
                         animationSpec = playSpec.animationSpec(),
@@ -547,13 +622,13 @@ private fun MiniPlayerBarContent(
                 Icon(Icons.Rounded.Close, stringResource(R.string.player_stop), tint = palette.textSecondary, modifier = iconModifier)
             }
         }
-        if (floatingDock) WithCoverTint(artworkTokens) { MiniPlayerProgress(Modifier.padding(horizontal = progressInset)) }
+        if (floatingDock) WithCoverTint(artworkTokens) { MiniPlayerProgress(Modifier.padding(horizontal = progressInset), anchor = anchor) }
     }
 }
 
 /** Round 40 dp cover with a progress ring for the slim navigation rail: tap = play/pause, long press = full player. */
 @Composable
-private fun RailMiniPlayerCover(ui: MiniPlayerUi, onOpen: () -> Unit) {
+private fun RailMiniPlayerCover(ui: MiniPlayerUi, onOpen: (Long?) -> Unit) {
     val cover = rememberCoverTokens(
         artworkPath = ui.artworkPath,
         audioPath = ui.audioPath,
@@ -564,17 +639,32 @@ private fun RailMiniPlayerCover(ui: MiniPlayerUi, onOpen: () -> Unit) {
     val label = stringResource(if (playing) R.string.common_pause else R.string.common_play)
     val openLabel = stringResource(R.string.player_mini_open)
     val position = rememberPlaybackPositionUi()
+    val anchor = rememberMiniPlayerAnchor()
+    val density = LocalDensity.current
     CompositionLocalProvider(LocalBeyGramTokens provides cover.tokens) {
         val palette = beyGramPalette()
+        SideEffect {
+            anchor.containerColor = Color.Transparent
+            anchor.containerRadiusPx = with(density) { 24.dp.toPx() }
+            anchor.artworkBackground = palette.accentSoft
+            anchor.artworkTint = palette.accentInk
+            anchor.artworkBorder = palette.divider.copy(alpha = 0.55f)
+            anchor.artworkRadiusPx = with(density) { 18.dp.toPx() }
+        }
         Box(
             Modifier
                 .size(48.dp)
+                .onGloballyPositioned {
+                    anchor.container = it
+                    anchor.seq = PlayerExpansion.nextSeq()
+                }
+                .graphicsLayer { alpha = PlayerExpansion.miniChromeAlpha(anchor.id) }
                 .clip(CircleShape)
                 .combinedClickable(
                     role = Role.Button,
                     onClickLabel = label,
                     onLongClickLabel = openLabel,
-                    onLongClick = onOpen,
+                    onLongClick = { onOpen(anchor.id) },
                     onClick = { PlaybackEngine.togglePlayPause() }
                 ),
             contentAlignment = Alignment.Center
@@ -582,7 +672,10 @@ private fun RailMiniPlayerCover(ui: MiniPlayerUi, onOpen: () -> Unit) {
             TrackArtwork(
                 artworkPath = ui.artworkPath,
                 audioPath = ui.audioPath,
-                modifier = Modifier.size(36.dp),
+                modifier = Modifier
+                    .size(36.dp)
+                    .onGloballyPositioned { anchor.artwork = it }
+                    .miniShared(anchor.id, FlightRole.Artwork),
                 background = palette.accentSoft,
                 tint = palette.accentInk,
                 symbolSize = 18.dp,
@@ -725,10 +818,23 @@ private data class MiniPlayerText(val title: String, val subtitle: String)
 
 /** Real playback progress, not buffering. Buffered data is a faint underlay so the two are distinguishable. */
 @Composable
-private fun MiniPlayerProgress(modifier: Modifier = Modifier) {
+private fun MiniPlayerProgress(modifier: Modifier = Modifier, anchor: MiniPlayerAnchor? = null) {
     val palette = beyGramPalette()
     val position = rememberPlaybackPositionUi()
-    Canvas(modifier.fillMaxWidth().height(2.dp)) {
+    if (anchor != null) {
+        SideEffect {
+            anchor.progressTrack = palette.divider
+            anchor.progressAccent = palette.accent
+        }
+    }
+    val registered = if (anchor == null) {
+        Modifier
+    } else {
+        Modifier
+            .onGloballyPositioned { anchor.progress = it }
+            .miniShared(anchor.id, FlightRole.Progress)
+    }
+    Canvas(modifier.fillMaxWidth().height(2.dp).then(registered)) {
         drawLine(palette.divider, start = androidx.compose.ui.geometry.Offset(0f, size.height / 2f), end = androidx.compose.ui.geometry.Offset(size.width, size.height / 2f), strokeWidth = size.height, cap = StrokeCap.Butt)
         if (position.bufferedFraction > 0f) {
             drawLine(
@@ -877,33 +983,93 @@ private fun SpeedChip(speed: Float, selected: Boolean, enabled: Boolean, colors:
     )
 }
 
+/** Chrome colour of the mini bar, so the flight container starts in the colour the bar actually paints. */
+@Composable
+private fun miniPlayerChromeColor(floatingDock: Boolean): Color {
+    val palette = beyGramPalette()
+    val design = LocalDesignSystem.current
+    if (floatingDock) return navigationBarColor(design, palette.surface, palette.screen)
+    if (com.beykus.beygram.ui.screens.chat.LocalChatChromeOnGlass.current) return Color.Transparent
+    return when (design.components.topBar) {
+        TopBarVariant.Elevated, TopBarVariant.Flat -> palette.surface
+        TopBarVariant.Glass -> design.surfaces.panelFill(palette.surface, PanelFloor.Player)
+        TopBarVariant.Signature -> palette.screen
+    }
+}
 
-/** A swipe to the left plays the next track, to the right the previous one, as in other music players. */
-private fun Modifier.miniPlayerSwipe(onPrevious: () -> Unit, onNext: () -> Unit): Modifier = composed {
+/** One anchor per bar. It registers with the controller while the bar is composed. */
+@Composable
+private fun rememberMiniPlayerAnchor(): MiniPlayerAnchor {
+    val anchor = remember { MiniPlayerAnchor(PlayerExpansion.newAnchorId()) }
+    DisposableEffect(anchor) {
+        PlayerExpansion.register(anchor)
+        onDispose { PlayerExpansion.unregister(anchor.id) }
+    }
+    return anchor
+}
+
+/** Hides this bar's copy of a shared element while its flight is drawn above the player. Alpha only, so layout is kept. */
+private fun Modifier.miniShared(id: Long, role: FlightRole): Modifier = graphicsLayer {
+    alpha = if (PlayerExpansion.miniSharedHidden(id, role)) 0f else 1f
+}
+
+/**
+ * Taps and swipes on the bar. A sideways swipe changes the track as before; a vertical one moves the full player with
+ * the finger. A vertical swipe in the wrong direction is not consumed, so it reaches the screen below.
+ */
+private fun Modifier.miniPlayerGestures(anchorId: Long, onPrevious: () -> Unit, onNext: () -> Unit): Modifier = composed {
     val haptic = androidx.compose.ui.platform.LocalHapticFeedback.current
     val threshold = with(androidx.compose.ui.platform.LocalDensity.current) { 72.dp.toPx() }
-    pointerInput(Unit) {
-        var total = 0f
-        detectHorizontalDragGestures(
-            onDragStart = { total = 0f },
-            onDragEnd = {
-                when {
-                    total <= -threshold -> {
-                        haptic.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.ContextClick)
-                        onNext()
-                    }
-                    total >= threshold -> {
-                        haptic.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.ContextClick)
-                        onPrevious()
+    pointerInput(anchorId) {
+        awaitEachGesture {
+            val down = awaitFirstDown(requireUnconsumed = false)
+            var vertical: Boolean? = null
+            var overSlop = Offset.Zero
+            val drag = awaitTouchSlopOrCancellation(down.id) { change, over ->
+                val offset = change.position - down.position
+                val isVertical = abs(offset.y) > abs(offset.x)
+                if (isVertical && !PlayerExpansion.canExpandBy(anchorId, offset.y)) return@awaitTouchSlopOrCancellation
+                vertical = isVertical
+                overSlop = over
+                change.consume()
+            } ?: return@awaitEachGesture
+            if (vertical != true) {
+                var total = overSlop.x
+                val completed = horizontalDrag(drag.id) { change ->
+                    total += change.position.x - change.previousPosition.x
+                    change.consume()
+                }
+                if (completed) {
+                    when {
+                        total <= -threshold -> {
+                            haptic.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.ContextClick)
+                            onNext()
+                        }
+                        total >= threshold -> {
+                            haptic.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.ContextClick)
+                            onPrevious()
+                        }
                     }
                 }
-                total = 0f
-            },
-            onDragCancel = { total = 0f },
-            onHorizontalDrag = { change, amount ->
-                change.consume()
-                total += amount
+            } else {
+                if (!PlayerExpansion.beginDrag(PlayerDragOrigin.Mini, anchorId)) return@awaitEachGesture
+                val tracker = VelocityTracker()
+                tracker.addPosition(drag.uptimeMillis, drag.position)
+                PlayerExpansion.dragBy(overSlop.y)
+                var ended = false
+                try {
+                    verticalDrag(drag.id) { change ->
+                        tracker.addPosition(change.uptimeMillis, change.position)
+                        PlayerExpansion.dragBy(change.position.y - change.previousPosition.y)
+                        change.consume()
+                    }
+                    PlayerExpansion.endDrag(tracker.calculateVelocity().y)
+                    ended = true
+                } finally {
+                    // A cancelled drag still settles, so the player never stays half open.
+                    if (!ended) PlayerExpansion.endDrag(0f)
+                }
             }
-        )
+        }
     }
 }

@@ -6,7 +6,18 @@ import kotlinx.coroutines.flow.StateFlow
 /** Conversation operations; UI never sends native TDLib requests or chooses protocol flags. */
 interface ConversationRepository {
     fun observePinnedMessagesVersion(chatId: Long): StateFlow<Long>
-    suspend fun pinnedMessages(chatId: Long, fromMessageId: Long = 0L, forumTopicId: Long = 0L): Result<PinnedMessagePage>
+    /** Resolve avatars from user IDs without creating private chats or opening profiles. */
+    suspend fun loadPinnedSenderAvatars(userIds: Collection<Long>): Map<Long, AvatarPhoto?> = emptyMap()
+    /**
+     * One page of the chat's pinned messages, newest first. A non-empty [query] asks the server to search within the
+     * pinned messages, so results cover every page, not only the ones the caller has already loaded.
+     */
+    suspend fun pinnedMessages(
+        chatId: Long,
+        fromMessageId: Long = 0L,
+        forumTopicId: Long = 0L,
+        query: String = ""
+    ): Result<PinnedMessagePage>
     /** Pins or unpins a message in its parent chat; forum messages keep their topic. */
     suspend fun setMessagePinned(chatId: Long, messageId: Long, pinned: Boolean): Result<Unit>
     fun observeBotKeyboard(chatId: Long): StateFlow<BotKeyboard?>
@@ -134,13 +145,43 @@ interface ConversationRepository {
      */
     suspend fun forumTopicsPage(chatId: Long, query: String = "", onPage: (ForumTopicsPage) -> Unit = {}): Result<ForumTopicsPage?>
     suspend fun canCreateForumTopic(chatId: Long): Result<Boolean>
-    suspend fun createForumTopic(chatId: Long, name: String): Result<Long>
-    suspend fun renameForumTopic(chatId: Long, forumTopicId: Long, name: String): Result<Unit>
+    /** [icon] carries the new topic's colour, which Telegram limits to a fixed set, and its optional custom emoji. */
+    suspend fun createForumTopic(
+        chatId: Long,
+        name: String,
+        icon: ForumTopicIcon = ForumTopicIcon(colorArgb = ForumTopicDefaultColor)
+    ): Result<Long>
+    /**
+     * Renames a topic. A null [iconCustomEmojiId] leaves the icon as it is; 0 removes the custom emoji and any other id
+     * sets it. The colour of an existing topic cannot change.
+     */
+    suspend fun editForumTopic(chatId: Long, forumTopicId: Long, name: String, iconCustomEmojiId: Long?): Result<Unit>
+    /** Custom emoji ids of Telegram's default topic icons. They are the same for every account and need no Premium. */
+    suspend fun forumTopicDefaultIcons(): Result<List<Long>>
+    /** The custom emoji sets the account has installed. A Premium account may take topic icons from their emoji. */
+    suspend fun installedCustomEmojiSets(): Result<List<CustomEmojiSetBrief>>
+    /** The custom emoji ids of one installed set, in the set's order. */
+    suspend fun customEmojiSetIds(setId: Long): Result<List<Long>>
     suspend fun setForumTopicClosed(chatId: Long, forumTopicId: Long, closed: Boolean): Result<Unit>
     suspend fun setForumTopicPinned(chatId: Long, forumTopicId: Long, pinned: Boolean): Result<Unit>
+    /** The new order of the pinned topics, first id on top. The server takes the whole pinned set, so pass every pinned topic. */
+    suspend fun setPinnedForumTopicsOrder(chatId: Long, forumTopicIds: List<Long>): Result<Unit>
     suspend fun deleteForumTopic(chatId: Long, forumTopicId: Long): Result<Unit>
+    /** Per-topic notifications: true mutes the topic, false unmutes it, and null lets the topic follow the group again. */
+    suspend fun setForumTopicMuted(chatId: Long, forumTopicId: Long, muted: Boolean?): Result<Unit>
     suspend fun sendMedia(chatId: Long, media: OutgoingMedia, caption: String, replyToMessageId: Long? = null, entities: List<MessageTextEntity> = emptyList(), forumTopicId: Long = 0L, options: MessageSendOptions = MessageSendOptions()): Result<Unit>
     suspend fun sendMediaAlbum(chatId: Long, media: List<OutgoingMedia>, caption: String, replyToMessageId: Long? = null, entities: List<MessageTextEntity> = emptyList(), forumTopicId: Long = 0L, options: MessageSendOptions = MessageSendOptions()): Result<Unit>
+    /**
+     * One composer batch, with IDs of the actual messages returned by the transport and inserted into history.
+     * Scheduled sends and repositories without receipt support return an empty list. Never resend to obtain IDs.
+     */
+    suspend fun sendComposerMedia(
+        chatId: Long, media: List<OutgoingMedia>, caption: String, replyToMessageId: Long?,
+        entities: List<MessageTextEntity>, forumTopicId: Long, options: MessageSendOptions
+    ): Result<List<Long>> = (
+        if (media.size > 1) sendMediaAlbum(chatId, media, caption, replyToMessageId, entities, forumTopicId, options)
+        else sendMedia(chatId, media.single(), caption, replyToMessageId, entities, forumTopicId, options)
+    ).map { emptyList() }
     /** Poll, location, contact and dice are sent as TDLib content, never as formatted text. */
     suspend fun sendPoll(chatId: Long, poll: OutgoingPoll, replyToMessageId: Long? = null, forumTopicId: Long = 0L, options: MessageSendOptions = MessageSendOptions()): Result<Unit>
     suspend fun sendLocation(chatId: Long, point: GeoPoint, live: Boolean = false, replyToMessageId: Long? = null, forumTopicId: Long = 0L, options: MessageSendOptions = MessageSendOptions()): Result<Unit>
@@ -288,6 +329,11 @@ interface ConversationRepository {
     suspend fun starBalance(): Result<StarBalance> = Result.failure(UnsupportedOperationException())
     /** The custom emoji sticker behind [customEmojiId]. TDLib is asked on first use; the value stays null until it answers. */
     fun observeCustomEmoji(customEmojiId: Long): StateFlow<CustomEmoji?>
+    /**
+     * The name and icon of a forum topic, for a chat row that names the topic of its last message. The value stays null
+     * until the topic is known. A topic TDLib cannot describe gets a brief with an empty title, and it is not asked again while the cache holds it.
+     */
+    fun observeForumTopicInfo(chatId: Long, forumTopicId: Long): StateFlow<ForumTopicBrief?>
     /** The effect behind [effectId]. Only fresh-message overlays call this; the value stays null until TDLib answers. */
     fun observeMessageEffect(effectId: Long): StateFlow<MessageEffect?>
     suspend fun messageContext(chatId: Long, messageId: Long): Result<MessageContext>

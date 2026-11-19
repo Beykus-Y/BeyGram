@@ -52,7 +52,10 @@ import com.beykus.beygram.domain.model.ChatPreview
 import com.beykus.beygram.domain.model.ChatSearchFilter
 import com.beykus.beygram.domain.model.ContactPreview
 import com.beykus.beygram.domain.model.CustomEmoji
+import com.beykus.beygram.domain.model.CustomEmojiSetBrief
 import com.beykus.beygram.domain.model.DeleteMessageScope
+import com.beykus.beygram.domain.model.ForumTopicBrief
+import com.beykus.beygram.domain.model.ForumTopicIcon
 import com.beykus.beygram.domain.model.ForumTopicsPage
 import com.beykus.beygram.domain.model.ForwardedMessages
 import com.beykus.beygram.domain.model.GeoPoint
@@ -580,7 +583,7 @@ class TextSendUiTest {
                     lastSeenStyle = LastSeenStyle.Relative,
                     history = history,
                     conversation = repo,
-                    chats = listOf(chat),
+                    chats = { listOf(chat) },
                     observeFile = { MutableStateFlow(MediaFileState(it)) },
                     onDownloadFile = {},
                     onBack = {},
@@ -621,7 +624,7 @@ class TextSendUiTest {
             topicHistories.getOrPut(chatId to topicId) { MutableStateFlow(ChatHistory(hasOlderMessages = false)) }
 
         override fun observePinnedMessagesVersion(chatId: Long): StateFlow<Long> = MutableStateFlow(0L)
-        override suspend fun pinnedMessages(chatId: Long, fromMessageId: Long, forumTopicId: Long): Result<PinnedMessagePage> =
+        override suspend fun pinnedMessages(chatId: Long, fromMessageId: Long, forumTopicId: Long, query: String): Result<PinnedMessagePage> =
             Result.success(PinnedMessagePage(emptyList(), 0, 0L))
         override suspend fun setMessagePinned(chatId: Long, messageId: Long, pinned: Boolean): Result<Unit> = Result.success(Unit)
         override fun observeBotKeyboard(chatId: Long): StateFlow<BotKeyboard?> = MutableStateFlow(null)
@@ -706,11 +709,16 @@ class TextSendUiTest {
         override suspend fun isForumChat(chatId: Long): Result<Boolean> = Result.success(false)
         override suspend fun forumTopicsPage(chatId: Long, query: String, onPage: (ForumTopicsPage) -> Unit): Result<ForumTopicsPage?> = Result.success(null)
         override suspend fun canCreateForumTopic(chatId: Long): Result<Boolean> = Result.success(false)
-        override suspend fun createForumTopic(chatId: Long, name: String): Result<Long> = Result.failure(UnsupportedOperationException())
-        override suspend fun renameForumTopic(chatId: Long, forumTopicId: Long, name: String): Result<Unit> = Result.success(Unit)
+        override suspend fun createForumTopic(chatId: Long, name: String, icon: ForumTopicIcon): Result<Long> = Result.failure(UnsupportedOperationException())
+        override suspend fun editForumTopic(chatId: Long, forumTopicId: Long, name: String, iconCustomEmojiId: Long?): Result<Unit> = Result.success(Unit)
+        override suspend fun forumTopicDefaultIcons(): Result<List<Long>> = Result.success(emptyList())
+        override suspend fun installedCustomEmojiSets(): Result<List<CustomEmojiSetBrief>> = Result.success(emptyList())
+        override suspend fun customEmojiSetIds(setId: Long): Result<List<Long>> = Result.success(emptyList())
         override suspend fun setForumTopicClosed(chatId: Long, forumTopicId: Long, closed: Boolean): Result<Unit> = Result.success(Unit)
         override suspend fun setForumTopicPinned(chatId: Long, forumTopicId: Long, pinned: Boolean): Result<Unit> = Result.success(Unit)
+        override suspend fun setPinnedForumTopicsOrder(chatId: Long, forumTopicIds: List<Long>): Result<Unit> = Result.success(Unit)
         override suspend fun deleteForumTopic(chatId: Long, forumTopicId: Long): Result<Unit> = Result.success(Unit)
+        override suspend fun setForumTopicMuted(chatId: Long, forumTopicId: Long, muted: Boolean?): Result<Unit> = Result.success(Unit)
         override suspend fun sendMedia(chatId: Long, media: OutgoingMedia, caption: String, replyToMessageId: Long?, entities: List<MessageTextEntity>, forumTopicId: Long, options: MessageSendOptions): Result<Unit> = Result.success(Unit)
         override suspend fun sendMediaAlbum(chatId: Long, media: List<OutgoingMedia>, caption: String, replyToMessageId: Long?, entities: List<MessageTextEntity>, forumTopicId: Long, options: MessageSendOptions): Result<Unit> = Result.success(Unit)
         override suspend fun sendPoll(chatId: Long, poll: OutgoingPoll, replyToMessageId: Long?, forumTopicId: Long, options: MessageSendOptions): Result<Unit> = Result.success(Unit)
@@ -776,6 +784,7 @@ class TextSendUiTest {
         override suspend fun toggleReaction(chatId: Long, messageId: Long, reaction: ReactionOption, addToRecent: Boolean): Result<List<MessageReaction>> =
             Result.success(emptyList())
         override fun observeCustomEmoji(customEmojiId: Long): StateFlow<CustomEmoji?> = MutableStateFlow(null)
+        override fun observeForumTopicInfo(chatId: Long, forumTopicId: Long): StateFlow<ForumTopicBrief?> = MutableStateFlow(null)
         override fun observeMessageEffect(effectId: Long): StateFlow<MessageEffect?> = MutableStateFlow(null)
         override suspend fun messageContext(chatId: Long, messageId: Long): Result<MessageContext> =
             Result.failure(UnsupportedOperationException())

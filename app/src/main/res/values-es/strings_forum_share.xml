@@ -23,7 +23,7 @@
     <string name="forum_delete_confirm">¿Eliminar el tema %1$s y sus mensajes? Esta acción no se puede deshacer.</string>
     <string name="forum_manage">Gestionar tema</string>
     <string name="forum_pin">Fijar tema</string>
-    <string name="forum_rename">Cambiar nombre del tema</string>
+    <string name="forum_edit">Editar tema</string>
     <string name="forum_reopen">Reabrir tema</string>
     <string name="forum_topic_closed">Tema cerrado</string>
     <string name="forum_topic_history_hint">Abre un tema para ver su historial</string>
@@ -81,10 +81,23 @@
     <string name="forum_topic_time_yesterday">Ayer</string>
     <string name="forum_topic_draft">Borrador</string>
     <string name="forum_topic_muted">Silenciado</string>
+    <string name="forum_topic_mute_default">Igual que el grupo</string>
     <string name="forum_topic_mentions">Menciones: %1$d</string>
     <string name="forum_topic_reactions">Reacciones: %1$d</string>
     <string name="forum_topic_poll_votes">Votos en encuestas: %1$d</string>
     <string name="forum_topic_general">Tema general</string>
     <string name="forum_topic_in_group">en %1$s</string>
     <string name="forum_topic_preview_sender">%1$s: %2$s</string>
+    <string name="forum_editor_color">Color</string>
+    <string name="forum_editor_icon">Icono</string>
+    <string name="forum_editor_no_icon">Sin icono</string>
+    <string name="forum_editor_icons_loading">Cargando iconos…</string>
+    <string name="forum_editor_icons_failed">No se pudieron cargar los iconos</string>
+    <string name="forum_editor_name_placeholder">Nombre del tema</string>
+    <string name="forum_editor_color_n">Color %1$d</string>
+    <string name="forum_editor_icon_n">Icono %1$d</string>
+    <string name="forum_editor_premium_emoji_hint">Hay más emoji disponibles con Premium</string>
+    <string name="forum_editor_premium_loading">Cargando emoji Premium…</string>
+    <string name="forum_editor_premium_failed">No se pudieron cargar los emoji Premium</string>
+    <string name="forum_editor_premium_icon_n">Emoji Premium %1$d</string>
 </resources>

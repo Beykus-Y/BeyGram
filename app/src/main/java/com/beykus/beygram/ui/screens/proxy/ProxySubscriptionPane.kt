@@ -1,13 +1,13 @@
 package com.beykus.beygram.ui.screens.proxy
 
 import androidx.compose.foundation.background
-import com.beykus.beygram.ui.design.styledShape
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.defaultMinSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
@@ -15,11 +15,9 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material.icons.rounded.Speed
-import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import com.beykus.beygram.ui.components.TextButton
@@ -37,6 +35,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
@@ -47,7 +46,15 @@ import com.beykus.beygram.data.vpn.VpnBackend
 import com.beykus.beygram.data.vpn.AutoSelectEvent
 import com.beykus.beygram.diagnostics.shareConnectionDiagnosticsOrError
 import com.beykus.beygram.domain.model.TelegramConnectionState
+import com.beykus.beygram.ui.accessibility.errorAnnouncement
+import com.beykus.beygram.ui.accessibility.statusAnnouncement
 import com.beykus.beygram.ui.components.beyGramPalette
+import com.beykus.beygram.ui.components.groupSurfaceColor
+import com.beykus.beygram.ui.design.LocalDesignSystem
+import com.beykus.beygram.ui.design.glassCard
+import com.beykus.beygram.ui.design.groupCardShape
+import com.beykus.beygram.ui.design.styledShape
+import com.beykus.beygram.ui.screens.settings.SettingsRowDivider
 import com.beykus.beygram.ui.text.resolve
 import com.beykus.beygram.ui.text.userMessage
 import kotlinx.coroutines.launch
@@ -55,6 +62,8 @@ import kotlinx.coroutines.launch
 /**
  * Вкладка «Подписка» экрана «Подключение к Telegram»: ссылка, режим выбора серверов и список с задержкой.
  * Выбор хранится в [selectedName] экрана; «Подключить» на экране запускает прокси с выбранным сервером.
+ * В строке три разных признака: выбранный сервер (кружок и подпись «Выбран»), задержка справа и результат проверки
+ * (значок «нет связи» или плашка «лучший»).
  */
 @Composable
 internal fun ColumnScope.ProxySubscriptionPane(
@@ -67,6 +76,7 @@ internal fun ColumnScope.ProxySubscriptionPane(
     onSelect: (String) -> Unit
 ) {
     val palette = beyGramPalette()
+    val design = LocalDesignSystem.current
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
     val settings by vpnBackend.settings.collectAsStateWithLifecycle()
@@ -108,7 +118,7 @@ internal fun ColumnScope.ProxySubscriptionPane(
             keyboardType = KeyboardType.Uri
         )
         error?.let {
-            Text(it, color = palette.danger, fontSize = 13.sp, modifier = Modifier.padding(top = 6.dp))
+            Text(it, color = palette.danger, fontSize = 13.sp, modifier = Modifier.padding(top = 6.dp).errorAnnouncement())
         }
 
         Spacer(Modifier.height(12.dp))
@@ -132,8 +142,7 @@ internal fun ColumnScope.ProxySubscriptionPane(
             Modifier
                 .weight(1f)
                 .fillMaxWidth()
-                .clip(styledShape(20.dp))
-                .background(palette.surface)
+                .glassCard(design, groupSurfaceColor(), palette.textSecondary, groupCardShape())
         ) {
             if (connections.isEmpty()) {
                 item {
@@ -147,28 +156,30 @@ internal fun ColumnScope.ProxySubscriptionPane(
                 }
             }
             itemsIndexed(connections) { index, connection ->
-                if (index > 0) HorizontalDivider(color = palette.divider, modifier = Modifier.padding(start = 50.dp))
+                if (index > 0) SettingsRowDivider(startInset = 50.dp)
                 val probe = probes[connection.name]
                 val delay = probe?.delayMillis ?: connection.delayMillis
-                val (pingText, pingColor) = when {
-                    probe != null && !probe.telegramReachable -> stringResource(R.string.proxy_no_connection) to palette.danger
-                    delay == null -> "—" to palette.textSecondary
-                    else -> latencyStyle(delay, palette)
-                }
+                val chosen = connection.name == selectedName
                 ProxyRadioRow(
-                    selected = connection.name == selectedName,
+                    selected = chosen,
                     title = connection.name,
-                    subtitle = null,
+                    subtitle = if (chosen) stringResource(R.string.proxy_sub_row_selected) else null,
                     onClick = { onSelect(connection.name) },
-                    badge = if (connection.name == bestName) stringResource(R.string.proxy_sub_best_badge) else null,
+                    badges = {
+                        if (connection.name == bestName) {
+                            ProxyBadge(stringResource(R.string.proxy_sub_best_badge), palette.successSurface, palette.successText)
+                        }
+                    },
                     trailing = {
-                        Text(
-                            pingText,
-                            color = pingColor,
-                            fontSize = 14.sp,
-                            fontWeight = FontWeight.SemiBold,
-                            modifier = Modifier.padding(end = 4.dp)
-                        )
+                        when {
+                            probe != null && !probe.telegramReachable ->
+                                ProxyLatencyText(stringResource(R.string.proxy_no_connection), palette.danger, warning = true)
+                            delay == null -> ProxyLatencyText("—", palette.textSecondary)
+                            else -> {
+                                val (text, color) = latencyStyle(delay, palette)
+                                ProxyLatencyText(text, color)
+                            }
+                        }
                     }
                 )
             }
@@ -201,11 +212,11 @@ internal fun ColumnScope.ProxySubscriptionPane(
                 event.message.resolve(),
                 color = palette.danger,
                 fontSize = 13.sp,
-                modifier = Modifier.padding(top = 8.dp)
+                modifier = Modifier.padding(top = 8.dp).errorAnnouncement()
             )
         }
         (progress?.let { stringResource(R.string.proxy_sub_probing_progress, it.completed, it.total) } ?: actionMessage)?.let {
-            Text(it, color = palette.accent, fontSize = 13.sp, modifier = Modifier.padding(top = 8.dp))
+            Text(it, color = palette.accent, fontSize = 13.sp, modifier = Modifier.padding(top = 8.dp).statusAnnouncement())
         }
         TextButton(
             onClick = {
@@ -234,15 +245,16 @@ private fun ProxyTonalButton(
     val tint = if (enabled) palette.accentInk else palette.textSecondary
     Row(
         modifier
-            .height(40.dp)
+            .defaultMinSize(minHeight = 48.dp)
             .clip(styledShape(12.dp))
             .background(background)
-            .clickable(enabled = enabled, onClick = onClick),
+            .clickable(enabled = enabled, role = Role.Button, onClick = onClick)
+            .padding(horizontal = 12.dp, vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.Center
     ) {
         Icon(icon, contentDescription = null, tint = tint, modifier = Modifier.size(18.dp))
         Spacer(Modifier.width(6.dp))
-        Text(text, color = tint, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
+        Text(text, color = tint, fontSize = 14.sp, fontWeight = FontWeight.SemiBold, maxLines = 1)
     }
 }

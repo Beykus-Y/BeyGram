@@ -1,6 +1,8 @@
 package com.beykus.beygram.ui.screens.profile
 
 import androidx.activity.compose.BackHandler
+import com.beykus.beygram.ui.design.LocalDesignSystem
+import com.beykus.beygram.ui.design.glassScreenBackground
 import androidx.annotation.StringRes
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
@@ -52,6 +54,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
@@ -126,6 +129,8 @@ fun GiftsScreen(
     buyResale: suspend (Long, String, Long) -> GiftSendOutcome = { _, _, _ -> GiftSendOutcome.Blocked(com.beykus.beygram.domain.UiText.Res(R.string.err_gift_unavailable)) }
 ) {
     val palette = beyGramPalette()
+    val design = LocalDesignSystem.current
+    val loadingText = stringResource(R.string.a11y_state_loading)
     val context = LocalContext.current
     var listingGift by remember(accountId, profileId) { mutableStateOf<ReceivedGiftItem?>(null) }
     val listingState by GiftListingStore.state.collectAsState()
@@ -336,7 +341,7 @@ fun GiftsScreen(
         }
     }
 
-    Column(Modifier.fillMaxSize().background(palette.screen).windowInsetsPadding(WindowInsets.safeDrawing)) {
+    Column(Modifier.fillMaxSize().glassScreenBackground(design, palette.screen).windowInsetsPadding(WindowInsets.safeDrawing)) {
         ProfileToolbar(title, onBack = { if (!sending) onBack() }) {
             IconButton(onClick = { if (!loading && !sending) reload++ }, enabled = !loading && !sending) {
                 Icon(Icons.Rounded.Refresh, stringResource(R.string.common_retry), tint = palette.textPrimary)
@@ -353,8 +358,9 @@ fun GiftsScreen(
                 isError = true,
                 onRetry = { reload++ }
             )
-            info == null -> Box(Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
-                CircularProgressIndicator(color = palette.accent)
+            // The first read shows the page's own shape instead of a bare spinner, as the Premium screen does.
+            info == null -> Box(Modifier.weight(1f).fillMaxWidth()) {
+                MonetizationLoadingPlaceholder(listOf(1, 3))
             }
             else -> {
                 val gifts = info!!
@@ -363,13 +369,14 @@ fun GiftsScreen(
                     contentPadding = PaddingValues(bottom = 24.dp),
                     verticalArrangement = Arrangement.spacedBy(4.dp)
                 ) {
+                    // A failed refresh keeps the page on screen and offers the same retry as the full-screen error.
                     if (error != null) item("refresh_error") {
-                        Text(
-                            error.orEmpty(),
-                            color = palette.danger,
-                            fontSize = 14.sp,
-                            modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 10.dp)
-                                .errorAnnouncement()
+                        MonetizationStateCard(
+                            title = stringResource(R.string.gifts_load_error),
+                            body = error.orEmpty(),
+                            tone = MonetizationTone.Error,
+                            onRetry = if (loading || sending) null else ({ reload++ }),
+                            announce = true
                         )
                     }
                     notice?.let { message ->
@@ -479,7 +486,7 @@ fun GiftsScreen(
                             }
                             if (loadingMore) item("received_more_loading") {
                                 Box(Modifier.fillMaxWidth().padding(12.dp), contentAlignment = Alignment.Center) {
-                                    CircularProgressIndicator(Modifier.size(22.dp), color = palette.accent)
+                                    CircularProgressIndicator(Modifier.size(22.dp).semantics { contentDescription = loadingText }, color = palette.accent)
                                 }
                             }
                             moreError?.let { message ->
@@ -587,7 +594,7 @@ fun GiftsScreen(
                     }
                     if (loading) item("loading") {
                         Box(Modifier.fillMaxWidth().padding(12.dp), contentAlignment = Alignment.Center) {
-                            CircularProgressIndicator(Modifier.size(22.dp), color = palette.accent)
+                            CircularProgressIndicator(Modifier.size(22.dp).semantics { contentDescription = loadingText }, color = palette.accent)
                         }
                     }
                 }
@@ -789,35 +796,37 @@ private fun GiftCatalogRow(
     Column(
         Modifier.fillMaxWidth().profileCardSurface()
             .padding(horizontal = 16.dp, vertical = 12.dp)
-            .semantics(mergeDescendants = true) {}
     ) {
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-            Text(gift.emoji.ifBlank { "🎁" }, fontSize = 32.sp)
-            Column(Modifier.weight(1f).padding(start = 12.dp)) {
-                Text(
-                    if (gift.auctionId.isNullOrBlank()) stringResource(R.string.gifts_cost, formatStarAmount(gift.starCount)) else stringResource(R.string.gift_auction_title),
-                    color = palette.textPrimary,
-                    fontSize = 16.sp,
-                    fontWeight = FontWeight.SemiBold
-                )
-                if (gift.resaleTitle.isNotBlank()) Text(gift.resaleTitle, color = palette.textPrimary, fontSize = 14.sp)
-                val details = mutableListOf<String>()
-                if (gift.isPremiumOnly) details += stringResource(R.string.gifts_premium_only)
-                if (gift.isAuctionOnly) details += stringResource(R.string.gifts_auction_only)
-                if (gift.isSoldOut) details += stringResource(R.string.gifts_sold_out)
-                gift.remainingCount?.takeIf { it > 0 }?.let {
-                    details += stringResource(R.string.gifts_remaining, it)
-                }
-                if (details.isNotEmpty()) {
-                    Text(details.joinToString(" · "), color = palette.textSecondary, fontSize = 12.sp)
-                }
-                blockReason?.takeUnless { it == GiftBlockReason.AuctionOnly && !gift.auctionId.isNullOrBlank() }?.let { reason ->
+            // The gift and its text read as one item; the buttons beside them stay separate controls for TalkBack.
+            Row(Modifier.weight(1f).semantics(mergeDescendants = true) {}, verticalAlignment = Alignment.CenterVertically) {
+                Text(gift.emoji.ifBlank { "🎁" }, fontSize = 32.sp)
+                Column(Modifier.weight(1f).padding(start = 12.dp)) {
                     Text(
-                        stringResource(giftBlockMessage(reason)),
-                        color = palette.danger,
-                        fontSize = 12.sp,
-                        modifier = Modifier.padding(top = 2.dp).errorAnnouncement()
+                        if (gift.auctionId.isNullOrBlank()) stringResource(R.string.gifts_cost, formatStarAmount(gift.starCount)) else stringResource(R.string.gift_auction_title),
+                        color = palette.textPrimary,
+                        fontSize = 16.sp,
+                        fontWeight = FontWeight.SemiBold
                     )
+                    if (gift.resaleTitle.isNotBlank()) Text(gift.resaleTitle, color = palette.textPrimary, fontSize = 14.sp)
+                    val details = mutableListOf<String>()
+                    if (gift.isPremiumOnly) details += stringResource(R.string.gifts_premium_only)
+                    if (gift.isAuctionOnly) details += stringResource(R.string.gifts_auction_only)
+                    if (gift.isSoldOut) details += stringResource(R.string.gifts_sold_out)
+                    gift.remainingCount?.takeIf { it > 0 }?.let {
+                        details += stringResource(R.string.gifts_remaining, it)
+                    }
+                    if (details.isNotEmpty()) {
+                        Text(details.joinToString(" · "), color = palette.textSecondary, fontSize = 12.sp)
+                    }
+                    blockReason?.takeUnless { it == GiftBlockReason.AuctionOnly && !gift.auctionId.isNullOrBlank() }?.let { reason ->
+                        Text(
+                            stringResource(giftBlockMessage(reason)),
+                            color = palette.danger,
+                            fontSize = 12.sp,
+                            modifier = Modifier.padding(top = 2.dp).errorAnnouncement()
+                        )
+                    }
                 }
             }
             if (!gift.auctionId.isNullOrBlank()) {

@@ -35,7 +35,13 @@
     <string name="chat_message_open_failed">No se pudo abrir el mensaje</string>
     <string name="chat_message_unavailable">Mensaje no disponible</string>
     <string name="chat_network_waiting">Sin red. Los mensajes se enviarán más tarde</string>
-    <string name="chat_pinned_message">Mensaje</string>
+    <string name="chat_pinned_hide_panel">Ocultar la barra de fijados</string>
+    <string name="chat_pinned_show_bar">Mostrar la barra de fijados</string>
+    <string name="chat_pinned_unpin">Dejar de fijar el mensaje</string>
+    <string name="chat_pinned_jump">Ir al mensaje</string>
+    <string name="chat_pinned_search_hint">Buscar en los mensajes fijados</string>
+    <string name="chat_pinned_search_empty">No se encontró nada</string>
+    <string name="chat_pinned_empty">No hay mensajes fijados</string>
     <string name="chat_preview_audio">🎵 Audio</string>
     <string name="chat_preview_document">📄 Documento</string>
     <string name="chat_preview_photo">📷 Foto</string>

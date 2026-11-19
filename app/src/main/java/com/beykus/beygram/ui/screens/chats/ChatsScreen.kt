@@ -36,6 +36,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.size
@@ -65,6 +66,7 @@ import androidx.compose.material.icons.rounded.Done
 import androidx.compose.material.icons.rounded.DoneAll
 import androidx.compose.material.icons.rounded.Edit
 import androidx.compose.material.icons.rounded.ErrorOutline
+import androidx.compose.material.icons.rounded.Forum
 import androidx.compose.material.icons.rounded.People
 import androidx.compose.material.icons.rounded.NotificationsOff
 import androidx.compose.material.icons.rounded.Refresh
@@ -127,6 +129,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.IntOffset
+import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.Velocity
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -136,6 +139,8 @@ import com.beykus.beygram.domain.UiText
 import com.beykus.beygram.domain.model.ChatMessage
 import com.beykus.beygram.domain.model.ChatPreview
 import com.beykus.beygram.domain.model.ChatStories
+import com.beykus.beygram.domain.model.CustomEmoji
+import com.beykus.beygram.domain.model.ForumTopicBrief
 import com.beykus.beygram.domain.model.TelegramChatFolders
 import com.beykus.beygram.domain.model.TelegramConnectionState
 import com.beykus.beygram.domain.model.TelegramFolderLoadState
@@ -156,14 +161,18 @@ import com.beykus.beygram.ui.text.resolve
 import com.beykus.beygram.ui.text.pluralForm
 import java.text.NumberFormat
 import kotlin.math.min
+import kotlin.math.roundToInt
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.heading
+import androidx.compose.ui.semantics.CustomAccessibilityAction
+import androidx.compose.ui.semantics.customActions
 import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
@@ -172,6 +181,7 @@ import androidx.compose.ui.window.DialogProperties
 import com.beykus.beygram.ui.accessibility.accessibleChatRowDescription
 import com.beykus.beygram.ui.accessibility.accessibleDescription
 import com.beykus.beygram.ui.accessibility.errorAnnouncement
+import com.beykus.beygram.ui.screens.chat.forumTopicNameOrFallback
 import com.beykus.beygram.ui.components.LocalNavigationDock
 import com.beykus.beygram.ui.components.beyGramPalette
 import com.beykus.beygram.ui.components.createButtonPlacement
@@ -200,10 +210,6 @@ import com.beykus.beygram.ui.motion.rememberMotionSpec
 import com.beykus.beygram.ui.motion.rememberMotionInstant
 import com.beykus.beygram.ui.motion.scrollToItemRespectingMotion
 import com.beykus.beygram.ui.screens.stories.StoryBarSection
-
-/** Ignore tiny scroll offsets; collapse after passing the story/archive area. */
-internal fun shouldCompactChatListHeader(firstVisibleItemIndex: Int, scrollOffsetPx: Int, thresholdPx: Int): Boolean =
-    firstVisibleItemIndex > 0 || scrollOffsetPx > thresholdPx
 
 private enum class ChatFilter(val title: Int) {
     All(R.string.chats_filter_all), People(R.string.chats_filter_people), Groups(R.string.chats_filter_groups), Unread(R.string.chats_filter_unread)
@@ -243,6 +249,11 @@ fun ChatsScreen(
     myProfile: ProfileInfo?,
     observeFile: (Int) -> StateFlow<MediaFileState>,
     downloadFile: (Int) -> Unit,
+    /** Names the topic of a forum row's last message, above its preview. Null leaves forum rows without a topic line. */
+    observeForumTopic: ((Long, Long) -> StateFlow<ForumTopicBrief?>)? = null,
+    observeCustomEmoji: (Long) -> StateFlow<CustomEmoji?> = { MutableStateFlow<CustomEmoji?>(null) },
+    /** Opens the forum topic that a row names, so the chat opens on that topic instead of its topic list. */
+    onForumTopicClick: (ChatPreview) -> Unit = {},
     onMyProfile: () -> Unit,
     onAccountPicker: () -> Unit = {},
     onArchiveClick: () -> Unit,
@@ -310,6 +321,10 @@ fun ChatsScreen(
     val openChat: (ChatPreview) -> Unit = { chat ->
         focusManager.clearFocus()
         onChatClick(chat)
+    }
+    val openForumTopic: (ChatPreview) -> Unit = { chat ->
+        focusManager.clearFocus()
+        onForumTopicClick(chat)
     }
     // The split list pane is narrower than a phone: the title and side paddings give room to the
     // header actions (saved messages, account switcher, avatar) without pushing them off-screen.
@@ -425,12 +440,39 @@ fun ChatsScreen(
     val density = LocalDensity.current
     val listState = state.listState
     val listScrollInstant = rememberMotionInstant(MotionToken.ListReorder)
-    LaunchedEffect(state) {
+    // The phone header collapses with the list's own scroll (ChatsHeaderCollapse.kt). Its state, the archive pull it yields
+    // to and its connection are declared before the effects below, which drive them.
+    val headerMotion = rememberMotionSpec(MotionToken.BannerChange)
+    val headerCollapse = rememberSaveable(saver = ChatsHeaderCollapseState.Saver) { ChatsHeaderCollapseState() }
+    var pullPx by remember { mutableFloatStateOf(0f) }
+    val hysteresisPx = with(density) { 14.dp.toPx() }
+    val headerConnection = remember(headerCollapse, hysteresisPx, state) {
+        ChatsHeaderScrollConnection(headerCollapse, { state.listState }, hysteresisPx, { pullPx > 0f })
+    }
+    headerConnection.settleSpec = if (headerMotion.isInstant) null else headerMotion.animationSpec<Float>()
+    // The compact header has no collapsing title: nothing collapses while it is shown, and the phone header opens expanded.
+    LaunchedEffect(compactHeader) {
+        if (compactHeader) {
+            headerCollapse.offsetPx = 0f
+            headerCollapse.rangePx = 0f
+        }
+    }
+    // A folder has its own list: when it opens at its top, the header opens with it. The list this screen starts with keeps
+    // the restored header instead.
+    val entryListState = remember { listState }
+    LaunchedEffect(listState) {
+        val atTop = listState.firstVisibleItemIndex == 0 && listState.firstVisibleItemScrollOffset == 0
+        if (listState !== entryListState && atTop) headerConnection.animateToTop()
+    }
+    LaunchedEffect(state, headerConnection) {
         // Each scroll runs in its own child job: a drag that cancels the animation must not end the request collector.
         var scrollJob: Job? = null
         state.scrollToTopRequests.collect {
             scrollJob?.cancel()
-            scrollJob = launch { state.listState.scrollToItemRespectingMotion(0, motionInstant = listScrollInstant) }
+            scrollJob = launch {
+                launch { headerConnection.animateToTop() }
+                state.listState.scrollToItemRespectingMotion(0, motionInstant = listScrollInstant)
+            }
         }
     }
     // The folder chips scroll in their own strip. When the selected chip is not whole in view, the strip moves so its name
@@ -454,39 +496,15 @@ fun ChatsScreen(
         // The selected chip goes to the start edge: its whole name is in view, even when the chip before it is wide.
         if (!fullyVisible) folderTabsState.scrollToItemRespectingMotion(selectedFolderTabIndex, motionInstant = folderTabMotion)
     }
-    val headerCollapseThresholdPx = with(density) { 96.dp.roundToPx() }
-    val headerCollapsed by remember(listState, headerCollapseThresholdPx) {
-        derivedStateOf {
-            shouldCompactChatListHeader(
-                listState.firstVisibleItemIndex,
-                listState.firstVisibleItemScrollOffset,
-                headerCollapseThresholdPx
-            )
-        }
-    }
-    val headerMotion = rememberMotionSpec(MotionToken.BannerChange)
-    // The style owns the title scale; the collapsed form keeps the same 0.8 ratio Default has always had (24 of 30).
+    // The style owns the title size; while the phone header collapses, its layout scales the title block to 0.8 of it.
     val headerSize = design.mainScreen.titleSize.value
-    val headerTitleSize by animateFloatAsState(
-        targetValue = if (compactHeader || headerCollapsed) headerSize * 0.8f else headerSize,
-        animationSpec = headerMotion.animationSpec<Float>(),
-        label = "chatsHeaderTitleSize"
-    )
-    val titleSize = headerTitleSize.sp
-    // The line box stays at the expanded size: the title shrinks inside it, so collapsing never changes the header height
-    // and the list below it does not move. The overline does the same: it fades out and keeps its line.
+    // The title's line box stays at the expanded size; the header layout scales the whole title block while it collapses.
     val titleLineHeight = (headerSize + 3f).sp
-    val overlineAlpha by animateFloatAsState(
-        targetValue = if (headerCollapsed) 0f else 1f,
-        animationSpec = headerMotion.animationSpec<Float>(),
-        label = "chatsOverlineAlpha"
-    )
     val archivePullThresholdPx = with(density) { archivePullThreshold.toPx() }
     // Сколько протянуто вниз, пока архив скрыт. Подсказка растёт до порога, а за порогом архив возвращается при отпускании.
-    var pullPx by remember { mutableFloatStateOf(0f) }
     val pullCanReveal by rememberUpdatedState(archiveAvailable && archiveHidden)
     val latestOnArchiveHiddenChange by rememberUpdatedState(onArchiveHiddenChange)
-    val pullConnection = remember(listState, archivePullThresholdPx) {
+    val pullConnection = remember(listState, archivePullThresholdPx, headerCollapse) {
         object : NestedScrollConnection {
             override fun onPreScroll(available: Offset, source: NestedScrollSource): Offset {
                 // Архив мог исчезнуть или вернуться посреди протяжки: без скрытого архива протяжки быть не должно.
@@ -494,7 +512,8 @@ fun ChatsScreen(
                 if (source != NestedScrollSource.UserInput) return Offset.Zero
                 val atTop = listState.firstVisibleItemIndex == 0 && listState.firstVisibleItemScrollOffset == 0
                 return when {
-                    available.y > 0f && pullCanReveal && atTop -> {
+                    // The header comes back to full height before the archive pull starts.
+                    available.y > 0f && pullCanReveal && atTop && headerCollapse.offsetPx <= 0f -> {
                         pullPx = minOf(pullPx + available.y, archivePullThresholdPx)
                         Offset(0f, available.y)
                     }
@@ -517,8 +536,15 @@ fun ChatsScreen(
         }
     }
     // Если жест прервали системой, onPreFling не придёт: сбрасываем протяжку, когда список перестал скроллиться.
+    // The header ends its gesture here too, for the same reason.
     LaunchedEffect(listState.isScrollInProgress) {
-        if (!listState.isScrollInProgress) pullPx = 0f
+        if (!listState.isScrollInProgress) {
+            pullPx = 0f
+            headerConnection.resetGesture()
+            // A list that only overflows while the header is expanded fits once it collapses: re-expanding it here would
+            // make the header bounce on every gesture, so the header just settles. A short list never starts collapsing.
+            headerConnection.settle()
+        }
     }
     // The list's top edge is a viewport edge, not a boundary between rows: once it has moved, rows scrolled under the
     // header are cut there. Their slice (a line of the archive summary, the edge of a tonal card) then sits in the 18 dp
@@ -738,54 +764,63 @@ fun ChatsScreen(
     val chatsHeader: @Composable (Modifier) -> Unit = { modifier ->
       if (compactHeader) compactChatsHeader(modifier) else
         Column(modifier = modifier.fillMaxWidth().padding(start = headerPadding, end = headerPadding, top = 8.dp, bottom = 4.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Column(modifier = Modifier.weight(1f)) {
-                    if (design.mainScreen.showBrandOverline) {
-                        Text(
-                            stringResource(R.string.app_name).uppercase(),
-                            modifier = Modifier.graphicsLayer { alpha = overlineAlpha },
-                            color = palette.accent,
-                            style = MaterialTheme.typography.labelMedium,
-                            letterSpacing = 0.8.sp
-                        )
+            // The title, the actions and the search pill are one layout: the title fades and the pill moves up beside the
+            // actions as the list scrolls, so the header ends as a single row.
+            CollapsingChatsHeaderLayout(
+                collapse = headerCollapse,
+                gap = design.mainScreen.headerGap,
+                title = {
+                    Column {
+                        if (design.mainScreen.showBrandOverline) {
+                            Text(
+                                stringResource(R.string.app_name).uppercase(),
+                                color = palette.accent,
+                                style = MaterialTheme.typography.labelMedium,
+                                letterSpacing = 0.8.sp
+                            )
+                        }
+                        Text(stringResource(R.string.chats_title), color = palette.textPrimary, fontSize = headerSize.sp, lineHeight = titleLineHeight, fontWeight = design.mainScreen.titleWeight, letterSpacing = design.mainScreen.titleTracking,
+                            maxLines = 1, overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.clickable { state.requestScrollToTop() }.semantics { heading() })
                     }
-                    Text(stringResource(R.string.chats_title), color = palette.textPrimary, fontSize = titleSize, lineHeight = titleLineHeight, fontWeight = design.mainScreen.titleWeight, letterSpacing = design.mainScreen.titleTracking,
-                        maxLines = 1, overflow = TextOverflow.Ellipsis,
-                        modifier = Modifier.clickable { state.requestScrollToTop() }.semantics { heading() })
-                }
-                if (createChatPlacement == CreateChatPlacement.Header) {
-                    androidx.compose.material3.IconButton(onClick = onNewChat, modifier = Modifier.size(48.dp)) {
-                        Icon(Icons.Rounded.Edit, stringResource(R.string.new_chat_title),
-                            tint = if (design.usesGlassPanels) palette.accentInk else palette.accent,
-                            modifier = Modifier.size(22.dp))
+                },
+                actions = {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        if (createChatPlacement == CreateChatPlacement.Header) {
+                            androidx.compose.material3.IconButton(onClick = onNewChat, modifier = Modifier.size(48.dp)) {
+                                Icon(Icons.Rounded.Edit, stringResource(R.string.new_chat_title),
+                                    tint = if (design.usesGlassPanels) palette.accentInk else palette.accent,
+                                    modifier = Modifier.size(22.dp))
+                            }
+                        }
+                        // The avatar stays 40 dp visually, while the tap area covers Android's 48 dp minimum.
+                        Box(
+                            Modifier.size(48.dp).clip(CircleShape)
+                                .combinedClickable(
+                                    role = Role.Button,
+                                    onLongClickLabel = stringResource(R.string.account_switcher_title),
+                                    onLongClick = onAccountPicker,
+                                    onClick = onMyProfile
+                                )
+                                .semantics { contentDescription = context.getString(R.string.chats_my_profile_description) },
+                            contentAlignment = Alignment.Center
+                        ) {
+                            TelegramAvatar(myProfile?.initials ?: stringResource(R.string.chats_avatar_fallback), palette.accent, 40.dp, myProfile?.photo, observeFile, downloadFile,
+                                Modifier.clearAndSetSemantics {})
+                        }
+                        headerOverflow()
                     }
+                },
+                search = {
+                    SearchFieldButton(
+                        placeholder = stringResource(R.string.chats_search_placeholder),
+                        onClick = { focusManager.clearFocus(); onGlobalSearch("") }
+                    )
                 }
-                // The avatar stays 40 dp visually, while the tap area covers Android's 48 dp minimum.
-                Box(
-                    Modifier.size(48.dp).clip(CircleShape)
-                        .combinedClickable(
-                            role = Role.Button,
-                            onLongClickLabel = stringResource(R.string.account_switcher_title),
-                            onLongClick = onAccountPicker,
-                            onClick = onMyProfile
-                        )
-                        .semantics { contentDescription = context.getString(R.string.chats_my_profile_description) },
-                    contentAlignment = Alignment.Center
-                ) {
-                    TelegramAvatar(myProfile?.initials ?: stringResource(R.string.chats_avatar_fallback), palette.accent, 40.dp, myProfile?.photo, observeFile, downloadFile,
-                        Modifier.clearAndSetSemantics {})
-                }
-                headerOverflow()
-            }
+            )
             // Заголовок «Сообщения» остаётся названием раздела; реальное состояние TDLib
             // показывается строкой во всю ширину шапки и исчезает сразу после восстановления связи.
             ChatsConnectionLine(connectionStatus)
-
-            Spacer(Modifier.height(design.mainScreen.headerGap))
-            SearchFieldButton(
-                placeholder = stringResource(R.string.chats_search_placeholder),
-                onClick = { focusManager.clearFocus(); onGlobalSearch("") }
-            )
             Spacer(Modifier.height(design.mainScreen.folderGap))
             // Only one source of folder navigation: server-backed Telegram lists.
             // Main ('Все чаты') is a real tab even when the account has no custom folders yet.
@@ -794,17 +829,18 @@ fun ChatsScreen(
             }
         }
     }
-    val chatList: @Composable (Modifier, Dp) -> Unit = { modifier, topPadding ->
+    val chatList: @Composable (Modifier, () -> Dp, Boolean) -> Unit = { modifier, topPadding, glass ->
         LazyColumn(
             state = listState,
             // Under glass chrome the rows run on beneath the pane and are blurred there: dissolving them on a 24 dp strip
-            // first would cut a row off before it reaches the glass (topPadding > 0 only in the glass layout).
-            modifier = modifier.nestedScroll(pullConnection).chatListEdgeFade(topPadding, fadeBottom = dock.floating && dock.contentInset == 0.dp) {
-                if (topPadding > 0.dp) 0f else topEdgeFade
-            },
+            // first would cut a row off before it reaches the glass (the glass layout only).
+            modifier = modifier.nestedScroll(pullConnection).nestedScroll(headerConnection)
+                .chatListEdgeFade(topPadding, fadeBottom = dock.floating && dock.contentInset == 0.dp) {
+                    if (glass) 0f else topEdgeFade
+                },
             // Keep the last conversation accessible above the overlay button, measured from the button itself. Under
             // glass chrome the list also starts below the header it scrolls beneath.
-            contentPadding = PaddingValues(
+            contentPadding = DynamicTopPadding(
                 top = topPadding,
                 bottom = if (createChatPlacement == CreateChatPlacement.Fab) fabPlacement.listClearance else 8.dp
             )
@@ -846,6 +882,9 @@ fun ChatsScreen(
                         chat = chat,
                         observeFile = observeFile,
                         downloadFile = downloadFile,
+                        observeForumTopic = observeForumTopic,
+                        observeCustomEmoji = observeCustomEmoji,
+                        onForumTopicClick = { openForumTopic(chat) },
                         openChatId = openSwipeChatId,
                         onOpenChange = { openSwipeChatId = it },
                         onClick = { openChat(chat) },
@@ -909,6 +948,9 @@ fun ChatsScreen(
                             chat = chat,
                             observeFile = observeFile,
                             downloadFile = downloadFile,
+                            observeForumTopic = observeForumTopic,
+                            observeCustomEmoji = observeCustomEmoji,
+                            onForumTopicClick = { openForumTopic(chat) },
                             openChatId = openSwipeChatId,
                             onOpenChange = { openSwipeChatId = it },
                             onClick = { openChat(chat) },
@@ -949,6 +991,14 @@ fun ChatsScreen(
     val glassChrome = design.usesGlassPanels
     val chatsBackdrop = if (glassChrome && design.recordsGlassBackdrop) rememberGlassBackdrop() else null
     var glassHeaderHeightPx by remember { mutableIntStateOf(0) }
+    // The pane's size is reported after layout, one frame behind the collapse. The collapse applied in that measured size
+    // is kept beside it, so the list padding follows the current collapse in the same frame instead of trailing it.
+    val glassHeaderAppliedCollapse = remember { FloatArray(1) }
+    val glassHeaderTopPx: () -> Int = {
+        (glassHeaderHeightPx + glassHeaderAppliedCollapse[0] - headerCollapse.currentPx).roundToInt().coerceAtLeast(0)
+    }
+    // How far the archive pull has opened. A lambda, so a pull step re-lays out the layouts that read it, not the screen.
+    val pullShownPx: () -> Float = { if (archiveAvailable && archiveHidden) min(pullPx, archivePullThresholdPx) else 0f }
 
     // The root Box is bounded by MainTabsScaffold: above the bottom navigation on phones,
     // beside the navigation rail on wide screens. Its FAB is never drawn under the system navigation bar.
@@ -976,13 +1026,11 @@ fun ChatsScreen(
       if (glassChrome) {
           // Liquid Glass: the list runs the whole height and the header floats over it as one pane of glass. Only the
           // list is recorded for the pane, never the pane itself, so it cannot sample a layer it is drawn into (#623).
-          val headerHeight = with(density) { glassHeaderHeightPx.toDp() }
-          val pullShown = if (archiveAvailable && archiveHidden) min(pullPx, archivePullThresholdPx) else 0f
-          val pullDp = with(density) { pullShown.toDp() }
           Box(Modifier.fillMaxSize().then(if (chatsBackdrop != null) Modifier.glassBackdropSource(chatsBackdrop) else Modifier)) {
-              chatList(Modifier.fillMaxSize(), headerHeight + pullDp)
+              // The top padding is read when the list measures: the glass header changes height while it collapses.
+              chatList(Modifier.fillMaxSize(), { with(density) { glassHeaderTopPx().toDp() + pullShownPx().toDp() } }, true)
               // The pull hint opens the same gap the list leaves for it, right under the glass.
-              Box(Modifier.padding(top = headerHeight)) { ArchivePullSlot(shownPx = { pullShown }) }
+              Box(Modifier.offset { IntOffset(0, glassHeaderTopPx()) }) { ArchivePullSlot(shownPx = pullShownPx) }
           }
           CompositionLocalProvider(LocalGlassBackdrop provides chatsBackdrop) {
               GlassPanel(
@@ -995,7 +1043,10 @@ fun ChatsScreen(
                   edge = GlassEdge.BottomHairline,
                   // The pane is hit-tested as a whole: a tap on the title or a gap must not reach a chat row
                   // scrolled underneath. Its own buttons and the search field still receive input first.
-                  modifier = Modifier.fillMaxWidth().onSizeChanged { glassHeaderHeightPx = it.height }
+                  modifier = Modifier.fillMaxWidth().onSizeChanged {
+                      glassHeaderAppliedCollapse[0] = headerCollapse.appliedPx
+                      glassHeaderHeightPx = it.height
+                  }
                       .pointerInput(Unit) { awaitPointerEventScope { while (true) awaitPointerEvent() } }
               ) {
                   // The pane covers the status bar, so the title still starts below it and no seam shows at the edge.
@@ -1006,8 +1057,8 @@ fun ChatsScreen(
       Column(Modifier.fillMaxSize()) {
         chatsHeader(Modifier)
 
-        ArchivePullSlot(shownPx = { if (archiveAvailable && archiveHidden) min(pullPx, archivePullThresholdPx) else 0f })
-        chatList(Modifier.weight(1f), 0.dp)
+        ArchivePullSlot(shownPx = pullShownPx)
+        chatList(Modifier.weight(1f), { 0.dp }, false)
       }
       }
       if (createChatPlacement == CreateChatPlacement.Fab) FloatingActionButton(
@@ -1374,7 +1425,7 @@ private fun ArchivePullHint(heightDp: Dp) {
  * sliver. The list is drawn into its own layer and masked there (DstIn): the screen colour, the glows and the glass
  * backdrop record show through unchanged, and nothing is blurred.
  */
-private fun Modifier.chatListEdgeFade(topPadding: Dp, fadeBottom: Boolean, topProgress: () -> Float): Modifier =
+private fun Modifier.chatListEdgeFade(topPadding: () -> Dp, fadeBottom: Boolean, topProgress: () -> Float): Modifier =
     graphicsLayer {
         compositingStrategy = if (fadeBottom || topProgress() > 0f) {
             CompositingStrategy.Offscreen
@@ -1386,7 +1437,7 @@ private fun Modifier.chatListEdgeFade(topPadding: Dp, fadeBottom: Boolean, topPr
         val fade = chatListEdgeFadeHeight.toPx()
         val amount = topProgress().coerceIn(0f, 1f)
         if (amount > 0f) {
-            val top = topPadding.toPx()
+            val top = topPadding().toPx()
             drawRect(
                 brush = Brush.verticalGradient(
                     colors = listOf(Color.Black.copy(alpha = 1f - amount), Color.Black),
@@ -1412,6 +1463,17 @@ private fun Modifier.chatListEdgeFade(topPadding: Dp, fadeBottom: Boolean, topPr
             )
         }
     }
+
+/**
+ * List padding whose top is read when the list measures, not when it composes: the glass header changes height while it
+ * collapses, and a padding read in composition would recompose the whole list on every frame of that.
+ */
+private class DynamicTopPadding(private val top: () -> Dp, private val bottom: Dp) : PaddingValues {
+    override fun calculateLeftPadding(layoutDirection: LayoutDirection): Dp = 0.dp
+    override fun calculateTopPadding(): Dp = top()
+    override fun calculateRightPadding(layoutDirection: LayoutDirection): Dp = 0.dp
+    override fun calculateBottomPadding(): Dp = bottom
+}
 
 /** Server tabs are horizontally scrollable; no pager gesture conflicts with SwipeChatRow. */
 @Composable
@@ -1733,7 +1795,11 @@ private val TrailingIndicatorGap = 6.dp
 
 @Composable
 internal fun ChatListItem(chat: ChatPreview, observeFile: (Int) -> StateFlow<MediaFileState>, downloadFile: (Int) -> Unit,
-    onClick: () -> Unit, onLongClick: (() -> Unit)? = null, onAvatarLongClick: (() -> Unit)? = null, highlighted: Boolean = false) {
+    onClick: () -> Unit, onLongClick: (() -> Unit)? = null, onAvatarLongClick: (() -> Unit)? = null, highlighted: Boolean = false,
+    observeForumTopic: ((Long, Long) -> StateFlow<ForumTopicBrief?>)? = null,
+    observeCustomEmoji: (Long) -> StateFlow<CustomEmoji?> = { MutableStateFlow<CustomEmoji?>(null) },
+    /** Opens the topic that a forum row names; null leaves the topic line as plain text. */
+    onTopicClick: (() -> Unit)? = null) {
     val palette = beyGramPalette()
     val listDensity = LocalChatListDensity.current
     val design = LocalDesignSystem.current
@@ -1750,6 +1816,12 @@ internal fun ChatListItem(chat: ChatPreview, observeFile: (Int) -> StateFlow<Med
         if (chat.unreadCount > 0) stringResource(R.string.a11y_chat_unread_count, chat.unreadCount)
         else stringResource(R.string.a11y_chat_unread_marked)
     } else null
+    // A forum row names the topic of its last message; only such a row asks for that topic.
+    val topicId = if (chat.isForum && observeForumTopic != null) chat.lastMessageForumTopicId else 0L
+    val topic = rememberRowTopicBrief(chat.id, topicId, observeForumTopic).value
+    val topicLabel = if (topic != null) forumTopicNameOrFallback(topic.title, topic.isGeneral, topic.isNameImplicit) else null
+    val topicTap: (() -> Unit)? = if (topicId != 0L) onTopicClick else null
+    val openTopicLabel: String? = if (topicTap != null) stringResource(R.string.chats_open_topic) else null
     val description = accessibleChatRowDescription(
         title = chat.title,
         preview = preview,
@@ -1757,7 +1829,9 @@ internal fun ChatListItem(chat: ChatPreview, observeFile: (Int) -> StateFlow<Med
         unreadLabel = unreadLabel,
         mutedLabel = if (chat.isMuted) stringResource(R.string.a11y_chat_muted) else null,
         statusLabel = sendStatusLabel(chat),
-        secretLabel = if (chat.isSecret) stringResource(R.string.chats_secret_chat) else null
+        secretLabel = if (chat.isSecret) stringResource(R.string.chats_secret_chat) else null,
+        forumLabel = if (chat.isForum) stringResource(R.string.chats_forum) else null,
+        topicLabel = topicLabel
     )
     // Signature draws the row as a rounded tile inside the list: the press and the open-chat highlight stop short of the
     // screen edge. The content keeps the same 20dp start position as every other style.
@@ -1771,6 +1845,10 @@ internal fun ChatListItem(chat: ChatPreview, observeFile: (Int) -> StateFlow<Med
                 contentDescription = description
                 // TalkBack announces which conversation is already open in the right pane.
                 if (highlighted) selected = true
+                // The merged row has no separate stop for the topic line, so TalkBack gets opening it as an action.
+                if (topicTap != null && openTopicLabel != null) {
+                    customActions = listOf(CustomAccessibilityAction(openTopicLabel) { topicTap(); true })
+                }
             }
             .padding(horizontal = (20.dp - main.rowInset).coerceAtLeast(0.dp), vertical = rowPadding),
         verticalAlignment = Alignment.CenterVertically
@@ -1784,6 +1862,7 @@ internal fun ChatListItem(chat: ChatPreview, observeFile: (Int) -> StateFlow<Med
             Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                 Text(chat.title, color = palette.textPrimary, fontSize = 16.sp, fontWeight = main.rowTitleWeight, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
                 if (chat.isSecret) Icon(Icons.Rounded.Lock, null, tint = palette.accent, modifier = Modifier.padding(start = 4.dp).size(14.dp))
+                if (chat.isForum) Icon(Icons.Rounded.Forum, null, tint = palette.textSecondary, modifier = Modifier.padding(start = 4.dp).size(14.dp))
                 Spacer(Modifier.width(6.dp))
                 Text(
                     chat.lastMessageTime,
@@ -1793,6 +1872,17 @@ internal fun ChatListItem(chat: ChatPreview, observeFile: (Int) -> StateFlow<Med
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                     modifier = Modifier.widthIn(max = 72.dp)
+                )
+            }
+            if (topicId != 0L) {
+                Spacer(Modifier.height(2.dp))
+                ChatTopicLine(
+                    topic = topic,
+                    observeFile = observeFile,
+                    downloadFile = downloadFile,
+                    observeCustomEmoji = observeCustomEmoji,
+                    onClick = topicTap,
+                    onLongClick = if (topicTap != null) onLongClick else null
                 )
             }
             Spacer(Modifier.height(3.dp))

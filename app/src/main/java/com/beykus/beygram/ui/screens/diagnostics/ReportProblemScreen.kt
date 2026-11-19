@@ -4,31 +4,33 @@ import androidx.activity.compose.BackHandler
 import com.beykus.beygram.ui.design.styledShape
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import com.beykus.beygram.ui.components.BeyGramDialog
 import com.beykus.beygram.ui.components.Button
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.HorizontalDivider
 import com.beykus.beygram.ui.components.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import com.beykus.beygram.ui.components.Switch
 import androidx.compose.material3.Text
 import com.beykus.beygram.ui.components.TextButton
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -36,9 +38,11 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.clearAndSetSemantics
+import androidx.compose.ui.semantics.heading
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.text.style.TextAlign
@@ -57,12 +61,17 @@ import com.beykus.beygram.diagnostics.shareConnectionDiagnosticsOrError
 import com.beykus.beygram.domain.model.TelegramConnectionState
 import com.beykus.beygram.domain.repository.TelegramRepository
 import com.beykus.beygram.ui.components.beyGramPalette
+import com.beykus.beygram.ui.components.groupSurfaceColor
+import com.beykus.beygram.ui.design.LocalDesignSystem
+import com.beykus.beygram.ui.design.glassCard
+import com.beykus.beygram.ui.design.glassScreenBackground
+import com.beykus.beygram.ui.design.groupCardShape
 import com.beykus.beygram.ui.screens.profile.ProfileToolbar
 import kotlinx.coroutines.launch
 
 /**
- * Форма отчёта о проблеме: описание, точный состав данных, отправка и статус.
- * Ничего не отправляется до явного нажатия «Отправить отчёт».
+ * Отчёт о проблеме по шагам: описание, данные, предпросмотр приватности, отправка и результат.
+ * Шаги только показывают уже существующий поток; ничего не отправляется до явного нажатия «Отправить отчёт».
  */
 @Composable
 fun ReportProblemScreen(
@@ -78,6 +87,7 @@ fun ReportProblemScreen(
     val coordinator = viewModel.coordinator
     val state by coordinator.state.collectAsStateWithLifecycle()
     val palette = beyGramPalette()
+    val design = LocalDesignSystem.current
     val scope = rememberCoroutineScope()
     var showPreview by remember { mutableStateOf(false) }
     var previewText by remember { mutableStateOf<String?>(null) }
@@ -91,13 +101,17 @@ fun ReportProblemScreen(
     BackHandler { onBack() }
 
     Column(
-        Modifier.fillMaxSize().background(palette.screen).windowInsetsPadding(WindowInsets.safeDrawing)
+        Modifier.fillMaxSize().glassScreenBackground(design, palette.screen).windowInsetsPadding(WindowInsets.safeDrawing)
     ) {
         ProfileToolbar(stringResource(R.string.report_title), onBack)
         Column(
             Modifier.verticalScroll(rememberScrollState()).padding(20.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
+            // Once the report is sent the result is the fifth step; before that the form already shows it at the end.
+            if (state !is ReportFlowState.Draft) {
+                ReportStepHeader(number = 5, title = stringResource(R.string.report_step_result))
+            }
             when (val current = state) {
                 is ReportFlowState.Draft -> DraftForm(
                     state = current,
@@ -196,6 +210,37 @@ fun ReportProblemScreen(
     }
 }
 
+/** Номер и заголовок шага. Номер TalkBack не читает: заголовок уже называет шаг. */
+@Composable
+private fun ReportStepHeader(number: Int, title: String) {
+    val palette = beyGramPalette()
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Box(
+            Modifier.size(28.dp).background(palette.accentSoft, CircleShape).clearAndSetSemantics { },
+            contentAlignment = Alignment.Center
+        ) {
+            Text(number.toString(), color = palette.accentInk, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
+        }
+        Spacer(Modifier.width(10.dp))
+        Text(
+            title,
+            color = palette.textPrimary,
+            fontSize = 16.sp,
+            fontWeight = FontWeight.SemiBold,
+            modifier = Modifier.semantics { heading() }
+        )
+    }
+}
+
+/** Шаг формы: заголовок и его содержимое. */
+@Composable
+private fun ReportStep(number: Int, title: String, content: @Composable ColumnScope.() -> Unit) {
+    Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        ReportStepHeader(number = number, title = title)
+        content()
+    }
+}
+
 @Composable
 private fun DraftForm(
     state: ReportFlowState.Draft,
@@ -206,51 +251,70 @@ private fun DraftForm(
     botUsername: String
 ) {
     val palette = beyGramPalette()
-    OutlinedTextField(
-        value = state.description,
-        onValueChange = onDescriptionChange,
-        modifier = Modifier.fillMaxWidth(),
-        label = { Text(stringResource(R.string.report_description_label)) },
-        placeholder = { Text(stringResource(R.string.report_description_placeholder)) },
-        isError = state.descriptionError,
-        keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Sentences),
-        supportingText = {
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                Text(
-                    if (state.descriptionError) stringResource(R.string.report_description_error)
-                    else stringResource(R.string.report_include_diagnostics_hint),
-                    color = if (state.descriptionError) palette.danger else palette.textSecondary,
-                    fontSize = 12.sp,
-                    modifier = Modifier.weight(1f, fill = false)
+    val design = LocalDesignSystem.current
+    Text(stringResource(R.string.report_intro), color = palette.textSecondary, fontSize = 14.sp, lineHeight = 20.sp)
+
+    ReportStep(number = 1, title = stringResource(R.string.report_step_description)) {
+        OutlinedTextField(
+            value = state.description,
+            onValueChange = onDescriptionChange,
+            modifier = Modifier.fillMaxWidth(),
+            label = { Text(stringResource(R.string.report_description_label)) },
+            placeholder = { Text(stringResource(R.string.report_description_placeholder)) },
+            isError = state.descriptionError,
+            keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Sentences),
+            supportingText = {
+                val counter = stringResource(
+                    R.string.report_description_counter,
+                    state.description.length,
+                    BugReportPayload.MAX_DESCRIPTION_CHARS
                 )
-                Spacer(Modifier.height(0.dp))
-                Text(
-                    stringResource(R.string.report_description_counter, state.description.length, BugReportPayload.MAX_DESCRIPTION_CHARS),
-                    color = palette.textSecondary,
-                    fontSize = 12.sp
-                )
-            }
-        },
-        minLines = 3
-    )
-    Row(verticalAlignment = Alignment.CenterVertically) {
-        Column(Modifier.weight(1f)) {
-            Text(stringResource(R.string.report_include_diagnostics), color = palette.textPrimary, fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
-            Text(stringResource(R.string.report_include_diagnostics_hint), color = palette.textSecondary, fontSize = 13.sp, lineHeight = 17.sp)
-        }
-        Switch(checked = state.includeDiagnostics, onCheckedChange = onIncludeDiagnosticsChange)
+                if (state.descriptionError) {
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                        Text(stringResource(R.string.report_description_error), color = palette.danger, fontSize = 12.sp)
+                        Text(counter, color = palette.textSecondary, fontSize = 12.sp)
+                    }
+                } else {
+                    Text(
+                        counter,
+                        color = palette.textSecondary,
+                        fontSize = 12.sp,
+                        modifier = Modifier.fillMaxWidth(),
+                        textAlign = TextAlign.End
+                    )
+                }
+            },
+            minLines = 3
+        )
     }
-    Column(Modifier.fillMaxWidth().clip(styledShape(16.dp)).background(palette.surface).padding(16.dp)) {
-        Text(stringResource(R.string.report_attached_title), color = palette.textPrimary, fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
-        Spacer(Modifier.height(8.dp))
-        AttachedItem(stringResource(R.string.report_attached_description))
-        AttachedItem(stringResource(R.string.report_attached_version))
-        AttachedItem(stringResource(R.string.report_attached_device))
-        AttachedItem(stringResource(R.string.report_attached_connection))
-        if (state.includeDiagnostics) {
-            AttachedItem(stringResource(R.string.report_attached_events, state.eventCount))
+
+    ReportStep(number = 2, title = stringResource(R.string.report_step_data)) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Column(Modifier.weight(1f)) {
+                Text(stringResource(R.string.report_include_diagnostics), color = palette.textPrimary, fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
+                Text(stringResource(R.string.report_include_diagnostics_hint), color = palette.textSecondary, fontSize = 13.sp, lineHeight = 17.sp)
+            }
+            Switch(checked = state.includeDiagnostics, onCheckedChange = onIncludeDiagnosticsChange)
         }
-        Spacer(Modifier.height(8.dp))
+        Column(
+            Modifier.fillMaxWidth()
+                .glassCard(design, groupSurfaceColor(), palette.textSecondary, groupCardShape())
+                .padding(16.dp)
+        ) {
+            Text(stringResource(R.string.report_attached_title), color = palette.textPrimary, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
+            Spacer(Modifier.height(8.dp))
+            AttachedItem(stringResource(R.string.report_attached_description))
+            AttachedItem(stringResource(R.string.report_attached_version))
+            AttachedItem(stringResource(R.string.report_attached_device))
+            AttachedItem(stringResource(R.string.report_attached_connection))
+            if (state.includeDiagnostics) {
+                AttachedItem(stringResource(R.string.report_attached_events, state.eventCount))
+            }
+        }
+    }
+
+    ReportStep(number = 3, title = stringResource(R.string.report_step_preview)) {
+        Text(stringResource(R.string.report_preview_note), color = palette.textSecondary, fontSize = 13.sp, lineHeight = 17.sp)
         TextButton(onClick = onPreview, enabled = state.description.isNotBlank()) {
             Text(stringResource(R.string.report_preview))
         }
@@ -258,27 +322,34 @@ private fun DraftForm(
             Text(stringResource(R.string.report_preview_unavailable), color = palette.textSecondary, fontSize = 12.sp)
         }
     }
-    if (!state.configReady) {
-        Text(stringResource(R.string.report_config_missing), color = palette.warningText, fontSize = 14.sp)
+
+    ReportStep(number = 4, title = stringResource(R.string.report_step_send)) {
+        if (!state.configReady) {
+            Text(stringResource(R.string.report_config_missing), color = palette.warningText, fontSize = 14.sp)
+        }
+        if (!state.telegramReady) {
+            Text(stringResource(R.string.report_telegram_unavailable), color = palette.warningText, fontSize = 14.sp)
+        }
+        Button(
+            onClick = onSubmit,
+            enabled = state.canSubmit,
+            modifier = Modifier.fillMaxWidth().height(52.dp),
+            shape = styledShape(16.dp)
+        ) {
+            Text(stringResource(R.string.report_submit), fontSize = 16.sp)
+        }
+        if (state.configReady && state.telegramReady) {
+            Text(
+                stringResource(R.string.report_submit_hint, botUsername),
+                color = palette.textSecondary,
+                fontSize = 13.sp,
+                lineHeight = 17.sp
+            )
+        }
     }
-    if (!state.telegramReady) {
-        Text(stringResource(R.string.report_telegram_unavailable), color = palette.warningText, fontSize = 14.sp)
-    }
-    Button(
-        onClick = onSubmit,
-        enabled = state.canSubmit,
-        modifier = Modifier.fillMaxWidth().height(52.dp),
-        shape = styledShape(16.dp)
-    ) {
-        Text(stringResource(R.string.report_submit), fontSize = 16.sp)
-    }
-    if (state.configReady && state.telegramReady) {
-        Text(
-            stringResource(R.string.report_submit_hint, botUsername),
-            color = palette.textSecondary,
-            fontSize = 13.sp,
-            lineHeight = 17.sp
-        )
+
+    ReportStep(number = 5, title = stringResource(R.string.report_step_result)) {
+        Text(stringResource(R.string.report_result_pending), color = palette.textSecondary, fontSize = 14.sp)
     }
 }
 

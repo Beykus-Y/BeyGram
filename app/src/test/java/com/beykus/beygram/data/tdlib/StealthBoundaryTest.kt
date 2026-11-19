@@ -22,7 +22,9 @@ class StealthBoundaryTest {
         "TdApi.SendMessage(" to setOf("TdConversationActions.kt", "TdStories.kt", "TdReportBotChannel.kt", "TdVideoNoteLossTransport.kt"),
         "TdApi.SendMessageAlbum(" to setOf("TdConversationActions.kt"),
         "TdApi.ForwardMessages(" to setOf("TdConversationActions.kt"),
-        "TdApi.SendInlineQueryResultMessage(" to setOf("TdBotFeatures.kt")
+        "TdApi.SendInlineQueryResultMessage(" to setOf("TdBotFeatures.kt"),
+        // A resend goes out as the message was; TdStealthScheduler.resend decides it under the settings lock.
+        "TdApi.ResendMessages(" to setOf("TdStealthScheduler.kt")
     )
 
     @Test fun sensitiveTdlibRequestsAppearOnlyInTheirGateFiles() {

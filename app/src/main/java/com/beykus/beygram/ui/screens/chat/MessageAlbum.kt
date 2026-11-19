@@ -1,11 +1,15 @@
 package com.beykus.beygram.ui.screens.chat
 
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.EnterTransition
+import androidx.compose.animation.ExitTransition
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.background
 import com.beykus.beygram.ui.design.styledShape
 import androidx.compose.foundation.border
 import androidx.compose.foundation.combinedClickable
-import androidx.compose.ui.geometry.Rect
-import androidx.compose.ui.layout.boundsInWindow
+import androidx.compose.ui.layout.LayoutCoordinates
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -50,6 +54,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.beykus.beygram.R
+import com.beykus.beygram.ui.accessibility.systemReducedMotion
 import com.beykus.beygram.data.media.AutoDownloadNetworkStatus
 import com.beykus.beygram.data.settings.AutoDownloadSettingsStore
 import com.beykus.beygram.deeplink.MessageEntityLink
@@ -82,6 +87,20 @@ internal data class ChatMessageListItem(
     val unreadSeparator: Boolean = false
 )
 
+/** contentType для LazyColumn: строки одного типа переиспользуют композицию друг друга при прокрутке. */
+internal fun chatListContentType(item: ChatMessageListItem): String = when {
+    item.unreadSeparator -> "unread"
+    item.pendingVideoNote != null -> "pendingVideoNote"
+    item.mediaAlbumId != 0L -> "album"
+    else -> item.messages.firstOrNull()?.let(::chatMessageContentType) ?: "empty"
+}
+
+internal fun chatMessageContentType(message: ChatMessage): String = when {
+    message.serviceText != null -> "service"
+    message.media != null -> "media:${message.media.kind}"
+    else -> "text"
+}
+
 /** Combines messages only when TDLib supplied the same nonzero mediaAlbumId. */
 internal fun groupTelegramMediaAlbums(messages: List<ChatMessage>): List<ChatMessageListItem> {
     val albumMembers = HashMap<Long, MutableList<ChatMessage>>()
@@ -108,9 +127,14 @@ private val chronologicalMessages = compareBy<ChatMessage> { it.dateSeconds }.th
 /**
  * Sender headers for the newest-first feed. The list is walked chronologically so consecutive messages from one author
  * share one header, even when an album groups several of them. Service rows and separators do not belong to an author,
- * so they start a fresh block. Pending video notes are outgoing content for the same reason.
+ * so they start a fresh block. Pending video notes are outgoing content for the same reason. [topicOf] is set only by the
+ * all-messages feed of a forum: a change of topic starts a fresh block there too, because its topic label opens above the row.
  */
-internal fun senderHeaderVisibility(chat: ChatPreview, items: List<ChatMessageListItem>): Map<String, Boolean> {
+internal fun senderHeaderVisibility(
+    chat: ChatPreview,
+    items: List<ChatMessageListItem>,
+    topicOf: ((ChatMessage) -> Long)? = null
+): Map<String, Boolean> {
     val headers = HashMap<String, Boolean>(items.size)
     var previous: ChatMessage? = null
     for (item in items.asReversed()) {
@@ -121,7 +145,8 @@ internal fun senderHeaderVisibility(chat: ChatPreview, items: List<ChatMessageLi
             continue
         }
         val first = chronological.first()
-        headers[item.key] = showSenderHeader(chat, first, previous)
+        val topicBreak = topicOf != null && previous != null && topicOf(previous) != topicOf(first)
+        headers[item.key] = showSenderHeader(chat, first, if (topicBreak) null else previous)
         previous = chronological.last()
     }
     return headers
@@ -151,10 +176,12 @@ internal fun MessageAlbumBubble(
     selected: Boolean = false,
     onToggleSelection: () -> Unit = {},
     onOpenMessageEntity: ((MessageEntityLink) -> Unit)? = null,
-    /** Reports the window bounds of the album bubble; every member's viewer opens from the same rectangle. */
-    onMediaBounds: ((Rect) -> Unit)? = null,
+    /** Reports the layout of the album bubble; every member's viewer opens from the same rectangle. */
+    onMediaBounds: ((LayoutCoordinates) -> Unit)? = null,
     /** Loads the earlier texts that Chat Memory kept for a member; without it the album shows no versions link. */
-    onLoadVersions: (suspend (chatId: Long, messageId: Long) -> List<ChatMemoryVersion>)? = null
+    onLoadVersions: (suspend (chatId: Long, messageId: Long) -> List<ChatMemoryVersion>)? = null,
+    composerMediaLaunches: Map<Long, ComposerMediaLaunch> = emptyMap(),
+    onComposerMediaLaunchFinished: (ComposerMediaLaunch) -> Unit = {}
 ) {
     if (messages.isEmpty()) return
     val palette = beyGramPalette()
@@ -188,10 +215,10 @@ internal fun MessageAlbumBubble(
             onReply = { onReply?.invoke(captionMessage.id) }) { swipe ->
             Box(swipe) {
                 BubbleLayout(
-                    Modifier.widthIn(max = 292.dp).clip(shape)
-                        .then(if (onMediaBounds != null) Modifier.onGloballyPositioned { it.mediaScreenBounds()?.let(onMediaBounds) } else Modifier)
+                    Modifier.widthIn(max = 292.dp).then(if (composerMediaLaunches.isEmpty()) Modifier.clip(shape) else Modifier)
+                        .then(if (onMediaBounds != null) Modifier.onGloballyPositioned { onMediaBounds(it) } else Modifier)
                         .then(if (selected || highlighted) Modifier.border(2.dp, palette.accent, shape) else Modifier)
-                        .background(if (latest.isOutgoing) palette.outgoingBubble else palette.incomingBubble)
+                        .background(if (latest.isOutgoing) palette.outgoingBubble else palette.incomingBubble, shape)
                         .then(if (selectionMode) Modifier.combinedClickable(
                             onClickLabel = selectionLabel,
                             onLongClickLabel = selectionLabel,
@@ -219,7 +246,9 @@ internal fun MessageAlbumBubble(
                                         val media = message.media ?: return@forEach
                                         AlbumMediaTile(media, observeFile, onDownloadFile, onAutoDownloadFile, onOpen = { onOpen(message.id) }, onLongPress = { onActions(message.id) },
                                             modifier = Modifier.weight(1f), selectionMode = selectionMode, selectionLabel = selectionLabel,
-                                            onToggleSelection = onToggleSelection)
+                                            onToggleSelection = onToggleSelection,
+                                            composerMediaLaunch = composerMediaLaunches[message.id],
+                                            onComposerMediaLaunchFinished = onComposerMediaLaunchFinished)
                                     }
                                     repeat(columns - rowMessages.size) { SpacerTile(Modifier.weight(1f)) }
                                 }
@@ -281,17 +310,23 @@ private fun AlbumMediaTile(
     modifier: Modifier = Modifier,
     selectionMode: Boolean = false,
     selectionLabel: String? = null,
-    onToggleSelection: () -> Unit = {}
+    onToggleSelection: () -> Unit = {},
+    composerMediaLaunch: ComposerMediaLaunch? = null,
+    onComposerMediaLaunchFinished: (ComposerMediaLaunch) -> Unit = {}
 ) {
     val palette = beyGramPalette()
     val context = LocalContext.current
     val mediaLabel = media.kind.label(context)
     val spoilerLabel = stringResource(R.string.media_spoiler_hint)
+    val reduced = systemReducedMotion()
     val openLabel = stringResource(R.string.a11y_media_open, mediaLabel)
     val longPressLabel = stringResource(R.string.a11y_message_actions)
-    val file by remember(media.fileId) { observeFile(media.fileId) }.collectAsStateWithLifecycle()
+    // Only the progress indicator reads byte counters, through the handle.
+    val fileHandle = rememberMediaFile(media.fileId, observeFile)
+    val file by fileHandle.content
     val thumbId = media.thumbnailFileId ?: media.fileId
-    val thumb by remember(thumbId) { observeFile(thumbId) }.collectAsStateWithLifecycle()
+    val thumbHandle = rememberMediaFile(thumbId, observeFile)
+    val thumb by thumbHandle.content
     val accountId = LocalPlaybackAccountId.current
     val policySettings by remember(context, accountId) {
         AutoDownloadSettingsStore.getInstance(context.applicationContext, accountId).settings
@@ -319,7 +354,8 @@ private fun AlbumMediaTile(
         }
     }
 
-    Box(modifier.aspectRatio(1f).padding(1.dp).clip(styledShape(5.dp)).background(palette.disabled)
+    val flight = composerMediaLaunchModifier(composerMediaLaunch, onComposerMediaLaunchFinished)
+    Box(modifier.aspectRatio(1f).padding(1.dp).then(flight).clip(styledShape(5.dp)).background(palette.disabled)
         .combinedClickable(
             onClickLabel = if (selectionMode) selectionLabel else if (revealed) openLabel else spoilerLabel,
             onLongClickLabel = if (selectionMode) selectionLabel else longPressLabel,
@@ -329,9 +365,30 @@ private fun AlbumMediaTile(
         .semantics { if (revealed) contentDescription = mediaLabel }
         .then(autoplay.modifier),
         contentAlignment = Alignment.Center) {
-        if (revealed && imagePath != null) LocalMediaImage(imagePath, Modifier.fillMaxSize(), animate = autoplay.eligible.value)
+        val minithumbnail = if (media.isSecret) null else media.minithumbnail
+        val soft = softMinithumbnailSlot(minithumbnail)
+        val thumbPath = thumb.localPath
+        // The tile keeps the preview under the original while the original decodes, so it never flashes a spinner.
+        val originalPlaceholder: (@Composable () -> Unit)? = if (imagePath != thumbPath && thumbPath != null) {
+            val layer: @Composable () -> Unit = { LocalMediaImage(thumbPath, Modifier.fillMaxSize(), maxDimension = ALBUM_TILE_DECODE_DIMENSION, animate = false, placeholder = soft) }
+            layer
+        } else soft
+        if (revealed && imagePath != null) LocalMediaImage(
+            imagePath, Modifier.fillMaxSize(), maxDimension = ALBUM_TILE_DECODE_DIMENSION, animate = autoplay.eligible.value,
+            placeholder = originalPlaceholder
+        )
+        else if (revealed && minithumbnail != null) SoftMinithumbnail(minithumbnail, Modifier.fillMaxSize())
+        // Drawn after the image layers so the mask covers them; it fades out on reveal.
+        AnimatedVisibility(
+            visible = !revealed,
+            enter = EnterTransition.None,
+            exit = if (reduced) ExitTransition.None else fadeOut(tween(180)),
+            modifier = Modifier.fillMaxSize()
+        ) {
+            SafeSpoilerOverlay(seed = media.fileId, modifier = Modifier.fillMaxSize())
+        }
         when {
-            !revealed -> Text(stringResource(R.string.media_spoiler_hint), color = Color.White, fontSize = 12.sp, modifier = Modifier.padding(6.dp))
+            !revealed -> Unit
             imagePath == null && (file.isDownloading || thumb.isDownloading) -> CircularProgressIndicator(Modifier.size(24.dp), color = Color.White, strokeWidth = 2.dp)
             imagePath == null -> Icon(Icons.Rounded.Download, null, tint = Color.White,
                 modifier = Modifier.size(36.dp).background(Color.Black.copy(alpha = 0.45f), CircleShape).padding(8.dp))
@@ -343,7 +400,7 @@ private fun AlbumMediaTile(
         if (media.durationSeconds > 0) Text(duration(media.durationSeconds), color = Color.White, fontSize = 11.sp,
             modifier = Modifier.align(Alignment.BottomEnd).padding(4.dp).background(Color.Black.copy(alpha = 0.55f), styledShape(5.dp)).padding(horizontal = 4.dp, vertical = 2.dp))
         if (file.isDownloading || file.isUploading) LinearProgressIndicator(
-            progress = { if (file.isUploading) file.uploadProgress else file.downloadProgress },
+            progress = { fileHandle.raw.value.transferProgress() },
             modifier = Modifier.fillMaxWidth().align(Alignment.BottomCenter)
         )
     }
@@ -353,3 +410,6 @@ private fun AlbumMediaTile(
 private fun SpacerTile(modifier: Modifier) {
     Box(modifier.aspectRatio(1f))
 }
+
+/** Album tiles are at most about half a bubble wide, so 768 px covers them at any density. */
+private const val ALBUM_TILE_DECODE_DIMENSION = 768

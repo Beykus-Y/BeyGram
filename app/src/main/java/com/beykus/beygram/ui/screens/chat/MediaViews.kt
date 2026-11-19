@@ -3,6 +3,7 @@ package com.beykus.beygram.ui.screens.chat
 import android.content.Context
 import android.content.res.Configuration
 import com.beykus.beygram.ui.accessibility.rememberHasMousePointer
+import com.beykus.beygram.ui.accessibility.systemReducedMotion
 import com.beykus.beygram.ui.accessibility.rememberTouchExplorationEnabled
 import com.beykus.beygram.ui.design.LocalDesignSystem
 import com.beykus.beygram.ui.design.styledShape
@@ -28,7 +29,10 @@ import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.Crossfade
 import androidx.compose.animation.EnterTransition
 import androidx.compose.animation.ExitTransition
+import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeOut
 import androidx.compose.animation.core.animate
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
@@ -79,11 +83,14 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.clipToBounds
+import androidx.compose.ui.draw.blur
+import androidx.compose.ui.draw.BlurredEdgeTreatment
 import com.beykus.beygram.ui.screens.bgmusic.BgMusicChatDocument
 import com.beykus.beygram.ui.screens.bgmusic.isBgMusicDocument
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -209,6 +216,25 @@ internal fun duration(seconds: Int) = "%d:%02d".format(seconds / 60, seconds % 6
 /** The visual state of the music bubble button, animated when the transport changes. */
 private enum class MusicCardPlayVisual { Play, Pause, Replay, Download, Loading }
 
+/** Status line under the track title. Only this line reads the download counter, so the card does not recompose per tick. */
+@Composable
+private fun MusicCardStatusLine(status: MusicPlaybackStatus, raw: State<MediaFileState>) {
+    val palette = beyGramPalette()
+    val progress = if (status == MusicPlaybackStatus.Downloading) raw.value.downloadProgress else 0f
+    val text = musicCardStatusText(status, progress) ?: return
+    Text(
+        text,
+        color = when (status) {
+            MusicPlaybackStatus.Failed, MusicPlaybackStatus.Unavailable -> palette.danger
+            MusicPlaybackStatus.Playing -> palette.accentInk
+            else -> palette.textSecondary
+        },
+        fontSize = 11.sp,
+        maxLines = 1,
+        overflow = TextOverflow.Ellipsis
+    )
+}
+
 /** Actual played fraction in the bubble; a leaf so the card does not read the 250 ms state stream itself. */
 @Composable
 private fun MusicCardProgress() {
@@ -238,9 +264,15 @@ private fun musicCardStatusText(status: MusicPlaybackStatus, downloadProgress: F
     MusicPlaybackStatus.Ready -> null
 }
 
-/** Декодированные картинки до 1024 px держатся в памяти, пока их не вытеснят: повторный вход в композицию (прокрутка, возврат в чат) не декодирует файл заново. Полноразмерные картинки просмотрщика сюда не попадают. */
+/** Longest-side decode limit for bubble and album images; larger decodes are the viewer's and skip the cache. */
+internal const val BUBBLE_MAX_DECODE_DIMENSION = 1536
+
+/**
+ * Byte-budget LRU of decoded bubble images, so re-entering composition (scrolling, returning to the chat)
+ * does not decode the file again. Viewer decodes above [MAX_CACHED_DIMENSION] bypass it.
+ */
 private object DecodedImageCache {
-    const val MAX_CACHED_DIMENSION = 1024
+    const val MAX_CACHED_DIMENSION = BUBBLE_MAX_DECODE_DIMENSION
     private val cache = object : LruCache<String, Bitmap>((Runtime.getRuntime().maxMemory() / 8).toInt()) {
         override fun sizeOf(key: String, value: Bitmap): Int = value.allocationByteCount
     }
@@ -249,6 +281,17 @@ private object DecodedImageCache {
 
     fun put(key: String, bitmap: Bitmap) {
         cache.put(key, bitmap)
+    }
+}
+
+/** Минипревью TDLib ~40x40: кэш по числу записей, а не по байтам. Ключ — hashCode данных, при коллизии сверяем байты. */
+private object MinithumbnailCache {
+    private val cache = LruCache<Int, Pair<ByteArray, ImageBitmap>>(128)
+
+    fun get(data: ByteArray): ImageBitmap? = cache.get(data.contentHashCode())?.takeIf { it.first.contentEquals(data) }?.second
+
+    fun put(data: ByteArray, bitmap: ImageBitmap) {
+        cache.put(data.contentHashCode(), data to bitmap)
     }
 }
 
@@ -267,7 +310,9 @@ internal fun LocalMediaImage(
     fallbackVideoPath: String? = null,
     fallbackMinithumbnail: ByteArray? = null,
     /** False decodes only the first frame, so an animated image never starts an AnimatedImageDrawable. */
-    animate: Boolean = true
+    animate: Boolean = true,
+    /** Shown until the first decode, and under the drawable while it fades in. Null keeps the spinner. */
+    placeholder: (@Composable () -> Unit)? = null
 ) {
     val context = LocalContext.current
     // A still frame has its own cache key, so it can never be taken for the animated drawable.
@@ -311,23 +356,37 @@ internal fun LocalMediaImage(
         if (animate) animated?.start()
         onDispose { animated?.stop() }
     }
+    // Fade in over the placeholder only when it is shown and nothing is cached or already on screen. A drawable kept on screen
+    // while a new path decodes starts at full alpha, so it does not fade again; only an empty tile starts at 0.
+    val fadeSpec = rememberMotionSpec(MotionToken.MicroFeedback)
+    val reveal = remember(path) { Animatable(if (cached != null || placeholder == null || drawable != null) 1f else 0f) }
+    // Keyed on the Animatable too, so a new path restarts the check; the seeded value above decides whether anything fades.
+    LaunchedEffect(reveal, drawable != null) {
+        if (drawable != null && reveal.value < 1f) {
+            if (fadeSpec.isInstant) reveal.snapTo(1f) else reveal.animateTo(1f, fadeSpec.animationSpec())
+        }
+    }
+    val fading by remember(reveal) { derivedStateOf { reveal.value < 1f } }
     Box(modifier.clipToBounds(), contentAlignment = Alignment.Center) {
+        if (placeholder != null && (drawable == null && !failed || drawable != null && fading)) placeholder()
+        if (drawable != null) AndroidView(
+            factory = { ImageView(it).apply { contentDescription = contentDescriptionText } },
+            update = { view ->
+                view.contentDescription = contentDescriptionText
+                view.scaleType = if (fit) ImageView.ScaleType.FIT_CENTER else ImageView.ScaleType.CENTER_CROP
+                if (view.drawable !== drawable) view.setImageDrawable(drawable)
+            }, modifier = Modifier.fillMaxSize().graphicsLayer { alpha = reveal.value }
+        )
         when {
-            drawable != null -> AndroidView(
-                factory = { ImageView(it).apply { contentDescription = contentDescriptionText } },
-                update = { view ->
-                    view.contentDescription = contentDescriptionText
-                    view.scaleType = if (fit) ImageView.ScaleType.FIT_CENTER else ImageView.ScaleType.CENTER_CROP
-                    if (view.drawable !== drawable) view.setImageDrawable(drawable)
-                }, modifier = Modifier.fillMaxSize()
-            )
+            drawable != null -> Unit
             failed && allowVideoFrame && fallbackMinithumbnail != null ->
                 MinithumbnailImage(fallbackMinithumbnail, Modifier.fillMaxSize())
             failed && allowVideoFrame ->
                 Icon(Icons.Rounded.PlayArrow, contentDescription = stringResource(R.string.media_image_read_failed),
                     tint = Color.LightGray, modifier = Modifier.size(32.dp))
             failed -> Text(stringResource(R.string.media_image_read_failed), color = Color.LightGray, fontSize = 12.sp, modifier = Modifier.padding(12.dp))
-            else -> CircularProgressIndicator(modifier = Modifier.size(24.dp), strokeWidth = 2.dp)
+            placeholder == null -> CircularProgressIndicator(modifier = Modifier.size(24.dp), strokeWidth = 2.dp)
+            else -> Unit
         }
     }
 }
@@ -348,24 +407,60 @@ private fun decodeVideoPosterFrame(path: String, maxDimension: Int): Bitmap? = r
     }
 }.getOrNull()
 
-/** Минипревью TDLib: крошечный JPEG, растянутый на весь кадр, поэтому выглядит размытым. */
+/** Минипревью TDLib: крошечный JPEG, растянутый на весь кадр, поэтому выглядит размытым. Декодирование идёт вне UI-потока, результат кэшируется. */
 @Composable
 internal fun MinithumbnailImage(data: ByteArray, modifier: Modifier = Modifier) {
-    val bitmap = remember(data) { BitmapFactory.decodeByteArray(data, 0, data.size)?.asImageBitmap() }
+    val cached = remember(data) { MinithumbnailCache.get(data) }
+    val bitmap by produceState(cached, data) {
+        // Переиспользованная строка не должна показывать минипревью предыдущего сообщения, пока идёт декодирование.
+        value = cached
+        if (cached != null) return@produceState
+        val decoded = withContext(Dispatchers.Default) { runCatching { BitmapFactory.decodeByteArray(data, 0, data.size)?.asImageBitmap() }.getOrNull() }
+        if (decoded != null) MinithumbnailCache.put(data, decoded)
+        value = decoded
+    }
     bitmap?.let { Image(it, contentDescription = null, contentScale = ContentScale.Crop, modifier = modifier) }
 }
 
-/** Заглушка до загрузки полного файла: миниатюра, уменьшенная до [BLUR_PREVIEW_DIMENSION] px, остаётся только цвет и форма. */
+/**
+ * The ~40 px TDLib minithumbnail is shown as a soft low-frequency placeholder, not as stretched pixels.
+ * Blur is a no-op below API 31.
+ */
 @Composable
-private fun BlurredMediaPreview(media: MessageMedia, thumbnailPath: String?, modifier: Modifier) {
+internal fun SoftMinithumbnail(data: ByteArray, modifier: Modifier = Modifier) {
+    MinithumbnailImage(data, modifier.blur(12.dp, BlurredEdgeTreatment.Rectangle))
+}
+
+/** Soft minithumbnail as a [LocalMediaImage] placeholder slot, or null when there is no minithumbnail. */
+internal fun softMinithumbnailSlot(data: ByteArray?): (@Composable () -> Unit)? {
+    if (data == null) return null
+    val slot: @Composable () -> Unit = { SoftMinithumbnail(data, Modifier.fillMaxSize()) }
+    return slot
+}
+
+/**
+ * Longest-side decode size that covers a center-cropped box of [boxWidthPx]x[boxHeightPx] for a [mediaWidth]x[mediaHeight] source, in 256 px steps.
+ */
+internal fun bubbleDecodeDimension(mediaWidth: Int, mediaHeight: Int, boxWidthPx: Float, boxHeightPx: Float): Int {
+    if (mediaWidth <= 0 || mediaHeight <= 0 || boxWidthPx <= 0f || boxHeightPx <= 0f) return 1024
+    val scale = maxOf(boxWidthPx / mediaWidth, boxHeightPx / mediaHeight)
+    val needed = kotlin.math.ceil(maxOf(mediaWidth, mediaHeight) * scale).toInt()
+    return (((needed + 255) / 256) * 256).coerceIn(512, BUBBLE_MAX_DECODE_DIMENSION)
+}
+
+/** What the bubble shows before the full file: the downloaded preview at its own resolution, else the soft minithumbnail. */
+@Composable
+private fun MediaThumbnailLayer(media: MessageMedia, thumbnailPath: String?, modifier: Modifier) {
     val minithumbnail = media.minithumbnail
     when {
         thumbnailPath != null -> LocalMediaImage(
-            thumbnailPath, modifier, maxDimension = BLUR_PREVIEW_DIMENSION,
+            thumbnailPath, modifier,
             allowVideoFrame = media.kind == MediaKind.Animation || media.kind == MediaKind.Video,
-            fallbackMinithumbnail = minithumbnail
+            fallbackMinithumbnail = minithumbnail,
+            animate = false,
+            placeholder = softMinithumbnailSlot(minithumbnail)
         )
-        minithumbnail != null -> MinithumbnailImage(minithumbnail, modifier)
+        minithumbnail != null -> SoftMinithumbnail(minithumbnail, modifier)
     }
 }
 
@@ -387,8 +482,6 @@ private fun DownloadBadge(downloading: Boolean, contentDescription: String, onCl
     }
 }
 
-private const val BLUR_PREVIEW_DIMENSION = 24
-
 /** Строка, которая ждёт загрузки после нажатия на музыку или голосовое. Ждёт только последнее нажатое, и начинает играть только её строка, даже если такой же файл стоит в другом сообщении. */
 internal val pendingPlaybackRow = mutableStateOf<Any?>(null)
 
@@ -407,11 +500,13 @@ private data class AudioPlaybackSource(val path: String, val growing: GrowingPla
 @Composable
 private fun rememberAudioPlaybackSource(
     media: MessageMedia,
-    file: MediaFileState,
+    readFile: () -> MediaFileState,
     observeFile: (Int) -> StateFlow<MediaFileState>,
     downloadFile: (Int) -> Unit
 ): AudioPlaybackSource? {
     if (media.kind != MediaKind.Audio && media.kind != MediaKind.Voice) return null
+    // Read after the kind check: the progressive path needs the byte counters, other kinds must not subscribe to them.
+    val file = readFile()
     file.localPath?.let { return AudioPlaybackSource(it, null) }
     val path = file.downloadPath ?: return null
     if (file.size <= 0L || file.downloadedPrefixBytes <= 0L) return null
@@ -480,9 +575,12 @@ internal fun MediaPreview(
     /** Selection mode is on: a tap on the bubble selects the message instead of opening it. */
     selectionActive: Boolean = false,
 ) {
-    val file by remember(media.fileId) { observeFile(media.fileId) }.collectAsStateWithLifecycle()
+    // The bubble reads [file] and [thumb] without byte counters; progress is read only in deferred lambdas through the handles.
     val thumbId = media.thumbnailFileId ?: media.fileId
-    val thumb by remember(thumbId) { observeFile(thumbId) }.collectAsStateWithLifecycle()
+    val fileHandle = rememberMediaFile(media.fileId, observeFile)
+    val file by fileHandle.content
+    val thumbHandle = rememberMediaFile(thumbId, observeFile)
+    val thumb by thumbHandle.content
     var revealed by remember(media.fileId) { mutableStateOf(!media.hasSpoiler) }
     val palette = beyGramPalette()
     val context = LocalContext.current
@@ -536,7 +634,7 @@ internal fun MediaPreview(
     }
     // Музыка играет в общем плеере. Тап запускает файл или ставит на паузу; если файл ещё не загружен, сначала грузит его.
     val audioTitle = media.kind.label(context)
-    val audioSource = rememberAudioPlaybackSource(media, file, observeFile, downloadFile)
+    val audioSource = rememberAudioPlaybackSource(media, { fileHandle.raw.value }, observeFile, downloadFile)
     val audioPath = audioSource?.path
     val partialGrowing = audioSource?.growing
     // Голосовое ждёт загрузки в своём пузыре, поэтому здесь ожидание относится только к музыке.
@@ -624,13 +722,22 @@ internal fun MediaPreview(
         val openLabel = stringResource(R.string.a11y_media_open, mediaLabel)
         val downloadLabel = stringResource(R.string.a11y_media_download, mediaLabel)
         val spoilerLabel = stringResource(R.string.media_spoiler_hint)
+        val reduced = systemReducedMotion()
         val longPressLabel = stringResource(R.string.a11y_message_actions)
         val viewOnceLabel = stringResource(R.string.media_view_once_label)
         val viewOnceHint = stringResource(R.string.media_view_once_hint, mediaLabel)
-        // Полного файла ещё нет: вместо растянутой миниатюры показываем размытую заглушку и кнопку загрузки.
+        // Full file not here yet: the downloaded preview is shown at its own resolution until it arrives, with the download button on top.
         val awaitingFile = revealed && !concealed && file.localPath == null
+        val boxHeightDp = (244 / ratio).coerceIn(120f, 280f)
+        val density = LocalDensity.current
+        // Decode size for the full image: covers the crop box, so bubbles never decode 1024 px for a small box.
+        val decodeDimension = remember(media.width, media.height, boxHeightDp, density.density) {
+            val cover = with(density) { bubbleDecodeDimension(media.width, media.height, 244.dp.toPx(), boxHeightDp.dp.toPx()) }
+            // Animated drawables are not cached and hold every frame at this size, so they keep the old 1024 limit.
+            if (media.mimeType == "image/gif" || media.kind == MediaKind.Animation) minOf(cover, 1024) else cover
+        }
         Box(
-            Modifier.width(244.dp).height((244 / ratio).coerceIn(120f, 280f).dp)
+            Modifier.width(244.dp).height(boxHeightDp.dp)
                 .background(palette.disabled)
                 .combinedClickable(
                     onClickLabel = if (viewOnce) viewOnceLabel else if (revealed) openLabel else spoilerLabel,
@@ -650,21 +757,36 @@ internal fun MediaPreview(
                         modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
                     )
                 }
-            } else if (awaitingFile) BlurredMediaPreview(media, thumb.localPath, Modifier.fillMaxSize())
+            } else if (awaitingFile) MediaThumbnailLayer(media, thumb.localPath, Modifier.fillMaxSize())
             else if (revealed && posterFile != null) LocalMediaImage(
                 posterFile, Modifier.fillMaxSize(),
+                maxDimension = decodeDimension,
                 allowVideoFrame = media.kind == MediaKind.Animation || media.kind == MediaKind.Video,
                 fallbackVideoPath = if (posterFile != file.localPath) file.localPath else null,
                 fallbackMinithumbnail = media.minithumbnail,
-                animate = autoplay.eligible.value
+                animate = autoplay.eligible.value,
+                // Without a preview or minithumbnail there is nothing to hold, so the spinner stays.
+                placeholder = if (posterFile != thumb.localPath && (thumb.localPath != null || media.minithumbnail != null)) {
+                    val layer: @Composable () -> Unit = { MediaThumbnailLayer(media, thumb.localPath, Modifier.fillMaxSize()) }
+                    layer
+                } else softMinithumbnailSlot(media.minithumbnail)
             )
             if (!viewOnce) {
-                if (!revealed) SafeSpoilerOverlay(seed = media.fileId, modifier = Modifier.fillMaxSize())
-                else if (awaitingFile) DownloadBadge(downloading = file.isDownloading, contentDescription = downloadLabel, onClick = { downloadFile(media.fileId) })
-                else if (posterFile == null || media.kind == MediaKind.Video || media.kind == MediaKind.Animation || media.mimeType.startsWith("video/")) {
-                    val isVideo = media.kind == MediaKind.Video || media.kind == MediaKind.Animation || media.mimeType.startsWith("video/")
-                    Icon(if (isVideo) Icons.Rounded.PlayArrow else Icons.Rounded.Download, contentDescription = null, tint = Color.White,
-                        modifier = Modifier.size(52.dp).background(Color.Black.copy(alpha = 0.45f), CircleShape).padding(10.dp))
+                AnimatedVisibility(
+                    visible = !revealed,
+                    enter = EnterTransition.None,
+                    exit = if (reduced) ExitTransition.None else fadeOut(tween(180)),
+                    modifier = Modifier.fillMaxSize()
+                ) {
+                    SafeSpoilerOverlay(seed = media.fileId, modifier = Modifier.fillMaxSize())
+                }
+                if (revealed) {
+                    if (awaitingFile) DownloadBadge(downloading = file.isDownloading, contentDescription = downloadLabel, onClick = { downloadFile(media.fileId) })
+                    else if (posterFile == null || media.kind == MediaKind.Video || media.kind == MediaKind.Animation || media.mimeType.startsWith("video/")) {
+                        val isVideo = media.kind == MediaKind.Video || media.kind == MediaKind.Animation || media.mimeType.startsWith("video/")
+                        Icon(if (isVideo) Icons.Rounded.PlayArrow else Icons.Rounded.Download, contentDescription = null, tint = Color.White,
+                            modifier = Modifier.size(52.dp).background(Color.Black.copy(alpha = 0.45f), CircleShape).padding(10.dp))
+                    }
                 }
                 if (revealed) Text(
                     media.kind.label(context) + if (media.durationSeconds > 0) " · ${duration(media.durationSeconds)}" else "",
@@ -673,7 +795,7 @@ internal fun MediaPreview(
                 )
             }
             if (file.isDownloading || file.isUploading) LinearProgressIndicator(
-                progress = { if (file.isUploading) file.uploadProgress else file.downloadProgress },
+                progress = { fileHandle.raw.value.transferProgress() },
                 modifier = Modifier.fillMaxWidth().align(Alignment.BottomCenter)
             )
         }
@@ -694,10 +816,6 @@ internal fun MediaPreview(
             duration(media.durationSeconds).takeIf { media.durationSeconds > 0 },
             formatMediaSize(file.size).takeIf { it.isNotBlank() }
         ).joinToString(" · ")
-        val statusText = musicCardStatusText(
-            status = status,
-            downloadProgress = file.downloadProgress
-        )
         val playLabel = when {
             status == MusicPlaybackStatus.Downloading || status == MusicPlaybackStatus.NotDownloaded ->
                 stringResource(R.string.music_card_play_download)
@@ -752,26 +870,17 @@ internal fun MediaPreview(
                     if (artist.isNotBlank() && meta.isNotBlank()) {
                         Text(meta, color = palette.textSecondary, fontSize = 11.sp, maxLines = 1)
                     }
-                    if (statusText != null) {
+                    // musicCardStatusText is null only for Ready.
+                    if (status != MusicPlaybackStatus.Ready) {
                         if (artist.isNotBlank() && meta.isNotBlank()) {
                             Text(" · ", color = palette.textSecondary, fontSize = 11.sp)
                         }
-                        Text(
-                            statusText,
-                            color = when (status) {
-                                MusicPlaybackStatus.Failed, MusicPlaybackStatus.Unavailable -> palette.danger
-                                MusicPlaybackStatus.Playing -> palette.accentInk
-                                else -> palette.textSecondary
-                            },
-                            fontSize = 11.sp,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
-                        )
+                        MusicCardStatusLine(status, fileHandle.raw)
                     }
                 }
                 if (file.isDownloading || file.isUploading) {
                     LinearProgressIndicator(
-                        progress = { if (file.isUploading) file.uploadProgress else file.downloadProgress },
+                        progress = { fileHandle.raw.value.transferProgress() },
                         modifier = Modifier.fillMaxWidth().padding(top = 4.dp)
                     )
                 } else if (card.isCurrent) {
@@ -839,21 +948,22 @@ internal fun MediaPreview(
     } else if (isBgMusicDocument(media)) {
         BgMusicChatDocument(
             media = media,
-            file = file,
+            file = fileHandle.raw.value,
             downloadFile = downloadFile,
             selectionActive = selectionActive,
             onOpen = onOpen,
             onLongPress = onLongPress,
-            fallback = { DocumentRow(media, file, onOpen, onLongPress) },
+            fallback = { DocumentRow(media, fileHandle, onOpen, onLongPress) },
         )
     } else {
-        DocumentRow(media, file, onOpen, onLongPress)
+        DocumentRow(media, fileHandle, onOpen, onLongPress)
     }
 }
 
 /** A file in the chat bubble: its name, size and download progress. The row is opened through [onOpen]. */
 @Composable
-private fun DocumentRow(media: MessageMedia, file: MediaFileState, onOpen: () -> Unit, onLongPress: (() -> Unit)?) {
+private fun DocumentRow(media: MessageMedia, fileHandle: MediaFileHandle, onOpen: () -> Unit, onLongPress: (() -> Unit)?) {
+    val file by fileHandle.content
     val context = LocalContext.current
     val palette = beyGramPalette()
     val mediaLabel = media.kind.label(context)
@@ -871,7 +981,7 @@ private fun DocumentRow(media: MessageMedia, file: MediaFileState, onOpen: () ->
             Text(formatMediaSize(file.size) + if (media.durationSeconds > 0) " · " + duration(media.durationSeconds) else "",
                 color = palette.textSecondary, fontSize = 13.sp)
             if (file.isDownloading || file.isUploading) LinearProgressIndicator(
-                progress = { if (file.isUploading) file.uploadProgress else file.downloadProgress },
+                progress = { fileHandle.raw.value.transferProgress() },
                 modifier = Modifier.fillMaxWidth().padding(top = 6.dp))
         }
     }
@@ -1317,6 +1427,7 @@ private fun MediaViewerPage(
 ) {
     val media = item.media
     val context = LocalContext.current
+    val reduced = systemReducedMotion()
     val accountId = LocalPlaybackAccountId.current
     val policySettings by remember(context, accountId) {
         AutoDownloadSettingsStore.getInstance(context.applicationContext, accountId).settings
@@ -1416,7 +1527,7 @@ private fun MediaViewerPage(
             }
         )
     } else null
-    val audioSource = rememberAudioPlaybackSource(media, file, observeFile, downloadFile)
+    val audioSource = rememberAudioPlaybackSource(media, { file }, observeFile, downloadFile)
     Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
         val path = file.localPath
         // Keep the already playing progressive source when TDLib completes the same file path.
@@ -1425,15 +1536,8 @@ private fun MediaViewerPage(
         val audioPath = audioSource?.path
         val growingAudio = audioSource?.growing
         when {
-            spoilerHidden -> Box(
-                modifier = Modifier.fillMaxSize()
-                    .clickable(role = Role.Button, onClick = onReveal)
-                    .semantics { contentDescription = context.getString(R.string.media_spoiler_hint) },
-                contentAlignment = Alignment.Center
-            ) {
-                // A viewer page must stay opaque until explicitly revealed; never draw its real thumbnail.
-                SafeSpoilerOverlay(seed = media.fileId, modifier = Modifier.fillMaxSize())
-            }
+            // A viewer page must stay opaque until explicitly revealed; nothing of the real media is drawn here.
+            spoilerHidden -> Unit
             concealed -> Unit
             tgs -> Column(horizontalAlignment = Alignment.CenterHorizontally) {
                 val preview: @Composable () -> Unit = {
@@ -1500,6 +1604,34 @@ private fun MediaViewerPage(
                 if (exportable) TextButton(onClick = { onOpenFile(path) }) { Text(stringResource(R.string.media_open_file)) }
             }
         }
+        // The mask sits on top of the page and fades out on reveal, so the revealed content shows through without a black gap.
+        // While it fades, the click is disabled so gestures reach the revealed page.
+        AnimatedVisibility(
+            visible = spoilerHidden,
+            enter = EnterTransition.None,
+            exit = if (reduced) ExitTransition.None else fadeOut(tween(200)),
+            modifier = Modifier.fillMaxSize()
+        ) {
+            Box(
+                Modifier.fillMaxSize()
+                    .clickable(enabled = spoilerHidden, role = Role.Button, onClick = onReveal)
+                    .semantics { contentDescription = context.getString(R.string.media_spoiler_hint) },
+                contentAlignment = Alignment.Center
+            ) {
+                SpoilerFitFrame(media.width, media.height) {
+                    SafeSpoilerOverlay(seed = media.fileId, modifier = Modifier.fillMaxSize())
+                }
+            }
+        }
+    }
+}
+
+/** Places [content] at the media's aspect ratio inside the available space. Uses only metadata, never decodes the image. */
+@Composable
+private fun SpoilerFitFrame(width: Int, height: Int, content: @Composable () -> Unit) {
+    BoxWithConstraints(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+        val (fitW, fitH) = spoilerFitSize(maxWidth.value, maxHeight.value, width, height)
+        Box(Modifier.size(fitW.dp, fitH.dp)) { content() }
     }
 }
 

@@ -20,10 +20,14 @@ import java.util.concurrent.ConcurrentHashMap
  * Bot commands, inline mode, Mini App launches and Web App data. TDLib is the only source of commands/results and the
  * only component that turns a bot button into a Web App URL; the UI never opens a button's raw URL.
  */
-internal class TdBotFeatures(client: () -> Client, stealthDelaySeconds: () -> Int? = { null }) {
+internal class TdBotFeatures(
+    client: () -> Client,
+    stealthDelaySeconds: () -> Int? = { null },
+    stealthLock: (() -> Unit) -> Unit = { it() }
+) {
     private val request = TdRequests(client)
     // An inline result sent into a chat is a message like any other, so stealth mode schedules it on the server (#541).
-    private val stealth = TdStealthScheduler(request, stealthDelaySeconds)
+    private val stealth = TdStealthScheduler(request, stealthDelaySeconds, stealthLock)
     private val inlineBots = ConcurrentHashMap<String, CachedInlineBot>()
 
     /** Confirmed ids of sends that finished before anyone waited for them, and the waiters of sends still pending. */
@@ -107,14 +111,13 @@ internal class TdBotFeatures(client: () -> Client, stealthDelaySeconds: () -> In
         // always captured; otherwise a cancelled screen could leave an orphaned message and a cleared draft behind.
         val sent = withContext(NonCancellable) {
             // This operation needs an immediate temporary/favorite message; scheduling it would not work.
-            // Check the live account policy at the actual send, not before fetching the chat or its draft.
-            if (stealth.active()) throw UserMessageException(UiText.Res(R.string.stealth_schedule_music_bot_blocked))
-            request(TdApi.SendInlineQueryResultMessage().apply {
+            // The live account policy is decided at the hand-off to TDLib, under the settings lock.
+            stealth.requestUnlessActive(TdApi.SendInlineQueryResultMessage().apply {
                 chatId = savedMessagesChatId
                 this.queryId = queryId
                 this.resultId = resultId
                 hideViaBot = false
-            })
+            }) { UserMessageException(UiText.Res(R.string.stealth_schedule_music_bot_blocked)) }
         }
         var copied: String? = null
         var delivered = false
@@ -152,14 +155,13 @@ internal class TdBotFeatures(client: () -> Client, stealthDelaySeconds: () -> In
         val savedDraft = request(TdApi.GetChat(savedMessagesChatId)).draftMessage
         val sent = withContext(NonCancellable) {
             // This operation needs an immediate temporary/favorite message; scheduling it would not work.
-            // Check the live account policy at the actual send, not before fetching the chat or its draft.
-            if (stealth.active()) throw UserMessageException(UiText.Res(R.string.stealth_schedule_music_bot_blocked))
-            request(TdApi.SendInlineQueryResultMessage().apply {
+            // The live account policy is decided at the hand-off to TDLib, under the settings lock.
+            stealth.requestUnlessActive(TdApi.SendInlineQueryResultMessage().apply {
                 chatId = savedMessagesChatId
                 this.queryId = queryId
                 this.resultId = resultId
                 hideViaBot = false
-            })
+            }) { UserMessageException(UiText.Res(R.string.stealth_schedule_music_bot_blocked)) }
         }
         try {
             val audio = (sent.content as? TdApi.MessageAudio)?.audio
@@ -265,7 +267,7 @@ internal class TdBotFeatures(client: () -> Client, stealthDelaySeconds: () -> In
         }
         val resolved = stealth.resolve(chatId, options)
         function.options = sendOptions(resolved.options)
-        stealth.scheduledRequest(resolved) { request(function) }
+        stealth.scheduledRequest(resolved, function)
         Unit
     }
 

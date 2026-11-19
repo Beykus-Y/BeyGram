@@ -19,9 +19,15 @@ import java.io.File
  *
  * A legacy lead shorter than 15 seconds is refused, never converted into an ordinary send or changed silently.
  *
- * [delaySeconds] is read on every send, so a changed switch applies to the next one.
+ * [delaySeconds] is read on every send, so a changed switch applies to the next one. The decision and the hand-off to TDLib
+ * are one step under [lock] (the settings store's lock, see StealthSettingsStore.whileUnchanged): a settings change lands
+ * either before the decision or after the request has been handed to TDLib, never between the two.
  */
-internal class TdStealthScheduler(private val request: TdRequests, private val delaySeconds: () -> Int?) {
+internal class TdStealthScheduler(
+    private val request: TdRequests,
+    private val delaySeconds: () -> Int?,
+    private val lock: (() -> Unit) -> Unit = { it() }
+) {
     /** True whenever the account requires stealth sending, including an invalid legacy lead. */
     fun active(): Boolean = delaySeconds() != null
 
@@ -51,10 +57,10 @@ internal class TdStealthScheduler(private val request: TdRequests, private val d
 
     /**
      * A failed message is resent as it was. With stealth sending on, that is allowed only for a message still waiting in the
-     * scheduled queue far enough ahead; anything else would go out at once, so it needs the user's consent.
+     * scheduled queue far enough ahead; anything else would go out at once, so it needs the user's consent. Once started,
+     * the check runs to its end and does not read the live switch again.
      */
-    suspend fun checkResend(chatId: Long, messageIds: List<Long>, sendNowConsent: Boolean) {
-        if (!active() || sendNowConsent) return
+    private suspend fun checkResend(chatId: Long, messageIds: List<Long>) {
         val now = serverUnixTime()
         val allScheduled = messageIds.all { id ->
             val state = request(TdApi.GetMessage(chatId, id)).schedulingState as? TdApi.MessageSchedulingStateSendAtDate
@@ -62,6 +68,31 @@ internal class TdStealthScheduler(private val request: TdRequests, private val d
         }
         if (!allScheduled) throw unavailable(R.string.stealth_schedule_retry)
     }
+
+    /**
+     * Resends failed messages as they were. With stealth sending on when the resend starts, only messages still waiting far
+     * enough ahead in the scheduled queue may go (see [checkResend]). [verified] becomes true only when that check
+     * completed, so an intent to check never counts as a check. The live switch is decided again under the settings lock
+     * at the hand-off: while protection is on there, a resend that the check did not verify is refused, however the switch
+     * moved meanwhile.
+     */
+    suspend fun resend(chatId: Long, messageIds: List<Long>, sendNowConsent: Boolean): TdApi.Messages {
+        var verified = false
+        if (active() && !sendNowConsent) {
+            checkResend(chatId, messageIds)
+            verified = true
+        }
+        return request.invokeAdmitted(TdApi.ResendMessages(chatId, messageIds.toLongArray(), null, 0L), lock, admit = {
+            if (!sendNowConsent && !verified && active()) throw unavailable(R.string.stealth_schedule_retry)
+        })
+    }
+
+    /**
+     * Sends [function] at once, only while stealth sending is off. The switch is decided under the settings lock at the
+     * hand-off to TDLib, so a send that cannot be scheduled never leaves after protection was turned on.
+     */
+    suspend fun <T : TdApi.Object> requestUnlessActive(function: TdApi.Function<T>, refusal: () -> Exception): T =
+        request.invokeAdmitted(function, lock, admit = { if (active()) throw refusal() })
 
     /**
      * Uploads one local file ahead of the send and waits until TDLib holds it (it keeps the last part until the message is
@@ -89,31 +120,44 @@ internal class TdStealthScheduler(private val request: TdRequests, private val d
     }
 
     /**
-     * Runs a prepared send. Recheck the live policy and the server clock before dispatch: a send prepared before
-     * protection was enabled must not become an ordinary send. Never retry an ambiguous outcome automatically.
+     * Runs a prepared send: [function] is the TDLib request that carries it, and [beforeSend] runs right before that request
+     * is handed to TDLib. The server clock is checked first (it needs a suspending request). Then the live policy is decided
+     * and the request handed over as one step under [lock], so a settings change cannot land between the two. A refused send
+     * reaches neither [beforeSend] nor TDLib. A send prepared before protection was enabled must not become an ordinary send.
+     * Never retry an ambiguous outcome automatically.
      */
-    suspend fun <T> scheduledRequest(send: StealthSend, block: suspend () -> T): T {
+    suspend fun <T : TdApi.Object> scheduledRequest(send: StealthSend, function: TdApi.Function<T>, beforeSend: () -> Unit = {}): T {
         if (!send.options.sendNowConsent && (active() || send.scheduled)) {
             val at = send.options.scheduledAtSeconds
                 ?: throw unavailable(R.string.stealth_schedule_failed)
             if (at <= serverUnixTime() + MessageSendOptions.MIN_SCHEDULE_LEAD_SECONDS) {
                 throw unavailable(R.string.stealth_schedule_failed)
             }
-            // If settings changed during the server-time request, still never fall back to an ordinary send.
-            val currentLead = delaySeconds()
-            if (currentLead != null && !stealthDelayUsesServer(currentLead)) {
-                throw unavailable(R.string.stealth_schedule_short_warning)
-            }
         }
-        if (!send.scheduled) return block()
         return try {
-            block()
+            request.invokeAdmitted(function, lock, admit = { admitSend(send, beforeSend) })
         } catch (error: TdRequestError) {
-            if (error.message?.contains("schedul", ignoreCase = true) == true) {
+            if (send.scheduled && error.message?.contains("schedul", ignoreCase = true) == true) {
                 throw StealthScheduleUnavailableException(UiText.Res(R.string.stealth_schedule_failed), error)
             }
             throw error
         }
+    }
+
+    /**
+     * The decision on the live switches, made under the settings lock right before the hand-off. While protection is on, a
+     * send without a server date is refused, and so is a send prepared as scheduled. A lead that Telegram cannot schedule
+     * is refused too. Nothing falls back to an ordinary send.
+     */
+    private fun admitSend(send: StealthSend, beforeSend: () -> Unit) {
+        val lead = delaySeconds()
+        if (!send.options.sendNowConsent && (lead != null || send.scheduled) && send.options.scheduledAtSeconds == null) {
+            throw unavailable(R.string.stealth_schedule_failed)
+        }
+        if (!send.options.sendNowConsent && lead?.let { !stealthDelayUsesServer(it) } == true) {
+            throw unavailable(R.string.stealth_schedule_short_warning)
+        }
+        beforeSend()
     }
 
     /**

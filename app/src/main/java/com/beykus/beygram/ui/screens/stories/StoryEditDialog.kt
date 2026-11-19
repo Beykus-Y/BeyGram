@@ -11,6 +11,8 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.OutlinedTextField
@@ -67,8 +69,9 @@ internal fun StoryEditDialog(
         (!canEditPrivacy || privacy != StoryPrivacy.SelectedUsers || selected.isNotEmpty())
 
     Dialog(onDismissRequest = { if (!saving) onDismiss() }, properties = DialogProperties(usePlatformDefaultWidth = false)) {
+        val maxHeight = (LocalConfiguration.current.screenHeightDp * 0.9f).dp
         Column(
-            Modifier.padding(horizontal = 20.dp).fillMaxWidth().clip(styledShape(24.dp))
+            Modifier.padding(horizontal = 20.dp).fillMaxWidth().heightIn(max = maxHeight).clip(styledShape(24.dp))
                 .background(palette.surface).padding(18.dp)
         ) {
             Text(
@@ -78,6 +81,7 @@ internal fun StoryEditDialog(
                 fontWeight = FontWeight.SemiBold,
                 modifier = Modifier.semantics { heading() }
             )
+            Column(Modifier.weight(1f, fill = false).verticalScroll(rememberScrollState())) {
             OutlinedTextField(
                 value = caption,
                 onValueChange = { value ->
@@ -143,6 +147,7 @@ internal fun StoryEditDialog(
                     fontSize = 13.sp,
                     modifier = Modifier.padding(top = 8.dp).errorAnnouncement()
                 )
+            }
             }
             Row(
                 Modifier.fillMaxWidth().padding(top = 10.dp),

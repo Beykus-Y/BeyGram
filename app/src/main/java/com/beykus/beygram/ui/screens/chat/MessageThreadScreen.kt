@@ -88,7 +88,10 @@ import com.beykus.beygram.domain.model.mergeThreadMessages
 import com.beykus.beygram.domain.repository.ConversationRepository
 import com.beykus.beygram.ui.components.beyGramPalette
 import com.beykus.beygram.ui.screens.playback.NowPlayingBar
+import com.beykus.beygram.ui.screens.playback.PlayerExpansion
+import com.beykus.beygram.ui.screens.playback.receiptsAllowedOf
 import com.beykus.beygram.ui.text.userMessage
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -213,13 +216,17 @@ internal fun MessageThreadScreen(
                 // Read receipts go through the existing privacy-aware gateway and only for genuinely visible rows.
                 // Restarting on RESUMED re-reports the same viewport after the app returns from background.
                 lifecycle.repeatOnLifecycle(Lifecycle.State.RESUMED) {
-                    snapshotFlow { listState.layoutInfo.visibleItemsInfo.mapNotNull { it.key as? Long } }
+                    // Not while the full player covers the thread: the player takes no focus, so the thread still looks visible.
+                    snapshotFlow {
+                        if (!receiptsAllowedOf(PlayerExpansion.phase)) emptyList<Long>() else listState.layoutInfo.visibleItemsInfo.mapNotNull { it.key as? Long }
+                    }
                         .distinctUntilChanged()
                         .collect { visibleIds ->
                             val sent = visibleIds.filter { id ->
                                 messages.any { it.id == id && it.sendState == MessageSendState.Sent }
                             }
-                            if (sent.isNotEmpty()) conversation.messagesVisible(chatId, sent)
+                            // Checked again at send time: a list emitted before the player opened must not go out after it.
+                            if (sent.isNotEmpty() && receiptsAllowedOf(PlayerExpansion.phase)) conversation.messagesVisible(chatId, sent)
                         }
                 }
             }
@@ -510,7 +517,7 @@ internal fun MessageThreadScreen(
                 contentPadding = PaddingValues(vertical = 8.dp),
                 verticalArrangement = Arrangement.spacedBy(2.dp)
             ) {
-                items(visiblePending.map { it.toChatMessage() } + messages.asReversed(), key = { it.id }) { message ->
+                items(visiblePending.map { it.toChatMessage() } + messages.asReversed(), key = { it.id }, contentType = { chatMessageContentType(it) }) { message ->
                     val localAttempt = visiblePending.firstOrNull { -it.attemptId == message.id }
                     val failedLocal = localAttempt?.takeIf { it.phase == TextSendAttemptPhase.Failed }
                     ThreadCommentRow(
@@ -552,16 +559,19 @@ internal fun MessageThreadScreen(
                             }
                         },
                         onPollStop = { chatId, messageId ->
-                            scope.launch {
-                                conversation.stopPoll(chatId, messageId)
-                                    .onFailure { sendError = it.userMessage(context, R.string.chat_poll_stop_failed) }
+                            riskGuard.run {
+                                scope.launch {
+                                    conversation.stopPoll(chatId, messageId)
+                                        .onFailure { sendError = it.userMessage(context, R.string.chat_poll_stop_failed) }
+                                }
                             }
                         },
                         onLoadPollVoters = { chatId, messageId, optionIndex, offset ->
                             conversation.pollVoters(chatId, messageId, optionIndex, offset)
                         },
                         onAddPollOption = { chatId, messageId, text ->
-                            conversation.addPollOption(chatId, messageId, text)
+                            if (riskGuard.confirm()) conversation.addPollOption(chatId, messageId, text)
+                            else Result.failure(CancellationException("stealth risk declined"))
                         },
                         paidContent = rememberPaidContentActions(conversation),
                         onOpenMessageEntity = onOpenMessageEntity
@@ -610,16 +620,19 @@ internal fun MessageThreadScreen(
                                     }
                                 },
                                 onPollStop = { messageId ->
-                                    scope.launch {
-                                        conversation.stopPoll(channelChatId, messageId)
-                                            .onFailure { sendError = it.userMessage(context, R.string.chat_poll_stop_failed) }
+                                    riskGuard.run {
+                                        scope.launch {
+                                            conversation.stopPoll(channelChatId, messageId)
+                                                .onFailure { sendError = it.userMessage(context, R.string.chat_poll_stop_failed) }
+                                        }
                                     }
                                 },
                                 onLoadPollVoters = { messageId, optionIndex, offset ->
                                     conversation.pollVoters(channelChatId, messageId, optionIndex, offset)
                                 },
                                 onAddPollOption = { messageId, text ->
-                                    conversation.addPollOption(channelChatId, messageId, text)
+                                    if (riskGuard.confirm()) conversation.addPollOption(channelChatId, messageId, text)
+                                    else Result.failure(CancellationException("stealth risk declined"))
                                 },
                                 onRetry = {},
                                 paidContent = rememberPaidContentActions(conversation) { reloadPost() },

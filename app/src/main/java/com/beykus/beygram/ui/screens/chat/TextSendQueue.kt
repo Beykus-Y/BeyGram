@@ -65,7 +65,9 @@ internal data class TextSendAttempt(
     val timeLabel: String,
     val dismissForceReplyMessageId: Long? = null,
     val phase: TextSendAttemptPhase = TextSendAttemptPhase.Sending,
-    val errorMessage: String? = null
+    val errorMessage: String? = null,
+    /** The topic the text is sent to, fixed when it is queued. It equals the scope's topic except in the all-messages feed. */
+    val destinationTopicId: Long = scope.forumTopicId
 ) {
     fun toChatMessage(): ChatMessage = ChatMessage(
         id = -attemptId,
@@ -76,7 +78,7 @@ internal data class TextSendAttempt(
         sendState = if (phase == TextSendAttemptPhase.Sending) MessageSendState.Sending else MessageSendState.Failed,
         reply = replyPreview,
         entities = entities,
-        forumTopicId = scope.forumTopicId,
+        forumTopicId = destinationTopicId,
         sendError = errorMessage
     )
 }
@@ -194,6 +196,7 @@ internal class TextSendQueue(
         baselineSequence: Long,
         timeLabel: String,
         dismissForceReplyMessageId: Long? = null,
+        destinationTopicId: Long = scopeKey.forumTopicId,
         execute: suspend (TextSendAttempt) -> Result<Unit>,
         onSuccess: (TextSendAttempt) -> Unit = {},
         onFailure: (TextSendAttempt, Throwable) -> Unit = { _, _ -> },
@@ -212,7 +215,8 @@ internal class TextSendQueue(
                     options = options,
                     baselineSequence = baselineSequence,
                     timeLabel = timeLabel,
-                    dismissForceReplyMessageId = dismissForceReplyMessageId
+                    dismissForceReplyMessageId = dismissForceReplyMessageId,
+                    destinationTopicId = destinationTopicId
                 )
                 updateAttempts { current ->
                     val list = current[scopeKey].orEmpty() + attempt
@@ -470,7 +474,7 @@ internal suspend fun executeTextSendAttempt(
         text = attempt.text,
         replyToMessageId = attempt.replyToMessageId,
         entities = attempt.entities,
-        forumTopicId = attempt.scope.forumTopicId,
+        forumTopicId = attempt.destinationTopicId,
         clearDraft = false,
         options = attempt.options
     )

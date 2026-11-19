@@ -29,6 +29,7 @@ import com.beykus.beygram.domain.model.ChatMembersPage
 import com.beykus.beygram.domain.model.ChatMessage
 import com.beykus.beygram.domain.model.ChatSearchFilter
 import com.beykus.beygram.domain.model.ChatHistory
+import com.beykus.beygram.domain.model.CustomEmojiSetBrief
 import com.beykus.beygram.domain.model.GlobalSearchFilter
 import com.beykus.beygram.domain.model.GlobalSearchPage
 import com.beykus.beygram.domain.model.PublicChatOpenResult
@@ -58,6 +59,8 @@ import com.beykus.beygram.domain.model.BotWebAppTheme
 import com.beykus.beygram.domain.model.InlineBotResults
 import com.beykus.beygram.domain.model.MusicBotTrack
 import com.beykus.beygram.domain.model.SavedMusicBotTrack
+import com.beykus.beygram.domain.model.ForumTopicBrief
+import com.beykus.beygram.domain.model.ForumTopicIcon
 import com.beykus.beygram.domain.model.ForumTopicLastMessage
 import com.beykus.beygram.domain.model.ForumTopicsPage
 import com.beykus.beygram.domain.model.GroupAdministratorRights
@@ -435,7 +438,11 @@ class TdLibTelegramRepository private constructor(
     /** Кэш сообщений по chatId. */
     private val pinnedVersions = ConcurrentHashMap<Long, MutableStateFlow<Long>>()
     override fun observePinnedMessagesVersion(chatId: Long): StateFlow<Long> = pinnedVersions.getOrPut(chatId) { MutableStateFlow(0L) }.asStateFlow()
-    override suspend fun pinnedMessages(chatId: Long, fromMessageId: Long, forumTopicId: Long) = conversationActions.pinnedMessages(chatId, fromMessageId, forumTopicId)
+    override suspend fun pinnedMessages(chatId: Long, fromMessageId: Long, forumTopicId: Long, query: String) = conversationActions.pinnedMessages(chatId, fromMessageId, forumTopicId, query)
+    override suspend fun loadPinnedSenderAvatars(userIds: Collection<Long>): Map<Long, com.beykus.beygram.domain.model.AvatarPhoto?> =
+        profiles.resolveUsers(userIds).mapValues { (_, user) ->
+            user.profilePhoto?.let { profiles.photo(it.small, it.big) }
+        }
     override suspend fun setMessagePinned(chatId: Long, messageId: Long, pinned: Boolean) =
         conversationActions.pinMessage(chatId, messageId, pinned).onSuccess { invalidatePins(chatId) }
     override fun observeMessageDraft(chatId: Long): StateFlow<MessageDraft> = messageDrafts.observe(chatId)
@@ -554,7 +561,8 @@ class TdLibTelegramRepository private constructor(
     }
     private val stories = TdStories({ client }, profiles, mediaFiles, accountId, File(appContext.filesDir, "uploads"),
         canViewStory = { chatId -> policy.allows(InteractionEffect.StoryView, chatId) },
-        stealthDelaySeconds = { stealthSettings.current.scheduledSendDelay })
+        stealthDelaySeconds = { stealthSettings.current.scheduledSendDelay },
+        stealthLock = { send -> stealthSettings.whileUnchanged { send() } })
     private val groupAdministration = TdGroupAdministration(tdRequests, profiles)
     private val privacy = TdPrivacy({ client }, profiles)
     /** Chats being moved back from the archive: their alerts are not archived while the move is in flight. */
@@ -1013,22 +1021,12 @@ class TdLibTelegramRepository private constructor(
         chat.id
     }
 
-    override suspend fun activeSessions(): Result<List<com.beykus.beygram.domain.model.DeviceSession>> = requestResult {
-        tdRequests(TdApi.GetActiveSessions()).sessions.orEmpty().map { session ->
-            com.beykus.beygram.domain.model.DeviceSession(
-                id = session.id,
-                current = session.isCurrent,
-                device = session.deviceModel.orEmpty().ifBlank { session.platform.orEmpty() },
-                application = session.applicationName.orEmpty(),
-                location = session.location.orEmpty(),
-                ip = session.ipAddress.orEmpty(),
-                lastActive = session.lastActiveDate.toLong()
-            )
-        }
+    override suspend fun activeSessions(): Result<com.beykus.beygram.domain.model.ActiveSessions> = requestResult {
+        activeSessionsOf(tdRequests(TdApi.GetActiveSessions()))
     }
 
     override suspend fun terminateOtherSession(sessionId: Long): Result<Unit> = requestResult {
-        require(sessionId > 0 && activeSessions().getOrThrow().any { it.id == sessionId && !it.current }) {
+        require(sessionId > 0 && activeSessions().getOrThrow().sessions.any { it.id == sessionId && !it.current }) {
             "Cannot terminate the current session"
         }
         tdRequests(TdApi.TerminateSession(sessionId))
@@ -1037,6 +1035,30 @@ class TdLibTelegramRepository private constructor(
 
     override suspend fun terminateAllOtherSessions(): Result<Unit> = requestResult {
         tdRequests(TdApi.TerminateAllOtherSessions())
+        Unit
+    }
+
+    override suspend fun confirmSession(sessionId: Long): Result<Unit> = requestResult {
+        require(sessionId > 0) { "Invalid session id" }
+        tdRequests(TdApi.ConfirmSession(sessionId))
+        Unit
+    }
+
+    override suspend fun setInactiveSessionTtl(days: Int): Result<Unit> = requestResult {
+        require(days in 1..366) { "Inactive session TTL must be 1 to 366 days" }
+        tdRequests(TdApi.SetInactiveSessionTtl(days))
+        Unit
+    }
+
+    override suspend fun setSessionCanAcceptCalls(sessionId: Long, enabled: Boolean): Result<Unit> = requestResult {
+        require(sessionId > 0) { "Invalid session id" }
+        tdRequests(TdApi.ToggleSessionCanAcceptCalls(sessionId, enabled))
+        Unit
+    }
+
+    override suspend fun setSessionCanAcceptSecretChats(sessionId: Long, enabled: Boolean): Result<Unit> = requestResult {
+        require(sessionId > 0) { "Invalid session id" }
+        tdRequests(TdApi.ToggleSessionCanAcceptSecretChats(sessionId, enabled))
         Unit
     }
 
@@ -1511,7 +1533,8 @@ class TdLibTelegramRepository private constructor(
 
     override suspend fun loadCallHistory(offset: String): Result<CallHistoryPage> = requestResult { callHistory.page(offset) }
     private val botKeyboards = TdBotKeyboards { client }
-    private val botFeatures = TdBotFeatures({ client }, stealthDelaySeconds = { stealthSettings.current.scheduledSendDelay })
+    private val botFeatures = TdBotFeatures({ client }, stealthDelaySeconds = { stealthSettings.current.scheduledSendDelay },
+        stealthLock = { send -> stealthSettings.whileUnchanged { send() } })
     private val musicBotCacheDir = File(context.cacheDir, MusicBotCache.DIR_NAME)
     override fun observeBotKeyboard(chatId: Long) = botKeyboards.observe(chatId)
     override suspend fun dismissBotKeyboard(chatId: Long, messageId: Long) = botKeyboards.dismiss(chatId, messageId)
@@ -1558,9 +1581,11 @@ class TdLibTelegramRepository private constructor(
         map = { it.toChatMessage() },
         mapLastMessage = { it.toForumTopicLastMessage() },
         onTopicDraft = { chatId, topicId, raw -> messageDrafts.receiveTopic(chatId, topicId.toLong(), raw) },
-        stealthDelaySeconds = { stealthSettings.current.scheduledSendDelay })
+        stealthDelaySeconds = { stealthSettings.current.scheduledSendDelay },
+        stealthLock = { send -> stealthSettings.whileUnchanged { send() } })
     private val chatExporter = TdChatExporter(tdRequests) { it.toExportMessage() }
     private val customEmojis = TdCustomEmojis(client = { client })
+    private val forumTopicBriefs = TdForumTopicBriefs(fetch = { key, onAnswer -> fetchForumTopicBrief(key, onAnswer) })
     private val messageEffects = TdMessageEffects(client = { client })
     private val conversationEffects = TdConversationEffects({ client }, policy)
     /** A changed stealth switch applies at once: running chat activity stops and the read bookkeeping is reset. */
@@ -1692,6 +1717,8 @@ class TdLibTelegramRepository private constructor(
         paidReactions.send(chatId, messageId, starCount, isAnonymous)
     override suspend fun starBalance() = payments.starBalance()
     override fun observeCustomEmoji(customEmojiId: Long) = customEmojis.observe(customEmojiId)
+    override fun observeForumTopicInfo(chatId: Long, forumTopicId: Long): StateFlow<ForumTopicBrief?> =
+        forumTopicBriefs.observe(chatId, forumTopicId)
     override fun observeMessageEffect(effectId: Long) = messageEffects.observe(effectId)
     override suspend fun messageContext(chatId: Long, messageId: Long) = conversationActions.context(chatId, messageId)
     override suspend fun singleMessage(chatId: Long, messageId: Long) = conversationActions.single(chatId, messageId)
@@ -2327,6 +2354,16 @@ class TdLibTelegramRepository private constructor(
         })
     }
 
+    /**
+     * Asks TDLib for one forum topic that no listing or update has described yet, for a chat row that names its last message.
+     * The answer is a brief, or null when TDLib returns an error.
+     */
+    private fun fetchForumTopicBrief(key: ForumTopicKey, onAnswer: (ForumTopicBrief?) -> Unit) {
+        client.send(TdApi.GetForumTopic(key.chatId, key.topicId.toInt()), Client.ResultHandler { result ->
+            onAnswer((result as? TdApi.ForumTopic)?.info?.let { forumTopicBrief(it) })
+        })
+    }
+
     private fun sendDownload(fileId: Int) {
         client.send(TdApi.DownloadFile(fileId, 16, 0, 0, false), Client.ResultHandler { result ->
             when (result) {
@@ -2443,6 +2480,20 @@ class TdLibTelegramRepository private constructor(
     override suspend fun sendMedia(chatId: Long, media: OutgoingMedia, caption: String, replyToMessageId: Long?, entities: List<MessageTextEntity>, forumTopicId: Long, options: MessageSendOptions): Result<Unit> {
         leaveJumpWindow(chatId)
         return conversationActions.sendMedia(chatId, media, caption, replyToMessageId, entities, forumTopicId, options)
+    }
+
+    override suspend fun sendComposerMedia(
+        chatId: Long, media: List<OutgoingMedia>, caption: String, replyToMessageId: Long?,
+        entities: List<MessageTextEntity>, forumTopicId: Long, options: MessageSendOptions
+    ): Result<List<Long>> {
+        leaveJumpWindow(chatId)
+        var ids = emptyList<Long>()
+        val result = if (media.size > 1) {
+            conversationActions.sendMediaAlbum(chatId, media, caption, replyToMessageId, entities, forumTopicId, options) { ids = it }
+        } else {
+            conversationActions.sendMedia(chatId, media.single(), caption, replyToMessageId, entities, forumTopicId, options) { ids = it }
+        }
+        return result.map { ids }
     }
 
     override suspend fun sendPoll(chatId: Long, poll: OutgoingPoll, replyToMessageId: Long?, forumTopicId: Long, options: MessageSendOptions): Result<Unit> {
@@ -2615,11 +2666,19 @@ class TdLibTelegramRepository private constructor(
     override suspend fun isForumChat(chatId: Long): Result<Boolean> = conversationActions.isForum(chatId)
 
     override suspend fun canCreateForumTopic(chatId: Long) = conversationActions.canCreateTopic(chatId)
-    override suspend fun createForumTopic(chatId: Long, name: String) = conversationActions.createTopic(chatId, name)
-    override suspend fun renameForumTopic(chatId: Long, forumTopicId: Long, name: String) = conversationActions.renameTopic(chatId, forumTopicId, name)
+    override suspend fun createForumTopic(chatId: Long, name: String, icon: ForumTopicIcon): Result<Long> =
+        conversationActions.createTopic(chatId, name, icon)
+    override suspend fun editForumTopic(chatId: Long, forumTopicId: Long, name: String, iconCustomEmojiId: Long?): Result<Unit> =
+        conversationActions.editTopic(chatId, forumTopicId, name, iconCustomEmojiId)
+    override suspend fun forumTopicDefaultIcons(): Result<List<Long>> = conversationActions.forumTopicDefaultIcons()
+    override suspend fun installedCustomEmojiSets(): Result<List<CustomEmojiSetBrief>> = conversationActions.installedCustomEmojiSets()
+    override suspend fun customEmojiSetIds(setId: Long): Result<List<Long>> = conversationActions.customEmojiSetIds(setId)
     override suspend fun setForumTopicClosed(chatId: Long, forumTopicId: Long, closed: Boolean) = conversationActions.closeTopic(chatId, forumTopicId, closed)
     override suspend fun setForumTopicPinned(chatId: Long, forumTopicId: Long, pinned: Boolean) = conversationActions.pinTopic(chatId, forumTopicId, pinned)
+    override suspend fun setPinnedForumTopicsOrder(chatId: Long, forumTopicIds: List<Long>): Result<Unit> =
+        conversationActions.setPinnedTopicsOrder(chatId, forumTopicIds)
     override suspend fun deleteForumTopic(chatId: Long, forumTopicId: Long) = conversationActions.deleteTopic(chatId, forumTopicId)
+    override suspend fun setForumTopicMuted(chatId: Long, forumTopicId: Long, muted: Boolean?) = conversationActions.setTopicMuted(chatId, forumTopicId, muted)
 
     override suspend fun forumTopicsPage(chatId: Long, query: String, onPage: (ForumTopicsPage) -> Unit): Result<ForumTopicsPage?> =
         conversationActions.forumTopicsPage(chatId, query) { page ->
@@ -2632,6 +2691,8 @@ class TdLibTelegramRepository private constructor(
                     readOutbox(chatId, topic.lastReadOutboxMessageId)
                 }
             }
+            // The listing already names every topic it carries, so the chat list needs no question for them.
+            forumTopicBriefs.remember(chatId, page.topics)
             onPage(page)
         }
 
@@ -2685,6 +2746,7 @@ class TdLibTelegramRepository private constructor(
                 readOutbox(update.chatId, update.lastReadOutboxMessageId)
                 }
             }
+            is TdApi.UpdateForumTopicInfo -> forumTopicBriefs.receive(update.info)
             is TdApi.UpdateChatFolders -> handleChatFolders(update)
             is TdApi.UpdateUnreadChatCount -> {
                 val list = update.chatList
@@ -3328,15 +3390,16 @@ class TdLibTelegramRepository private constructor(
         publishChat(chatId)
     }
 
-    /** Republishes the chat only when a posting/poll right changed, so unrelated group updates do not wake its observers. */
+    /** Republishes the chat only when a posting/poll right or the forum mark changed, so unrelated group updates do not wake its observers. */
     private fun refreshPostingRight(chatId: Long) {
         val existing = chatCache[chatId] ?: return
         val chat = profiles.chat(chatId) ?: return
         val canPost = profiles.canPost(chat)
         val canSendPolls = profiles.canSendPolls(chat)
         val isChannelAdmin = profiles.isChannelAdministrator(chat)
-        if (canPost == existing.canPost && canSendPolls == existing.canSendPolls && isChannelAdmin == existing.isChannelAdmin) return
-        chatCache[chatId] = existing.copy(canPost = canPost, canSendPolls = canSendPolls, isChannelAdmin = isChannelAdmin)
+        val isForum = profiles.isForum(chat)
+        if (canPost == existing.canPost && canSendPolls == existing.canSendPolls && isChannelAdmin == existing.isChannelAdmin && isForum == existing.isForum) return
+        chatCache[chatId] = existing.copy(canPost = canPost, canSendPolls = canSendPolls, isChannelAdmin = isChannelAdmin, isForum = isForum)
         publishChat(chatId)
     }
 
@@ -3362,6 +3425,7 @@ class TdLibTelegramRepository private constructor(
         lastMessage = message?.toTextPreview() ?: UiText.Raw(""),
         lastMessageTime = message?.toTimeString().orEmpty(),
         lastMessageId = message?.id ?: 0L,
+        lastMessageForumTopicId = message?.let { forumId(it) } ?: 0L,
         lastMessageOutgoing = message?.isOutgoing == true,
         lastMessageSender = message?.let { profiles.senderName(it.senderId) }.orEmpty(),
         lastMessageSendState = message?.sendingState.toSendState()
@@ -3866,6 +3930,7 @@ class TdLibTelegramRepository private constructor(
             order = mainPosition?.order ?: 0L,
             archiveOrder = archivePosition?.order ?: 0L,
             lastMessageId = lastMessage?.id ?: 0L,
+            lastMessageForumTopicId = lastMessage?.let { forumId(it) } ?: 0L,
             lastMessageOutgoing = lastMessage?.isOutgoing == true,
             lastMessageSender = lastMessage?.let { profiles.senderName(it.senderId) }.orEmpty(),
             lastMessageSendState = lastMessage?.sendingState.toSendState(),
@@ -3873,6 +3938,7 @@ class TdLibTelegramRepository private constructor(
             canPost = profiles.canPost(this),
             canSendPolls = profiles.canSendPolls(this),
             isChannelAdmin = profiles.isChannelAdministrator(this),
+            isForum = profiles.isForum(this),
             photo = profiles.photo(photo),
             folderPositions = folderPositions
         )

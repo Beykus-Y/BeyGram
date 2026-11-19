@@ -3,6 +3,8 @@ package com.beykus.beygram
 import android.content.Context
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.AnimatedContentTransitionScope
+import androidx.compose.animation.ContentTransform
 import androidx.compose.animation.Crossfade
 import androidx.compose.animation.core.snap
 import androidx.compose.foundation.background
@@ -17,6 +19,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.mutableIntStateOf
@@ -24,6 +27,7 @@ import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
@@ -45,6 +49,8 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalWindowInfo
 import android.widget.Toast
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.compose.LifecycleResumeEffect
@@ -65,6 +71,8 @@ import com.beykus.beygram.deeplink.yandexHasSubscription
 import com.beykus.beygram.data.music.provider.MusicProviders
 import com.beykus.beygram.data.music.provider.ProviderArtwork
 import com.beykus.beygram.data.music.provider.ProviderResult
+import com.beykus.beygram.ui.screens.playback.PlayerExpansionHost
+import com.beykus.beygram.ui.screens.playback.PlayerModalUnderlay
 import com.beykus.beygram.ui.screens.chat.openWithSystemHandler
 import com.beykus.beygram.deeplink.PendingTelegramDeepLink
 import com.beykus.beygram.deeplink.TelegramDeepLinkParser
@@ -129,15 +137,29 @@ import com.beykus.beygram.ui.motion.NavigationHistory
 import com.beykus.beygram.ui.motion.NavigationMove
 import com.beykus.beygram.ui.motion.rememberMotionSpec
 import com.beykus.beygram.ui.motion.rememberRouteTransitionSpec
+import com.beykus.beygram.ui.motion.rememberChatProfileTransitionController
+import com.beykus.beygram.ui.motion.ChatProfileBackOrchestration
+import com.beykus.beygram.ui.motion.ChatProfileFlightVisuals
+import com.beykus.beygram.ui.motion.ChatProfilePushOrchestration
+import com.beykus.beygram.ui.motion.ChatProfileTransitionOverlay
+import com.beykus.beygram.ui.motion.ChatProfileWindowFingerprint
+import com.beykus.beygram.ui.motion.chatProfilePairContentTransform
+import com.beykus.beygram.ui.components.ChatAvatar
+import com.beykus.beygram.ui.screens.chat.chatPresenceLine
 import com.beykus.beygram.ui.accessibility.rememberSystemReducedMotion
 import com.beykus.beygram.ui.screens.chat.ChatAnimationPreferences
 import com.beykus.beygram.ui.screens.chat.ChatScreen
+import com.beykus.beygram.ui.screens.chat.isWaveChat
+import com.beykus.beygram.ui.screens.chat.preparedTimeline
 import com.beykus.beygram.ui.screens.chat.LocalChatAnimationPreferences
 import com.beykus.beygram.ui.screens.chat.LocalAutoDownloadFile
 import com.beykus.beygram.ui.screens.chat.MessageThreadScreen
 import com.beykus.beygram.ui.screens.chat.ForumTopicsScreen
 import com.beykus.beygram.ui.screens.chat.ForumTopicsLoadingScreen
 import com.beykus.beygram.ui.screens.chat.ForumTopicsFailureScreen
+import com.beykus.beygram.ui.screens.chat.ForumTopicRailPane
+import com.beykus.beygram.ui.screens.chat.ForumTopicTabStrip
+import com.beykus.beygram.ui.screens.chat.initialPanelTopicId
 import com.beykus.beygram.ui.screens.chats.ChatsScreen
 import com.beykus.beygram.ui.screens.chats.ChatsDetailPlaceholder
 import com.beykus.beygram.ui.screens.chats.ChatsTwoPaneScaffold
@@ -208,6 +230,8 @@ import com.beykus.beygram.data.motion.MotionSettingsStore
 import com.beykus.beygram.data.settings.ChatAnimationSettingsStore
 import com.beykus.beygram.data.settings.ChatOverridesStore
 import com.beykus.beygram.data.settings.DelayedSendSettingsStore
+import com.beykus.beygram.data.settings.ForumNavigationMode
+import com.beykus.beygram.data.settings.ForumNavigationStore
 import com.beykus.beygram.data.settings.TranslationSettingsStore
 import com.beykus.beygram.data.appearance.AppearanceConfig
 import com.beykus.beygram.data.presence.LastSeenSettingsStore
@@ -515,6 +539,15 @@ private fun BeyGramAppContent(
     // The selected forum topic follows its parent chat. Other chats must never inherit the previous topic.
     var selectedTopicChatId by rememberSaveable { mutableStateOf(0L) }
     var selectedForumTopicId by rememberSaveable { mutableStateOf(0L) }
+    // The all-messages feed of a forum: the messages of every topic in the chat's own history. It belongs to one chat visit, so a
+    // chat or account switch starts with the topic list again; opening a topic or leaving for the chat list ends it.
+    var forumAllMessages by rememberSaveable(selectedAccountId, selectedChatId) { mutableStateOf(false) }
+    LaunchedEffect(selectedForumTopicId) {
+        if (selectedForumTopicId > 0L) forumAllMessages = false
+    }
+    LaunchedEffect(routeName) {
+        if (routeName == AppRoute.Chats.name) forumAllMessages = false
+    }
     // A topic named by a notification or shared media may be hidden from the visible topics list.
     var trustedForumTopicId by rememberSaveable { mutableStateOf(0L) }
     // Вложение из профиля открывает чат у своего сообщения; 0 значит, что переход не нужен.
@@ -860,6 +893,10 @@ private fun BeyGramAppContent(
     val chatOverrides = remember(context, selectedAccountId) {
         ChatOverridesStore(context.applicationContext, selectedAccountId)
     }
+    // The forum view choices are local to this device and account; they never reach the server.
+    val forumNavigation = remember(context, selectedAccountId) {
+        ForumNavigationStore(context.applicationContext, selectedAccountId)
+    }
     // Decorative chat animations are global and account-independent; the flow updates an open chat immediately.
     val chatAnimationStore = remember(context) { ChatAnimationSettingsStore(context.applicationContext) }
     val chatAnimationSettings by chatAnimationStore.state.collectAsStateWithLifecycle()
@@ -954,6 +991,12 @@ private fun BeyGramAppContent(
     val openTriggerWords: (AppRoute) -> Unit = { returnTo ->
         triggerWordsReturnRouteName = returnTo.name
         routeName = AppRoute.TriggerWords.name
+    }
+    // Проверка подключения открывается из уведомлений и из «Диагностики»: запоминаем, куда вернуться.
+    var connectionDiagnosticsReturnRouteName by rememberSaveable { mutableStateOf(AppRoute.Notifications.name) }
+    val openConnectionDiagnostics: (AppRoute) -> Unit = { returnTo ->
+        connectionDiagnosticsReturnRouteName = returnTo.name
+        routeName = AppRoute.ConnectionDiagnostics.name
     }
     // Экраны прокси открываются из нескольких мест: запоминаем, куда вернуться, и какую вкладку показать.
     var proxyReturnRouteName by rememberSaveable { mutableStateOf(AppRoute.Start.name) }
@@ -1777,6 +1820,10 @@ private fun BeyGramAppContent(
             myProfile = myProfile.info,
             observeFile = repository::observeFile,
             downloadFile = repository::downloadFile,
+            observeForumTopic = repository::observeForumTopicInfo,
+            observeCustomEmoji = repository::observeCustomEmoji,
+            // Same route as a chat tap, but the chat opens on the topic that the row names.
+            onForumTopicClick = { chat -> openDeepLinkChat(chat.id, 0L, chat.lastMessageForumTopicId) },
             onMyProfile = { routeName = AppRoute.MyProfile.name },
             onAccountPicker = { accountSwitcherVisible = true },
             onArchiveClick = { routeName = AppRoute.Archive.name },
@@ -1910,16 +1957,26 @@ private fun BeyGramAppContent(
             }
         )
     }
+    // ---- Переход чат ↔ профиль (#999) ----------------------------------------
+    // The flight controller lives at the app root: both route contents unmount while a flight is
+    // still running, so neither screen may own it. Per account, so one account's geometry is
+    // never used for another's avatar.
+    val chatProfileTransition = rememberChatProfileTransitionController(selectedAccountId)
+    val chatProfilePushSpec = rememberMotionSpec(MotionToken.NavigationPush)
+    val chatProfilePopSpec = rememberMotionSpec(MotionToken.NavigationPop)
+
     // [twoPane] true when this chat is the right-hand pane of the wide layout. A chat that cannot be
     // resolved must not replace the whole tab there: the list is already beside it.
     val chatRoute: @Composable (Boolean) -> Unit = { twoPane ->
-        val chats by repository.chats.collectAsStateWithLifecycle()
-        val forwardArchivedChats by repository.archivedChats.collectAsStateWithLifecycle()
+        val chatsState = repository.chats.collectAsStateWithLifecycle()
+        val forwardArchivedChatsState = repository.archivedChats.collectAsStateWithLifecycle()
         val myAccount by repository.myProfile.collectAsStateWithLifecycle()
         val accountLabel = myAccount.info?.title?.takeIf { it.isNotBlank() } ?: myAccount.info?.phone.orEmpty()
         val selectedChat by remember(repository, selectedChatId) { repository.observeChat(selectedChatId) }.collectAsStateWithLifecycle()
         // The collected state can still hold the previous selection for a composition after a chat switch.
-        val chat = selectedChat?.takeIf { it.id == selectedChatId } ?: chats.firstOrNull { it.id == selectedChatId }
+        // The chat list is read only when the selected chat is missing, and recomposes only when the found chat changes.
+        val fallbackChat by remember(chatsState, selectedChatId) { derivedStateOf { chatsState.value.firstOrNull { it.id == selectedChatId } } }
+        val chat = selectedChat?.takeIf { it.id == selectedChatId } ?: fallbackChat
         // A secret or protected chat must not appear in screenshots or a screen recording.
         // The Activity owns the window flag; this effect only reports the current screen policy.
         val chatSecure = chat != null && (chat.isSecret || chat.hasProtectedContent)
@@ -1968,6 +2025,8 @@ private fun BeyGramAppContent(
                         selectedForumTopicId > 0L && selectedForumTopicId == trustedForumTopicId
                 )
             ) selectedForumTopicId else 0L
+            // The all-messages feed is ChatScreen without a topic: the chat's history of every topic. It never coexists with a topic.
+            val allMessagesOpen = forumAllMessages && activeTopicId == 0L
             // A link can lead to a forum group, whose first screen is the topic list rather than ChatScreen. Every
             // Back path in this route consumes the same saved origin so it does not fall through to the chat list.
             fun restoreLinkReturnChat(): Boolean {
@@ -2007,10 +2066,13 @@ private fun BeyGramAppContent(
                     } finally { forumBusy = false }
                 }
             }
-            /** Same action path, but reports the outcome so the name dialog can close on success or keep the input. */
-            fun forumActionWithResult(action: suspend () -> Result<Unit>, onResult: (String?) -> Unit) {
+            /**
+             * Same action path, but reports the outcome so the name dialog can close on success or keep the input.
+             * [failure] is the message for a failed action; the reorder passes its own, so the banner names what failed.
+             */
+            fun forumActionWithResult(action: suspend () -> Result<Unit>, onResult: (String?) -> Unit, failure: Int = R.string.forum_action_failed) {
                 if (forumBusy || !isCurrentForum()) {
-                    onResult(context.getString(R.string.forum_action_failed))
+                    onResult(context.getString(failure))
                     return
                 }
                 forumBusy = true; forumActionError = null
@@ -2018,7 +2080,7 @@ private fun BeyGramAppContent(
                     var error: String? = null
                     try {
                         if (action().isSuccess) topicsReload++
-                        else error = context.getString(R.string.forum_action_failed)
+                        else error = context.getString(failure)
                     } finally {
                         forumBusy = false
                         forumActionError = error
@@ -2051,6 +2113,8 @@ private fun BeyGramAppContent(
             }
             val topicsPage = topicsResult?.getOrNull()
             val topics = topicsPage?.topics
+            // The feed names each message's topic and opens it; this lookup keeps those labels off the list scan.
+            val forumTopicsById = remember(topics) { topics.orEmpty().associateBy { it.id } }
             val selectedTopic = topics?.firstOrNull { it.id == activeTopicId }
                 ?: selectedTopicSnapshot?.takeIf { it.id == activeTopicId }
             val historyFlow = remember(repository, selectedChatId, activeTopicId) {
@@ -2077,6 +2141,76 @@ private fun BeyGramAppContent(
                     selectedForumTopicId = 0L
                 }
             }
+            // The view this forum opens in. Tabs and Rail keep the topics beside the open topic; Classic is the topic list.
+            val forumNavigationModes by forumNavigation.modes.collectAsStateWithLifecycle()
+            val forumMode = forumNavigationModes[forumChatId] ?: ForumNavigationMode.Classic
+            // "All topics" in a panel view shows the list while the open topic stays open, and Back returns to that topic.
+            var forumListRequested by rememberSaveable(selectedAccountId, selectedChatId) { mutableStateOf(false) }
+            val topicPanelsActive = topics != null && forumMode != ForumNavigationMode.Classic
+            val topicTabsActive = topicPanelsActive && forumMode == ForumNavigationMode.Tabs
+            val topicRailActive = topicPanelsActive && forumMode == ForumNavigationMode.Rail
+            // A panel view with no open topic opens one at once, so the topic list does not flash in between.
+            val topicPanelOpenPending = topicPanelsActive && activeTopicId == 0L && !forumListRequested && !allMessagesOpen && !topics.isNullOrEmpty()
+            val topicTabsState = rememberLazyListState()
+            val topicRailState = rememberLazyListState()
+            // Opens a topic in this chat and remembers it as the topic to open first next time.
+            fun openTopic(topic: com.beykus.beygram.domain.model.ForumTopic) {
+                if (!isCurrentForum()) return
+                selectedTopicChatId = forumChatId
+                selectedForumTopicId = topic.id
+                // Server search can return a topic outside the loaded pages; trust the user's explicit choice.
+                trustedForumTopicId = topic.id
+                selectedTopicSnapshot = topic
+                forumListRequested = false
+                forumAllMessages = false
+                forumNavigation.setLastTopic(forumChatId, topic.id)
+            }
+            val setForumMode: (ForumNavigationMode) -> Unit = { mode ->
+                // Choosing the view that is current still leaves the all-messages feed, which is not a view of its own.
+                if (isCurrentForum() && (mode != forumMode || allMessagesOpen)) {
+                    forumNavigation.setMode(forumChatId, mode)
+                    forumListRequested = false
+                    forumAllMessages = false
+                    // Classic opens on the topic list, as it always has.
+                    if (mode == ForumNavigationMode.Classic) selectedForumTopicId = 0L
+                }
+            }
+            // The feed of every topic's messages. Its selection clears the open topic, so the topic list and the panels stay one tap away.
+            val openAllMessages: () -> Unit = {
+                if (isCurrentForum()) {
+                    selectedForumTopicId = 0L
+                    forumListRequested = false
+                    forumAllMessages = true
+                }
+            }
+            val openPanelList: () -> Unit = { if (isCurrentForum()) { forumAllMessages = false; forumListRequested = true } }
+            val selectPanelTopic: (com.beykus.beygram.domain.model.ForumTopic) -> Unit = { topic -> openTopic(topic) }
+            val panelTopics = topics.orEmpty()
+            LaunchedEffect(topicPanelOpenPending, topics, topicsLoading) {
+                if (topicPanelOpenPending) {
+                    val lastTopicId = forumNavigation.lastTopic(forumChatId)
+                    // The remembered topic may sit on a page that has not arrived yet: wait for it rather than
+                    // opening the first topic and overwriting the remembered one.
+                    if (lastTopicId > 0L && topicsLoading && panelTopics.none { it.id == lastTopicId }) return@LaunchedEffect
+                    val target = initialPanelTopicId(panelTopics, lastTopicId)
+                    panelTopics.firstOrNull { it.id == target }?.let { openTopic(it) }
+                }
+            }
+            val tabStrip: @Composable () -> Unit = {
+                ForumTopicTabStrip(
+                    topics = panelTopics,
+                    selectedTopicId = activeTopicId,
+                    parentMuted = chat.isMuted,
+                    onSelect = selectPanelTopic,
+                    onOpenList = openPanelList,
+                    observeFile = repository::observeFile,
+                    downloadFile = repository::downloadFile,
+                    observeCustomEmoji = repository::observeCustomEmoji,
+                    listState = topicTabsState,
+                    allMessagesSelected = allMessagesOpen,
+                    onAllMessages = openAllMessages
+                )
+            }
             when {
                 topicsResult == null -> ForumTopicsLoadingScreen(
                     chat = chat,
@@ -2084,14 +2218,21 @@ private fun BeyGramAppContent(
                     observeFile = repository::observeFile,
                     downloadFile = repository::downloadFile
                 )
-                topicsResult?.isFailure == true && activeTopicId == 0L -> ForumTopicsFailureScreen(
+                topicsResult?.isFailure == true && activeTopicId == 0L && !allMessagesOpen -> ForumTopicsFailureScreen(
                     chat = chat,
                     onBack = { if (!restoreLinkReturnChat()) routeName = chatBackRouteName },
                     onRetry = { topicsReload++ },
                     observeFile = repository::observeFile,
                     downloadFile = repository::downloadFile
                 )
-                topics != null && activeTopicId == 0L -> ForumTopicsScreen(
+                // A panel view opens its topic at once; this frame stays until the topic is open.
+                topicPanelOpenPending -> ForumTopicsLoadingScreen(
+                    chat = chat,
+                    onBack = { if (!restoreLinkReturnChat()) routeName = chatBackRouteName },
+                    observeFile = repository::observeFile,
+                    downloadFile = repository::downloadFile
+                )
+                topics != null && !allMessagesOpen && (activeTopicId == 0L || topicPanelsActive && forumListRequested) -> ForumTopicsScreen(
                     accountId = selectedAccountId,
                     chatId = selectedChatId,
                     chat = chat,
@@ -2115,17 +2256,16 @@ private fun BeyGramAppContent(
                     downloadFile = repository::downloadFile,
                     observeCustomEmoji = repository::observeCustomEmoji,
                     onOpenGroupInfo = { routeName = AppRoute.ChatInfo.name },
-                    onBack = { if (!restoreLinkReturnChat()) routeName = chatBackRouteName },
-                    onTopic = { topic ->
-                        if (isCurrentForum()) {
-                            selectedTopicChatId = forumChatId
-                            selectedForumTopicId = topic.id
-                            // Server search can return a topic outside the loaded pages; trust the user's explicit choice.
-                            trustedForumTopicId = topic.id
-                            selectedTopicSnapshot = topic
+                    onBack = {
+                        if (topicPanelsActive && activeTopicId > 0L) {
+                            // "All topics" was opened from a panel view: Back returns to the topic that is still open.
+                            forumListRequested = false
+                        } else if (!restoreLinkReturnChat()) {
+                            routeName = chatBackRouteName
                         }
                     },
-                    onCreate = { name, done ->
+                    onTopic = selectPanelTopic,
+                    onCreate = { name, topicIcon, done ->
                         if (!forumBusy && isCurrentForum()) {
                             // The user may switch chats while the request is in flight; never apply the new id elsewhere.
                             val targetChatId = forumChatId
@@ -2134,11 +2274,12 @@ private fun BeyGramAppContent(
                             forumScope.launch {
                                 var error: String? = null
                                 try {
-                                    repository.createForumTopic(targetChatId, name)
+                                    repository.createForumTopic(targetChatId, name, topicIcon)
                                         .onSuccess { newId ->
                                             if (selectedAccountId == targetAccountId && selectedChatId == targetChatId) {
                                                 selectedTopicChatId = targetChatId
                                                 selectedForumTopicId = newId
+                                                forumListRequested = false
                                                 // Open the newly created topic at once; the list reload catches up later.
                                                 trustedForumTopicId = newId
                                                 selectedTopicSnapshot = com.beykus.beygram.domain.model.ForumTopic(
@@ -2147,7 +2288,8 @@ private fun BeyGramAppContent(
                                                     canWrite = true,
                                                     canManage = true,
                                                     canPin = true,
-                                                    isOutgoing = true
+                                                    isOutgoing = true,
+                                                    icon = topicIcon
                                                 )
                                                 topicsReload++
                                             }
@@ -2165,102 +2307,196 @@ private fun BeyGramAppContent(
                             done(context.getString(R.string.forum_action_failed))
                         }
                     },
-                    onRename = { topic, name, done ->
-                        forumActionWithResult({ repository.renameForumTopic(forumChatId, topic.id, name) }, done)
+                    onEdit = { topic, name, iconCustomEmojiId, done ->
+                        forumActionWithResult({ repository.editForumTopic(forumChatId, topic.id, name, iconCustomEmojiId) }, done)
                     },
+                    loadDefaultIcons = { repository.forumTopicDefaultIcons() },
+                    premium = myAccount.info?.isPremium == true,
+                    loadCustomEmojiSets = { repository.installedCustomEmojiSets() },
+                    loadCustomEmojiSetIds = { setId -> repository.customEmojiSetIds(setId) },
                     onClosed = { topic, closed -> forumAction { repository.setForumTopicClosed(forumChatId, topic.id, closed) } },
                     onPinned = { topic, pinned -> forumAction { repository.setForumTopicPinned(forumChatId, topic.id, pinned) } },
+                    onPinnedOrder = { order, done ->
+                        forumActionWithResult({ repository.setPinnedForumTopicsOrder(forumChatId, order) }, done, R.string.forum_topics_reorder_failed)
+                    },
+                    onMuted = { topic, muted -> forumAction { repository.setForumTopicMuted(forumChatId, topic.id, muted) } },
                     onDelete = { topic -> forumAction { repository.deleteForumTopic(forumChatId, topic.id) } },
-                    onDismissActionError = { forumActionError = null }
+                    onDismissActionError = { forumActionError = null },
+                    navigationMode = forumMode,
+                    onNavigationMode = setForumMode,
+                    onAllMessages = openAllMessages
                 )
-                else -> key(selectedAccountId, selectedChatId, activeTopicId) {
+                else -> key(selectedAccountId, selectedChatId, activeTopicId, allMessagesOpen) {
                     val commentsOpen = route == AppRoute.MessageThread &&
                         threadChannelChatId == selectedChatId && threadPostId > 0L
                     LaunchedEffect(route, commentsOpen) {
                         if (route == AppRoute.MessageThread && !commentsOpen) routeName = AppRoute.Chat.name
                     }
-                    ChatScreen(
-                        chat = chat,
-                        accountId = selectedAccountId,
-                        accountLabel = accountLabel,
-                        info = chatInfo.info,
-                        lastSeenStyle = lastSeenStyle,
-                        history = history,
-                        conversation = repository,
-                        chats = chats + forwardArchivedChats,
-                        observeFile = repository::observeFile,
-                        onDownloadFile = repository::downloadFile,
-                        onAutoDownloadFile = repository::autoDownloadFile,
-                        onBack = {
-                            if (!restoreLinkReturnChat()) {
-                                if (chatBackRouteName == AppRoute.GlobalSearch.name) {
-                                    chatFocusMessageId = 0L
-                                    selectedForumTopicId = 0L
-                                    routeName = AppRoute.GlobalSearch.name
-                                } else if (activeTopicId > 0L) {
-                                    selectedForumTopicId = 0L
-                                    topicsReload++
-                                } else routeName = chatBackRouteName
-                            }
-                        },
-                        onChatInfo = { routeName = AppRoute.ChatInfo.name },
-                        onStatistics = if (chat.isChannel && (chat.isChannelAdmin || chat.canPost)) {
-                            {
-                                if (chatBackRouteName != AppRoute.ChannelStatistics.name) {
-                                    statisticsChatBackRouteName = chatBackRouteName
+                    // The timeline rows of the history are grouped off the main thread. The state lives in this key block,
+                    // because a collected state keeps its old value: a chat switch must not show the previous chat's rows.
+                    val waveChatFlag = isWaveChat(chat)
+                    val preparedFlow = remember(historyFlow, waveChatFlag) { historyFlow.preparedTimeline(waveChatFlag) }
+                    val prepared by preparedFlow.collectAsStateWithLifecycle(initialValue = null)
+                    // Shared-element transition to the profile (#999). The flight flies this chat's
+                    // header identity; a topic view or the all-messages feed keeps the plain
+                    // transition, because its header shows the topic, not the chat's identity.
+                    val chatProfileChat = rememberUpdatedState(chat)
+                    val chatProfileInfo = rememberUpdatedState(chatInfo.info)
+                    val chatProfileTopicView = rememberUpdatedState(activeTopicId > 0L || allMessagesOpen)
+                    val chatProfileLastSeen = rememberUpdatedState(lastSeenStyle)
+                    val chatProfilePushSpecState = rememberUpdatedState(chatProfilePushSpec)
+                    val chatProfilePopSpecState = rememberUpdatedState(chatProfilePopSpec)
+                    val chatProfileWindow = LocalWindowInfo.current
+                    val chatProfileDensity = LocalDensity.current.density
+                    val chatProfileFingerprint = remember(chatProfileWindow.containerSize, chatProfileDensity) {
+                        ChatProfileWindowFingerprint(
+                            chatProfileWindow.containerSize.width,
+                            chatProfileWindow.containerSize.height,
+                            chatProfileDensity
+                        )
+                    }
+                    val chatProfileFingerprintState = rememberUpdatedState(chatProfileFingerprint)
+                    val chatProfileSource = if (twoPane) null else remember(chatProfileTransition, selectedChatId) {
+                        chatProfileTransition.chatHeaderSource(selectedChatId, ChatProfilePushOrchestration(
+                            visuals = {
+                                val sourceChat = chatProfileChat.value
+                                // A profile whose info is not loaded composes no header to land on, so it starts no flight.
+                                if (chatProfileTopicView.value || sourceChat == null || chatProfileInfo.value == null) null
+                                else ChatProfileFlightVisuals(
+                                    avatar = { size -> ChatAvatar(sourceChat, size, repository::observeFile, repository::downloadFile) },
+                                    chatTitle = sourceChat.title,
+                                    chatStatus = chatPresenceLine(
+                                        sourceChat, chatProfileInfo.value, chatProfileLastSeen.value, System.currentTimeMillis()
+                                    ).resolve(context),
+                                    avatarSize = 112.dp
+                                )
+                            },
+                            fingerprint = { chatProfileFingerprintState.value },
+                            pushSpec = { chatProfilePushSpecState.value },
+                            popSpec = { chatProfilePopSpecState.value },
+                            navigate = { routeName = AppRoute.ChatInfo.name }
+                        ))
+                    }
+                    val chatContent: @Composable () -> Unit = {
+                        ChatScreen(
+                            chat = chat,
+                            accountId = selectedAccountId,
+                            accountLabel = accountLabel,
+                            info = chatInfo.info,
+                            lastSeenStyle = lastSeenStyle,
+                            // Rows and history come from the same snapshot; the raw history is used only until the first one is ready.
+                            history = prepared?.history ?: history,
+                            preparedTimeline = prepared,
+                            conversation = repository,
+                            chats = remember(chatsState, forwardArchivedChatsState) { { chatsState.value + forwardArchivedChatsState.value } },
+                            observeFile = repository::observeFile,
+                            onDownloadFile = repository::downloadFile,
+                            onAutoDownloadFile = repository::autoDownloadFile,
+                            onBack = {
+                                if (!restoreLinkReturnChat()) {
+                                    // Back from the feed returns to the topic list, or to the open topic in a panel view.
+                                    if (allMessagesOpen) {
+                                        forumAllMessages = false
+                                    } else if (chatBackRouteName == AppRoute.GlobalSearch.name) {
+                                        chatFocusMessageId = 0L
+                                        selectedForumTopicId = 0L
+                                        routeName = AppRoute.GlobalSearch.name
+                                    } else if (topicPanelsActive) {
+                                        // The panel views keep the topic list one tap away, so Back leaves the forum.
+                                        selectedForumTopicId = 0L
+                                        forumListRequested = false
+                                        routeName = chatBackRouteName
+                                    } else if (activeTopicId > 0L) {
+                                        selectedForumTopicId = 0L
+                                        topicsReload++
+                                    } else routeName = chatBackRouteName
                                 }
-                                statisticsReturnRouteName = AppRoute.Chat.name
-                                statisticsHeaderTitleRes = R.string.channel_statistics_title
-                                routeName = AppRoute.ChannelStatistics.name
-                            }
-                        } else null,
-                        connectionState = connectionState,
-                        recordingSettings = recordingSettings,
-                        forumTopicId = activeTopicId,
-                        forumTopicTitle = selectedTopic?.title,
-                        forumTopic = selectedTopic,
-                        topicCanPost = selectedTopic?.canWrite ?: true,
-                        topicUnreadCount = selectedTopic?.unreadCount ?: 0,
-                        onServiceUser = { userId -> openUserProfile(userId, AppRoute.Chat) },
-                        isPremiumAccount = myAccount.info?.isPremium == true,
-                        onPremium = { openPremium(AppRoute.Chat) },
-                        onOpenMessageEntity = openMessageEntity,
-                        onOpenUserChat = { userId ->
-                            val sourceAccountId = selectedAccountId
-                            val sourceRepository = repository
-                            memberScope.launch {
-                                sourceRepository.openPrivateChat(userId)
-                                    .onSuccess { chatId ->
-                                        if (selectedAccountId == sourceAccountId) {
-                                            selectedChatId = chatId
-                                            selectedTopicChatId = 0L
-                                            selectedForumTopicId = 0L
-                                            chatBackRouteName = AppRoute.Chats.name
-                                            routeName = AppRoute.Chat.name
-                                        }
+                            },
+                            onChatInfo = { if (chatProfileSource != null) chatProfileSource.open() else routeName = AppRoute.ChatInfo.name },
+                            onStatistics = if (chat.isChannel && (chat.isChannelAdmin || chat.canPost)) {
+                                {
+                                    if (chatBackRouteName != AppRoute.ChannelStatistics.name) {
+                                        statisticsChatBackRouteName = chatBackRouteName
                                     }
-                                    .onFailure { error ->
-                                        if (selectedAccountId == sourceAccountId) {
-                                            noticeError = (error as? UserMessageException)?.text
-                                                ?: UiText.Res(R.string.profile_member_open_failed)
+                                    statisticsReturnRouteName = AppRoute.Chat.name
+                                    statisticsHeaderTitleRes = R.string.channel_statistics_title
+                                    routeName = AppRoute.ChannelStatistics.name
+                                }
+                            } else null,
+                            connectionState = connectionState,
+                            recordingSettings = recordingSettings,
+                            forumTopicId = activeTopicId,
+                            forumTopicTitle = selectedTopic?.title,
+                            forumTopic = selectedTopic,
+                            topicCanPost = selectedTopic?.canWrite ?: true,
+                            topicUnreadCount = selectedTopic?.unreadCount ?: 0,
+                            onServiceUser = { userId -> openUserProfile(userId, AppRoute.Chat) },
+                            isPremiumAccount = myAccount.info?.isPremium == true,
+                            onPremium = { openPremium(AppRoute.Chat) },
+                            onOpenMessageEntity = openMessageEntity,
+                            onOpenUserChat = { userId ->
+                                val sourceAccountId = selectedAccountId
+                                val sourceRepository = repository
+                                memberScope.launch {
+                                    sourceRepository.openPrivateChat(userId)
+                                        .onSuccess { chatId ->
+                                            if (selectedAccountId == sourceAccountId) {
+                                                selectedChatId = chatId
+                                                selectedTopicChatId = 0L
+                                                selectedForumTopicId = 0L
+                                                chatBackRouteName = AppRoute.Chats.name
+                                                routeName = AppRoute.Chat.name
+                                            }
                                         }
-                                    }
-                            }
-                        },
-                        onOpenComments = { post ->
-                            threadChannelChatId = selectedChatId
-                            threadPostId = post.id
-                            threadDraftText = ""
-                            threadDraftEntities = ArrayList()
-                            threadDraftReplyId = 0L
-                            routeName = AppRoute.MessageThread.name
-                        },
-                        threadOpen = commentsOpen,
-                        focusMessageId = chatFocusMessageId, onFocusHandled = { chatFocusMessageId = 0L },
-                        messageAnimations = appearance.messageAnimations,
-                        translationSettings = translationSettings,
-                        chatOverrides = chatOverrides
-                    )
+                                        .onFailure { error ->
+                                            if (selectedAccountId == sourceAccountId) {
+                                                noticeError = (error as? UserMessageException)?.text
+                                                    ?: UiText.Res(R.string.profile_member_open_failed)
+                                            }
+                                        }
+                                }
+                            },
+                            onOpenComments = { post ->
+                                threadChannelChatId = selectedChatId
+                                threadPostId = post.id
+                                threadDraftText = ""
+                                threadDraftEntities = ArrayList()
+                                threadDraftReplyId = 0L
+                                routeName = AppRoute.MessageThread.name
+                            },
+                            threadOpen = commentsOpen,
+                            focusMessageId = chatFocusMessageId, onFocusHandled = { chatFocusMessageId = 0L },
+                            messageAnimations = appearance.messageAnimations,
+                            translationSettings = translationSettings,
+                            chatOverrides = chatOverrides,
+                            topicStrip = if (topicTabsActive) tabStrip else null,
+                            forumNavigationMode = if (topics != null) forumMode else null,
+                            onForumNavigationMode = if (topics != null) setForumMode else null,
+                            forumAllMessages = allMessagesOpen,
+                            forumTopicsById = forumTopicsById,
+                            onOpenForumTopic = { topic -> openTopic(topic) },
+                            profileTransition = chatProfileSource
+                        )
+                    }
+                    if (topicRailActive) {
+                        ForumTopicRailPane(
+                            topics = panelTopics,
+                            selectedTopicId = activeTopicId,
+                            parentMuted = chat.isMuted,
+                            onSelect = selectPanelTopic,
+                            onOpenList = openPanelList,
+                            observeFile = repository::observeFile,
+                            downloadFile = repository::downloadFile,
+                            observeCustomEmoji = repository::observeCustomEmoji,
+                            listState = topicRailState,
+                            allMessagesSelected = allMessagesOpen,
+                            onAllMessages = openAllMessages
+                        ) {
+                            chatContent()
+                        }
+                    } else {
+                        chatContent()
+                    }
                     // The channel ChatScreen stays composed under this overlay: closing the thread restores its
                     // exact list position without reopening or reloading the channel.
                     if (commentsOpen) {
@@ -2325,8 +2561,44 @@ private fun BeyGramAppContent(
             musicPlaylistReturnRouteName = AppRoute.ChatInfo.name
             routeName = AppRoute.MusicPlaylist.name
         }
+        // The return flight to the chat (#999). The handle owns everything Back needs, so the
+        // profile screen drives the flight without knowing the navigation host.
+        val chatProfileWindow = LocalWindowInfo.current
+        val chatProfileDensity = LocalDensity.current.density
+        val chatProfileFingerprint = remember(chatProfileWindow.containerSize, chatProfileDensity) {
+            ChatProfileWindowFingerprint(
+                chatProfileWindow.containerSize.width,
+                chatProfileWindow.containerSize.height,
+                chatProfileDensity
+            )
+        }
+        val chatProfileFingerprintState = rememberUpdatedState(chatProfileFingerprint)
+        val chatProfilePopSpecState = rememberUpdatedState(chatProfilePopSpec)
+        val chatProfileLastSeenState = rememberUpdatedState(lastSeenStyle)
+        val chatProfileInfoState = rememberUpdatedState(info.info)
+        val windowLayoutNow = LocalWindowLayout.current
+        val chatProfileTarget = if (windowLayoutNow.twoPane) null else remember(chatProfileTransition, selectedChatId) {
+            chatProfileTransition.profileTarget(selectedChatId, ChatProfileBackOrchestration(
+                visuals = {
+                    val sourceChat = selectedChat
+                    if (sourceChat == null) null
+                    else ChatProfileFlightVisuals(
+                        avatar = { size -> ChatAvatar(sourceChat, size, repository::observeFile, repository::downloadFile) },
+                        chatTitle = sourceChat.title,
+                        chatStatus = chatPresenceLine(
+                            sourceChat, chatProfileInfoState.value, chatProfileLastSeenState.value, System.currentTimeMillis()
+                        ).resolve(context),
+                        avatarSize = 112.dp
+                    )
+                },
+                fingerprint = { chatProfileFingerprintState.value },
+                popSpec = { chatProfilePopSpecState.value },
+                navigate = { routeName = AppRoute.Chat.name }
+            ))
+        }
         ProfileScreen(info, false, repository::observeFile, repository::downloadFile, onOpenMessageEntity = openMessageEntity,
             onBack = { routeName = AppRoute.Chat.name }, onRefresh = { repository.refreshChatInfo(selectedChatId) },
+            profileTransition = chatProfileTarget,
             onMembers = { routeName = AppRoute.ChatMembers.name }, onOpenUser = { userId -> openUserProfile(userId, AppRoute.ChatInfo) },
             onManage = { routeName = AppRoute.ChatManagement.name },
             chatLibrary = if (selectedChat == null || chatInfoSecure) null else ChatLibraryLink(selectedAccountId, openChatMusic),
@@ -2590,740 +2862,786 @@ GlobalSearchScreen(
                     session = globalSearchSession
                 )
     }
-    Column(Modifier.fillMaxSize()) {
-        BoxWithConstraints(Modifier.weight(1f).fillMaxWidth()) {
-            // One window class for the whole tree: the width and the height are read here once, so the list, the
-            // navigation and the chat chrome can never disagree about the layout they are in.
-            val windowLayout = WindowLayout(maxWidth.value, maxHeight.value)
-            val routeTwoPane = windowLayout.twoPane
-            val layoutDirection = LocalLayoutDirection.current
-            // The tab a tab switch leaves: the incoming bar and its items start their selection there. Motion off is a cut.
-            val tabTransitionMotionInstant = rememberMotionSpec(MotionToken.TabSelect).isInstant
-            val tabTransitionOrigin = if (routeMove == NavigationMove.Tab && !tabTransitionMotionInstant) {
-                routeHistory.tabTransitionOrigin?.let { root -> MainTab.entries.firstOrNull { it.route == root } }
-            } else {
-                null
-            }
-            CompositionLocalProvider(
-                LocalWindowLayout provides windowLayout,
-                LocalMainTabTransitionOrigin provides tabTransitionOrigin
-            ) {
-            // Один набор спецификаций на все переходы: длительность и easing берутся из токенов движка.
-            val pushSpec = rememberMotionSpec(MotionToken.NavigationPush)
-            val popSpec = rememberMotionSpec(MotionToken.NavigationPop)
-            val tabSpec = rememberMotionSpec(MotionToken.TabSelect)
-            when {
-                !accountRegistryReady -> CircularProgressIndicator(Modifier.align(Alignment.Center))
-                accountRegistryError -> Text(
-                    stringResource(R.string.secondary_accounts_registry_error),
-                    modifier = Modifier.align(Alignment.Center)
-                )
-                selectedAccountId != TdAccountStorageLayout.LEGACY_ACCOUNT_ID &&
-                    !accountRouteCanRender(
-                        route, selectedAccountId,
-                        (repositorySelection as? TdLibTelegramRepository)?.accountId
-                    ) -> {
-                    val recoveryIndex = accountChoice.accounts
-                        .indexOfFirst { it.accountId == selectedAccountId }
-                    val selectedRow = accountChoice.accounts
-                        .firstOrNull { it.accountId == selectedAccountId }
-                    if (recoveryGrace && selectedRow?.let { it.authorized && !it.manualStop } == true) {
-                        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                            Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                                CircularProgressIndicator()
-                                Text(
-                                    stringResource(R.string.account_recovery_busy),
-                                    color = beyGramPalette().textSecondary,
-                                    modifier = Modifier.padding(top = 12.dp)
+    Box(Modifier.fillMaxSize()) {
+        PlayerModalUnderlay {
+            Column(Modifier.fillMaxSize()) {
+                BoxWithConstraints(Modifier.weight(1f).fillMaxWidth()) {
+                    // One window class for the whole tree: the width and the height are read here once, so the list, the
+                    // navigation and the chat chrome can never disagree about the layout they are in.
+                    val windowLayout = WindowLayout(maxWidth.value, maxHeight.value)
+                    val routeTwoPane = windowLayout.twoPane
+                    val layoutDirection = LocalLayoutDirection.current
+                    // The tab a tab switch leaves: the incoming bar and its items start their selection there. Motion off is a cut.
+                    val tabTransitionMotionInstant = rememberMotionSpec(MotionToken.TabSelect).isInstant
+                    val tabTransitionOrigin = if (routeMove == NavigationMove.Tab && !tabTransitionMotionInstant) {
+                        routeHistory.tabTransitionOrigin?.let { root -> MainTab.entries.firstOrNull { it.route == root } }
+                    } else {
+                        null
+                    }
+                    CompositionLocalProvider(
+                        LocalWindowLayout provides windowLayout,
+                        LocalMainTabTransitionOrigin provides tabTransitionOrigin
+                    ) {
+                    // Один набор спецификаций на все переходы: длительность и easing берутся из токенов движка.
+                    val pushSpec = rememberMotionSpec(MotionToken.NavigationPush)
+                    val popSpec = rememberMotionSpec(MotionToken.NavigationPop)
+                    val tabSpec = rememberMotionSpec(MotionToken.TabSelect)
+                    when {
+                        !accountRegistryReady -> CircularProgressIndicator(Modifier.align(Alignment.Center))
+                        accountRegistryError -> Text(
+                            stringResource(R.string.secondary_accounts_registry_error),
+                            modifier = Modifier.align(Alignment.Center)
+                        )
+                        selectedAccountId != TdAccountStorageLayout.LEGACY_ACCOUNT_ID &&
+                            !accountRouteCanRender(
+                                route, selectedAccountId,
+                                (repositorySelection as? TdLibTelegramRepository)?.accountId
+                            ) -> {
+                            val recoveryIndex = accountChoice.accounts
+                                .indexOfFirst { it.accountId == selectedAccountId }
+                            val selectedRow = accountChoice.accounts
+                                .firstOrNull { it.accountId == selectedAccountId }
+                            if (recoveryGrace && selectedRow?.let { it.authorized && !it.manualStop } == true) {
+                                Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                        CircularProgressIndicator()
+                                        Text(
+                                            stringResource(R.string.account_recovery_busy),
+                                            color = beyGramPalette().textSecondary,
+                                            modifier = Modifier.padding(top = 12.dp)
+                                        )
+                                    }
+                                }
+                            } else AccountRecoveryScreen(
+                                accountTitle = accountMetadata[selectedAccountId]
+                                    ?.identity?.title?.takeIf { it.isNotBlank() },
+                                accountLabel = stringResource(
+                                    R.string.secondary_accounts_account_label,
+                                    (recoveryIndex + 2).coerceAtLeast(2)
+                                ),
+                                busy = recoveryBusy,
+                                errorText = recoveryError?.resolve(),
+                                onRetry = {
+                                    if (!recoveryBusy) {
+                                        val target = selectedAccountId
+                                        recoveryBusy = true
+                                        recoveryError = null
+                                        accountSwitchScope.launch {
+                                            applyAccountSelection(target).onFailure { failure ->
+                                                recoveryError = UiText.Raw(
+                                                    context.getString(
+                                                        accountSwitcherErrorResource(
+                                                            accountSwitcherErrorReason(failure)
+                                                        )
+                                                    )
+                                                )
+                                            }
+                                            recoveryBusy = false
+                                        }
+                                    }
+                                },
+                                onChooseAccount = { accountSwitcherVisible = true },
+                                onConfigureRoute = {
+                                    accountSwitcherRouteAccountId = selectedAccountId
+                                    accountSwitcherVisible = true
+                                },
+                                onPrimary = { chooseAccount(TdAccountStorageLayout.LEGACY_ACCOUNT_ID) }
+                            )
+                        }
+                        // An account switch resets the host: outgoing content must not render against the new account's state.
+                        else -> key(selectedAccountId, routeTwoPane) {
+                        val baseRouteTransitionSpec = rememberRouteTransitionSpec<RouteTransitionFrame>(
+                            move = routeMove,
+                            push = pushSpec,
+                            pop = popSpec,
+                            tab = tabSpec,
+                            tabDirection = routeHistory.tabDirection,
+                            layoutDirection = layoutDirection,
+                            resolveMove = ::routeHostTransitionMove
+                        )
+                        // Chat ↔ chat info replaces the slide with the pair cross-fade the shared-element flight draws
+                        // above (#999), but only while that flight is engaged: a topic view or a feed starts none, and then the
+                        // route keeps its slide. A flight starts before the navigation it answers, so its state is what the
+                        // transition sees when it starts. The latest values are read inside the lambda, so a mid-flight
+                        // interruption resolves against the current motion settings and layout.
+                        val pairMotionEnabled = rememberUpdatedState(!routeTwoPane && !pushSpec.isInstant && !popSpec.isInstant)
+                        val pairChatId = rememberUpdatedState(selectedChatId)
+                        val pairPushSpec = rememberUpdatedState(pushSpec)
+                        val pairPopSpec = rememberUpdatedState(popSpec)
+                        val routeTransitionSpec: AnimatedContentTransitionScope<RouteTransitionFrame>.() -> ContentTransform =
+                            remember {
+                                {
+                                    if (chatProfilePairFades(
+                                            initial = initialState.route,
+                                            target = targetState.route,
+                                            motionEnabled = pairMotionEnabled.value,
+                                            flightEngaged = chatProfileTransition.flightEngagedFor(pairChatId.value)
+                                        )
+                                    ) {
+                                        chatProfilePairContentTransform(
+                                            push = pairPushSpec.value,
+                                            pop = pairPopSpec.value,
+                                            pushwards = targetState.route == AppRoute.ChatInfo
+                                        )
+                                    } else baseRouteTransitionSpec()
+                                }
+                            }
+                        Box(Modifier.fillMaxSize()) {
+                        AnimatedContent(
+                            targetState = RouteTransitionFrame(route, routeTwoPane),
+                            modifier = Modifier.fillMaxSize().clipToBounds(),
+                            // Phones: all four roots share one stable chrome slot; the inner viewport owns their slide.
+                            // Threads keep the chat slot; on wide screens preserve the existing list/detail slot.
+                            contentKey = ::routeHostContentKey,
+                            transitionSpec = routeTransitionSpec,
+                            label = "routeTransition"
+                        ) { frame ->
+                        val screenRoute = frame.route
+                        if (usesSharedPhoneTabs(frame)) {
+                            MainTabsHost(
+                                accountId = selectedAccountId,
+                                selected = MainTab.entries.first { it.route == screenRoute },
+                                visibility = tabVisibility,
+                                onSelect = selectTab,
+                                stateHolder = tabStateHolder,
+                                tabMotion = tabSpec,
+                                tabDirection = routeHistory.tabDirection
+                            ) { tab ->
+                                when (tab) {
+                                    MainTab.Chats -> chatsList(false, false)
+                                    MainTab.Calls -> callsTabContent()
+                                    MainTab.Contacts -> contactsTabContent()
+                                    MainTab.Settings -> settingsTabContent()
+                                }
+                            }
+                        } else Box(Modifier.fillMaxSize().background(beyGramPalette().screen)) {
+                        when (if (frame.twoPane && screenRoute in twoPaneSlotRoutes) AppRoute.Chats else screenRoute) {
+                        AppRoute.Start -> StartScreen(
+                            tdLibReadiness = tdLibReadiness,
+                            authState = authState,
+                            onProxySettings = { openProxy(AppRoute.Start) },
+                            onStartClick = {
+                                repository.startAuthorization()
+                                // Явно переходим на экран телефона, не дожидаясь LaunchedEffect
+                                // (startAuthorization не всегда меняет authState синхронно в real impl)
+                                routeName = AppRoute.LoginPhone.name
+                            }
+                        )
+
+                        AppRoute.LoginPhone -> LoginPhoneScreen(
+                            authState = authState,
+                            connectionState = connectionState,
+                            onReconnect = repository::reconnect,
+                            onProxySettings = { openProxy(AppRoute.LoginPhone) },
+                            onBack = {
+                                repository.resetError()
+                                routeName = AppRoute.Start.name
+                            },
+                            onContinue = { submittedPhone ->
+                                phone = submittedPhone
+                                repository.submitPhoneNumber(submittedPhone)
+                                // Навигация произойдёт через LaunchedEffect(authState) при WaitingForCode
+                            },
+                            onQrLogin = repository::requestQrLogin,
+                            onCancelQrLogin = repository::cancelQrLogin
+                        )
+
+                        AppRoute.LoginCode -> LoginCodeScreen(
+                            phone = phone,
+                            authState = authState,
+                            onBack = {
+                                repository.resetError()
+                                routeName = AppRoute.LoginPhone.name
+                            },
+                            onComplete = { code ->
+                                repository.submitCode(code)
+                                // Навигация произойдёт через LaunchedEffect(authState) при Ready или WaitingForPassword
+                            },
+                            onResendCode = {
+                                repository.resendCode()
+                            }
+                        )
+
+                        AppRoute.LoginPassword -> {
+                            val hint = (authState as? AuthState.WaitingForPassword)?.hint ?: ""
+                            LoginPasswordScreen(
+                                hint = hint,
+                                authState = authState,
+                                onBack = {
+                                    repository.resetError()
+                                    routeName = AppRoute.LoginPhone.name
+                                },
+                                onSubmit = { password ->
+                                    repository.submitPassword(password)
+                                    // Навигация произойдёт через LaunchedEffect(authState) при Ready
+                                }
+                            )
+                        }
+
+                        // Один композиционный слот для списка и открытого чата: на широком экране они
+                        // стоят рядом, и переход между ними не пересоздаёт список.
+                        AppRoute.Chats, AppRoute.Chat, AppRoute.MessageThread -> {
+                            val layout = LocalWindowLayout.current
+                            if (layout.twoPane) {
+                                val design = LocalDesignSystem.current
+                                val backDispatcher = androidx.activity.compose.LocalOnBackPressedDispatcherOwner.current?.onBackPressedDispatcher
+                                val escapeFocus = remember { androidx.compose.ui.focus.FocusRequester() }
+                                BoxWithConstraints(
+                                    Modifier.fillMaxSize().onPreviewKeyEvent { event ->
+                                        // A keyboard on a tablet or a ChromeOS window: Esc closes what is open on the right, like Back.
+                                        if (event.key == androidx.compose.ui.input.key.Key.Escape &&
+                                            event.type == androidx.compose.ui.input.key.KeyEventType.KeyDown &&
+                                            screenRoute != AppRoute.Chats && backDispatcher != null
+                                        ) {
+                                            backDispatcher.onBackPressed()
+                                            true
+                                        } else false
+                                    }
+                                        // Esc must work before any field is focused: the container itself takes focus when the route changes.
+                                        .focusRequester(escapeFocus)
+                                        .focusable()
+                                ) {
+                                    LaunchedEffect(screenRoute) { runCatching { escapeFocus.requestFocus() } }
+                                    ChatsTwoPaneScaffold(
+                                        layout = layout,
+                                        listPaneWidth = chatListPaneWidthDp(maxWidth.value, layout.heightCompact).dp,
+                                        navigationRail = {
+                                            // Та же навигация, что и на телефоне, но вертикальной рейкой, и она остаётся
+                                            // на месте, пока открыт чат: левая часть окна не прыгает.
+                                            MainTabRail(
+                                                tabs = MainTab.entries.filter { tabVisibility.isVisible(it) },
+                                                selected = MainTab.Chats,
+                                                onSelect = selectTwoPaneTab,
+                                                slim = layout.navigation == WindowNavigation.SlimRail,
+                                                bottomContent = if (layout.navigation == WindowNavigation.SlimRail) {
+                                                    { NowPlayingBar(hideWhenImeVisible = true, railCover = true) }
+                                                } else null
+                                            )
+                                        },
+                                        // Плеер стоит в левой колонке под списком; стеклу достаётся плавающая карточка.
+                                        playerBar = {
+                                            val card = design.usesGlassPanels
+                                            Box(Modifier.padding(bottom = if (card) 8.dp else 0.dp)) {
+                                                NowPlayingBar(hideWhenImeVisible = true, floatingDock = card)
+                                            }
+                                        },
+                                        list = {
+                                            val open = screenRoute == AppRoute.Chat || screenRoute == AppRoute.MessageThread ||
+                                                screenRoute in detailPaneRoutes
+                                            if (screenRoute in listPaneRoutes) {
+                                                // Archive, search and a new chat open in the list pane; the right side stays as it is.
+                                                when (screenRoute) {
+                                                    AppRoute.Archive -> archiveRoute()
+                                                    AppRoute.GlobalSearch -> globalSearchRoute()
+                                                    else -> newChatRoute()
+                                                }
+                                            } else if (layout.navigation == WindowNavigation.BottomBarInListPane) {
+                                                // Меню стиля внутри панели списка: ведёт себя как телефон, правая часть — содержимое.
+                                                MainTabsScaffold(
+                                                    "${selectedAccountId}:${MainTab.Chats.route.name}", MainTab.Chats,
+                                                    tabVisibility, selectTwoPaneTab, tabStateHolder, contentUnderDock = true
+                                                ) { chatsList(true, open) }
+                                            } else {
+                                                chatsList(true, open)
+                                            }
+                                        },
+                                        detail = {
+                                            // The empty pane and an open chat cross-fade under the tab-select token; with motion off it is a cut.
+                                            val emptyPane = screenRoute == AppRoute.Chats || screenRoute in listPaneRoutes
+                                            Crossfade(
+                                                targetState = emptyPane,
+                                                animationSpec = if (tabSpec.isInstant) snap() else tabSpec.animationSpec(),
+                                                label = "detailPane"
+                                            ) { empty ->
+                                                if (empty) {
+                                                    ChatsDetailPlaceholder()
+                                                } else when (screenRoute) {
+                                                    // Chat details, members and management take the right pane over the chat.
+                                                    AppRoute.ChatInfo -> chatInfoRoute()
+                                                    AppRoute.ChatMembers -> chatMembersRoute()
+                                                    AppRoute.ChatManagement -> chatManagementRoute()
+                                                    AppRoute.MemberProfile -> memberProfileRoute()
+                                                    else -> chatRoute(true)
+                                                }
+                                            }
+                                        }
+                                    )
+                                }
+                            } else if (screenRoute == AppRoute.Chats) {
+                                chatsTab()
+                            } else {
+                                chatRoute(false)
+                            }
+                        }
+
+                        AppRoute.Archive -> archiveRoute()
+
+                        AppRoute.Stories -> StoryViewerScreen(
+                            repository = repository,
+                            posterChatId = storyChatId,
+                            initialStoryId = storyInitialId,
+                            onClose = { routeName = storyReturnRouteName }
+                        )
+
+                        AppRoute.StoryPublisher -> StoryPublisherScreen(
+                            repository = repository,
+                            myProfile = myProfile.info,
+                            accountId = selectedAccountId,
+                            onBack = { routeName = storyReturnRouteName },
+                            onPublished = {
+                                repository.refreshActiveStories()
+                                routeName = AppRoute.Chats.name
+                            }
+                        )
+
+                        AppRoute.ChatInfo -> chatInfoRoute()
+                        AppRoute.ChannelStatistics -> {
+                            val statsChat by repository.chats.collectAsStateWithLifecycle()
+                            val statsPreview = statsChat.firstOrNull { it.id == selectedChatId }
+                            ChannelStatisticsScreen(
+                                title = statsPreview?.title.orEmpty(),
+                                headerTitle = statisticsHeaderTitleRes,
+                                loadStatistics = { repository.channelStatistics(selectedChatId) },
+                                loadEvents = { from, filter -> repository.channelAdminEvents(selectedChatId, from, filter) },
+                                onOpenPost = { messageId ->
+                                    chatFocusMessageId = messageId
+                                    chatBackRouteName = AppRoute.ChannelStatistics.name
+                                    routeName = AppRoute.Chat.name
+                                },
+                                onBack = {
+                                    if (statisticsReturnRouteName == AppRoute.Chat.name) {
+                                        chatBackRouteName = statisticsChatBackRouteName
+                                    }
+                                    routeName = statisticsReturnRouteName
+                                }
+                            )
+                        }
+                        AppRoute.ChatMembers -> chatMembersRoute()
+                        AppRoute.ChatManagement -> chatManagementRoute()
+                        AppRoute.MemberProfile -> memberProfileRoute()
+                        AppRoute.MyProfile -> {
+                            LaunchedEffect(repository) { repository.refreshMyProfile() }
+                            ProfileScreen(myProfile, true, repository::observeFile, repository::downloadFile, onOpenMessageEntity = openMessageEntity,
+                                onBack = { routeName = AppRoute.Chats.name }, onRefresh = repository::refreshMyProfile,
+                                onEdit = { routeName = AppRoute.EditProfile.name }, setPhoto = repository::setMyProfilePhoto,
+                                loadProfilePhotos = repository::loadProfilePhotos, deleteMyProfilePhoto = repository::deleteMyProfilePhoto,
+                    setPreviousProfilePhoto = repository::setPreviousProfilePhoto,
+                                removeProfileAudio = repository::removeProfileAudio,
+                                moveProfileAudioToFront = repository::moveProfileAudioToFront,
+                                onNotifications = { openNotifications(AppRoute.MyProfile) },
+                                hiddenTabs = MainTab.entries.filter { !tabVisibility.isVisible(it) },
+                                onOpenTab = { tab -> openTab(tab, AppRoute.MyProfile) },
+                                onOpenLinkedChannel = { channelId ->
+                                    selectedChatId = channelId; chatBackRouteName = AppRoute.Chats.name; routeName = AppRoute.Chat.name
+                                }, lastSeenStyle = lastSeenStyle,
+                                onPremium = { openPremium(AppRoute.MyProfile) },
+                                onStars = { openStars(AppRoute.MyProfile) },
+                                onGifts = { profileId, self, title -> openGifts(profileId, self, title, AppRoute.MyProfile) },
+                                autoDownloadFile = repository::autoDownloadFile)
+                        }
+                        AppRoute.Premium -> PremiumScreen(
+                            accountId = selectedAccountId,
+                            connectionState = connectionState,
+                            load = repository::premiumInfo,
+                            checkGiftCode = repository::checkPremiumGiftCode,
+                            applyGiftCode = repository::applyPremiumGiftCode,
+                            purchaseLink = repository::premiumPaymentUrl,
+                            onBack = { routeName = monetizationReturnRouteName }
+                        )
+                        AppRoute.Stars -> StarsScreen(
+                            load = repository::starsInfo,
+                            loadMore = repository::starTransactions,
+                            topUp = repository::starsTopUpPayment,
+                            onBack = { routeName = starsReturnRouteName }
+                        )
+                        AppRoute.Gifts -> if (giftsProfileId == 0L) {
+                            LaunchedEffect(Unit) { routeName = AppRoute.MyProfile.name }
+                        } else {
+                            GiftsScreen(
+                                accountId = selectedAccountId,
+                                title = stringResource(
+                                    if (giftsProfileSelf) R.string.gifts_title_own else R.string.gifts_title
+                                ),
+                                profileId = giftsProfileId,
+                                profileTitle = giftsProfileTitle,
+                                isSelf = giftsProfileSelf,
+                                load = { repository.giftsInfo(giftsProfileId, giftsProfileSelf) },
+                                loadMoreReceived = repository::receivedGifts,
+                                loadAuction = repository::giftAuctionQuote,
+                                loadAuctionHistory = repository::giftAuctionHistory,
+                                submitBid = repository::submitGiftAuctionBid,
+                                loadResale = repository::resaleGifts,
+                                buyResale = repository::buyResoldGift,
+                                send = { giftId, text, isPrivate ->
+                                    repository.sendGift(giftsProfileId, giftsProfileSelf, giftId, text, isPrivate)
+                                },
+                                loadListing = repository::giftListingQuote,
+                                updateListing = repository::updateGiftListing,
+                                onOpenStars = { openStars(AppRoute.Gifts) },
+                                onBack = { routeName = giftsReturnRouteName }
+                            )
+                        }
+                        AppRoute.Appearance -> ThemeSettingsScreen(
+                            saved = appearance,
+                            draft = appearanceDraft ?: appearance,
+                            onDraftChange = { appearanceDraft = it },
+                            onSave = { config -> appearanceDraft = config; onAppearanceChange(config) },
+                            onBack = { appearanceDraft = null; routeName = appearanceReturnRouteName },
+                            motion = motionSettings,
+                            onMotionChange = { next -> motionSettingsStore.update { next } },
+                            chatAnimations = chatAnimationSettings,
+                            onAnimatedEmojiChange = chatAnimationStore::setAnimatedEmoji,
+                            onMessageEffectsChange = chatAnimationStore::setMessageEffects
+                        )
+                        AppRoute.MusicSearch -> MusicSearchScreen(
+                            accountId = selectedAccountId,
+                            conversation = repository,
+                            observeFile = repository::observeFile,
+                            downloadFile = repository::downloadFile,
+                            onBack = { routeName = musicSearchReturnRouteName },
+                            focusOnOpen = musicSearchFocusOnOpen,
+                            providerFirst = musicSearchProviderFirst
+                        )
+                        AppRoute.MyMusic -> MyMusicScreen(
+                            accountId = selectedAccountId,
+                            telegram = repository,
+                            onBack = { routeName = myMusicReturnRouteName },
+                            onSearch = { providerFirst ->
+                                musicSearchReturnRouteName = AppRoute.MyMusic.name
+                                musicSearchFocusOnOpen = true
+                                musicSearchProviderFirst = providerFirst
+                                routeName = AppRoute.MusicSearch.name
+                            },
+                            onOpenPlaylist = { playlistId ->
+                                musicPlaylistReturnRouteName = AppRoute.MyMusic.name
+                                musicPlaylistId = playlistId
+                                musicPlaylistAccountId = selectedAccountId
+                                routeName = AppRoute.MusicPlaylist.name
+                            },
+                            onProviderSignIn = {
+                                musicSignInReturnRouteName = AppRoute.MyMusic.name
+                                routeName = AppRoute.MusicAccountSignIn.name
+                            },
+                            onOpenCollection = ::openMusicCollection
+                        )
+                        AppRoute.MusicCollection -> {
+                            // Reachable only when the build has a music source; its screen draws the collection.
+                            val host = ProviderMusicHosts.yandex()
+                            val ref = musicCollectionStack.lines().lastOrNull { it.isNotBlank() }
+                            if (host != null && ref != null) key(ref) {
+                                host.CollectionScreen(
+                                    ref = ref,
+                                    onBack = ::closeMusicCollection,
+                                    onOpenCollection = ::openMusicCollection
                                 )
                             }
                         }
-                    } else AccountRecoveryScreen(
-                        accountTitle = accountMetadata[selectedAccountId]
-                            ?.identity?.title?.takeIf { it.isNotBlank() },
-                        accountLabel = stringResource(
-                            R.string.secondary_accounts_account_label,
-                            (recoveryIndex + 2).coerceAtLeast(2)
-                        ),
-                        busy = recoveryBusy,
-                        errorText = recoveryError?.resolve(),
-                        onRetry = {
-                            if (!recoveryBusy) {
-                                val target = selectedAccountId
-                                recoveryBusy = true
-                                recoveryError = null
-                                accountSwitchScope.launch {
-                                    applyAccountSelection(target).onFailure { failure ->
-                                        recoveryError = UiText.Raw(
-                                            context.getString(
-                                                accountSwitcherErrorResource(
-                                                    accountSwitcherErrorReason(failure)
-                                                )
+                        AppRoute.MusicPlaylist -> MusicPlaylistScreen(
+                            accountId = selectedAccountId,
+                            telegram = repository,
+                            playlistId = musicPlaylistId,
+                            onBack = { routeName = musicPlaylistReturnRouteName },
+                            onSearch = {
+                                musicSearchReturnRouteName = AppRoute.MusicPlaylist.name
+                                musicSearchFocusOnOpen = false
+                                musicSearchProviderFirst = false
+                                routeName = AppRoute.MusicSearch.name
+                            }
+                        )
+                        AppRoute.Equalizer -> EqualizerScreen(
+                            settings = equalizerSettings,
+                            runtime = equalizerRuntimeState,
+                            onEnabledChange = equalizerStore::setEnabled,
+                            onPresetChange = equalizerStore::selectPreset,
+                            onLevelsChange = { levels, persist -> equalizerStore.setCustomLevels(levels, persist) },
+                            onReset = equalizerStore::reset,
+                            onSaveCustom = equalizerStore::saveCustom,
+                            onBack = { routeName = AppRoute.Settings.name }
+                        )
+                        AppRoute.EditProfile -> {
+                            myProfile.info?.let { info ->
+                                EditProfileScreen(info, bioLimit, onBack = { routeName = AppRoute.MyProfile.name }, save = repository::updateMyProfile)
+                            } ?: LaunchedEffect(Unit) { routeName = AppRoute.MyProfile.name }
+                        }
+                        AppRoute.Notifications -> NotificationSettingsScreen(
+                            runtime = notificationRuntime,
+                            accountPreferences = notificationRuntime.preferencesForAccount(selectedAccountId),
+                            accountId = selectedAccountId,
+                            connectionState = connectionState,
+                            onBack = { routeName = notificationsReturnRouteName },
+                            onDiagnostics = { openConnectionDiagnostics(AppRoute.Notifications) },
+                            onTriggers = { openTriggerWords(AppRoute.Notifications) }
+                        )
+                        AppRoute.TriggerWords -> TriggerWordsScreen(
+                            store = TriggerWordsStore.get(context),
+                            onBack = { routeName = triggerWordsReturnRouteName },
+                            onOpenMentions = { routeName = AppRoute.TriggerMentions.name }
+                        )
+                        AppRoute.TriggerMentions -> TriggerMentionsScreen(
+                            store = TriggerWordsStore.get(context),
+                            onBack = { routeName = AppRoute.TriggerWords.name }
+                        )
+                        AppRoute.ConnectionDiagnostics -> ConnectionDiagnosticsScreen(
+                            repository = repository,
+                            vpnBackend = vpnBackend,
+                            connectionState = connectionState,
+                            onBack = { routeName = connectionDiagnosticsReturnRouteName }
+                        )
+                        AppRoute.Calls -> MainTabsScaffold("${selectedAccountId}:${MainTab.Calls.route.name}", MainTab.Calls, tabVisibility, selectTab, tabStateHolder, contentUnderDock = true) { callsTabContent() }
+                        AppRoute.Contacts -> MainTabsScaffold("${selectedAccountId}:${MainTab.Contacts.route.name}", MainTab.Contacts, tabVisibility, selectTab, tabStateHolder, contentUnderDock = true) { contactsTabContent() }
+                        AppRoute.Settings -> MainTabsScaffold("${selectedAccountId}:${MainTab.Settings.route.name}", MainTab.Settings, tabVisibility, selectTab, tabStateHolder, contentUnderDock = true) { settingsTabContent() }
+                        AppRoute.AppLock -> AppLockSettingsScreen(onBack = { routeName = AppRoute.Settings.name })
+                        AppRoute.Language -> LanguageScreen(translationSettings, onBack = { routeName = AppRoute.Settings.name })
+                        AppRoute.AccountPicker, AppRoute.SecondaryAccounts, AppRoute.SecondaryChats ->
+                            LaunchedEffect(Unit) {
+                                // Old saved navigation from the experimental account
+                                // screens now resolves through the shared switcher.
+                                routeName = AppRoute.Chats.name
+                            }
+                        // Keyed on the account: another account's devices and sign-in places must never linger on screen.
+                        AppRoute.Sessions -> key(selectedAccountId) {
+                            ActiveSessionsScreen(
+                                onBack = { routeName = AppRoute.Settings.name },
+                                load = repository::activeSessions,
+                                terminate = repository::terminateOtherSession,
+                                terminateAll = repository::terminateAllOtherSessions,
+                                confirmSession = repository::confirmSession,
+                                setInactiveTtl = repository::setInactiveSessionTtl,
+                                setCanAcceptCalls = repository::setSessionCanAcceptCalls,
+                                setCanAcceptSecretChats = repository::setSessionCanAcceptSecretChats
+                            )
+                        }
+                        AppRoute.AccountSecurity -> key(selectedAccountId) {
+                            val securityAccountId = selectedAccountId
+                            AccountSecurityScreen(
+                                accountId = securityAccountId,
+                                repository = repository,
+                                currentPhone = myProfile.info?.phone.orEmpty(),
+                                isPrimaryAccount = securityAccountId == TdAccountStorageLayout.LEGACY_ACCOUNT_ID,
+                                deletionRunning = accountDeletion.accountId == securityAccountId &&
+                                    (accountDeletion.running || accountDeletion.serverDeleted),
+                                requestAccountDeletion = { password, onResult ->
+                                    if (!AccountDeletionTracker.begin(securityAccountId)) {
+                                        onResult(
+                                            Result.failure(
+                                                IllegalStateException("Account deletion is already running")
                                             )
                                         )
-                                    }
-                                    recoveryBusy = false
-                                }
-                            }
-                        },
-                        onChooseAccount = { accountSwitcherVisible = true },
-                        onConfigureRoute = {
-                            accountSwitcherRouteAccountId = selectedAccountId
-                            accountSwitcherVisible = true
-                        },
-                        onPrimary = { chooseAccount(TdAccountStorageLayout.LEGACY_ACCOUNT_ID) }
-                    )
-                }
-                // An account switch resets the host: outgoing content must not render against the new account's state.
-                else -> key(selectedAccountId, routeTwoPane) {
-                val routeTransitionSpec = rememberRouteTransitionSpec<RouteTransitionFrame>(
-                    move = routeMove,
-                    push = pushSpec,
-                    pop = popSpec,
-                    tab = tabSpec,
-                    tabDirection = routeHistory.tabDirection,
-                    layoutDirection = layoutDirection,
-                    resolveMove = ::routeHostTransitionMove
-                )
-                AnimatedContent(
-                    targetState = RouteTransitionFrame(route, routeTwoPane),
-                    modifier = Modifier.fillMaxSize().clipToBounds(),
-                    // Phones: all four roots share one stable chrome slot; the inner viewport owns their slide.
-                    // Threads keep the chat slot; on wide screens preserve the existing list/detail slot.
-                    contentKey = ::routeHostContentKey,
-                    transitionSpec = routeTransitionSpec,
-                    label = "routeTransition"
-                ) { frame ->
-                val screenRoute = frame.route
-                if (usesSharedPhoneTabs(frame)) {
-                    MainTabsHost(
-                        accountId = selectedAccountId,
-                        selected = MainTab.entries.first { it.route == screenRoute },
-                        visibility = tabVisibility,
-                        onSelect = selectTab,
-                        stateHolder = tabStateHolder,
-                        tabMotion = tabSpec,
-                        tabDirection = routeHistory.tabDirection
-                    ) { tab ->
-                        when (tab) {
-                            MainTab.Chats -> chatsList(false, false)
-                            MainTab.Calls -> callsTabContent()
-                            MainTab.Contacts -> contactsTabContent()
-                            MainTab.Settings -> settingsTabContent()
-                        }
-                    }
-                } else Box(Modifier.fillMaxSize().background(beyGramPalette().screen)) {
-                when (if (frame.twoPane && screenRoute in twoPaneSlotRoutes) AppRoute.Chats else screenRoute) {
-                AppRoute.Start -> StartScreen(
-                    tdLibReadiness = tdLibReadiness,
-                    authState = authState,
-                    onProxySettings = { openProxy(AppRoute.Start) },
-                    onStartClick = {
-                        repository.startAuthorization()
-                        // Явно переходим на экран телефона, не дожидаясь LaunchedEffect
-                        // (startAuthorization не всегда меняет authState синхронно в real impl)
-                        routeName = AppRoute.LoginPhone.name
-                    }
-                )
-
-                AppRoute.LoginPhone -> LoginPhoneScreen(
-                    authState = authState,
-                    connectionState = connectionState,
-                    onReconnect = repository::reconnect,
-                    onProxySettings = { openProxy(AppRoute.LoginPhone) },
-                    onBack = {
-                        repository.resetError()
-                        routeName = AppRoute.Start.name
-                    },
-                    onContinue = { submittedPhone ->
-                        phone = submittedPhone
-                        repository.submitPhoneNumber(submittedPhone)
-                        // Навигация произойдёт через LaunchedEffect(authState) при WaitingForCode
-                    },
-                    onQrLogin = repository::requestQrLogin,
-                    onCancelQrLogin = repository::cancelQrLogin
-                )
-
-                AppRoute.LoginCode -> LoginCodeScreen(
-                    phone = phone,
-                    authState = authState,
-                    onBack = {
-                        repository.resetError()
-                        routeName = AppRoute.LoginPhone.name
-                    },
-                    onComplete = { code ->
-                        repository.submitCode(code)
-                        // Навигация произойдёт через LaunchedEffect(authState) при Ready или WaitingForPassword
-                    },
-                    onResendCode = {
-                        repository.resendCode()
-                    }
-                )
-
-                AppRoute.LoginPassword -> {
-                    val hint = (authState as? AuthState.WaitingForPassword)?.hint ?: ""
-                    LoginPasswordScreen(
-                        hint = hint,
-                        authState = authState,
-                        onBack = {
-                            repository.resetError()
-                            routeName = AppRoute.LoginPhone.name
-                        },
-                        onSubmit = { password ->
-                            repository.submitPassword(password)
-                            // Навигация произойдёт через LaunchedEffect(authState) при Ready
-                        }
-                    )
-                }
-
-                // Один композиционный слот для списка и открытого чата: на широком экране они
-                // стоят рядом, и переход между ними не пересоздаёт список.
-                AppRoute.Chats, AppRoute.Chat, AppRoute.MessageThread -> {
-                    val layout = LocalWindowLayout.current
-                    if (layout.twoPane) {
-                        val design = LocalDesignSystem.current
-                        val backDispatcher = androidx.activity.compose.LocalOnBackPressedDispatcherOwner.current?.onBackPressedDispatcher
-                        val escapeFocus = remember { androidx.compose.ui.focus.FocusRequester() }
-                        BoxWithConstraints(
-                            Modifier.fillMaxSize().onPreviewKeyEvent { event ->
-                                // A keyboard on a tablet or a ChromeOS window: Esc closes what is open on the right, like Back.
-                                if (event.key == androidx.compose.ui.input.key.Key.Escape &&
-                                    event.type == androidx.compose.ui.input.key.KeyEventType.KeyDown &&
-                                    screenRoute != AppRoute.Chats && backDispatcher != null
-                                ) {
-                                    backDispatcher.onBackPressed()
-                                    true
-                                } else false
-                            }
-                                // Esc must work before any field is focused: the container itself takes focus when the route changes.
-                                .focusRequester(escapeFocus)
-                                .focusable()
-                        ) {
-                            LaunchedEffect(screenRoute) { runCatching { escapeFocus.requestFocus() } }
-                            ChatsTwoPaneScaffold(
-                                layout = layout,
-                                listPaneWidth = chatListPaneWidthDp(maxWidth.value, layout.heightCompact).dp,
-                                navigationRail = {
-                                    // Та же навигация, что и на телефоне, но вертикальной рейкой, и она остаётся
-                                    // на месте, пока открыт чат: левая часть окна не прыгает.
-                                    MainTabRail(
-                                        tabs = MainTab.entries.filter { tabVisibility.isVisible(it) },
-                                        selected = MainTab.Chats,
-                                        onSelect = selectTwoPaneTab,
-                                        slim = layout.navigation == WindowNavigation.SlimRail,
-                                        bottomContent = if (layout.navigation == WindowNavigation.SlimRail) {
-                                            { NowPlayingBar(hideWhenImeVisible = true, railCover = true) }
-                                        } else null
-                                    )
-                                },
-                                // Плеер стоит в левой колонке под списком; стеклу достаётся плавающая карточка.
-                                playerBar = {
-                                    val card = design.usesGlassPanels
-                                    Box(Modifier.padding(bottom = if (card) 8.dp else 0.dp)) {
-                                        NowPlayingBar(hideWhenImeVisible = true, floatingDock = card)
-                                    }
-                                },
-                                list = {
-                                    val open = screenRoute == AppRoute.Chat || screenRoute == AppRoute.MessageThread ||
-                                        screenRoute in detailPaneRoutes
-                                    if (screenRoute in listPaneRoutes) {
-                                        // Archive, search and a new chat open in the list pane; the right side stays as it is.
-                                        when (screenRoute) {
-                                            AppRoute.Archive -> archiveRoute()
-                                            AppRoute.GlobalSearch -> globalSearchRoute()
-                                            else -> newChatRoute()
-                                        }
-                                    } else if (layout.navigation == WindowNavigation.BottomBarInListPane) {
-                                        // Меню стиля внутри панели списка: ведёт себя как телефон, правая часть — содержимое.
-                                        MainTabsScaffold(
-                                            "${selectedAccountId}:${MainTab.Chats.route.name}", MainTab.Chats,
-                                            tabVisibility, selectTwoPaneTab, tabStateHolder, contentUnderDock = true
-                                        ) { chatsList(true, open) }
                                     } else {
-                                        chatsList(true, open)
+                                        applicationScope.launch {
+                                            val deletion = try {
+                                                withContext(Dispatchers.IO) {
+                                                    repository.deleteTelegramAccount(password)
+                                                }
+                                            } catch (cancelled: CancellationException) {
+                                                throw cancelled
+                                            } catch (failure: Throwable) {
+                                                Result.failure(failure)
+                                            }
+                                            withContext(Dispatchers.Main) { onResult(deletion) }
+                                            if (!deletion.isSuccess) {
+                                                AccountDeletionTracker.finish(
+                                                    securityAccountId,
+                                                    serverDeleted = false
+                                                )
+                                                AccountDeletionTracker.clearTerminal()
+                                                return@launch
+                                            }
+                                            if (securityAccountId == TdAccountStorageLayout.LEGACY_ACCOUNT_ID) {
+                                                // Never erase the primary TDLib database here. TDLib rebuilds
+                                                // the closed legacy client and publishes WaitPhoneNumber; the
+                                                // composition effect opens the sign-in screen through Start.
+                                                AccountDeletionTracker.finish(
+                                                    securityAccountId,
+                                                    serverDeleted = true
+                                                )
+                                                return@launch
+                                            }
+                                            var cleanupError: UiText? = null
+                                            try {
+                                                withContext(Dispatchers.IO) {
+                                                    secondaryAccountController.logoutAndDelete(
+                                                        securityAccountId,
+                                                        serverDeleted = true
+                                                    )
+                                                }
+                                            } catch (cancelled: CancellationException) {
+                                                throw cancelled
+                                            } catch (_: Throwable) {
+                                                cleanupError = UiText.Res(
+                                                    R.string.account_security_delete_cleanup_failed
+                                                )
+                                            }
+                                            // Account selection is applied by a composition effect
+                                            // observing this tracker, so a recreated Activity can
+                                            // finish the same navigation after cleanup.
+                                            AccountDeletionTracker.finish(
+                                                securityAccountId,
+                                                serverDeleted = true,
+                                                error = cleanupError
+                                            )
+                                        }
                                     }
                                 },
-                                detail = {
-                                    // The empty pane and an open chat cross-fade under the tab-select token; with motion off it is a cut.
-                                    val emptyPane = screenRoute == AppRoute.Chats || screenRoute in listPaneRoutes
-                                    Crossfade(
-                                        targetState = emptyPane,
-                                        animationSpec = if (tabSpec.isInstant) snap() else tabSpec.animationSpec(),
-                                        label = "detailPane"
-                                    ) { empty ->
-                                        if (empty) {
-                                            ChatsDetailPlaceholder()
-                                        } else when (screenRoute) {
-                                            // Chat details, members and management take the right pane over the chat.
-                                            AppRoute.ChatInfo -> chatInfoRoute()
-                                            AppRoute.ChatMembers -> chatMembersRoute()
-                                            AppRoute.ChatManagement -> chatManagementRoute()
-                                            AppRoute.MemberProfile -> memberProfileRoute()
-                                            else -> chatRoute(true)
-                                        }
+                                onBack = { routeName = AppRoute.Settings.name }
+                            )
+                        }
+                        AppRoute.NewChat -> newChatRoute()
+                        AppRoute.CreateGroup -> {
+                            val groupCreation by repository.groupCreation.collectAsStateWithLifecycle()
+                            CreateGroupScreen(
+                                loadContacts = repository::loadContacts,
+                                creationState = groupCreation,
+                                startGroupCreation = repository::beginGroupCreation,
+                                acknowledgeGroupCreation = repository::acknowledgeGroupCreation,
+                                acknowledgeUncertainGroupCreation = repository::acknowledgeUncertainGroupCreation,
+                                observeFile = repository::observeFile,
+                                downloadFile = repository::downloadFile,
+                                onBack = {
+                                    repository.acknowledgeGroupCreation()
+                                    routeName = AppRoute.NewChat.name
+                                },
+                                onCreated = { chatId, failedInvitations ->
+                                    selectedChatId = chatId
+                                    linkReturnChatId = 0L
+                                    chatBackRouteName = AppRoute.Chats.name
+                                    routeName = AppRoute.Chat.name
+                                    if (failedInvitations > 0) {
+                                        noticeError = UiText.Raw(
+                                            context.resources.getQuantityString(
+                                                R.plurals.new_chat_partial_members, failedInvitations, failedInvitations
+                                            )
+                                        )
                                     }
                                 }
                             )
                         }
-                    } else if (screenRoute == AppRoute.Chats) {
-                        chatsTab()
-                    } else {
-                        chatRoute(false)
-                    }
-                }
-
-                AppRoute.Archive -> archiveRoute()
-
-                AppRoute.Stories -> StoryViewerScreen(
-                    repository = repository,
-                    posterChatId = storyChatId,
-                    initialStoryId = storyInitialId,
-                    onClose = { routeName = storyReturnRouteName }
-                )
-
-                AppRoute.StoryPublisher -> StoryPublisherScreen(
-                    repository = repository,
-                    myProfile = myProfile.info,
-                    accountId = selectedAccountId,
-                    onBack = { routeName = storyReturnRouteName },
-                    onPublished = {
-                        repository.refreshActiveStories()
-                        routeName = AppRoute.Chats.name
-                    }
-                )
-
-                AppRoute.ChatInfo -> chatInfoRoute()
-                AppRoute.ChannelStatistics -> {
-                    val statsChat by repository.chats.collectAsStateWithLifecycle()
-                    val statsPreview = statsChat.firstOrNull { it.id == selectedChatId }
-                    ChannelStatisticsScreen(
-                        title = statsPreview?.title.orEmpty(),
-                        headerTitle = statisticsHeaderTitleRes,
-                        loadStatistics = { repository.channelStatistics(selectedChatId) },
-                        loadEvents = { from, filter -> repository.channelAdminEvents(selectedChatId, from, filter) },
-                        onOpenPost = { messageId ->
-                            chatFocusMessageId = messageId
-                            chatBackRouteName = AppRoute.ChannelStatistics.name
-                            routeName = AppRoute.Chat.name
-                        },
-                        onBack = {
-                            if (statisticsReturnRouteName == AppRoute.Chat.name) {
-                                chatBackRouteName = statisticsChatBackRouteName
+                        AppRoute.CreateChannel -> CreateChannelScreen(
+                            onBack = { routeName = AppRoute.NewChat.name },
+                            create = repository::createChannel,
+                            onCreated = { chatId ->
+                                selectedChatId = chatId
+                                linkReturnChatId = 0L
+                                chatBackRouteName = AppRoute.Chats.name
+                                routeName = AppRoute.Chat.name
                             }
-                            routeName = statisticsReturnRouteName
-                        }
-                    )
-                }
-                AppRoute.ChatMembers -> chatMembersRoute()
-                AppRoute.ChatManagement -> chatManagementRoute()
-                AppRoute.MemberProfile -> memberProfileRoute()
-                AppRoute.MyProfile -> {
-                    LaunchedEffect(repository) { repository.refreshMyProfile() }
-                    ProfileScreen(myProfile, true, repository::observeFile, repository::downloadFile, onOpenMessageEntity = openMessageEntity,
-                        onBack = { routeName = AppRoute.Chats.name }, onRefresh = repository::refreshMyProfile,
-                        onEdit = { routeName = AppRoute.EditProfile.name }, setPhoto = repository::setMyProfilePhoto,
-                        loadProfilePhotos = repository::loadProfilePhotos, deleteMyProfilePhoto = repository::deleteMyProfilePhoto,
-            setPreviousProfilePhoto = repository::setPreviousProfilePhoto,
-                        removeProfileAudio = repository::removeProfileAudio,
-                        moveProfileAudioToFront = repository::moveProfileAudioToFront,
-                        onNotifications = { openNotifications(AppRoute.MyProfile) },
-                        hiddenTabs = MainTab.entries.filter { !tabVisibility.isVisible(it) },
-                        onOpenTab = { tab -> openTab(tab, AppRoute.MyProfile) },
-                        onOpenLinkedChannel = { channelId ->
-                            selectedChatId = channelId; chatBackRouteName = AppRoute.Chats.name; routeName = AppRoute.Chat.name
-                        }, lastSeenStyle = lastSeenStyle,
-                        onPremium = { openPremium(AppRoute.MyProfile) },
-                        onStars = { openStars(AppRoute.MyProfile) },
-                        onGifts = { profileId, self, title -> openGifts(profileId, self, title, AppRoute.MyProfile) },
-                        autoDownloadFile = repository::autoDownloadFile)
-                }
-                AppRoute.Premium -> PremiumScreen(
-                    accountId = selectedAccountId,
-                    connectionState = connectionState,
-                    load = repository::premiumInfo,
-                    checkGiftCode = repository::checkPremiumGiftCode,
-                    applyGiftCode = repository::applyPremiumGiftCode,
-                    purchaseLink = repository::premiumPaymentUrl,
-                    onBack = { routeName = monetizationReturnRouteName }
-                )
-                AppRoute.Stars -> StarsScreen(
-                    load = repository::starsInfo,
-                    loadMore = repository::starTransactions,
-                    topUp = repository::starsTopUpPayment,
-                    onBack = { routeName = starsReturnRouteName }
-                )
-                AppRoute.Gifts -> if (giftsProfileId == 0L) {
-                    LaunchedEffect(Unit) { routeName = AppRoute.MyProfile.name }
-                } else {
-                    GiftsScreen(
-                        accountId = selectedAccountId,
-                        title = stringResource(
-                            if (giftsProfileSelf) R.string.gifts_title_own else R.string.gifts_title
-                        ),
-                        profileId = giftsProfileId,
-                        profileTitle = giftsProfileTitle,
-                        isSelf = giftsProfileSelf,
-                        load = { repository.giftsInfo(giftsProfileId, giftsProfileSelf) },
-                        loadMoreReceived = repository::receivedGifts,
-                        loadAuction = repository::giftAuctionQuote,
-                        loadAuctionHistory = repository::giftAuctionHistory,
-                        submitBid = repository::submitGiftAuctionBid,
-                        loadResale = repository::resaleGifts,
-                        buyResale = repository::buyResoldGift,
-                        send = { giftId, text, isPrivate ->
-                            repository.sendGift(giftsProfileId, giftsProfileSelf, giftId, text, isPrivate)
-                        },
-                        loadListing = repository::giftListingQuote,
-                        updateListing = repository::updateGiftListing,
-                        onOpenStars = { openStars(AppRoute.Gifts) },
-                        onBack = { routeName = giftsReturnRouteName }
-                    )
-                }
-                AppRoute.Appearance -> ThemeSettingsScreen(
-                    saved = appearance,
-                    draft = appearanceDraft ?: appearance,
-                    onDraftChange = { appearanceDraft = it },
-                    onSave = { config -> appearanceDraft = config; onAppearanceChange(config) },
-                    onBack = { appearanceDraft = null; routeName = appearanceReturnRouteName },
-                    motion = motionSettings,
-                    onMotionChange = { next -> motionSettingsStore.update { next } },
-                    chatAnimations = chatAnimationSettings,
-                    onAnimatedEmojiChange = chatAnimationStore::setAnimatedEmoji,
-                    onMessageEffectsChange = chatAnimationStore::setMessageEffects
-                )
-                AppRoute.MusicSearch -> MusicSearchScreen(
-                    accountId = selectedAccountId,
-                    conversation = repository,
-                    observeFile = repository::observeFile,
-                    downloadFile = repository::downloadFile,
-                    onBack = { routeName = musicSearchReturnRouteName },
-                    focusOnOpen = musicSearchFocusOnOpen,
-                    providerFirst = musicSearchProviderFirst
-                )
-                AppRoute.MyMusic -> MyMusicScreen(
-                    accountId = selectedAccountId,
-                    telegram = repository,
-                    onBack = { routeName = myMusicReturnRouteName },
-                    onSearch = { providerFirst ->
-                        musicSearchReturnRouteName = AppRoute.MyMusic.name
-                        musicSearchFocusOnOpen = true
-                        musicSearchProviderFirst = providerFirst
-                        routeName = AppRoute.MusicSearch.name
-                    },
-                    onOpenPlaylist = { playlistId ->
-                        musicPlaylistReturnRouteName = AppRoute.MyMusic.name
-                        musicPlaylistId = playlistId
-                        musicPlaylistAccountId = selectedAccountId
-                        routeName = AppRoute.MusicPlaylist.name
-                    },
-                    onProviderSignIn = {
-                        musicSignInReturnRouteName = AppRoute.MyMusic.name
-                        routeName = AppRoute.MusicAccountSignIn.name
-                    },
-                    onOpenCollection = ::openMusicCollection
-                )
-                AppRoute.MusicCollection -> {
-                    // Reachable only when the build has a music source; its screen draws the collection.
-                    val host = ProviderMusicHosts.yandex()
-                    val ref = musicCollectionStack.lines().lastOrNull { it.isNotBlank() }
-                    if (host != null && ref != null) key(ref) {
-                        host.CollectionScreen(
-                            ref = ref,
-                            onBack = ::closeMusicCollection,
-                            onOpenCollection = ::openMusicCollection
                         )
-                    }
-                }
-                AppRoute.MusicPlaylist -> MusicPlaylistScreen(
-                    accountId = selectedAccountId,
-                    telegram = repository,
-                    playlistId = musicPlaylistId,
-                    onBack = { routeName = musicPlaylistReturnRouteName },
-                    onSearch = {
-                        musicSearchReturnRouteName = AppRoute.MusicPlaylist.name
-                        musicSearchFocusOnOpen = false
-                        musicSearchProviderFirst = false
-                        routeName = AppRoute.MusicSearch.name
-                    }
-                )
-                AppRoute.Equalizer -> EqualizerScreen(
-                    settings = equalizerSettings,
-                    runtime = equalizerRuntimeState,
-                    onEnabledChange = equalizerStore::setEnabled,
-                    onPresetChange = equalizerStore::selectPreset,
-                    onLevelsChange = { levels, persist -> equalizerStore.setCustomLevels(levels, persist) },
-                    onReset = equalizerStore::reset,
-                    onSaveCustom = equalizerStore::saveCustom,
-                    onBack = { routeName = AppRoute.Settings.name }
-                )
-                AppRoute.EditProfile -> {
-                    myProfile.info?.let { info ->
-                        EditProfileScreen(info, bioLimit, onBack = { routeName = AppRoute.MyProfile.name }, save = repository::updateMyProfile)
-                    } ?: LaunchedEffect(Unit) { routeName = AppRoute.MyProfile.name }
-                }
-                AppRoute.Notifications -> NotificationSettingsScreen(
-                    runtime = notificationRuntime,
-                    accountPreferences = notificationRuntime.preferencesForAccount(selectedAccountId),
-                    accountId = selectedAccountId,
-                    connectionState = connectionState,
-                    onBack = { routeName = notificationsReturnRouteName },
-                    onDiagnostics = { routeName = AppRoute.ConnectionDiagnostics.name },
-                    onTriggers = { openTriggerWords(AppRoute.Notifications) }
-                )
-                AppRoute.TriggerWords -> TriggerWordsScreen(
-                    store = TriggerWordsStore.get(context),
-                    onBack = { routeName = triggerWordsReturnRouteName },
-                    onOpenMentions = { routeName = AppRoute.TriggerMentions.name }
-                )
-                AppRoute.TriggerMentions -> TriggerMentionsScreen(
-                    store = TriggerWordsStore.get(context),
-                    onBack = { routeName = AppRoute.TriggerWords.name }
-                )
-                AppRoute.ConnectionDiagnostics -> ConnectionDiagnosticsScreen(
-                    repository = repository,
-                    vpnBackend = vpnBackend,
-                    connectionState = connectionState,
-                    onBack = { routeName = AppRoute.Notifications.name }
-                )
-                AppRoute.Calls -> MainTabsScaffold("${selectedAccountId}:${MainTab.Calls.route.name}", MainTab.Calls, tabVisibility, selectTab, tabStateHolder, contentUnderDock = true) { callsTabContent() }
-                AppRoute.Contacts -> MainTabsScaffold("${selectedAccountId}:${MainTab.Contacts.route.name}", MainTab.Contacts, tabVisibility, selectTab, tabStateHolder, contentUnderDock = true) { contactsTabContent() }
-                AppRoute.Settings -> MainTabsScaffold("${selectedAccountId}:${MainTab.Settings.route.name}", MainTab.Settings, tabVisibility, selectTab, tabStateHolder, contentUnderDock = true) { settingsTabContent() }
-                AppRoute.AppLock -> AppLockSettingsScreen(onBack = { routeName = AppRoute.Settings.name })
-                AppRoute.Language -> LanguageScreen(translationSettings, onBack = { routeName = AppRoute.Settings.name })
-                AppRoute.AccountPicker, AppRoute.SecondaryAccounts, AppRoute.SecondaryChats ->
-                    LaunchedEffect(Unit) {
-                        // Old saved navigation from the experimental account
-                        // screens now resolves through the shared switcher.
-                        routeName = AppRoute.Chats.name
-                    }
-                AppRoute.Sessions -> ActiveSessionsScreen(
-                    onBack = { routeName = AppRoute.Settings.name },
-                    load = repository::activeSessions,
-                    terminate = repository::terminateOtherSession,
-                    terminateAll = repository::terminateAllOtherSessions
-                )
-                AppRoute.AccountSecurity -> key(selectedAccountId) {
-                    val securityAccountId = selectedAccountId
-                    AccountSecurityScreen(
-                        accountId = securityAccountId,
-                        repository = repository,
-                        currentPhone = myProfile.info?.phone.orEmpty(),
-                        isPrimaryAccount = securityAccountId == TdAccountStorageLayout.LEGACY_ACCOUNT_ID,
-                        deletionRunning = accountDeletion.accountId == securityAccountId &&
-                            (accountDeletion.running || accountDeletion.serverDeleted),
-                        requestAccountDeletion = { password, onResult ->
-                            if (!AccountDeletionTracker.begin(securityAccountId)) {
-                                onResult(
-                                    Result.failure(
-                                        IllegalStateException("Account deletion is already running")
-                                    )
-                                )
-                            } else {
-                                applicationScope.launch {
-                                    val deletion = try {
-                                        withContext(Dispatchers.IO) {
-                                            repository.deleteTelegramAccount(password)
-                                        }
-                                    } catch (cancelled: CancellationException) {
-                                        throw cancelled
-                                    } catch (failure: Throwable) {
-                                        Result.failure(failure)
-                                    }
-                                    withContext(Dispatchers.Main) { onResult(deletion) }
-                                    if (!deletion.isSuccess) {
-                                        AccountDeletionTracker.finish(
-                                            securityAccountId,
-                                            serverDeleted = false
-                                        )
-                                        AccountDeletionTracker.clearTerminal()
-                                        return@launch
-                                    }
-                                    if (securityAccountId == TdAccountStorageLayout.LEGACY_ACCOUNT_ID) {
-                                        // Never erase the primary TDLib database here. TDLib rebuilds
-                                        // the closed legacy client and publishes WaitPhoneNumber; the
-                                        // composition effect opens the sign-in screen through Start.
-                                        AccountDeletionTracker.finish(
-                                            securityAccountId,
-                                            serverDeleted = true
-                                        )
-                                        return@launch
-                                    }
-                                    var cleanupError: UiText? = null
-                                    try {
-                                        withContext(Dispatchers.IO) {
-                                            secondaryAccountController.logoutAndDelete(
-                                                securityAccountId,
-                                                serverDeleted = true
-                                            )
-                                        }
-                                    } catch (cancelled: CancellationException) {
-                                        throw cancelled
-                                    } catch (_: Throwable) {
-                                        cleanupError = UiText.Res(
-                                            R.string.account_security_delete_cleanup_failed
-                                        )
-                                    }
-                                    // Account selection is applied by a composition effect
-                                    // observing this tracker, so a recreated Activity can
-                                    // finish the same navigation after cleanup.
-                                    AccountDeletionTracker.finish(
-                                        securityAccountId,
-                                        serverDeleted = true,
-                                        error = cleanupError
-                                    )
-                                }
+                        AppRoute.Updates -> StableUpdatesScreen(onBack = { routeName = AppRoute.Settings.name })
+                        AppRoute.Diagnostics -> DiagnosticsScreen(
+                            connectionState = connectionState,
+                            repository = repository,
+                            onBack = { routeName = AppRoute.Settings.name },
+                            onConnection = { openConnectionDiagnostics(AppRoute.Diagnostics) },
+                            onReportProblem = { routeName = AppRoute.ReportProblem.name },
+                            onResources = { routeName = AppRoute.Resources.name }
+                        )
+                        AppRoute.Resources -> ResourcesScreen(onBack = { routeName = AppRoute.Diagnostics.name })
+                        AppRoute.GlobalSearch -> globalSearchRoute()
+                        AppRoute.ReportProblem -> ReportProblemScreen(
+                            accountId = selectedAccountId,
+                            repository = repository,
+                            connectionState = connectionState,
+                            onBack = { routeName = AppRoute.Diagnostics.name }
+                        )
+                        AppRoute.VideoMessageSettings -> VideoMessageSettingsScreen(recordingSettings, repository, selectedAccountId) { routeName = AppRoute.Settings.name }
+                        AppRoute.StorageSettings -> StorageSettingsScreen(
+                            repository = repository,
+                            accountId = selectedAccountId,
+                            onBack = { routeName = AppRoute.Settings.name }
+                        )
+                        AppRoute.AutoDownloadSettings -> AutoDownloadSettingsScreen(
+                            accountId = selectedAccountId,
+                            onBack = { routeName = AppRoute.Settings.name }
+                        )
+                        AppRoute.Experiments -> ExperimentsScreen(
+                            onBack = { routeName = AppRoute.Settings.name },
+                            onMusicAccount = {
+                                musicSignInReturnRouteName = AppRoute.Experiments.name
+                                routeName = AppRoute.MusicAccountSignIn.name
                             }
-                        },
-                        onBack = { routeName = AppRoute.Settings.name }
-                    )
-                }
-                AppRoute.NewChat -> newChatRoute()
-                AppRoute.CreateGroup -> {
-                    val groupCreation by repository.groupCreation.collectAsStateWithLifecycle()
-                    CreateGroupScreen(
-                        loadContacts = repository::loadContacts,
-                        creationState = groupCreation,
-                        startGroupCreation = repository::beginGroupCreation,
-                        acknowledgeGroupCreation = repository::acknowledgeGroupCreation,
-                        acknowledgeUncertainGroupCreation = repository::acknowledgeUncertainGroupCreation,
-                        observeFile = repository::observeFile,
-                        downloadFile = repository::downloadFile,
-                        onBack = {
-                            repository.acknowledgeGroupCreation()
-                            routeName = AppRoute.NewChat.name
-                        },
-                        onCreated = { chatId, failedInvitations ->
-                            selectedChatId = chatId
-                            linkReturnChatId = 0L
-                            chatBackRouteName = AppRoute.Chats.name
-                            routeName = AppRoute.Chat.name
-                            if (failedInvitations > 0) {
-                                noticeError = UiText.Raw(
-                                    context.resources.getQuantityString(
-                                        R.plurals.new_chat_partial_members, failedInvitations, failedInvitations
-                                    )
-                                )
-                            }
+                        )
+                        AppRoute.MusicAccountSignIn -> {
+                            // Reachable only when the build has a music source with a sign-in screen.
+                            val host = ProviderSettingsHosts.yandex()
+                            if (host != null) host.SignInScreen(onBack = { routeName = musicSignInReturnRouteName })
                         }
-                    )
-                }
-                AppRoute.CreateChannel -> CreateChannelScreen(
-                    onBack = { routeName = AppRoute.NewChat.name },
-                    create = repository::createChannel,
-                    onCreated = { chatId ->
-                        selectedChatId = chatId
-                        linkReturnChatId = 0L
-                        chatBackRouteName = AppRoute.Chats.name
-                        routeName = AppRoute.Chat.name
-                    }
-                )
-                AppRoute.Updates -> StableUpdatesScreen(onBack = { routeName = AppRoute.Settings.name })
-                AppRoute.Diagnostics -> DiagnosticsScreen(
-                    connectionState = connectionState,
-                    onBack = { routeName = AppRoute.Settings.name },
-                    onReportProblem = { routeName = AppRoute.ReportProblem.name },
-                    onResources = { routeName = AppRoute.Resources.name }
-                )
-                AppRoute.Resources -> ResourcesScreen(onBack = { routeName = AppRoute.Diagnostics.name })
-                AppRoute.GlobalSearch -> globalSearchRoute()
-                AppRoute.ReportProblem -> ReportProblemScreen(
-                    accountId = selectedAccountId,
-                    repository = repository,
-                    connectionState = connectionState,
-                    onBack = { routeName = AppRoute.Diagnostics.name }
-                )
-                AppRoute.VideoMessageSettings -> VideoMessageSettingsScreen(recordingSettings, repository, selectedAccountId) { routeName = AppRoute.Settings.name }
-                AppRoute.StorageSettings -> StorageSettingsScreen(
-                    repository = repository,
-                    accountId = selectedAccountId,
-                    onBack = { routeName = AppRoute.Settings.name }
-                )
-                AppRoute.AutoDownloadSettings -> AutoDownloadSettingsScreen(
-                    accountId = selectedAccountId,
-                    onBack = { routeName = AppRoute.Settings.name }
-                )
-                AppRoute.Experiments -> ExperimentsScreen(
-                    onBack = { routeName = AppRoute.Settings.name },
-                    onMusicAccount = {
-                        musicSignInReturnRouteName = AppRoute.Experiments.name
-                        routeName = AppRoute.MusicAccountSignIn.name
-                    }
-                )
-                AppRoute.MusicAccountSignIn -> {
-                    // Reachable only when the build has a music source with a sign-in screen.
-                    val host = ProviderSettingsHosts.yandex()
-                    if (host != null) host.SignInScreen(onBack = { routeName = musicSignInReturnRouteName })
-                }
-                AppRoute.NavigationSettings -> NavigationSettingsScreen(
-                    visibility = tabVisibility,
-                    onVisibilityChange = onTabVisibilityChange,
-                    onBack = { routeName = AppRoute.Settings.name }
-                )
-                AppRoute.LastSeenSettings -> LastSeenSettingsScreen(lastSeenStyle, onStyleChange = lastSeenSettings::setStyle, onBack = { routeName = AppRoute.Settings.name })
-                AppRoute.PrivacySettings -> key(selectedAccountId) {
-                    PrivacySettingsScreen(
-                        loadPrivacy = repository::loadPrivacySettings,
-                        savePrivacy = repository::setPrivacySetting,
-                        loadContacts = repository::loadContacts,
-                        stealthActive = stealthSettings.protectionActive,
-                        onStealth = { routeName = AppRoute.StealthSettings.name },
-                        onBlockedSenders = { routeName = AppRoute.BlockedSenders.name },
-                        onBack = { routeName = AppRoute.Settings.name }
-                    )
-                }
-                AppRoute.StealthSettings -> key(selectedAccountId) {
-                    StealthSettingsScreen(
-                        store = (repository as? TdLibTelegramRepository)?.stealthSettings,
-                        delayStore = (repository as? TdLibTelegramRepository)?.let { DelayedSendSettingsStore.forAccount(context, it.accountId) },
-                        onServerPrivacy = { routeName = AppRoute.PrivacySettings.name },
-                        onBack = { routeName = AppRoute.PrivacySettings.name }
-                    )
-                }
-                AppRoute.BlockedSenders -> key(selectedAccountId) {
-                    BlockedSendersScreen(
-                        loadPage = repository::loadBlockedSenders,
-                        setBlocked = repository::setSenderBlocked,
-                        reportSpam = repository::reportSpamForUser,
-                        observeFile = repository::observeFile,
-                        downloadFile = repository::downloadFile,
-                        onBack = { routeName = AppRoute.PrivacySettings.name }
-                    )
-                }
-                AppRoute.Proxy -> if (selectedAccountId == TdAccountStorageLayout.LEGACY_ACCOUNT_ID)
-                    ProxyListScreen(
-                        repository = legacyRepository,
-                        vpnBackend = vpnBackend,
-                        onBack = { routeName = proxyReturnRouteName },
-                        onAddProxy = { openProxyConnect(ProxyConnectTab.MTPROTO) },
-                        onSubscriptionServers = { openProxyConnect(ProxyConnectTab.SUBSCRIPTION) }
-                    )
-                else SecondaryProxySettingsScreen(
-                    accountId = selectedAccountId,
-                    repository = repository,
-                    controller = secondaryAccountController,
-                    onManage = { accountSwitcherVisible = true },
-                    onBack = { routeName = proxyReturnRouteName }
-                )
+                        AppRoute.NavigationSettings -> NavigationSettingsScreen(
+                            visibility = tabVisibility,
+                            onVisibilityChange = onTabVisibilityChange,
+                            onBack = { routeName = AppRoute.Settings.name }
+                        )
+                        AppRoute.LastSeenSettings -> LastSeenSettingsScreen(lastSeenStyle, onStyleChange = lastSeenSettings::setStyle, onBack = { routeName = AppRoute.Settings.name })
+                        AppRoute.PrivacySettings -> key(selectedAccountId) {
+                            PrivacySettingsScreen(
+                                loadPrivacy = repository::loadPrivacySettings,
+                                savePrivacy = repository::setPrivacySetting,
+                                loadContacts = repository::loadContacts,
+                                stealthActive = stealthSettings.protectionActive,
+                                onStealth = { routeName = AppRoute.StealthSettings.name },
+                                onBlockedSenders = { routeName = AppRoute.BlockedSenders.name },
+                                onBack = { routeName = AppRoute.Settings.name }
+                            )
+                        }
+                        AppRoute.StealthSettings -> key(selectedAccountId) {
+                            StealthSettingsScreen(
+                                store = (repository as? TdLibTelegramRepository)?.stealthSettings,
+                                delayStore = (repository as? TdLibTelegramRepository)?.let { DelayedSendSettingsStore.forAccount(context, it.accountId) },
+                                onServerPrivacy = { routeName = AppRoute.PrivacySettings.name },
+                                onBack = { routeName = AppRoute.PrivacySettings.name }
+                            )
+                        }
+                        AppRoute.BlockedSenders -> key(selectedAccountId) {
+                            BlockedSendersScreen(
+                                loadPage = repository::loadBlockedSenders,
+                                setBlocked = repository::setSenderBlocked,
+                                reportSpam = repository::reportSpamForUser,
+                                observeFile = repository::observeFile,
+                                downloadFile = repository::downloadFile,
+                                onBack = { routeName = AppRoute.PrivacySettings.name }
+                            )
+                        }
+                        AppRoute.Proxy -> if (selectedAccountId == TdAccountStorageLayout.LEGACY_ACCOUNT_ID)
+                            ProxyListScreen(
+                                repository = legacyRepository,
+                                vpnBackend = vpnBackend,
+                                onBack = { routeName = proxyReturnRouteName },
+                                onAddProxy = { openProxyConnect(ProxyConnectTab.MTPROTO) },
+                                onSubscriptionServers = { openProxyConnect(ProxyConnectTab.SUBSCRIPTION) }
+                            )
+                        else SecondaryProxySettingsScreen(
+                            accountId = selectedAccountId,
+                            repository = repository,
+                            controller = secondaryAccountController,
+                            onManage = { accountSwitcherVisible = true },
+                            onBack = { routeName = proxyReturnRouteName }
+                        )
 
-                AppRoute.ProxyConnect -> if (selectedAccountId == TdAccountStorageLayout.LEGACY_ACCOUNT_ID)
-                    ProxyConnectScreen(
-                        repository = legacyRepository,
-                        vpnBackend = vpnBackend,
-                        connectionState = legacyRepository.connectionState.collectAsStateWithLifecycle().value,
-                        initialTab = ProxyConnectTab.valueOf(proxyConnectTabName),
-                        onBack = { routeName = AppRoute.Proxy.name }
-                    )
-                else LaunchedEffect(selectedAccountId) {
-                    routeName = AppRoute.Proxy.name
+                        AppRoute.ProxyConnect -> if (selectedAccountId == TdAccountStorageLayout.LEGACY_ACCOUNT_ID)
+                            ProxyConnectScreen(
+                                repository = legacyRepository,
+                                vpnBackend = vpnBackend,
+                                connectionState = legacyRepository.connectionState.collectAsStateWithLifecycle().value,
+                                initialTab = ProxyConnectTab.valueOf(proxyConnectTabName),
+                                onBack = { routeName = AppRoute.Proxy.name }
+                            )
+                        else LaunchedEffect(selectedAccountId) {
+                            routeName = AppRoute.Proxy.name
+                        }
+                    }
+                    }
+                    }
+                    }
+                    // The shared elements fly above both route contents during a chat ↔ profile flight;
+                    // pure draw-phase layers that intercept no touches (#999).
+                    ChatProfileTransitionOverlay(chatProfileTransition)
+                    }
+                    }
+                    }
                 }
-            }
-            }
-            }
-            }
-            }
+                if (route !in playerBarHostRoutes) NowPlayingBar(bottomInset = true)
             }
         }
-        if (route !in playerBarHostRoutes) NowPlayingBar(bottomInset = true)
+        PlayerExpansionHost()
     }
     }
     AccountSwitcherSheet(
@@ -3588,3 +3906,19 @@ internal fun routeHostTransitionMove(
     move: NavigationMove
 ): NavigationMove = if (routeHostContentKey(initial) == routeHostContentKey(target)) NavigationMove.None
     else routeTransitionMove(initial, target, move)
+
+/** The routes that share the chat slot with the open chat; ChatInfo pairs with exactly these. */
+private val chatProfilePairChatSlotRoutes = setOf(AppRoute.Chat, AppRoute.MessageThread)
+
+/** The route pair that replaces the slide with the chat ↔ profile shared-element transition (#999). */
+internal fun chatProfilePairRoutes(initial: AppRoute, target: AppRoute): Boolean {
+    return (target == AppRoute.ChatInfo && initial in chatProfilePairChatSlotRoutes) ||
+        (initial == AppRoute.ChatInfo && target in chatProfilePairChatSlotRoutes)
+}
+
+/**
+ * Whether a route change runs the chat ↔ profile cross-fade instead of the slide. The fade stands in for a shared-element
+ * flight, so it needs one engaged for this navigation; without it the route keeps its slide.
+ */
+internal fun chatProfilePairFades(initial: AppRoute, target: AppRoute, motionEnabled: Boolean, flightEngaged: Boolean): Boolean =
+    motionEnabled && flightEngaged && chatProfilePairRoutes(initial, target)

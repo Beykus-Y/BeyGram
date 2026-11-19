@@ -75,8 +75,15 @@
     <string name="proxy_list_load_failed">Impossible de charger les proxys</string>
     <string name="proxy_list_no_proxy">Aucun proxy</string>
     <string name="proxy_list_remove_failed">Impossible de supprimer le proxy</string>
-    <string name="proxy_list_section_manual">MANUEL</string>
-    <string name="proxy_list_section_subscriptions">ABONNEMENTS</string>
+    <string name="proxy_list_section_manual">Manuel</string>
+    <string name="proxy_list_section_subscriptions">Abonnements</string>
+    <string name="proxy_badge_http">HTTP</string>
+    <string name="proxy_badge_mtproto">MTProto</string>
+    <string name="proxy_badge_socks5">SOCKS5</string>
+    <string name="proxy_latency_measuring">Mesure de la latence</string>
+    <string name="proxy_list_row_actions">Actions du proxy</string>
+    <string name="proxy_route_subscription">Abonnement</string>
+    <string name="proxy_sub_row_selected">Sélectionné</string>
     <string name="proxy_list_servers">Serveurs</string>
     <string name="proxy_list_servers_not_loaded">Serveurs non chargés</string>
     <string name="proxy_list_subscription_main">Principal</string>

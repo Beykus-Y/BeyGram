@@ -11,6 +11,31 @@ data class ForumTopicIcon(
 }
 
 /**
+ * The name and icon of one topic, enough for a chat row to name the topic of its last message. An empty [title] means
+ * TDLib gave no name for the topic, so the row shows the generic topic label instead.
+ */
+data class ForumTopicBrief(
+    val id: Long,
+    val title: String,
+    val icon: ForumTopicIcon? = null,
+    val isGeneral: Boolean = false,
+    /** TDLib's implicit name of the General topic; the UI shows its own localized name for it. */
+    val isNameImplicit: Boolean = false
+)
+
+/** An installed custom emoji set that a Premium topic icon can come from: its [title] and the custom emoji of its [covers]. */
+data class CustomEmojiSetBrief(val id: Long, val title: String, val covers: List<Long> = emptyList())
+
+/** The colours Telegram offers for a new topic icon, as 0xRRGGBB. TDLib refuses any other colour when a topic is created. */
+val ForumTopicCreationColors: List<Int> = listOf(0x6FB9F0, 0xFFD67E, 0xCB86DB, 0x8EEE98, 0xFF93B2, 0xFB6F5F)
+
+/** The blue every new topic has used so far; it is also the colour that a rejected creation colour falls back to. */
+const val ForumTopicDefaultColor: Int = 0x6FB9F0
+
+/** The creation colour to send: [rgb] when Telegram offers it, otherwise [ForumTopicDefaultColor]. */
+internal fun forumTopicCreationColor(rgb: Int): Int = if (rgb in ForumTopicCreationColors) rgb else ForumTopicDefaultColor
+
+/**
  * The newest message known for a topic. Its preview uses the same rules as the main chat list, so
  * media, files, stickers, voice notes and service events are not reduced to bare text.
  */
