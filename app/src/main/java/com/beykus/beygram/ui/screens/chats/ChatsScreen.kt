@@ -625,7 +625,8 @@ fun ChatsScreen(
     }
     // Наверху новые строки над первой (история, архив, закрепление, новое сообщение) не должны сдвинуть список вниз:
     // Compose держит прежнюю первую строку по ключу. Состояние «наверху» читаем из композиции, до перемера списка.
-    val wasAtTop = !listMoved
+    // Пока ждёт восстановление якоря, смена ключей не должна возвращать список наверх поверх него.
+    val wasAtTop = !listMoved && state.pendingAnchor == null
     LaunchedEffect(chatListKeys) {
         if (!wasAtTop || listState.isScrollInProgress) return@LaunchedEffect
         if (listState.firstVisibleItemIndex != 0 || listState.firstVisibleItemScrollOffset != 0) listState.scrollToItem(0)

@@ -133,7 +133,7 @@ class ChatsScreenState private constructor(
      * Позиция, которую надо вернуть по якорю в новом списке папки. Выдаётся один раз: экран берёт её
      * через [clearPendingAnchor], когда строки папки уже загружены.
      */
-    var pendingAnchor: ChatListScrollPosition? = if (query.isBlank() && firstVisibleAnchorKey != null) {
+    internal var pendingAnchor: ChatListScrollPosition? = if (query.isBlank() && firstVisibleAnchorKey != null) {
         ChatListScrollPosition(firstVisibleItemIndex, firstVisibleItemScrollOffset, firstVisibleAnchorKey)
     } else {
         null
