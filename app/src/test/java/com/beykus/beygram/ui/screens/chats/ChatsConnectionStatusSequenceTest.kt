@@ -53,7 +53,9 @@ class ChatsConnectionStatusSequenceTest {
         runCurrent()
         advanceTimeBy(holdMillis * 2)
 
-        assertEquals(listOf(ChatsConnectionStatus.None), published)
+        // Connected publishes the plain title again; no transient line may appear in between.
+        assertFalse(published.isEmpty())
+        assertFalse(published.any { it != ChatsConnectionStatus.None })
         screen.leave()
     }
 
