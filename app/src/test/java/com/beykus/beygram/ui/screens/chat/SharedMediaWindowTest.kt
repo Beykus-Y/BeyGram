@@ -163,4 +163,27 @@ class SharedMediaWindowTest {
         assertEquals(listOf(0L to false), requested)
         assertEquals(listOf(3L), window.messages.map { it.id })
     }
+
+    @Test fun requestArrivingDuringFlightRunsAfterItWithNewCursor() = runBlocking {
+        val gate = CompletableDeferred<Unit>()
+        val requested = mutableListOf<Pair<Long, Boolean>>()
+        val pages = ArrayDeque(listOf(
+            MessageSearchPage(listOf(message(3)), 50L),
+            MessageSearchPage(listOf(message(2)), 0L)
+        ))
+        val window = SharedMediaWindow(
+            load = { from, newer -> requested += from to newer; if (requested.size == 1) gate.await(); Result.success(pages.removeFirst()) },
+            failure = { "failed" }
+        )
+        window.restart(null)
+        val first = launch { window.loadOlder() }
+        yield()
+        val second = launch { window.loadOlder() }
+        yield()
+        gate.complete(Unit)
+        first.join()
+        second.join()
+        assertEquals(listOf(0L to false, 50L to false), requested)
+        assertEquals(listOf(2L, 3L), window.messages.map { it.id })
+    }
 }
