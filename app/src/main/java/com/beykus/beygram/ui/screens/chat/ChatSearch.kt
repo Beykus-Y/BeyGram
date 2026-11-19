@@ -378,6 +378,7 @@ internal fun ChatSearchResults(
                             Text(
                                 stringResource(
                                     when {
+                                        hasMore -> R.string.search_no_matches_page
                                         filter.isActive -> R.string.search_no_filter_results
                                         else -> R.string.search_nothing_found
                                     }
@@ -391,6 +392,8 @@ internal fun ChatSearchResults(
                         }
                     }
                 }
+                // Пустая первая страница с курсором: дальше можно пройти кнопкой, иначе выдача обрывается.
+                if (hasMore) SearchMoreButton(busy, onMore)
             }
             else -> LazyColumn(
                 Modifier.fillMaxSize().alpha(if (stale) 0.5f else 1f),
