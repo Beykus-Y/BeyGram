@@ -10,6 +10,8 @@
     <string name="composer_prepare_failed">Impossible de préparer la pièce jointe. Essayez de l’envoyer comme fichier.</string>
     <string name="composer_remove_attachment">Retirer</string>
     <string name="composer_send_failed">Impossible d’envoyer la pièce jointe</string>
+    <string name="composer_send_partial">%1$d envoyé(s) sur %2$d. Vous pouvez renvoyer les autres</string>
+    <string name="composer_send_uncertain">Impossible de confirmer l’envoi. Vérifiez le chat avant de renvoyer</string>
     <string name="composer_too_many_attachments">Choisissez jusqu’à 10 pièces jointes à la fois</string>
     <string name="composer_type_file">Fichier</string>
     <string name="composer_type_gif">GIF</string>

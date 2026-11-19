@@ -10,6 +10,8 @@
     <string name="composer_prepare_failed">Could not prepare attachment. Try sending it as a file.</string>
     <string name="composer_remove_attachment">Remove</string>
     <string name="composer_send_failed">Could not send attachment</string>
+    <string name="composer_send_partial">Sent %1$d of %2$d. You can send the rest again</string>
+    <string name="composer_send_uncertain">Could not confirm the send. Check the chat before sending again</string>
     <string name="composer_too_many_attachments">Choose up to 10 attachments at a time</string>
     <string name="composer_type_file">File</string>
     <string name="composer_type_gif">GIF</string>

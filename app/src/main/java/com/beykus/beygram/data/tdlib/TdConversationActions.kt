@@ -536,8 +536,7 @@ internal class TdConversationActions(
         requireFutureSchedule(options)
         send(chatId, replyId, forumTopicId, options) { contactMessageContent(contact) }
     }.onFailure { recordSendFailure("contact", it) }
-    suspend fun sendMedia(chatId: Long, media: OutgoingMedia, caption: String, replyId: Long?, entities: List<MessageTextEntity> = emptyList(), forumTopicId: Long = 0L, options: MessageSendOptions = MessageSendOptions(), onVisibleIds: (List<Long>) -> Unit = {}): Result<Unit> {
-        val handoff = ShareMediaHandoff()
+    suspend fun sendMedia(chatId: Long, media: OutgoingMedia, caption: String, replyId: Long?, entities: List<MessageTextEntity> = emptyList(), forumTopicId: Long = 0L, options: MessageSendOptions = MessageSendOptions(), handoff: ShareMediaHandoff = ShareMediaHandoff(), onVisibleIds: (List<Long>) -> Unit = {}): Result<Unit> {
         val result = conversationResult<Unit> {
             requireFutureSchedule(options)
             requireViewOnceSupported(media, options)
@@ -558,8 +557,7 @@ internal class TdConversationActions(
         send(chatId, replyId, forumTopicId, options) { sticker.toInputContent("") }
     }.onSuccess { recordMediaAccepted("sticker") }.onFailure { recordSendFailure("sticker", it) }
 
-    suspend fun sendMediaAlbum(chatId: Long, media: List<OutgoingMedia>, caption: String, replyId: Long?, entities: List<MessageTextEntity> = emptyList(), forumTopicId: Long = 0L, options: MessageSendOptions = MessageSendOptions(), onVisibleIds: (List<Long>) -> Unit = {}): Result<Unit> {
-        val handoff = ShareMediaHandoff()
+    suspend fun sendMediaAlbum(chatId: Long, media: List<OutgoingMedia>, caption: String, replyId: Long?, entities: List<MessageTextEntity> = emptyList(), forumTopicId: Long = 0L, options: MessageSendOptions = MessageSendOptions(), handoff: ShareMediaHandoff = ShareMediaHandoff(), onVisibleIds: (List<Long>) -> Unit = {}): Result<Unit> {
         val result = conversationResult<Unit> {
             require(media.size in 2..10 && media.all { it.kind == MediaKind.Photo || it.kind == MediaKind.Video })
             requireFutureSchedule(options)

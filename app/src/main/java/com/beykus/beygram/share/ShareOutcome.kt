@@ -18,10 +18,12 @@ internal fun isShareOutcomeUnknown(error: Throwable?): Boolean {
 internal class ShareMediaNotHandedOffException(cause: Throwable) : IllegalStateException("Media not handed to TDLib", cause)
 
 internal class ShareMediaHandoff {
-    private var handedOff = false
-    fun markHandedOff() { handedOff = true }
+    private var handed = false
+    fun markHandedOff() { handed = true }
+    /** True once TDLib has been given the request, so a later failure may still have been delivered. */
+    fun handedOff(): Boolean = handed
     fun classify(result: Result<Unit>): Result<Unit> {
         val error = result.exceptionOrNull() ?: return result
-        return if (handedOff) result else Result.failure(ShareMediaNotHandedOffException(error))
+        return if (handed) result else Result.failure(ShareMediaNotHandedOffException(error))
     }
 }
