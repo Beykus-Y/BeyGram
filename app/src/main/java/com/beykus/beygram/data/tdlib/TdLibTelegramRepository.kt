@@ -730,16 +730,18 @@ class TdLibTelegramRepository private constructor(
         require(folderId > 0 && _chatFolders.value.folders.any { it.id == folderId }) {
             "Telegram folder no longer exists"
         }
+        // A page already in flight answers this call: a second LoadChats would only queue behind it and repeat it.
+        if (_folderLoadStates.value[folderId]?.loading == true) return@requestResult Unit
         folderPageLocks.computeIfAbsent(folderId) { Mutex() }.withLock {
             if (_folderLoadStates.value[folderId]?.hasMore == false ||
                 _chatFolders.value.folders.none { it.id == folderId }) return@withLock
             setFolderLoading(folderId, TelegramFolderLoadState(loading = true))
             try {
                 tdRequests(TdApi.LoadChats(TdApi.ChatListFolder(folderId), 100))
-                setFolderLoading(folderId, TelegramFolderLoadState(hasMore = true))
+                setFolderLoading(folderId, TelegramFolderLoadState(hasMore = true, loadedOnce = true))
             } catch (notFound: TdRequestError) {
                 if (notFound.code == 404) {
-                    setFolderLoading(folderId, TelegramFolderLoadState(hasMore = false))
+                    setFolderLoading(folderId, TelegramFolderLoadState(hasMore = false, loadedOnce = true))
                 } else {
                     setFolderLoading(folderId, TelegramFolderLoadState(error = true))
                     throw notFound
@@ -757,7 +759,11 @@ class TdLibTelegramRepository private constructor(
     private fun setFolderLoading(folderId: Int, state: TelegramFolderLoadState) {
         // Ignore a response for a folder removed remotely while a page was loading.
         if (_chatFolders.value.folders.none { it.id == folderId }) return
-        _folderLoadStates.update { it + (folderId to state) }
+        _folderLoadStates.update { states ->
+            // Once a folder has been answered, later loading and error states keep that fact.
+            val loadedOnce = state.loadedOnce || states[folderId]?.loadedOnce == true
+            states + (folderId to state.copy(loadedOnce = loadedOnce))
+        }
     }
 
     override suspend fun setChatPinned(chatId: Long, pinned: Boolean): Result<Unit> = requestResult {
