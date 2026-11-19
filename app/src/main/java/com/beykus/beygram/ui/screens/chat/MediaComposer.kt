@@ -666,7 +666,7 @@ internal class AttachmentState(
     /** Repeats the failed poll send with the same caption/options; only an explicit tap can retry. */
     fun retryExtra() {
         if (!extraSendFailed || extra == null || sending || importing || locating) return
-        send(lastExtraCaption, lastExtraOptions) {}
+        send(lastExtraCaption, emptyList(), null, 0L, lastExtraOptions, {}, {})
     }
 
     /** Explicitly drops a poll that failed to send, instead of leaving a dead attachment in the composer. */
