@@ -83,7 +83,12 @@ fun movedTelegramFolderIds(state: TelegramChatFolders, id: Int, delta: Int): Lis
 data class TelegramFolderLoadState(
     val loading: Boolean = false,
     val hasMore: Boolean = true,
-    val error: Boolean = false
+    val error: Boolean = false,
+    /**
+     * A page or the end of the folder has been received at least once. A folder that is still false has not been
+     * answered yet, so an empty list must not be shown as "no chats" before TDLib responds.
+     */
+    val loadedOnce: Boolean = false
 )
 
 /** Special Main list gets its TDLib-provided position among server-defined folders. */
