@@ -64,6 +64,6 @@ class TdSecondaryConnectionStatesTest {
     @Test fun lateUpdateOfClosedGenerationDoesNotBringAccountBack() {
         TdSecondaryConnectionStates.receive(authorization("a", 1, TdApi.AuthorizationStateClosed()))
         TdSecondaryConnectionStates.receive(connection("a", 1, TdApi.ConnectionStateReady()))
-        assertFalse(TdSecondaryConnectionStates.phases.value.containsKey("a"))
+        assertFalse(TdSecondaryConnectionStates.links.value.containsKey("a"))
     }
 }
