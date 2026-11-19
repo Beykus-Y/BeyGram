@@ -59,7 +59,7 @@ internal fun ChatConnectionBanner(accountId: String, connection: TelegramConnect
     val status = rememberChatsConnectionStatus(accountId, connection)
     val motion = rememberMotionSpec(MotionToken.BannerChange)
     // При исчезновении строки держим последний текст, чтобы анимация скрытия не показывала пустоту.
-    var retainedStatus by remember { mutableStateOf(ChatsConnectionStatus.None) }
+    var retainedStatus by remember(accountId) { mutableStateOf(ChatsConnectionStatus.None) }
     SideEffect { if (status != ChatsConnectionStatus.None) retainedStatus = status }
     val shown = if (status != ChatsConnectionStatus.None) status else retainedStatus
     AnimatedVisibility(
@@ -100,6 +100,6 @@ private fun ConnectionBannerRow(status: ChatsConnectionStatus) {
         Icon(icon, contentDescription = null, tint = color, modifier = Modifier.size(18.dp))
         Spacer(Modifier.width(8.dp))
         Text(label, color = color, fontSize = 13.sp, fontWeight = FontWeight.Medium,
-            maxLines = 1, overflow = TextOverflow.Ellipsis)
+            maxLines = 2, overflow = TextOverflow.Ellipsis)
     }
 }
