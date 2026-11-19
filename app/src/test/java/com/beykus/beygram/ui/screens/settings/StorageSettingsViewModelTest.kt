@@ -94,6 +94,71 @@ class StorageSettingsViewModelTest {
         assertNull(model.error)
     }
 
+    @Test fun olderRecalculationDoesNotOverwriteNewerUsage() {
+        val repository = FakeRepository().apply { gateUsage = true }
+        val model = StorageSettingsViewModel(repository, FakeStore())
+
+        model.refresh()
+        model.refresh()
+        // Новый пересчёт ответил первым, старый пришёл позже и должен быть отброшен.
+        repository.usageGates[1].complete(Result.success(usageOf(StorageCategory.Photos to 300L)))
+        repository.usageGates[0].complete(Result.success(usageOf(StorageCategory.Photos to 100L)))
+
+        assertEquals(300L, model.usage?.bytes(StorageCategory.Photos))
+        assertFalse(model.loading)
+    }
+
+    @Test fun firstLoadFailureCanBeRetried() {
+        val repository = FakeRepository().apply { gateUsage = true }
+        val model = StorageSettingsViewModel(repository, FakeStore())
+
+        model.refresh()
+        repository.usageGates[0].complete(Result.failure(IllegalStateException("network")))
+
+        assertNull(model.usage)
+        assertFalse(model.loading)
+        assertEquals(UiText.Res(R.string.storage_load_failed), model.error)
+
+        // Повтор успешен: ошибка уходит, цифры появляются.
+        model.refresh()
+        repository.usageGates[1].complete(Result.success(usageOf(StorageCategory.Photos to 42L)))
+
+        assertEquals(42L, model.usage?.bytes(StorageCategory.Photos))
+        assertNull(model.error)
+        assertFalse(model.loading)
+    }
+
+    @Test fun emptySelectionSurvivesRecalculation() {
+        val repository = FakeRepository().apply { usage = usageOf(StorageCategory.Photos to 10L, StorageCategory.Videos to 5L) }
+        val model = StorageSettingsViewModel(repository, FakeStore())
+
+        model.refresh()
+        assertEquals(setOf(StorageCategory.Photos, StorageCategory.Videos), model.selected)
+        model.toggle(StorageCategory.Photos)
+        model.toggle(StorageCategory.Videos)
+        model.refresh()
+
+        assertEquals(emptySet<StorageCategory>(), model.selected)
+    }
+
+    @Test fun newCategoriesAreNotAddedToAUserChoice() {
+        val repository = FakeRepository().apply { usage = usageOf(StorageCategory.Photos to 10L, StorageCategory.Videos to 5L) }
+        val model = StorageSettingsViewModel(repository, FakeStore())
+
+        model.refresh()
+        // Пользователь оставил только Фото: Видео снято.
+        model.toggle(StorageCategory.Videos)
+        assertEquals(setOf(StorageCategory.Photos), model.selected)
+        // Появилась новая категория: в выбор она не должна попасть.
+        repository.usage = usageOf(StorageCategory.Photos to 10L, StorageCategory.Videos to 5L, StorageCategory.Music to 7L)
+        model.refresh()
+
+        assertEquals(setOf(StorageCategory.Photos), model.selected)
+    }
+
+    private fun usageOf(vararg entries: Pair<StorageCategory, Long>) =
+        StorageUsage(bytesByCategory = mapOf(*entries), databaseBytes = 0L)
+
     private class FakeStore(private val saveFails: Boolean = false) : StorageSettingsSource {
         private val state = MutableStateFlow(StorageSettings())
         override val settings: StateFlow<StorageSettings> = state
@@ -109,12 +174,18 @@ class StorageSettingsViewModelTest {
     private class FakeRepository : StorageRepository {
         val applied = mutableListOf<CachePolicy>()
         val gates = mutableListOf<CompletableDeferred<Result<Long>>>()
+        val usageGates = mutableListOf<CompletableDeferred<Result<StorageUsage>>>()
+        var gateUsage = false
+        var usage = StorageUsage(bytesByCategory = emptyMap(), databaseBytes = 0L)
         var usageLoads = 0
         var clears = 0
 
         override suspend fun storageUsage(): Result<StorageUsage> {
             usageLoads++
-            return Result.success(StorageUsage(bytesByCategory = emptyMap(), databaseBytes = 0L))
+            if (!gateUsage) return Result.success(usage)
+            val gate = CompletableDeferred<Result<StorageUsage>>()
+            usageGates += gate
+            return gate.await()
         }
 
         override suspend fun clearStorage(categories: Set<StorageCategory>, onProgress: (done: Int, total: Int) -> Unit): Result<Long> {
