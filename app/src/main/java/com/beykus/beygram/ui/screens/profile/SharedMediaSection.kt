@@ -299,7 +299,7 @@ internal class SharedMediaScrollStates(val grid: LazyGridState, val lists: Map<S
 
 /** Состояния прокрутки живут, пока открыт чат: при смене чата они пересоздаются, чтобы не переносить позицию в другой чат. */
 @Composable
-internal fun rememberSharedMediaScrollStates(chatId: Long): SharedMediaScrollStates = key(chatId) {
+internal fun rememberSharedMediaScrollStates(chatId: Long): SharedMediaScrollStates = key(chatId, LocalPlaybackAccountId.current) {
     SharedMediaScrollStates(
         grid = rememberLazyGridState(),
         lists = SharedMediaKind.entries.map { it to rememberLazyListState() }.toMap()
