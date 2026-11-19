@@ -243,4 +243,12 @@
     <string name="updates_changes_compare">Comparaison sur GitHub</string>
     <string name="updates_changes_truncated">Tous les changements ne sont pas affichés.</string>
     <string name="updates_open_release">Ouvrir la version sur GitHub</string>
+    <string name="updates_notes_truncated">Tous les changements ne sont pas affichés. La liste complète est dans la version sur GitHub.</string>
+    <string name="updates_show_all_changes">Afficher toutes les modifications (%1$d)</string>
+    <string name="updates_installed_stable">%1$s · Stable</string>
+    <string name="updates_settings_current">Version à jour installée</string>
+    <string name="updates_settings_available">Disponible : %1$s</string>
+    <string name="updates_settings_failed">La dernière vérification a échoué</string>
+    <string name="updates_settings_with_date">%1$s · %2$s</string>
+    <string name="updates_settings_stale">Dernière vérification : %1$s, les informations peuvent être périmées</string>
 </resources>

@@ -45,6 +45,7 @@ import com.beykus.beygram.data.update.devBuildInfoText
 import com.beykus.beygram.data.update.devReleaseUrl
 import com.beykus.beygram.data.update.installedBuild
 import com.beykus.beygram.data.update.knownSha
+import com.beykus.beygram.data.update.stableReleaseUrl
 import com.beykus.beygram.ui.accessibility.errorAnnouncement
 import com.beykus.beygram.ui.components.Button
 import com.beykus.beygram.ui.components.OutlinedButton
@@ -156,7 +157,12 @@ fun StableUpdatesScreen(onBack: () -> Unit, model: StableUpdatesViewModel = view
                         if (isDevBeta && dev != null && dev.changes.entries.isNotEmpty()) {
                             DevChangesContent(dev.changes, current.tag)
                         } else {
-                            ReleaseNotesContent(current.notes)
+                            ReleaseNotesContent(
+                                current.notes,
+                                truncated = current.notesTruncated,
+                                releaseUrl = if (isDevBeta) devReleaseUrl(current.tag) else stableReleaseUrl(current.tag),
+                                compact = true,
+                            )
                         }
                     }
                 }
@@ -400,7 +406,7 @@ private fun InstallNoticeText(notice: InstallNotice) {
 
 /** The installed build in the DEV installed block. Stable keeps the plain version name. */
 @Composable
-private fun installedBuildLabel(installed: InstalledBuild): String {
+internal fun installedBuildLabel(installed: InstalledBuild): String {
     val versionName = BuildConfig.VERSION_NAME
     return when (installed) {
         is InstalledBuild.Ci -> stringResource(R.string.updates_installed_build, versionName, installed.number)
@@ -477,41 +483,8 @@ private fun DevChangesContent(changes: DevChangeRange, tag: String) {
 }
 
 /** Opens a GitHub page in a browser. A device without a handler for it simply does nothing. */
-private fun openExternalUrl(context: Context, url: String) {
+internal fun openExternalUrl(context: Context, url: String) {
     runCatching { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url))) }
-}
-
-/** Release notes as a readable list: sections as headings, bullets and numbers as markers. The PR appendix is never shown. */
-@Composable
-private fun ReleaseNotesContent(markdown: String) {
-    val palette = beyGramPalette()
-    val notes = remember(markdown) { parseReleaseNotes(markdown) }
-    if (notes.isEmpty()) {
-        Text(stringResource(R.string.updates_no_notes), color = palette.textSecondary, fontSize = 15.sp)
-        return
-    }
-    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        notes.forEach { note ->
-            when (note.kind) {
-                ReleaseNotesKind.Section -> Text(
-                    note.text,
-                    color = palette.textPrimary,
-                    fontWeight = FontWeight.SemiBold,
-                    fontSize = 16.sp,
-                    modifier = Modifier.padding(top = 8.dp).semantics { heading() }
-                )
-                ReleaseNotesKind.Bullet -> Row(verticalAlignment = Alignment.Top) {
-                    Text("•", color = palette.accent, fontSize = 15.sp, modifier = Modifier.padding(end = 10.dp))
-                    Text(note.text, color = palette.textPrimary, fontSize = 15.sp, modifier = Modifier.weight(1f))
-                }
-                ReleaseNotesKind.Numbered -> Row(verticalAlignment = Alignment.Top) {
-                    Text(note.marker, color = palette.accent, fontSize = 15.sp, modifier = Modifier.padding(end = 10.dp))
-                    Text(note.text, color = palette.textPrimary, fontSize = 15.sp, modifier = Modifier.weight(1f))
-                }
-                ReleaseNotesKind.Paragraph -> Text(note.text, color = palette.textPrimary, fontSize = 15.sp)
-            }
-        }
-    }
 }
 
 /** A date and, when [withTime] is set, the time, in the platform's format for the reader's locale. */

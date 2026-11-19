@@ -53,6 +53,17 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalLifecycleOwner
+import androidx.compose.runtime.DisposableEffect
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import android.content.Context
+import android.text.format.DateUtils
+import com.beykus.beygram.BuildConfig
+import com.beykus.beygram.data.update.UpdateCheckOutcome
+import com.beykus.beygram.data.update.UpdateCheckStore
+import com.beykus.beygram.data.update.UpdateCheckView
+import com.beykus.beygram.data.update.installedBuild
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.beykus.beygram.media.bgbeat.BgBeatSettingsStore
 import com.beykus.beygram.media.bgmix.BgMixSettingsStore
@@ -142,7 +153,12 @@ fun SettingsScreen(onNavigationSettings: () -> Unit, onAppearance: () -> Unit, o
             SettingsLink(Icons.Rounded.BugReport, stringResource(R.string.diagnostics_title), onDiagnostics)
         }
         SettingsGroup(stringResource(R.string.settings_group_updates)) {
-            SettingsLink(Icons.Rounded.SystemUpdate, stringResource(R.string.updates_title), onUpdates)
+            SettingsLink(
+                Icons.Rounded.SystemUpdate,
+                stringResource(R.string.updates_title),
+                onUpdates,
+                subtitle = updatesSettingsSubtitle(),
+            )
         }
         SettingsGroup(stringResource(R.string.settings_group_experiments)) {
             SettingsLink(Icons.Rounded.Tune, stringResource(R.string.settings_experiments_title), onExperiments)
@@ -183,17 +199,74 @@ internal fun SettingsGroup(title: String, content: @Composable ColumnScope.() ->
 }
 
 @Composable
-internal fun SettingsLink(icon: ImageVector, title: String, onClick: () -> Unit) {
+internal fun SettingsLink(icon: ImageVector, title: String, onClick: () -> Unit, subtitle: String? = null) {
     val palette = beyGramPalette()
     Row(
         Modifier.fillMaxWidth().heightIn(min = 48.dp).clickable(role = Role.Button, onClick = onClick).padding(horizontal = 20.dp, vertical = 13.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
         Icon(icon, null, tint = settingsIconTint(), modifier = Modifier.size(22.dp))
-        Text(title, color = palette.textPrimary, fontSize = 16.sp, modifier = Modifier.weight(1f).padding(start = 14.dp))
+        Column(Modifier.weight(1f).padding(start = 14.dp)) {
+            Text(title, color = palette.textPrimary, fontSize = 16.sp)
+            if (subtitle != null) {
+                Text(subtitle, color = palette.textSecondary, fontSize = 13.sp)
+            }
+        }
         Icon(Icons.Rounded.ChevronRight, null, tint = palette.textSecondary, modifier = Modifier.size(22.dp))
     }
 }
+
+/**
+ * The installed build, then the last manual check when one is recorded: its result and date, or only its date when it
+ * is stale. Nothing is fetched here; the record is re-read when the screen resumes.
+ */
+@Composable
+private fun updatesSettingsSubtitle(): String {
+    val context = LocalContext.current
+    val lifecycleOwner = LocalLifecycleOwner.current
+    var record by remember { mutableStateOf(UpdateCheckStore.load(context)) }
+    DisposableEffect(lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME) record = UpdateCheckStore.load(context)
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
+    val isDev = updateChannelFor(BuildConfig.APPLICATION_ID) == UpdateChannel.DevBeta
+    val installedLine = if (isDev) {
+        installedBuildLabel(installedBuild(BuildConfig.DEV_BUILD_NUMBER, BuildConfig.BUILD_GIT_SHA))
+    } else {
+        stringResource(R.string.updates_installed_stable, BuildConfig.VERSION_NAME)
+    }
+    val checkLine: String? = when (val view = UpdateCheckStore.evaluate(
+        record, context.packageName, BuildConfig.VERSION_CODE.toLong(), System.currentTimeMillis()
+    )) {
+        UpdateCheckView.None -> null
+        is UpdateCheckView.Stale -> stringResource(
+            R.string.updates_settings_stale, formatSettingsDate(context, view.record.checkedAt)
+        )
+        is UpdateCheckView.Fresh -> {
+            val result: String? = when (view.record.outcome) {
+                UpdateCheckOutcome.Current -> stringResource(R.string.updates_settings_current)
+                UpdateCheckOutcome.Available -> view.record.availableLabel?.let {
+                    stringResource(R.string.updates_settings_available, it)
+                }
+                UpdateCheckOutcome.Failed -> stringResource(R.string.updates_settings_failed)
+            }
+            result?.let {
+                stringResource(R.string.updates_settings_with_date, it, formatSettingsDate(context, view.record.checkedAt))
+            }
+        }
+    }
+    return listOfNotNull(installedLine, checkLine).joinToString(separator = "\n")
+}
+
+private fun formatSettingsDate(context: Context, millis: Long): String =
+    DateUtils.formatDateTime(
+        context,
+        millis,
+        DateUtils.FORMAT_SHOW_DATE or DateUtils.FORMAT_SHOW_TIME or DateUtils.FORMAT_ABBREV_MONTH
+    )
 
 @Composable
 internal fun SettingsToggle(

@@ -17,6 +17,9 @@ import com.beykus.beygram.data.update.StableRelease
 import com.beykus.beygram.data.update.StableUpdateException
 import com.beykus.beygram.data.update.StableUpdateReason
 import com.beykus.beygram.data.update.StableUpdateRepository
+import com.beykus.beygram.data.update.UpdateCheckOutcome
+import com.beykus.beygram.data.update.UpdateCheckRecord
+import com.beykus.beygram.data.update.UpdateCheckStore
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
@@ -114,11 +117,13 @@ class StableUpdatesViewModel(application: Application) : AndroidViewModel(applic
                 val release = repository.check(repository.installedCode())
                 knownRelease = release
                 lastCheckedAt = System.currentTimeMillis()
+                recordUpdateCheck(if (release == null) UpdateCheckOutcome.Current else UpdateCheckOutcome.Available, release)
                 status = if (release == null) UpdateStatus.Current else UpdateStatus.Available(release)
             } catch (cancelled: CancellationException) {
                 status = UpdateStatus.Idle
                 throw cancelled
             } catch (error: Exception) {
+                recordUpdateCheck(UpdateCheckOutcome.Failed, null)
                 status = UpdateStatus.Failure(friendlyError(error, R.string.updates_error_check))
             }
         }
@@ -183,6 +188,25 @@ class StableUpdatesViewModel(application: Application) : AndroidViewModel(applic
                 // The APK path is immutable and never used by subsequent downloads.
                 status = UpdateStatus.Ready(release, file)
             }
+        }
+    }
+
+    /** Keeps the outcome of this manual check for the Settings summary. A failed write never affects the check. */
+    private fun recordUpdateCheck(outcome: UpdateCheckOutcome, release: StableRelease?) {
+        runCatching {
+            val context = getApplication<Application>()
+            UpdateCheckStore.save(
+                context,
+                UpdateCheckRecord(
+                    packageName = context.packageName,
+                    installedCode = repository.installedCode(),
+                    channel = if (updateChannelFor(context.packageName) == UpdateChannel.DevBeta) "dev" else "stable",
+                    checkedAt = System.currentTimeMillis(),
+                    outcome = outcome,
+                    availableLabel = release?.let { if (it.dev != null) it.tag else it.versionName },
+                    availableCode = release?.versionCode,
+                ),
+            )
         }
     }
 

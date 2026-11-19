@@ -89,6 +89,7 @@ class DevUpdateRepository(private val context: Context) : ApkUpdateSource {
                 versionName = extras.versionName,
                 changes = changes,
             ),
+            notesTruncated = release.optString("body", "").length > 15_000,
         )
     }
 

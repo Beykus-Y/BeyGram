@@ -2057,6 +2057,14 @@
     <string name="updates_changes_compare">Сравнение на GitHub</string>
     <string name="updates_changes_truncated">Показаны не все изменения.</string>
     <string name="updates_open_release">Открыть релиз на GitHub</string>
+    <string name="updates_notes_truncated">Показаны не все изменения. Полный список — в релизе на GitHub.</string>
+    <string name="updates_show_all_changes">Показать все изменения (%1$d)</string>
+    <string name="updates_installed_stable">%1$s · Stable</string>
+    <string name="updates_settings_current">Установлена актуальная версия</string>
+    <string name="updates_settings_available">Доступна %1$s</string>
+    <string name="updates_settings_failed">Проверка не удалась</string>
+    <string name="updates_settings_with_date">%1$s · %2$s</string>
+    <string name="updates_settings_stale">Последняя проверка: %1$s, сведения могли устареть</string>
     <string name="forum_topics_partial_load_failed">Часть тем не загрузилась. Уже полученные темы доступны.</string>
     <string name="forum_topics_search">Поиск по темам</string>
     <string name="forum_topics_search_placeholder">Поиск по темам</string>

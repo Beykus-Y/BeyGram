@@ -225,6 +225,14 @@
     <string name="updates_changes_compare">Vergleich auf GitHub</string>
     <string name="updates_changes_truncated">Nicht alle Änderungen werden angezeigt.</string>
     <string name="updates_open_release">Release auf GitHub öffnen</string>
+    <string name="updates_notes_truncated">Nicht alle Änderungen werden angezeigt. Die vollständige Liste steht im Release auf GitHub.</string>
+    <string name="updates_show_all_changes">Alle Änderungen anzeigen (%1$d)</string>
+    <string name="updates_installed_stable">%1$s · Stable</string>
+    <string name="updates_settings_current">Aktuell installiert</string>
+    <string name="updates_settings_available">Verfügbar: %1$s</string>
+    <string name="updates_settings_failed">Letzte Prüfung fehlgeschlagen</string>
+    <string name="updates_settings_with_date">%1$s · %2$s</string>
+    <string name="updates_settings_stale">Letzte Prüfung: %1$s, die Angaben sind möglicherweise veraltet</string>
     <string name="global_search_public_join_declined">Beitritt zu diesem Chat nicht möglich. Der Beitritt ist möglicherweise eingeschränkt</string>
     <string name="global_search_public_join_guard">Der Beitritt erfordert die Zustimmung eines Bots</string>
     <string name="global_search_public_join_request_sent">Beitrittsanfrage gesendet</string>

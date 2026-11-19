@@ -33,6 +33,8 @@ data class StableRelease(
     val publishedAt: String,
     /** DEV only: build number, commit and the cumulative changes. Null for Stable. */
     val dev: DevReleaseInfo? = null,
+    /** True when the release body was longer than the 15_000 characters kept in [notes]. */
+    val notesTruncated: Boolean = false,
 )
 
 object StableUpdatePolicy {
@@ -132,10 +134,12 @@ class StableUpdateRepository(private val context: Context) : ApkUpdateSource {
         }
         // The asset name must match the signed manifest and GitHub's public release listing.
         if (!StableUpdatePolicy.isNewer(installedCode, code)) return@withContext null
+        val body = release.optString("body", "")
         StableRelease(
             tag, name, code, asset, size, hash,
-            release.optString("body", "").take(15_000),
-            release.optString("published_at", "")
+            body.take(15_000),
+            release.optString("published_at", ""),
+            notesTruncated = body.length > 15_000,
         )
     }
 

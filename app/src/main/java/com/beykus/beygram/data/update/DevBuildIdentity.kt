@@ -230,3 +230,9 @@ fun commitUrl(sha: String?): String? =
 /** The GitHub page of a DEV prerelease, or null for any tag that is not `dev-N`. */
 fun devReleaseUrl(tag: String): String? =
     tag.takeIf { devTagRegex.matches(it) }?.let { "$REPO_URL/releases/tag/$it" }
+
+private val stableTagRegex = Regex("^v[0-9]+\\.[0-9]+\\.[0-9]+\\.[0-9]+$")
+
+/** The GitHub page of a Stable release `vX.Y.Z.W`, or null for any other tag. */
+fun stableReleaseUrl(tag: String): String? =
+    tag.takeIf { stableTagRegex.matches(it) }?.let { "$REPO_URL/releases/tag/$it" }
