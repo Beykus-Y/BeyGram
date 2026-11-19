@@ -44,6 +44,12 @@ internal class SharedMediaWindow(
     private var olderCursor = 0L
     /** Самый новый id в окне: страницы новее идут от него. */
     private var newestId = 0L
+    /** Запрос в ту же сторону уже стоит в очереди или выполняется: повтор дал бы лишнюю страницу, поэтому его не ставим. */
+    private var olderQueued = false
+    private var newerQueued = false
+    /** Во время запроса в эту сторону пришёл ещё один вызов: выполнить после текущего. */
+    private var olderAgain = false
+    private var newerAgain = false
 
     /**
      * Сбрасывает окно. Без [anchor] страницы идут от самого нового вложения, и новее ничего нет.
@@ -58,6 +64,10 @@ internal class SharedMediaWindow(
         error = null
         olderCursor = anchor ?: 0L
         newestId = anchor ?: 0L
+        olderQueued = false
+        newerQueued = false
+        olderAgain = false
+        newerAgain = false
     }
 
     /** Догружает вложения старше уже загруженных. Если старше больше нет, ничего не делает. */
@@ -80,16 +90,34 @@ internal class SharedMediaWindow(
     }
 
     private suspend fun loadPage(newer: Boolean) {
-        lock.withLock {
-            val current = generation
-            while (current == generation) {
-                val exhausted = if (newer) !hasNewer else !hasOlder
-                if (exhausted) return
-                fetch(newer)
-                // Старее дочитываем, пока окно пустое: страница без вложений после фильтрации не конец истории.
-                // Новее идём одной страницей. Ошибка или уже есть что показать — останавливаемся.
-                if (newer || error != null || messages.isNotEmpty()) return
-            }
+        // Вкладка вызывает догрузку из нескольких мест (первая страница, прокрутка, просмотрщик). Пока запрос в эту сторону
+        // идёт, повторный не запускает второй параллельный запрос с тем же курсором: он запоминается, и цикл выполнит
+        // его после текущего, уже с новым курсором. Так быстрый свайп не теряет догрузку.
+        if (if (newer) newerQueued else olderQueued) {
+            if (newer) newerAgain = true else olderAgain = true
+            return
+        }
+        if (newer) newerQueued = true else olderQueued = true
+        val token = generation
+        try {
+            do {
+                if (newer) newerAgain = false else olderAgain = false
+                lock.withLock { runLoop(newer, token) }
+            } while (token == generation && (if (newer) newerAgain else olderAgain))
+        } finally {
+            // Старая корутина после restart не трогает флаги новой генерации.
+            if (token == generation) { if (newer) newerQueued = false else olderQueued = false }
+        }
+    }
+
+    private suspend fun runLoop(newer: Boolean, token: Int) {
+        while (token == generation) {
+            val exhausted = if (newer) !hasNewer else !hasOlder
+            if (exhausted) return
+            fetch(newer)
+            // Старее дочитываем, пока окно пустое: страница без вложений после фильтрации не конец истории.
+            // Новее идём одной страницей. Ошибка или уже есть что показать — останавливаемся.
+            if (newer || error != null || messages.isNotEmpty()) return
         }
     }
 
