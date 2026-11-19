@@ -23,6 +23,25 @@ internal class ChatScrollPositionViewModel : ViewModel() {
     var seenNewestId = 0L
     /** Set when the chat hands over to chat info, so leaving the screen for it does not end the visit. */
     var visitContinues = false
+    /** Message-based position, kept across visits within [CHAT_SCROLL_ANCHOR_TTL_MS]; index and offset above are the fallback. */
+    var anchor: ChatScrollAnchor? = null
+    /** Set once the anchor has been applied, or decided not to apply, for the current composition of the list. */
+    var anchorRestored = false
+    /** Time of the last send started from this device; zero when none is waiting for its message. */
+    var localSendAtMs = 0L
+    /** Key of the row that was at the bottom of the list before the last arrival, to tell whether the list was at the bottom. */
+    var previousFirstKey: String? = null
+
+    fun markLocalSend(nowMs: Long) {
+        localSendAtMs = nowMs
+    }
+
+    fun localSendPending(nowMs: Long): Boolean =
+        localSendAtMs != 0L && nowMs - localSendAtMs in 0..LOCAL_SEND_FOLLOW_WINDOW_MS
+
+    fun consumeLocalSend() {
+        localSendAtMs = 0L
+    }
 
     fun endVisit() {
         readBoundaryId = null
@@ -30,5 +49,8 @@ internal class ChatScrollPositionViewModel : ViewModel() {
         readBoundaryWindowRequested = false
         focusClaimed = false
         seenNewestId = 0L
+        anchorRestored = false
+        localSendAtMs = 0L
+        previousFirstKey = null
     }
 }

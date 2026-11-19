@@ -465,6 +465,8 @@ fun ChatScreen(
     val design = LocalDesignSystem.current
     // Each forum topic keeps its own list position.
     val scrollPosition: ChatScrollPositionViewModel = viewModel(key = "chat-scroll-$accountId-${chat.id}-$forumTopicId")
+    // A send started here follows the list to the bottom when its message arrives (see the newest-arrival effect).
+    fun noteLocalSend() = scrollPosition.markLocalSend(System.currentTimeMillis())
     val listState = rememberLazyListState(scrollPosition.firstVisibleItemIndex, scrollPosition.firstVisibleItemScrollOffset)
     DisposableEffect(listState) {
         onDispose {
@@ -591,6 +593,7 @@ fun ChatScreen(
     }
     /** Ставит запись в отправку. Пропусков нет: занятый worker сам подхватит очередь. */
     fun sendRecordedMedia(mediaList: List<OutgoingMedia>, destination: VoiceRecordingDestination) {
+        noteLocalSend()
         pendingRecordingSends.addLast(destination to mediaList)
         startRecordingSendWorker()
     }
@@ -631,6 +634,7 @@ fun ChatScreen(
         chatId = chat.id,
         mediaLaunchController = mediaLaunchController,
         sendMedia = { media, caption, options ->
+            noteLocalSend()
             val stealthScheduledBefore = stealthWillSchedule(conversation, options)
             // Only the real, visible outgoing photo can receive the spatial effect. Never match by caption/file name.
             val capture = if (design.navigationFloating && messageAnimations.enabled && !mediaLaunchMotion.isInstant &&
@@ -650,12 +654,14 @@ fun ChatScreen(
             result.map { Unit }
         },
         sendSticker = { sticker, options ->
+            noteLocalSend()
             val stealthScheduledBefore = stealthWillSchedule(conversation, options)
             val result = conversation.sendSticker(chat.id, sticker, replyId, forumTopicId = sendForumTopicId, options = options)
             if (result.isSuccess) { clearReply(); if (stealthScheduledBefore) showStealthScheduledNotice(context) }
             result
         },
         sendExtra = { draft, options ->
+            noteLocalSend()
             val stealthScheduledBefore = stealthWillSchedule(conversation, options)
             val result = when (draft) {
                 is MessageExtraDraft.Poll -> conversation.sendPoll(chat.id, draft.poll, replyId, forumTopicId = sendForumTopicId, options = options)
@@ -724,6 +730,7 @@ fun ChatScreen(
             VideoNoteExportCenter.results.collect { list ->
                 list.filter { it.claimedBy(chat.id, accountId, videoClaimTopicId) && !it.requiresPreview && !it.sending }.forEach { item ->
                     val reply = item.sendReplyId(feedSender = forumAllMessages, composerReplyId = replyId)
+                    noteLocalSend()
                     val accepted = VideoNoteExportCenter.send(item.chatId, item.sessionName, reply, accountId) { media, targetReply ->
                         conversation.sendMedia(item.chatId, media, "", targetReply, forumTopicId = item.topicId).map { Unit }
                     }
@@ -886,6 +893,23 @@ fun ChatScreen(
     }
     val senderHeaderByKey = remember(timelineRows.structureVersion, timelineGrouper, pendingVideoNotes, visibleTextAttempts, scrollPosition.readBoundaryId, chat.isGroup, chat.isChannel, chat.isSavedMessages, forumAllMessages, feedGeneralTopic) {
         senderHeaderVisibility(chat, messageListItems, if (forumAllMessages) feedTopicOf else null)
+    }
+    // The position is saved by message as well as by index: history changes move indexes, not the message on screen.
+    val currentListItems by rememberUpdatedState(messageListItems)
+    val bottomThresholdPx = with(LocalDensity.current) { 48.dp.roundToPx() }
+    DisposableEffect(listState) {
+        onDispose {
+            chatScrollAnchorOf(currentListItems, listState.firstVisibleItemIndex, listState.firstVisibleItemScrollOffset, bottomThresholdPx, System.currentTimeMillis())
+                ?.let { scrollPosition.anchor = it }
+            scrollPosition.anchorRestored = false
+        }
+    }
+    // Remembers which row sat at the bottom, so the next arrival can tell a reader at the bottom from one above it.
+    LaunchedEffect(listState) {
+        snapshotFlow {
+            val atBottom = listState.firstVisibleItemIndex == 0 && listState.firstVisibleItemScrollOffset <= bottomThresholdPx
+            if (atBottom) listState.layoutInfo.visibleItemsInfo.firstOrNull()?.key as? String else null
+        }.collect { key -> if (key != null) scrollPosition.previousFirstKey = key }
     }
     val messageItemsByKey = remember(messageListItems) { messageListItems.associateBy { it.key } }
     val currentMessageItemsByKey by rememberUpdatedState(messageItemsByKey)
@@ -1421,17 +1445,53 @@ fun ChatScreen(
     LaunchedEffect(pendingVideoNotes.firstOrNull()?.sessionName) {
         if (pendingVideoNotes.isNotEmpty()) listState.scrollToItemRespectingMotion(0, motionInstant = listScrollInstant)
     }
+    // Restores the position saved when the chat was left. Another opening owns the position while a jump, a focused message
+    // or the unread separator is pending: a restore that ran after the separator was placed would move it.
+    LaunchedEffect(chat.id, messageListItems, history.isLoading) {
+        if (scrollPosition.anchorRestored || messageListItems.isEmpty()) return@LaunchedEffect
+        val unreadOpening = !scrollPosition.readBoundaryChecked && (if (forumTopicId > 0L) topicUnreadCount else chat.unreadCount) > 0
+        val anchor = scrollPosition.anchor
+        if (focusMessageId != 0L || scrollPosition.focusClaimed || pendingJumpId != null || unreadOpening ||
+            anchor == null || !anchor.isFresh(System.currentTimeMillis())) {
+            scrollPosition.anchorRestored = true
+            return@LaunchedEffect
+        }
+        // While history is still loading, an older anchor may not be in the list yet: wait rather than take a neighbour.
+        val found = messageListItems.any { item ->
+            item.key == anchor.key || (anchor.messageId != 0L && item.messages.any { it.id == anchor.messageId })
+        }
+        if (!found && history.isLoading) return@LaunchedEffect
+        val index = resolveAnchorIndex(messageListItems, anchor)
+        if (index == null) listState.scrollToItem(0) else listState.scrollToItem(index, anchor.offset)
+        scrollPosition.anchorRestored = true
+    }
     LaunchedEffect(chat.id, newest?.id) {
         // A message sent while the chat opens drops the boundary: the list goes to the bottom and the boundary is not placed.
         val arrived = scrollPosition.seenNewestId != 0L && newest != null && newest.id != scrollPosition.seenNewestId
         scrollPosition.seenNewestId = newest?.id ?: 0L
+        // The opening position belongs to the restore effect above until it has finished: following here would undo it.
+        if (!arrived && !scrollPosition.anchorRestored) return@LaunchedEffect
+        val now = System.currentTimeMillis()
+        val localSend = scrollPosition.localSendPending(now)
         if ((if (forumTopicId > 0L) topicUnreadCount else chat.unreadCount) > 0 && !scrollPosition.readBoundaryChecked) {
-            if (arrived && newest?.isOutgoing == true) scrollPosition.readBoundaryChecked = true
+            if (arrived && newest?.isOutgoing == true && localSend) scrollPosition.readBoundaryChecked = true
             else return@LaunchedEffect
         }
-        if (!history.hasNewerMessages && messages.isNotEmpty() && (listState.firstVisibleItemIndex < 2 || newest?.isOutgoing == true)) {
+        // The list is newest-first, so the row that was at the bottom before this arrival is now one index lower, with the same key.
+        val firstIndex = listState.firstVisibleItemIndex
+        val firstOffset = listState.firstVisibleItemScrollOffset
+        val atBottomPosition = firstIndex == 0 && firstOffset <= bottomThresholdPx
+        val previousKey = scrollPosition.previousFirstKey
+        val wasAtBottom = atBottomPosition ||
+            (previousKey != null && firstOffset <= bottomThresholdPx && messageListItems.getOrNull(firstIndex)?.key == previousKey)
+        val follow = messages.isNotEmpty() && shouldFollowNewest(
+            wasAtBottom, listState.isScrollInProgress, newest?.isOutgoing == true, localSend, history.hasNewerMessages
+        )
+        if (follow) {
             listState.scrollToItemRespectingMotion(0, motionInstant = listScrollInstant)
+            if (localSend) scrollPosition.consumeLocalSend()
         }
+        if (atBottomPosition || follow) scrollPosition.previousFirstKey = messageListItems.firstOrNull()?.key
     }
     // Открытие с непрочитанными: экран встаёт у разделителя «Непрочитанные», а не у последнего сообщения.
     // Пока граница не зафиксирована, отметки прочтения не отправляются (см. сбор видимых сообщений выше), поэтому она не сдвигается.
@@ -1817,6 +1877,8 @@ fun ChatScreen(
             }
             return
         }
+        // Everything below sends: text, attachments, stickers and the paid path that came back here after its check.
+        noteLocalSend()
         pendingSticker?.let { sticker ->
             pendingSticker = null
             attachments.sendStickerWithOptions(sticker, options)
@@ -2954,6 +3016,7 @@ fun ChatScreen(
             onDelete = { VideoNoteExportCenter.discard(video.chatId, video.sessionName, accountId) },
             onSend = {
                 val reply = video.sendReplyId(feedSender = forumAllMessages, composerReplyId = replyId)
+                noteLocalSend()
                 val accepted = VideoNoteExportCenter.send(video.chatId, video.sessionName, reply, accountId) { media, targetReply ->
                     conversation.sendMedia(video.chatId, media, "", targetReply, forumTopicId = video.topicId).map { Unit }
                 }
