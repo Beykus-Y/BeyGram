@@ -4,6 +4,7 @@ import android.content.Context
 import android.content.Intent
 import androidx.core.content.ContextCompat
 import com.beykus.beygram.R
+import com.beykus.beygram.data.tdlib.TdSecondaryConnectionStates
 import com.beykus.beygram.domain.UiText
 import com.beykus.beygram.domain.UserMessageException
 import com.beykus.beygram.domain.model.MihomoConnection
@@ -504,6 +505,10 @@ internal class VpnBackend private constructor(
     private suspend fun stopListenerNow() {
         routeProbeGeneration.incrementAndGet()
         if (runtimeState.value.status == ProxyRuntimeStatus.STOPPED) return
+        // Secondaries on the shared listener lose it with the listener. They are never moved to Direct here:
+        // only an explicit route change of the primary stops the listener, and each secondary keeps its own route.
+        val sharing = TdSecondaryConnectionStates.links.value.values.count { it.sharesMihomo }
+        if (sharing > 0) MihomoRuntimeDiagnostics.event("backend", "listener stopped; $sharing secondary account(s) shared it")
         appContext.startService(Intent(appContext, MihomoProxyService::class.java).setAction(MihomoProxyService.ACTION_STOP))
         withTimeout(10_000) { MihomoProxyService.runtimeState.first { it.status == ProxyRuntimeStatus.STOPPED } }
     }
