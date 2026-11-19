@@ -62,8 +62,12 @@ import android.text.format.DateUtils
 import com.beykus.beygram.BuildConfig
 import com.beykus.beygram.data.update.UpdateCheckOutcome
 import com.beykus.beygram.data.update.UpdateCheckStore
+import com.beykus.beygram.data.update.UpdateChannel
+import com.beykus.beygram.data.update.UpdateCoordinator
+import com.beykus.beygram.data.update.UpdateStatus
 import com.beykus.beygram.data.update.UpdateCheckView
 import com.beykus.beygram.data.update.installedBuild
+import com.beykus.beygram.data.update.updateChannelFor
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.beykus.beygram.media.bgbeat.BgBeatSettingsStore
 import com.beykus.beygram.media.bgmix.BgMixSettingsStore
@@ -258,7 +262,14 @@ private fun updatesSettingsSubtitle(): String {
             }
         }
     }
-    return listOfNotNull(installedLine, checkLine).joinToString(separator = "\n")
+    // A running download or a verified APK comes from the shared update coordinator; it reads only local state.
+    val updateState by remember { UpdateCoordinator.get(context) }.state.collectAsStateWithLifecycle()
+    val activeLine: String? = when (val status = updateState.status) {
+        is UpdateStatus.Downloading -> stringResource(R.string.updates_settings_downloading, status.progress.percent)
+        is UpdateStatus.Verifying -> stringResource(R.string.updates_settings_verifying)
+        else -> if (updateState.ready != null) stringResource(R.string.updates_settings_ready) else null
+    }
+    return listOfNotNull(installedLine, activeLine ?: checkLine).joinToString(separator = "\n")
 }
 
 private fun formatSettingsDate(context: Context, millis: Long): String =

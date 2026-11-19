@@ -3,23 +3,13 @@ package com.beykus.beygram.data.update
 import android.content.Context
 import android.content.pm.PackageManager
 import android.os.Build
-import androidx.core.content.FileProvider
-import android.content.Intent
-import android.net.Uri
-import android.provider.Settings
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.currentCoroutineContext
-import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.withContext
 import org.json.JSONObject
 import java.io.File
 import java.io.IOException
-import java.net.HttpURLConnection
-import java.net.URL
 import java.security.MessageDigest
 import java.util.Locale
-import java.util.UUID
-import kotlin.coroutines.coroutineContext
 
 /** The updater is deliberately independent of TDLib and never runs without a user action. */
 data class StableRelease(
@@ -35,7 +25,19 @@ data class StableRelease(
     val dev: DevReleaseInfo? = null,
     /** True when the release body was longer than the 15_000 characters kept in [notes]. */
     val notesTruncated: Boolean = false,
-)
+) {
+    /*
+     * Identity is the published release only. [dev] and [notesTruncated] are display details that the persisted state
+     * does not keep, so a release restored after a restart must still equal the same release from a fresh check.
+     */
+    override fun equals(other: Any?): Boolean =
+        other is StableRelease && tag == other.tag && versionName == other.versionName &&
+            versionCode == other.versionCode && apkName == other.apkName && size == other.size &&
+            sha256 == other.sha256 && notes == other.notes && publishedAt == other.publishedAt
+
+    override fun hashCode(): Int =
+        listOf(tag, versionName, versionCode, apkName, size, sha256, notes, publishedAt).hashCode()
+}
 
 object StableUpdatePolicy {
     const val PACKAGE = "com.beykus.beygram"
@@ -84,8 +86,12 @@ internal object StableApkSignerPolicy {
     }
 }
 
-/** The update failures the user can act on. Every other failure of an update step stays a generic error. */
-enum class StableUpdateReason { NoFreeSpace, AlreadyInstalled, ChecksumMismatch }
+/** The typed failures of the updater, shared by Stable and DEV. Each one has its own text on the screen. */
+enum class StableUpdateReason {
+    Network, Timeout, RateLimited, MissingRelease, MissingAsset, ServerError, InvalidMetadata,
+    NoFreeSpace, AlreadyInstalled, Outdated, ChecksumMismatch, PackageMismatch, SignerMismatch, InstallerLaunch,
+    MissingFile, Storage, UntrustedRedirect,
+}
 
 /** A failure with a known [reason]. [message] is for the log only; the screen words the failure by [reason]. */
 class StableUpdateException(val reason: StableUpdateReason, message: String) : IOException(message)
@@ -93,18 +99,19 @@ class StableUpdateException(val reason: StableUpdateReason, message: String) : I
 class StableUpdateRepository(private val context: Context) : ApkUpdateSource {
     private val repoApi = "https://api.github.com/repos/Beykus-Y/BeyGram/releases/latest"
     private val downloadPrefix = "https://github.com/Beykus-Y/BeyGram/releases/download/"
-    private val updateDir: File get() = File(context.cacheDir, "stable-updates")
+    override val updateDir: File get() = File(context.cacheDir, "stable-updates")
+    override val filePrefix: String = "stable"
 
     /** Fetch only the latest published non-prerelease release and its matched manifest. */
     override suspend fun check(installedCode: Long): StableRelease? = withContext(Dispatchers.IO) {
         require(context.packageName == StableUpdatePolicy.PACKAGE) { "Обновления доступны только в Stable." }
-        val release = JSONObject(readText(repoApi, 2_000_000))
+        val release = JSONObject(UpdateHttp.readText(repoApi, 2_000_000))
         if (release.optBoolean("draft") || release.optBoolean("prerelease")) {
-            throw IOException("Последний релиз не является Stable.")
+            throw StableUpdateException(StableUpdateReason.MissingRelease, "Последний релиз не является Stable.")
         }
         val tag = release.getString("tag_name")
         if (!tag.matches(Regex("^v[0-9]+\\.[0-9]+\\.[0-9]+\\.[0-9]+$"))) {
-            throw IOException("Неверный формат версии на GitHub.")
+            throw StableUpdateException(StableUpdateReason.InvalidMetadata, "Неверный формат версии на GitHub.")
         }
         val version = tag.removePrefix("v")
         val apkName = "BeyGram-$version-prod-release.apk"
@@ -118,11 +125,14 @@ class StableUpdateRepository(private val context: Context) : ApkUpdateSource {
                 apkName -> hasApk = true
             }
         }
-        if (!hasManifest || !hasApk) throw IOException(
-            "У релиза нет проверенных метаданных или Stable APK. Возможно, он выпущен до появления обновлений."
-        )
+        if (!hasManifest || !hasApk) {
+            throw StableUpdateException(
+                StableUpdateReason.MissingAsset,
+                "У релиза нет проверенных метаданных или Stable APK.",
+            )
+        }
         val base = "$downloadPrefix$tag/"
-        val manifest = JSONObject(readText(base + StableUpdatePolicy.MANIFEST, 65_536))
+        val manifest = JSONObject(UpdateHttp.readText(base + StableUpdatePolicy.MANIFEST, 65_536))
         val name = manifest.getString("versionName")
         val code = manifest.getLong("versionCode")
         val size = manifest.getLong("size")
@@ -130,7 +140,7 @@ class StableUpdateRepository(private val context: Context) : ApkUpdateSource {
         val asset = manifest.getString("apkName")
         if (manifest.getInt("schema") != 1 || name != version ||
             !StableUpdatePolicy.valid(name, code, size, hash, asset)) {
-            throw IOException("Некорректные метаданные версии: установка запрещена.")
+            throw StableUpdateException(StableUpdateReason.InvalidMetadata, "Некорректные метаданные версии.")
         }
         // The asset name must match the signed manifest and GitHub's public release listing.
         if (!StableUpdatePolicy.isNewer(installedCode, code)) return@withContext null
@@ -143,71 +153,29 @@ class StableUpdateRepository(private val context: Context) : ApkUpdateSource {
         )
     }
 
-    /** Download into cache, hash while streaming, verify Android package identity and signature. */
-    override suspend fun download(release: StableRelease, onProgress: suspend (Int) -> Unit): File =
+    /** Downloads with resume support, hashes the whole file and verifies Android package identity and signer. */
+    override suspend fun download(release: StableRelease, resume: PartialDownload?, listener: DownloadListener): File =
         withContext(Dispatchers.IO) {
             require(context.packageName == StableUpdatePolicy.PACKAGE)
             require(StableUpdatePolicy.valid(
                 release.versionName, release.versionCode, release.size, release.sha256, release.apkName
             ) && release.tag == "v${release.versionName}")
-            if (!StableUpdatePolicy.isNewer(installedCode(), release.versionCode)) {
-                throw StableUpdateException(StableUpdateReason.AlreadyInstalled, "Эта версия уже установлена или устарела.")
+            val installed = installedCode()
+            if (release.versionCode == installed) {
+                throw StableUpdateException(StableUpdateReason.AlreadyInstalled, "Эта версия уже установлена.")
             }
-            if (!updateDir.exists() && !updateDir.mkdirs()) throw IOException("Нет места для загрузки.")
-            // Never reuse/delete a path already granted to Android Package Installer.
-            // Every user-initiated download gets its own private immutable APK path.
-            val downloadId = UUID.randomUUID().toString()
-            val temp = File(updateDir, "stable-$downloadId.part")
-            val target = File(updateDir, "stable-$downloadId.apk")
-            if (updateDir.usableSpace < release.size + 20_000_000L) {
-                throw StableUpdateException(StableUpdateReason.NoFreeSpace, "Недостаточно свободного места для APK.")
+            if (release.versionCode < installed) {
+                throw StableUpdateException(StableUpdateReason.Outdated, "Версия на GitHub старше установленной.")
             }
-            try {
-                val digest = MessageDigest.getInstance("SHA-256")
-                val url = "$downloadPrefix${release.tag}/${release.apkName}"
-                val connection = connect(url)
-                try {
-                    val reportedSize = connection.contentLengthLong
-                    if (reportedSize > 0 && reportedSize != release.size) {
-                        throw IOException("Размер файла на сервере изменился.")
-                    }
-                    var downloaded = 0L
-                    var lastPercent = -1
-                    connection.inputStream.use { input ->
-                        temp.outputStream().buffered().use { output ->
-                            val buffer = ByteArray(64 * 1024)
-                            while (true) {
-                                coroutineContext.ensureActive()
-                                val count = input.read(buffer)
-                                if (count == -1) break
-                                downloaded += count
-                                if (downloaded > release.size) throw IOException("Размер APK превышен.")
-                                digest.update(buffer, 0, count)
-                                output.write(buffer, 0, count)
-                                val percent = ((downloaded * 100) / release.size).toInt()
-                                if (percent != lastPercent) {
-                                    lastPercent = percent
-                                    onProgress(percent)
-                                }
-                            }
-                        }
-                    }
-                    if (downloaded != release.size ||
-                        digest.digest().joinToString("") { "%02x".format(it) } != release.sha256) {
-                        throw StableUpdateException(StableUpdateReason.ChecksumMismatch, "Контрольная сумма APK не совпадает.")
-                    }
-                } finally {
-                    connection.disconnect()
-                }
-                if (!temp.renameTo(target)) throw IOException("Не удалось сохранить APK.")
-                verifyPackage(target, release)
-                target
-            } catch (error: Throwable) {
-                // Only files created by this *failed* attempt may be removed.
-                temp.delete()
-                target.delete()
-                throw error
-            }
+            downloadApkFile(
+                updateDir = updateDir,
+                prefix = filePrefix,
+                url = "$downloadPrefix${release.tag}/${release.apkName}",
+                release = release,
+                resume = resume,
+                listener = listener,
+                verifyPackage = { apk -> verifyPackage(apk, release) },
+            )
         }
 
     override fun installedCode(): Long {
@@ -264,17 +232,18 @@ class StableUpdateRepository(private val context: Context) : ApkUpdateSource {
         val pm = context.packageManager
         @Suppress("DEPRECATION")
         val archive = pm.getPackageArchiveInfo(apk.absolutePath, PackageManager.GET_SIGNING_CERTIFICATES)
-            ?: throw IOException("Android не распознал скачанный APK.")
-        if (archive.packageName != StableUpdatePolicy.PACKAGE ||
-            archive.longVersionCode != release.versionCode ||
-            archive.longVersionCode <= installedCode()) {
-            throw IOException("APK не соответствует ожидаемому пакету или версии.")
+            ?: throw StableUpdateException(StableUpdateReason.PackageMismatch, "Android не распознал скачанный APK.")
+        if (archive.packageName != StableUpdatePolicy.PACKAGE || archive.longVersionCode != release.versionCode) {
+            throw StableUpdateException(StableUpdateReason.PackageMismatch, "APK не соответствует ожидаемому пакету или версии.")
+        }
+        if (archive.longVersionCode <= installedCode()) {
+            throw StableUpdateException(StableUpdateReason.Outdated, "APK не новее установленной версии.")
         }
         if ((archive.applicationInfo?.minSdkVersion ?: 0) > Build.VERSION.SDK_INT) {
-            throw IOException("Версия Android не поддерживается этим APK.")
+            throw StableUpdateException(StableUpdateReason.PackageMismatch, "Версия Android не поддерживается этим APK.")
         }
         if (!isArchiveSignerCompatible(apk.absolutePath)) {
-            throw IOException("Не удалось подтвердить совместимую подпись APK. Установка запрещена.")
+            throw StableUpdateException(StableUpdateReason.SignerMismatch, "Не удалось подтвердить совместимую подпись APK.")
         }
         // Android's Package Installer still performs authoritative signing-lineage, ABI and version checks.
     }
@@ -282,98 +251,17 @@ class StableUpdateRepository(private val context: Context) : ApkUpdateSource {
     /** Recheck the bytes off the UI thread immediately before the platform installer. */
     override suspend fun verifyForInstall(apk: File, release: StableRelease) = withContext(Dispatchers.IO) {
         if (!apk.isFile || apk.parentFile?.canonicalFile != updateDir.canonicalFile) {
-            throw IOException("Файл обновления не найден.")
+            throw StableUpdateException(StableUpdateReason.MissingFile, "Файл обновления не найден.")
         }
-        val bytes = apk.inputStream().use { input ->
-            val digest = MessageDigest.getInstance("SHA-256")
-            val buffer = ByteArray(64 * 1024)
-            while (true) {
-                coroutineContext.ensureActive()
-                val read = input.read(buffer)
-                if (read < 0) break
-                digest.update(buffer, 0, read)
-            }
-            digest.digest().joinToString("") { "%02x".format(it) }
-        }
-        if (apk.length() != release.size || bytes != release.sha256) {
-            throw IOException("Контрольная сумма APK изменилась.")
+        if (apk.length() != release.size || sha256Of(apk) != release.sha256) {
+            throw StableUpdateException(StableUpdateReason.ChecksumMismatch, "Контрольная сумма APK изменилась.")
         }
         verifyPackage(apk, release)
     }
 
-    /** Android O+ requires consent to install from this source. Must be called on the main thread. */
-    override fun install(apk: File): Boolean {
-        if (!apk.isFile || apk.parentFile?.canonicalFile != updateDir.canonicalFile) {
-            throw IOException("Файл обновления не найден.")
-        }
-        if (Build.VERSION.SDK_INT >= 26 && !context.packageManager.canRequestPackageInstalls()) {
-            val permissionIntent = Intent(
-                Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES,
-                Uri.parse("package:${context.packageName}")
-            ).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-            context.startActivity(permissionIntent)
-            return false
-        }
-        val uri = FileProvider.getUriForFile(context, "${context.packageName}.files", apk)
-        val intent = Intent(Intent.ACTION_VIEW)
-            .setDataAndType(uri, "application/vnd.android.package-archive")
-            .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_ACTIVITY_NEW_TASK)
-        context.startActivity(intent)
-        return true
-    }
+    override fun canRequestInstalls(): Boolean = ApkInstaller.canRequestInstalls(context)
 
-    /** Explicit redirects let us refuse non-GitHub CDNs and insecure protocol changes. */
-    private fun connect(address: String): HttpURLConnection {
-        var url = URL(address)
-        repeat(6) {
-            if (url.protocol != "https" || url.host.lowercase(Locale.ROOT) !in setOf(
-                    "github.com", "api.github.com", "release-assets.githubusercontent.com",
-                    "objects.githubusercontent.com"
-                )) throw IOException("Сервер перенаправил загрузку на недоверенный адрес.")
-            val connection = url.openConnection() as HttpURLConnection
-            connection.instanceFollowRedirects = false
-            connection.connectTimeout = 15_000
-            connection.readTimeout = 25_000
-            connection.setRequestProperty("User-Agent", "BeyGram-Android-Updater")
-            connection.setRequestProperty("Accept", "application/vnd.github+json")
-            val status = connection.responseCode
-            if (status in 300..399) {
-                val location = connection.getHeaderField("Location")
-                    ?: throw IOException("Сервер вернул пустое перенаправление.")
-                url = URL(url, location)
-                connection.disconnect()
-            } else {
-                if (status !in 200..299) {
-                    connection.disconnect()
-                    throw IOException(when(status) {
-                        403, 429 -> "GitHub ограничил частоту запросов. Повторите проверку позже."
-                        404 -> "Релиз не найден на GitHub."
-                        else -> "Ошибка GitHub: HTTP $status."
-                    })
-                }
-                return connection
-            }
-        }
-        throw IOException("Слишком много перенаправлений при скачивании.")
-    }
+    override fun openInstallPermissionSettings() = ApkInstaller.openPermissionSettings(context)
 
-    private suspend fun readText(url: String, limit: Int): String {
-        val connection = connect(url)
-        try {
-            connection.inputStream.use { input ->
-                val output = java.io.ByteArrayOutputStream()
-                val buffer = ByteArray(8192)
-                while (true) {
-                    currentCoroutineContext().ensureActive()
-                    val count = input.read(buffer)
-                    if (count == -1) break
-                    if (output.size() + count > limit) throw IOException("Ответ GitHub слишком большой.")
-                    output.write(buffer, 0, count)
-                }
-                return output.toString(Charsets.UTF_8.name())
-            }
-        } finally {
-            connection.disconnect()
-        }
-    }
+    override fun launchInstaller(apk: File) = ApkInstaller.launch(context, apk, updateDir)
 }
