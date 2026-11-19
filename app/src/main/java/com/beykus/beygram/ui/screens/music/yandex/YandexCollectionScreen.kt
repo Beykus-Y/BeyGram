@@ -138,14 +138,19 @@ internal fun YandexCollectionScreen(
     var attempt by remember(ref) { mutableStateOf(0) }
 
     /** Starts the whole-list load for [owner] and the liked [ids] it is given. */
-    fun startLikedPreload(owner: MusicProvider, ids: List<String>): LikedPreload<MusicProvider> = LikedPreload(
-        scope = appScope,
-        dispatcher = Dispatchers.IO,
-        owner = owner,
-        ids = ids.toList(),
-        fetch = { likedIdsCopy -> loadAllLiked(owner, likedIdsCopy) },
-        publish = { list -> ProviderTracks.remember(list) },
-    )
+    fun startLikedPreload(owner: MusicProvider, ids: List<String>): LikedPreload<MusicProvider> {
+        // Likes the user changes while this load runs win over the state it fetched.
+        val startedAt = ProviderTracks.likeRevision()
+        return LikedPreload(
+            scope = appScope,
+            dispatcher = Dispatchers.IO,
+            owner = owner,
+            ids = ids.toList(),
+            startedAt = startedAt,
+            fetch = { likedIdsCopy -> loadAllLiked(owner, likedIdsCopy) },
+            publish = { list -> ProviderTracks.remember(list, startedAt) },
+        )
+    }
 
     /** Retires a load made for another provider or other liked ids: its tracks never reach the cache or a queue. */
     fun retireStaleLikedPreload(owner: MusicProvider, ids: List<String>?) {
@@ -305,7 +310,7 @@ internal fun YandexCollectionScreen(
                 },
                 loadAll = { preload.tracks.await() },
                 appendRest = { generation, rest ->
-                    if (PlaybackEngine.appendYandexTracks(rest, generation)) ProviderTracks.remember(rest)
+                    if (PlaybackEngine.appendYandexTracks(rest, generation)) ProviderTracks.remember(rest, preload.startedAt)
                 },
             )
         }
