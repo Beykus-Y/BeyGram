@@ -569,7 +569,8 @@ fun ChatScreen(
                         val result = conversation.sendMedia(chat.id, media, "", destination.replyId, forumTopicId = destination.topicId)
                         if (result.isSuccess) {
                             sentRecordingPaths = sentRecordingPaths + media.path
-                            clearReply()
+                            // Clear only the reply this take was sent with; a reply set after the take was queued stays.
+                            if (replyId == destination.replyId) clearReply()
                         } else {
                             recordingRecovery.showPreview(mediaList, destination, index)
                             error = result.exceptionOrNull().userMessage(context, R.string.chat_video_note_send_failed)
