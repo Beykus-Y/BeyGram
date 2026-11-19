@@ -71,7 +71,6 @@
     <string name="chat_message_forwarded">Message forwarded</string>
     <string name="chat_message_open_failed">Could not open message</string>
     <string name="chat_message_unavailable">Message unavailable</string>
-    <string name="chat_network_waiting">No network. Messages will be sent later</string>
     <string name="chat_pinned_hide_panel">Hide the pinned bar</string>
     <string name="chat_pinned_show_bar">Show the pinned bar</string>
     <string name="chat_pinned_unpin">Unpin the message</string>

@@ -99,7 +99,6 @@
     <string name="chat_message">Сообщение</string>
     <string name="chat_message_forwarded">Сообщение переслано</string>
     <string name="chat_message_unavailable">Сообщение недоступно</string>
-    <string name="chat_network_waiting">Нет сети. Сообщения отправятся позже</string>
     <string name="chat_preview_audio">🎵 Аудио</string>
     <string name="chat_preview_document">📄 Документ</string>
     <string name="chat_preview_photo">📷 Фото</string>
@@ -370,6 +369,7 @@
     <string name="chats_connection_connecting">Подключение…</string>
     <string name="chats_connection_updating">Обновление…</string>
     <string name="chats_connection_waiting_network">Ожидание сети</string>
+    <string name="chat_connection_waiting_network">Ожидание сети. Сообщения отправятся после подключения</string>
     <string name="chats_detail_empty_title">Выберите чат</string>
     <string name="chats_detail_empty_hint">Откройте переписку из списка — она появится здесь.</string>
     <string name="saved_messages_title">Избранное</string>

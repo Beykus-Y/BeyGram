@@ -12,6 +12,7 @@
     <string name="chats_connection_connecting">Connecting…</string>
     <string name="chats_connection_updating">Updating…</string>
     <string name="chats_connection_waiting_network">Waiting for network</string>
+    <string name="chat_connection_waiting_network">Waiting for network. Messages will be sent once connected</string>
     <string name="chats_detail_empty_title">Select a chat</string>
     <string name="chats_detail_empty_hint">Open a conversation from the list; it will appear here.</string>
     <string name="settings_title">Settings</string>
