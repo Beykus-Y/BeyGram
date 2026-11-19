@@ -45,13 +45,16 @@ class AutoSelectRouteTrackerTest {
         val tracker = AutoSelectRouteTracker(confirmMillis = 20_000L, cooldownMillis = 600_000L, clock = clock)
         tracker.markPending("a")
         clock.now = 20_000L
-        tracker.expireIfUnconfirmed()
-        clock.now = 600_000L
+        assertTrue(tracker.expireIfUnconfirmed())
+        // The cooldown of "a" runs from 20 s to 620 s.
+        clock.now = 619_999L
+        assertTrue(tracker.isCoolingDown("a"))
+        clock.now = 620_000L
         assertFalse(tracker.isCoolingDown("a"))
 
         tracker.markPending("b")
-        clock.now = 620_000L
-        tracker.expireIfUnconfirmed()
+        clock.now = 640_000L
+        assertTrue(tracker.expireIfUnconfirmed())
         assertTrue(tracker.isCoolingDown("b"))
         tracker.clearCooldowns()
         assertFalse(tracker.isCoolingDown("b"))
