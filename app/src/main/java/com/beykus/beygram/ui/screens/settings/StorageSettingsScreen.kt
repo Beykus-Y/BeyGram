@@ -173,8 +173,7 @@ private fun UsageCard(
                     Text(stringResource(R.string.storage_usage_loading), color = palette.textSecondary, fontSize = 14.sp, modifier = Modifier.padding(start = 10.dp))
                 }
             } else {
-                // First load failed or was cancelled: say so and offer a retry instead of an empty card.
-                Text(stringResource(R.string.storage_load_failed), color = palette.danger, fontSize = 14.sp)
+                // The load error itself is shown once, by the clear card; here only the way to retry.
                 OutlinedButton(onClick = onRetry, enabled = !busy, modifier = Modifier.fillMaxWidth()) {
                     Text(stringResource(R.string.storage_retry))
                 }
