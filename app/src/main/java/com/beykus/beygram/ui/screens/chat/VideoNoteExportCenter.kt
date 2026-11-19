@@ -80,6 +80,9 @@ internal fun VideoNoteExportResult.claimedBy(chatId: Long, accountId: String, to
 internal fun VideoNoteExportResult.sendReplyId(feedSender: Boolean, composerReplyId: Long?): Long? =
     if (feedSender || recordedInFeed) replyToMessageId else composerReplyId
 
+/** Only a send that starts at the first segment carries the reply; a retry after accepted segments must not repeat it. */
+internal fun initialSendReply(nextIndex: Int, replyId: Long?): Long? = if (nextIndex == 0) replyId else null
+
 private val exportMutex = Mutex()
 
 /** Process-wide count of queued/running exports, used to block further recording. */
@@ -190,7 +193,7 @@ internal object VideoNoteExportCenter {
         }
         VideoNoteDiagnostics.append(sessionName, VideoNoteDiagnostics.text(R.string.vn_entry_send_requested, initial.media.size - initial.nextIndex), VideoNoteStatus.SENDING)
         scope.launch {
-            var reply = replyId
+            var reply = initialSendReply(initial.nextIndex, replyId)
             try {
                 for (index in initial.nextIndex until initial.media.size) {
                     VideoNoteSendTracking.tracker.expect(chatId, sessionName)
