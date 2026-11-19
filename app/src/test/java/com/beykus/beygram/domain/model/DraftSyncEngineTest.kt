@@ -3,7 +3,6 @@ package com.beykus.beygram.domain.model
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.advanceTimeBy
-import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
@@ -54,6 +53,7 @@ class DraftSyncEngineTest {
         writeDelayMillis = 400L
     )
 
+    /** advanceUntilIdle ignores [TestScope.backgroundScope], where the engine runs, so time is moved explicitly. */
     private fun TestScope.settle(millis: Long) {
         advanceTimeBy(millis)
         runCurrent()
@@ -83,7 +83,7 @@ class DraftSyncEngineTest {
 
         push.succeed = true
         engine.connectionReady()
-        advanceUntilIdle()
+        settle(1_000)
         assertEquals(listOf("офлайн", "офлайн"), push.texts(1L))
         assertTrue(store.read(1L)!!.synced)
     }
@@ -94,7 +94,7 @@ class DraftSyncEngineTest {
         val push = FakePush<Long>()
         val engine = engine(store, push, fetch = { RemoteDraft(MessageDraft(), 0L) })
         engine.connectionReady()
-        advanceUntilIdle()
+        settle(1_000)
         assertEquals(listOf("до перезапуска"), push.texts(1L))
         assertTrue(store.read(1L)!!.synced)
         assertEquals("до перезапуска", engine.observe(1L).value.text)
@@ -107,7 +107,7 @@ class DraftSyncEngineTest {
         val remote = RemoteDraft(MessageDraft("с другого устройства"), 5_000L)
         val engine = engine(store, push, fetch = { remote })
         engine.connectionReady()
-        advanceUntilIdle()
+        settle(1_000)
         assertEquals("с другого устройства", engine.observe(1L).value.text)
         assertEquals(StoredMessageDraft(MessageDraft("с другого устройства"), 5_000L, synced = true), store.read(1L))
         assertTrue(push.pushed.isEmpty())
@@ -120,7 +120,7 @@ class DraftSyncEngineTest {
         val engine = engine(store, push)
         engine.receive(1L, RemoteDraft(MessageDraft(), 0L))
         engine.connectionReady()
-        advanceUntilIdle()
+        settle(1_000)
         assertEquals(MessageDraft(), engine.observe(1L).value)
         assertTrue(push.pushed.isEmpty())
         assertTrue(store.read(1L)!!.synced)
@@ -132,7 +132,7 @@ class DraftSyncEngineTest {
         val engine = engine(store, push)
         engine.opened(1L)
         engine.update(1L) { MessageDraft("новый") }
-        advanceUntilIdle()
+        settle(1_000)
         assertTrue(store.read(1L)!!.synced)
 
         engine.receive(1L, RemoteDraft(MessageDraft("старый"), 0L))
@@ -146,7 +146,7 @@ class DraftSyncEngineTest {
         val topic = -100123L to 5L
         engine.opened(topic)
         engine.update(topic) { MessageDraft("новый") }
-        advanceUntilIdle()
+        settle(1_000)
         assertTrue(store.read(topic)!!.synced)
 
         engine.receive(topic, RemoteDraft(MessageDraft("старый"), 0L))
@@ -170,7 +170,7 @@ class DraftSyncEngineTest {
         runCurrent()
         assertFalse(store.read(1L)!!.synced)
 
-        advanceUntilIdle()
+        settle(1_000)
         assertEquals(listOf("первый", "первый и второй"), push.texts(1L))
         assertTrue(store.read(1L)!!.synced)
     }
@@ -196,7 +196,7 @@ class DraftSyncEngineTest {
         val engine = engine(store, push, fetch = { RemoteDraft(null, 9_999_999L) })
         engine.receive(1L, RemoteDraft(null, 9_999_999L))
         engine.connectionReady()
-        advanceUntilIdle()
+        settle(1_000)
         assertEquals("локальный", engine.observe(1L).value.text)
         assertEquals(StoredMessageDraft(MessageDraft("локальный"), 1_000L), store.read(1L))
         assertTrue(push.pushed.isEmpty())
@@ -213,7 +213,7 @@ class DraftSyncEngineTest {
         assertEquals(listOf("секрет"), push.texts(1L))
 
         engine.signedOut()
-        advanceUntilIdle()
+        settle(1_000)
         assertEquals(listOf("секрет"), push.texts(1L))
         assertEquals(MessageDraft(), engine.observe(1L).value)
         assertTrue(store.raw.isEmpty())
