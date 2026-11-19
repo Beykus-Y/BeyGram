@@ -3,6 +3,7 @@ package com.beykus.beygram.domain.model
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -92,10 +93,12 @@ class DraftSyncEngine<K>(
             } else {
                 // Cloud changes ignored while the editor was open are read once, now.
                 val launchEpoch = epoch
+                val launchRevision = revisionOf(key)
                 scope.launch {
                     val remote = fetchSafely(key) ?: return@launch
                     synchronized(guard) {
-                        if (epoch == launchEpoch) receiveLocked(key, remote)
+                        // A read that started before a newer local edit must not replace it.
+                        if (epoch == launchEpoch && revisionOf(key) == launchRevision) receiveLocked(key, remote)
                     }
                 }
             }
@@ -133,12 +136,13 @@ class DraftSyncEngine<K>(
             val launchEpoch = epoch
             store.unsyncedKeys().forEach { key ->
                 if (key in dirty || !reconciling.add(key)) return@forEach
+                val launchRevision = revisionOf(key)
                 scope.launch {
                     try {
                         val remote = fetchSafely(key)
                         if (remote != null) {
                             synchronized(guard) {
-                                if (epoch == launchEpoch) receiveLocked(key, remote)
+                                if (epoch == launchEpoch && revisionOf(key) == launchRevision) receiveLocked(key, remote)
                             }
                         }
                     } finally {
@@ -211,6 +215,8 @@ class DraftSyncEngine<K>(
 
     private suspend fun pushSafely(key: K, draft: MessageDraft): Boolean = try {
         push(key, draft)
+    } catch (error: TimeoutCancellationException) {
+        false
     } catch (error: CancellationException) {
         throw error
     } catch (error: Exception) {
@@ -219,6 +225,8 @@ class DraftSyncEngine<K>(
 
     private suspend fun fetchSafely(key: K): RemoteDraft? = try {
         fetch(key)
+    } catch (error: TimeoutCancellationException) {
+        null
     } catch (error: CancellationException) {
         throw error
     } catch (error: Exception) {

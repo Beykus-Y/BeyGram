@@ -157,7 +157,7 @@ internal class TdChatDrafts(
         return sendDraft(chatId, topicId, draft.copy(replyToMessageId = null)) == null
     }
 
-    /** Null on success, otherwise the TDLib error. Timeouts and cancellation propagate to the engine. */
+    /** Null on success, otherwise the TDLib error. Timeouts and cancellation propagate; the engine treats a timeout as a failed push. */
     private suspend fun sendDraft(chatId: Long, topicId: Long?, draft: MessageDraft): TdRequestError? = try {
         val forumTopic = topicId?.let { TdApi.MessageTopicForum(it.toInt()) }
         request(TdApi.SetChatDraftMessage().apply {
