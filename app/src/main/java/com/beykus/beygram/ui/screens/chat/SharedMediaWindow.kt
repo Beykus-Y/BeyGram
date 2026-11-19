@@ -14,7 +14,8 @@ private const val PREFETCH = 6
  * и просмотрщик фото и видео в чате, поэтому пагинация у них одна.
  *
  * Держим по возрастанию id, то есть по времени, и каждый id один раз. Страница старше идёт курсором TDLib, страница
- * новее — от самого нового загруженного id. Пустая страница, курсор 0 или страница без новых id означают конец.
+ * новее — от самого нового загруженного id. Конец истории: курсор 0 или курсор, который не сдвинулся. Страница без
+ * вложений после фильтрации конца не означает: пока окно пустое, дочитываем старее, курсор конечен.
  * Загрузки идут по одной, а ответ, пришедший после [restart], отбрасывается.
  */
 @Stable
@@ -80,9 +81,15 @@ internal class SharedMediaWindow(
 
     private suspend fun loadPage(newer: Boolean) {
         lock.withLock {
-            val exhausted = if (newer) !hasNewer else !hasOlder
-            if (exhausted) return
-            fetch(newer)
+            val current = generation
+            while (current == generation) {
+                val exhausted = if (newer) !hasNewer else !hasOlder
+                if (exhausted) return
+                fetch(newer)
+                // Старее дочитываем, пока окно пустое: страница без вложений после фильтрации не конец истории.
+                // Новее идём одной страницей. Ошибка или уже есть что показать — останавливаемся.
+                if (newer || error != null || messages.isNotEmpty()) return
+            }
         }
     }
 
@@ -106,9 +113,11 @@ internal class SharedMediaWindow(
                 merge(fresh)
                 hasNewer = fresh.isNotEmpty()
             } else {
+                val previousCursor = olderCursor
                 merge(page.messages)
                 olderCursor = page.nextFromMessageId
-                hasOlder = page.nextFromMessageId != 0L && page.messages.isNotEmpty()
+                // Курсор, который не сдвинулся, или 0 означают конец: иначе запрос повторялся бы на том же месте.
+                hasOlder = page.nextFromMessageId != 0L && page.nextFromMessageId != previousCursor
                 loaded = true
             }
             newestId = maxOf(newestId, page.messages.maxOfOrNull { it.id } ?: 0L)

@@ -81,4 +81,64 @@ class SharedMediaWindowTest {
         assertEquals(listOf(0L to false, 10L to false), requested)
         assertEquals((1L..20L).toList(), window.messages.map { it.id })
     }
+
+    @Test fun emptyPageWithMovingCursorKeepsLoadingUntilFirstAttachment() = runBlocking {
+        val requested = mutableListOf<Pair<Long, Boolean>>()
+        val pages = ArrayDeque(listOf(
+            MessageSearchPage(emptyList(), 50L),
+            MessageSearchPage(listOf(message(4)), 0L)
+        ))
+        val window = SharedMediaWindow(load = { from, newer -> requested += from to newer; Result.success(pages.removeFirst()) }, failure = { "failed" })
+        window.restart(null)
+        window.loadOlder()
+        assertEquals(listOf(0L to false, 50L to false), requested)
+        assertEquals(listOf(4L), window.messages.map { it.id })
+        assertFalse(window.hasOlder)
+    }
+
+    @Test fun repeatedCursorEndsPaginationWithoutMoreRequests() = runBlocking {
+        val requested = mutableListOf<Pair<Long, Boolean>>()
+        val pages = ArrayDeque(listOf(
+            MessageSearchPage(listOf(message(3)), 77L),
+            MessageSearchPage(listOf(message(2)), 77L)
+        ))
+        val window = SharedMediaWindow(load = { from, newer -> requested += from to newer; Result.success(pages.removeFirst()) }, failure = { "failed" })
+        window.restart(null)
+        window.loadOlder()
+        window.loadOlder()
+        window.loadOlder()
+        assertEquals(listOf(0L to false, 77L to false), requested)
+        assertEquals(listOf(2L, 3L), window.messages.map { it.id })
+        assertFalse(window.hasOlder)
+    }
+
+    @Test fun emptyPagesKeepLoadingWhileWindowIsEmptyThenStop() = runBlocking {
+        val requested = mutableListOf<Pair<Long, Boolean>>()
+        val pages = ArrayDeque(listOf(
+            MessageSearchPage(emptyList(), 10L),
+            MessageSearchPage(emptyList(), 20L),
+            MessageSearchPage(emptyList(), 30L),
+            MessageSearchPage(listOf(message(1)), 0L)
+        ))
+        val window = SharedMediaWindow(load = { from, newer -> requested += from to newer; Result.success(pages.removeFirst()) }, failure = { "failed" })
+        window.restart(null)
+        window.loadOlder()
+        assertEquals(listOf(0L to false, 10L to false, 20L to false, 30L to false), requested)
+        assertEquals(listOf(1L), window.messages.map { it.id })
+        assertFalse(window.hasOlder)
+    }
+
+    @Test fun emptyWindowWithStalledCursorStopsInsteadOfLooping() = runBlocking {
+        val requested = mutableListOf<Pair<Long, Boolean>>()
+        val pages = ArrayDeque(listOf(
+            MessageSearchPage(emptyList(), 10L),
+            MessageSearchPage(emptyList(), 10L)
+        ))
+        val window = SharedMediaWindow(load = { from, newer -> requested += from to newer; Result.success(pages.removeFirst()) }, failure = { "failed" })
+        window.restart(null)
+        window.loadOlder()
+        assertEquals(listOf(0L to false, 10L to false), requested)
+        assertTrue(window.messages.isEmpty())
+        assertFalse(window.hasOlder)
+    }
 }
