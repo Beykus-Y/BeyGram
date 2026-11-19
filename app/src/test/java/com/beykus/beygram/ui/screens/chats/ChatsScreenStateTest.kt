@@ -231,8 +231,12 @@ class ChatsScreenStateTest {
         state.selectFolder(4, headerProgress = 0.5f)
 
         assertEquals(0.5f, state.savedHeaderProgress(0)!!, 0.0001f)
+        state.selectFolder(0, headerProgress = 0.2f)
+        assertEquals(0.2f, state.savedHeaderProgress(4)!!, 0.0001f)
+        // Папка 4 удалена: её шапка забывается, а основной список свою сохраняет.
         state.pruneFolders(setOf(0))
-        assertNull(state.savedHeaderProgress(0))
+        assertNull(state.savedHeaderProgress(4))
+        assertEquals(0.5f, state.savedHeaderProgress(0)!!, 0.0001f)
     }
 
     @Test fun malformedPositionPayloadIsIgnored() {
