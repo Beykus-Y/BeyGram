@@ -83,6 +83,8 @@ internal class VpnBackend private constructor(
     private val subscriptionFetchMutex = Mutex()
     private val automaticActivation = AutomaticActivationGuard()
     private val restoreMutex = Mutex()
+    /** Times of recent automatic listener recoveries, guarded by its own lock. */
+    private val recentListenerDrops = ArrayDeque<Long>()
     private val _restoreFailed = MutableStateFlow(false)
     /** True when the automatic restore failed on every try. The user then decides: try again or turn the proxy off. */
     val restoreFailed: StateFlow<Boolean> = _restoreFailed.asStateFlow()
@@ -120,7 +122,51 @@ internal class VpnBackend private constructor(
                 }
             }
         }
+        scope.launch(Dispatchers.IO) {
+            // STOPPING sits between RUNNING and STOPPED on every stop, so only a final STOPPED/FAILED counts,
+            // and a stop the app asked for never does.
+            var sawRunning = runtimeState.value.status == ProxyRuntimeStatus.RUNNING
+            runtimeState.collect { proxy ->
+                when (proxy.status) {
+                    ProxyRuntimeStatus.RUNNING -> sawRunning = true
+                    ProxyRuntimeStatus.STOPPED, ProxyRuntimeStatus.FAILED -> {
+                        val dropped = sawRunning && !MihomoProxyService.stopRequestedByApp
+                        sawRunning = false
+                        if (dropped) scope.launch(Dispatchers.IO) { recoverDroppedListener() }
+                    }
+                    ProxyRuntimeStatus.STARTING, ProxyRuntimeStatus.STOPPING -> Unit
+                }
+            }
+        }
         scope.launch(Dispatchers.IO) { restore() }
+    }
+
+    /**
+     * The listener went down while TDLib still pointed at it. It is started again through the same bounded
+     * restore as at app start: a few attempts, then the existing question asks the user. Nothing polls.
+     */
+    private suspend fun recoverDroppedListener() {
+        delay(LISTENER_DROP_SETTLE_MILLIS)
+        if (_busy.value || listenerInUse()) return
+        val now = System.currentTimeMillis()
+        val allowed = synchronized(recentListenerDrops) {
+            while (recentListenerDrops.isNotEmpty() && now - recentListenerDrops.first() > LISTENER_DROP_WINDOW_MILLIS) {
+                recentListenerDrops.removeFirst()
+            }
+            if (recentListenerDrops.size >= MAX_LISTENER_RECOVERIES) false else {
+                recentListenerDrops.addLast(now)
+                true
+            }
+        }
+        if (!allowed) {
+            // A listener that keeps dying right after each start is not recovered again without the user.
+            MihomoRuntimeDiagnostics.event("backend", "listener keeps dropping; recovery limit reached")
+            // Ask only while TDLib still points at our listener; if it moved on, there is nothing to decide.
+            if (isTdLibProxyEnabled().getOrNull() != false) _restoreFailed.value = true
+            return
+        }
+        MihomoRuntimeDiagnostics.event("backend", "listener dropped while Telegram uses it; recovering")
+        restore()
     }
 
     /**
@@ -599,6 +645,10 @@ internal class VpnBackend private constructor(
 
     companion object {
         private const val MAX_PARALLEL_PROBES = 4
+        /** A short pause after an unexpected drop, so a stop or start that is just under way can settle first. */
+        private const val LISTENER_DROP_SETTLE_MILLIS = 2_000L
+        private const val MAX_LISTENER_RECOVERIES = 3
+        private const val LISTENER_DROP_WINDOW_MILLIS = 10 * 60_000L
         private const val TDLIB_STATE_ATTEMPTS = 3
         private const val TDLIB_STATE_RETRY_MILLIS = 2_000L
         private const val RESTORE_SETTLE_TIMEOUT_MILLIS = 40_000L
