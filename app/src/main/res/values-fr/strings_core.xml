@@ -184,7 +184,6 @@
     <string name="tabs_calls">Appels</string>
     <string name="tabs_chats">Discussions</string>
     <string name="tabs_contacts">Contacts</string>
-    <string name="updates_available">BeyGram %1$s est disponible</string>
     <string name="updates_cancel">Annuler le téléchargement</string>
     <string name="updates_changes">Nouveautés</string>
     <string name="updates_check">Rechercher des mises à jour</string>
@@ -198,8 +197,6 @@
     <string name="updates_no_notes">Le développeur n’a pas fourni de notes de version.</string>
     <string name="updates_published">Publié : %1$s</string>
     <string name="updates_retry_download">Réessayer le téléchargement</string>
-    <string name="updates_group_installed">Installée</string>
-    <string name="updates_group_available">Version disponible</string>
     <string name="updates_state_current">À jour</string>
     <string name="updates_state_available">Mise à jour disponible</string>
     <string name="updates_state_downloading">Téléchargement : %1$d%%</string>
@@ -207,8 +204,6 @@
     <string name="updates_state_ready_detail">Le fichier est téléchargé et vérifié : la somme de contrôle et la signature correspondent.</string>
     <string name="updates_state_failed">Échec</string>
     <string name="updates_retry_check">Relancer la vérification</string>
-    <string name="updates_type_stable">Version stable</string>
-    <string name="updates_type_dev">Préversion DEV Beta</string>
     <string name="updates_source">Source : GitHub Releases</string>
     <string name="updates_last_checked">Dernière vérification : %1$s</string>
     <string name="updates_stale_notice">Ces informations datent de la dernière vérification réussie. Relancez-la pour les mettre à jour.</string>
@@ -217,6 +212,13 @@
     <string name="updates_size">Taille de l’APK : %1$.1f Mo</string>
     <string name="updates_stable_only">Canal : Stable · Vérifications manuelles uniquement</string>
     <string name="updates_title">Mises à jour</string>
+    <string name="updates_group_status">État</string>
+    <string name="updates_installed_compare">Installée : %1$s</string>
+    <string name="updates_stale_badge">Données périmées</string>
+    <string name="updates_details">Détails</string>
+    <string name="updates_detail_package">Paquet : %1$s</string>
+    <string name="updates_detail_file">Fichier : %1$s</string>
+    <string name="updates_detail_sha">SHA-256 : %1$s</string>
     <string name="updates_preparing_install">Vérification de l’APK avant l’installation…</string>
     <string name="updates_confirm_android_install">Confirmez la mise à jour dans l’installateur Android.</string>
     <string name="updates_allow_unknown_sources">Autorisez les installations depuis BeyGram dans les paramètres Android, puis revenez et appuyez sur Continuer l’installation.</string>
@@ -248,6 +250,7 @@
     <string name="updates_settings_current">Version à jour installée</string>
     <string name="updates_settings_available">Disponible : %1$s</string>
     <string name="updates_settings_failed">La dernière vérification a échoué</string>
+    <string name="updates_detail_version_code">versionCode de la version disponible : %1$d</string>
     <string name="updates_settings_downloading">Téléchargement de la mise à jour : %1$d%%</string>
     <string name="updates_settings_verifying">Vérification de la mise à jour téléchargée…</string>
     <string name="updates_settings_ready">Mise à jour téléchargée et prête à installer</string>
