@@ -114,6 +114,7 @@ import com.beykus.beygram.data.media.videoLimitIssue
 import com.beykus.beygram.domain.model.MediaKind
 import com.beykus.beygram.domain.model.MessageExtraDraft
 import com.beykus.beygram.domain.model.MessageSendOptions
+import com.beykus.beygram.domain.model.MessageTextEntity
 import com.beykus.beygram.domain.model.OutgoingMedia
 import com.beykus.beygram.domain.model.ViewOncePolicy
 import com.beykus.beygram.domain.model.MediaFileState
@@ -160,6 +161,7 @@ private val CaptureRetrySaver = Saver<CaptureRetryState, String>(
  */
 @Stable
 internal class AttachmentState(
+    private val chatId: Long,
     private val context: Context,
     private val importer: OutgoingMediaImporter,
     private val scope: CoroutineScope,
@@ -169,7 +171,7 @@ internal class AttachmentState(
     private val editorState: MutableState<PhotoEditorSession?>,
     private val captureRetry: MutableState<CaptureRetryState>,
     private val qualityState: MutableState<HashMap<String, MediaPreparation>>,
-    private val sendMedia: suspend (List<OutgoingMedia>, String, MessageSendOptions) -> Result<Unit>,
+    private val sendMedia: suspend (AttachmentSendSnapshot, List<OutgoingMedia>, String, List<MessageTextEntity>) -> Result<Unit>,
     private val sendSticker: suspend (OutgoingMedia, MessageSendOptions) -> Result<Unit>,
     private val sendExtra: suspend (MessageExtraDraft, MessageSendOptions) -> Result<Unit>,
     internal val mediaLaunchController: ComposerMediaLaunchController? = null
@@ -664,7 +666,7 @@ internal class AttachmentState(
     /** Repeats the failed poll send with the same caption/options; only an explicit tap can retry. */
     fun retryExtra() {
         if (!extraSendFailed || extra == null || sending || importing || locating) return
-        send(lastExtraCaption, lastExtraOptions) {}
+        send(lastExtraCaption, emptyList(), null, 0L, lastExtraOptions, {}, {})
     }
 
     /** Explicitly drops a poll that failed to send, instead of leaving a dead attachment in the composer. */
@@ -1002,7 +1004,20 @@ internal class AttachmentState(
         scope.launch { discarded.filter { it.path.isNotBlank() }.forEach { importer.discard(it) } }
     }
 
-    fun send(caption: String, options: MessageSendOptions, onCaptionChange: (String) -> Unit) {
+    /**
+     * Sends the staged attachments. The destination, caption, entities, reply and options are fixed by the snapshot taken
+     * here, at tap time; later composer edits never reach the batches. The composer text and reply are cleared only via
+     * [onCaptionConsumed] and [onReplyConsumed], and only after the matching send was confirmed.
+     */
+    fun send(
+        caption: String,
+        entities: List<MessageTextEntity>,
+        replyToMessageId: Long?,
+        forumTopicId: Long,
+        options: MessageSendOptions,
+        onCaptionConsumed: (String) -> Unit,
+        onReplyConsumed: (Long) -> Unit
+    ) {
         if (sending || importing || locating || preparing) return
         val preparedExtra = extra
         if (preparedExtra != null) {
@@ -1015,7 +1030,9 @@ internal class AttachmentState(
                 errorState.value = null
                 try {
                     val result = sendExtra(preparedExtra, options)
-                    if (result.isFailure && stealthFallback.offer(result.exceptionOrNull()) { send(caption, options.copy(sendNowConsent = true), onCaptionChange) }) {
+                    if (result.isFailure && stealthFallback.offer(result.exceptionOrNull()) {
+                            send(caption, entities, replyToMessageId, forumTopicId, options.copy(sendNowConsent = true), onCaptionConsumed, onReplyConsumed)
+                        }) {
                         // Nothing was sent; the prepared item stays for the user's choice.
                     } else if (result.isFailure) {
                         errorState.value = result.exceptionOrNull().userMessage(context, R.string.composer_send_failed)
@@ -1034,36 +1051,77 @@ internal class AttachmentState(
             return
         }
         if (pending.isEmpty()) return
+        val snapshot = AttachmentSendSnapshot(
+            chatId = chatId,
+            forumTopicId = forumTopicId,
+            replyToMessageId = replyToMessageId,
+            caption = caption,
+            captionEntities = entities,
+            options = options,
+            items = pending.map { item -> item to outgoingMediaFor(item, preparationFor(item)) }
+        )
+        runSnapshot(snapshot, onCaptionConsumed, onReplyConsumed)
+    }
+
+    private fun runSnapshot(snapshot: AttachmentSendSnapshot, onCaptionConsumed: (String) -> Unit, onReplyConsumed: (Long) -> Unit) {
         // Claim the slot synchronously, before launching: a second tap must not send twice.
         sending = true
         scope.launch {
             errorState.value = null
-            var nextCaption = caption
             try {
-                val originals = pending.toList()
-                val prepared = originals.map { item -> item to outgoingMediaFor(item, preparationFor(item)) }
-                val batches = attachmentSendBatches(prepared)
-                for (batch in batches) {
-                    val result = sendMedia(batch.map { it.second }, nextCaption, options)
-                    if (result.isFailure) {
-                        val retryCaption = nextCaption
-                        val asked = stealthFallback.offer(result.exceptionOrNull()) { send(retryCaption, options.copy(sendNowConsent = true), onCaptionChange) }
-                        if (!asked) errorState.value = result.exceptionOrNull().userMessage(context, R.string.composer_send_failed)
-                        break
-                    }
-                    val sent = batch.map { it.first }
-                    pendingState.value = ArrayList(pending.filterNot { item -> sent.any { it.samePendingAttachment(item) } })
-                    if (sent.any { qualityState.value.containsKey(it.path) }) {
-                        val remainingQuality = HashMap(qualityState.value)
-                        sent.forEach { remainingQuality.remove(it.path) }
-                        qualityState.value = remainingQuality
-                    }
-                    nextCaption = ""
-                    onCaptionChange("")
+                val outcome = runAttachmentSend(
+                    items = snapshot.items,
+                    caption = snapshot.caption,
+                    captionEntities = snapshot.captionEntities,
+                    send = { media, batchCaption, batchEntities -> sendMedia(snapshot, media, batchCaption, batchEntities) },
+                    onBatchConfirmed = { sent -> forgetSent(sent) },
+                    onCaptionConsumed = onCaptionConsumed
+                )
+                when (outcome) {
+                    is AttachmentSendOutcome.Completed -> snapshot.replyToMessageId?.let(onReplyConsumed)
+                    is AttachmentSendOutcome.Failed -> reportFailedSend(snapshot, outcome, onCaptionConsumed, onReplyConsumed)
                 }
             } catch (cancelled: CancellationException) { throw cancelled }
             catch (failure: Exception) { errorState.value = failure.userMessage(context, R.string.composer_send_failed) }
             finally { sending = false }
+        }
+    }
+
+    /** A confirmed batch leaves the tray at once and never comes back; its quality state goes with it. */
+    private fun forgetSent(sent: List<OutgoingMedia>) {
+        pendingState.value = ArrayList(pending.filterNot { item -> sent.any { it.samePendingAttachment(item) } })
+        if (sent.any { qualityState.value.containsKey(it.path) }) {
+            val remainingQuality = HashMap(qualityState.value)
+            sent.forEach { remainingQuality.remove(it.path) }
+            qualityState.value = remainingQuality
+        }
+    }
+
+    private fun reportFailedSend(
+        snapshot: AttachmentSendSnapshot,
+        outcome: AttachmentSendOutcome.Failed,
+        onCaptionConsumed: (String) -> Unit,
+        onReplyConsumed: (Long) -> Unit
+    ) {
+        // An unconfirmed batch is never offered again automatically: the user checks the chat and sends again by hand.
+        if (outcome.uncertain) {
+            errorState.value = context.getString(R.string.composer_send_uncertain)
+            return
+        }
+        val retry = snapshot.remainderAfter(outcome, options = snapshot.options.copy(sendNowConsent = true))
+        val asked = stealthFallback.offer(outcome.error) {
+            // Only the unsent items of this same send, and only the ones still staged; nothing is re-read from the composer.
+            val stillPending = retry.items.filter { (original, _) -> pending.any { it.samePendingAttachment(original) } }
+            if (stillPending.isNotEmpty() && !sending) runSnapshot(retry.copy(items = stillPending), onCaptionConsumed, onReplyConsumed)
+        }
+        // Progress stays visible even when the stealth dialog is shown; a retry clears it when it starts.
+        if (outcome.sentCount > 0) {
+            val progress = context.getString(R.string.composer_send_partial, outcome.sentCount, outcome.total)
+            // Keep the real reason (for example, a file that is too large) next to the progress.
+            errorState.value = if (asked) progress
+                else progress + "\n" + outcome.error.userMessage(context, R.string.composer_send_failed)
+        } else if (!asked) {
+            errorState.value = outcome.error.userMessage(context, R.string.composer_send_failed)
         }
     }
 }
@@ -1107,7 +1165,7 @@ internal fun OutgoingMedia.samePendingAttachment(other: OutgoingMedia): Boolean 
 @Composable
 internal fun rememberAttachmentState(
     chatId: Long,
-    sendMedia: suspend (List<OutgoingMedia>, String, MessageSendOptions) -> Result<Unit>,
+    sendMedia: suspend (AttachmentSendSnapshot, List<OutgoingMedia>, String, List<MessageTextEntity>) -> Result<Unit>,
     sendSticker: suspend (OutgoingMedia, MessageSendOptions) -> Result<Unit>,
     sendExtra: suspend (MessageExtraDraft, MessageSendOptions) -> Result<Unit>,
     mediaLaunchController: ComposerMediaLaunchController? = null
@@ -1133,8 +1191,8 @@ internal fun rememberAttachmentState(
     val currentSticker by rememberUpdatedState(sendSticker)
     val currentSendExtra by rememberUpdatedState(sendExtra)
     val state = remember(accountId, chatId) {
-        AttachmentState(context, importer, scope, pending, error, viewOnce, editor, captureRetry, quality,
-            sendMedia = { media, caption, options -> currentSend(media, caption, options) },
+        AttachmentState(chatId, context, importer, scope, pending, error, viewOnce, editor, captureRetry, quality,
+            sendMedia = { snapshot, media, caption, entities -> currentSend(snapshot, media, caption, entities) },
             sendSticker = { media, options -> currentSticker(media, options) },
             sendExtra = { draft, options -> currentSendExtra(draft, options) },
             mediaLaunchController = mediaLaunchController)

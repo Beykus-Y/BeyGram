@@ -395,6 +395,8 @@
     <string name="composer_remove_attachment">Убрать</string>
     <string name="composer_remove_attachment_named">Удалить вложение «%1$s»</string>
     <string name="composer_send_failed">Не удалось отправить вложение</string>
+    <string name="composer_send_partial">Отправлено %1$d из %2$d. Оставшиеся можно отправить ещё раз</string>
+    <string name="composer_send_uncertain">Не удалось подтвердить отправку. Проверьте чат перед повторной отправкой</string>
     <string name="composer_too_many_attachments">Выберите не более 10 вложений за раз</string>
     <string name="composer_type_file">Файл</string>
     <string name="composer_type_gif">GIF</string>

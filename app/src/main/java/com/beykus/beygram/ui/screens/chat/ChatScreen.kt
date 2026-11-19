@@ -633,22 +633,22 @@ fun ChatScreen(
     val attachments = rememberAttachmentState(
         chatId = chat.id,
         mediaLaunchController = mediaLaunchController,
-        sendMedia = { media, caption, options ->
+        sendMedia = { snapshot, media, caption, entities ->
             noteLocalSend()
-            val stealthScheduledBefore = stealthWillSchedule(conversation, options)
+            val sendOptions = snapshot.options
+            val stealthScheduledBefore = stealthWillSchedule(conversation, sendOptions)
             // Only the real, visible outgoing photo can receive the spatial effect. Never match by caption/file name.
             val capture = if (design.navigationFloating && messageAnimations.enabled && !mediaLaunchMotion.isInstant &&
-                !chat.isSecret && !chat.hasProtectedContent && !options.viewOnce &&
-                options.scheduledAtSeconds == null && !stealthScheduledBefore) {
+                !chat.isSecret && !chat.hasProtectedContent && !sendOptions.viewOnce &&
+                sendOptions.scheduledAtSeconds == null && !stealthScheduledBefore) {
                 mediaLaunchController.capture(media)
             } else null
-            val result = conversation.sendComposerMedia(chat.id, media, caption, replyId, draftEntities, sendForumTopicId, options)
+            val result = conversation.sendComposerMedia(snapshot.chatId, media, caption, snapshot.replyToMessageId, entities, snapshot.forumTopicId, sendOptions)
             if (result.isSuccess) {
                 val ids = result.getOrNull().orEmpty()
                 if (capture != null && ids.isNotEmpty() && ids.none { mediaCoordinates[it] != null }) {
                     mediaLaunchController.accept(capture, ids)
                 }
-                clearReply()
                 if (stealthScheduledBefore) showStealthScheduledNotice(context)
             }
             result.map { Unit }
@@ -1890,7 +1890,11 @@ fun ChatScreen(
             options.copy(viewOnce = attachments.viewOnce && ViewOncePolicy.canSend(attachments.pending, isPrivateChat = allowViewOnce, isSecretChat = chat.isSecret, scheduled = options.scheduledAtSeconds != null))
         } else options
         if (attachments.active) {
-            attachments.send(draft, effectiveOptions) { value -> updateDraft { it.copy(text = value, entities = if (value.isEmpty()) emptyList() else it.entities) } }
+            attachments.send(
+                draft, draftEntities, replyId, sendForumTopicId, effectiveOptions,
+                onCaptionConsumed = { sentCaption -> updateDraft { it.withAttachmentCaptionConsumed(sentCaption) } },
+                onReplyConsumed = { sentReplyId -> updateDraft { it.withAttachmentReplyConsumed(sentReplyId) } }
+            )
             return
         }
         val outgoingAnimation = messageAnimations.direction(outgoing = true)

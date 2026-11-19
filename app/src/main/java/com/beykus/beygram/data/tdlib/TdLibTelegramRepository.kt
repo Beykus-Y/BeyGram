@@ -73,6 +73,7 @@ import com.beykus.beygram.domain.model.GroupMemberFilter
 import com.beykus.beygram.domain.model.GroupMemberPage
 import com.beykus.beygram.domain.model.GroupSettingsEdit
 import com.beykus.beygram.domain.model.ForwardedMessages
+import com.beykus.beygram.domain.model.ComposerSendUncertainException
 import com.beykus.beygram.domain.model.OutgoingMedia
 import com.beykus.beygram.domain.model.StickerItem
 import com.beykus.beygram.domain.model.StickerSearchPage
@@ -80,6 +81,8 @@ import com.beykus.beygram.domain.model.StickerSetContent
 import com.beykus.beygram.domain.model.StickerSetSummary
 import com.beykus.beygram.domain.model.normalizedPublicUsername
 import com.beykus.beygram.data.media.VideoNoteSendTracking
+import com.beykus.beygram.share.ShareMediaHandoff
+import com.beykus.beygram.share.isShareOutcomeUnknown
 import com.beykus.beygram.data.music.MusicLibraries
 import com.beykus.beygram.data.media.AutoDownloadDecision
 import com.beykus.beygram.data.media.AutoDownloadNetwork
@@ -2494,10 +2497,16 @@ class TdLibTelegramRepository private constructor(
     ): Result<List<Long>> {
         leaveJumpWindow(chatId)
         var ids = emptyList<Long>()
+        val handoff = ShareMediaHandoff()
         val result = if (media.size > 1) {
-            conversationActions.sendMediaAlbum(chatId, media, caption, replyToMessageId, entities, forumTopicId, options) { ids = it }
+            conversationActions.sendMediaAlbum(chatId, media, caption, replyToMessageId, entities, forumTopicId, options, handoff = handoff) { ids = it }
         } else {
-            conversationActions.sendMedia(chatId, media.single(), caption, replyToMessageId, entities, forumTopicId, options) { ids = it }
+            conversationActions.sendMedia(chatId, media.single(), caption, replyToMessageId, entities, forumTopicId, options, handoff = handoff) { ids = it }
+        }
+        // Once TDLib has the request, a timed-out wait does not prove that nothing was sent.
+        val failure = result.exceptionOrNull()
+        if (failure != null && handoff.handedOff() && isShareOutcomeUnknown(failure)) {
+            return Result.failure(ComposerSendUncertainException(failure))
         }
         return result.map { ids }
     }
