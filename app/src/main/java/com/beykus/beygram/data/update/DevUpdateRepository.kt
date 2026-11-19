@@ -69,11 +69,14 @@ class DevUpdateRepository(private val context: Context) : ApkUpdateSource {
         // Display metadata only: the update decision above stays on versionCode.
         val extras = parseDevManifestExtras(manifest, tag)
         val commit = extras.commit ?: release.optString("target_commitish", "").takeIf { isFullCommitSha(it) }
-        val changes = buildCumulativeChanges(
-            releases,
-            installedBuild(BuildConfig.DEV_BUILD_NUMBER, BuildConfig.BUILD_GIT_SHA),
-            tag,
-        )
+        // A display bug must never fail the update check: fall back to an empty, incomplete range.
+        val changes = runCatching {
+            buildCumulativeChanges(
+                releases,
+                installedBuild(BuildConfig.DEV_BUILD_NUMBER, BuildConfig.BUILD_GIT_SHA),
+                tag,
+            )
+        }.getOrElse { DevChangeRange(entries = emptyList(), complete = false, truncated = false, compareUrl = null) }
         StableRelease(
             tag = tag,
             versionName = tag,

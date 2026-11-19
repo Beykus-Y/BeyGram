@@ -350,10 +350,10 @@ jobs:
             if [ -n "$prev_sha" ] && git merge-base --is-ancestor "$prev_sha" "$GITHUB_SHA" 2>/dev/null; then
               range_ok=true
               limit=100
-              count=$(git rev-list --no-merges --count "$prev_sha..$GITHUB_SHA" || echo 0)
+              count=$(git rev-list --no-merges --count "$prev_sha..$GITHUB_SHA")
               git log --no-merges --format='- %s' -n "$limit" "$prev_sha..$GITHUB_SHA"
             else
-              count=$(git rev-list --no-merges --count "$GITHUB_SHA" || echo 0)
+              count=$(git rev-list --no-merges --count "$GITHUB_SHA")
               git log --no-merges --format='- %s' -n "$limit" "$GITHUB_SHA"
             fi
             truncated=false
