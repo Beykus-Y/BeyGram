@@ -37,6 +37,13 @@ internal class TelegramAutoSelector(
 ) {
     private var job: Job? = null
     private val checking = AtomicBoolean(false)
+    /** Tracks the node the last sweep relied on and nodes that TDLib did not confirm. Survives collectLatest restarts. */
+    private val routes = AutoSelectRouteTracker(
+        confirmMillis = RETRY_INTERVAL_MS,
+        cooldownMillis = COOLDOWN_MILLIS
+    )
+    @Volatile private var lastGroup: String? = null
+    @Volatile private var lastReachable: Boolean? = null
 
     fun start() {
         if (job?.isActive == true) return
@@ -46,14 +53,25 @@ internal class TelegramAutoSelector(
                 AutoSelectInputs(connection, network, currentSettings, runtime)
             }.collectLatest { inputs ->
                 val settings = inputs.settings
+                if (inputs.connection == TelegramConnectionState.Connected) routes.confirm()
+                val reachable = inputs.network.canReachInternetForTelegram()
+                if (settings.connectionGroup != lastGroup || reachable != lastReachable) {
+                    lastGroup = settings.connectionGroup
+                    lastReachable = reachable
+                    routes.clearCooldowns()
+                }
                 if (!shouldProbeAutomaticRoute(settings.autoSelectEnabled,
-                        inputs.network.canReachInternetForTelegram(), inputs.connection, inputs.runtime.status)
+                        reachable, inputs.connection, inputs.runtime.status)
                 ) return@collectLatest
 
                 delay(settings.handoverDelayMillis)
                 while (shouldProbeAutomaticRoute(inputs.settings.autoSelectEnabled,
                         inputs.network.canReachInternetForTelegram(), inputs.connection, inputs.runtime.status)
                 ) {
+                    // The node selected by the previous sweep had a full retry interval to bring TDLib to Connected.
+                    if (routes.expireIfUnconfirmed()) {
+                        MihomoRuntimeDiagnostics.event("auto", "route not confirmed by Telegram; candidate skipped for a while")
+                    }
                     if (checking.compareAndSet(false, true)) {
                         try {
                             MihomoProbeCoordinator.sweep { evaluateAndSelect(settings.connectionGroup) }
@@ -86,8 +104,14 @@ internal class TelegramAutoSelector(
             return
         }
 
+        val candidates = connections.filterNot { routes.isCoolingDown(it.name) }
+        if (candidates.isEmpty()) {
+            report(AutoSelectEvent.NoReachableConnection)
+            return
+        }
+
         val results = mutableListOf<com.beykus.beygram.domain.model.MihomoProbeResult>()
-        connections.chunked(MAX_PARALLEL_PROBES).forEach { batch ->
+        candidates.chunked(MAX_PARALLEL_PROBES).forEach { batch ->
             val batchResults = coroutineScope {
                 batch.map { connection ->
                     async(Dispatchers.IO) { mihomo.checkTelegram(connection.name) }
@@ -106,11 +130,13 @@ internal class TelegramAutoSelector(
         }
         val selected = connections.firstOrNull { it.name == fastest.connectionName }
         if (selected?.selected == true) {
+            routes.markPending(fastest.connectionName)
             report(AutoSelectEvent.Kept(fastest.connectionName, fastest.delayMillis!!))
             return
         }
         try {
             mihomo.selectConnection(groupName, fastest.connectionName)
+            routes.markPending(fastest.connectionName)
             report(AutoSelectEvent.Switched(fastest.connectionName, fastest.delayMillis!!))
         } catch (error: CancellationException) {
             throw error
@@ -132,6 +158,8 @@ internal class TelegramAutoSelector(
     companion object {
         private const val MAX_PARALLEL_PROBES = 4
         private const val RETRY_INTERVAL_MS = 20_000L
+        /** A node that TDLib has not confirmed within one retry interval is skipped for this long. */
+        private const val COOLDOWN_MILLIS = 10 * 60_000L
     }
 }
 
