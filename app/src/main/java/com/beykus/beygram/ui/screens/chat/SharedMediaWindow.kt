@@ -10,11 +10,18 @@ import kotlinx.coroutines.sync.withLock
 private const val PREFETCH = 6
 
 /**
+ * Сколько страниц подряд без новых вложений можно запросить за один вызов. Страница может быть пустой после фильтрации,
+ * но курсор при этом движется, поэтому идём дальше; предел не даёт уйти в бесконечный цикл.
+ */
+private const val MAX_EMPTY_PAGES = 3
+
+/**
  * Вложения одного вида, которые грузятся страницами в обе стороны. Этим окном пользуются и сетка в профиле чата,
  * и просмотрщик фото и видео в чате, поэтому пагинация у них одна.
  *
  * Держим по возрастанию id, то есть по времени, и каждый id один раз. Страница старше идёт курсором TDLib, страница
- * новее — от самого нового загруженного id. Пустая страница, курсор 0 или страница без новых id означают конец.
+ * новее — от самого нового загруженного id. Конец истории: курсор 0, курсор, который не сдвинулся, или пустые страницы
+ * сверх [MAX_EMPTY_PAGES] подряд. Пустая страница с движущимся курсором конца не означает.
  * Загрузки идут по одной, а ответ, пришедший после [restart], отбрасывается.
  */
 @Stable
@@ -80,9 +87,17 @@ internal class SharedMediaWindow(
 
     private suspend fun loadPage(newer: Boolean) {
         lock.withLock {
-            val exhausted = if (newer) !hasNewer else !hasOlder
-            if (exhausted) return
-            fetch(newer)
+            val current = generation
+            var emptyPages = 0
+            while (current == generation) {
+                val exhausted = if (newer) !hasNewer else !hasOlder
+                if (exhausted) return
+                val before = messages.size
+                fetch(newer)
+                // Новее идём одной страницей: пустая страница там и так означает конец. Старее дочитываем пустые страницы.
+                if (newer || error != null || messages.size != before) return
+                if (++emptyPages >= MAX_EMPTY_PAGES) return
+            }
         }
     }
 
@@ -106,9 +121,11 @@ internal class SharedMediaWindow(
                 merge(fresh)
                 hasNewer = fresh.isNotEmpty()
             } else {
+                val previousCursor = olderCursor
                 merge(page.messages)
                 olderCursor = page.nextFromMessageId
-                hasOlder = page.nextFromMessageId != 0L && page.messages.isNotEmpty()
+                // Курсор, который не сдвинулся, или 0 означают конец: иначе запрос повторялся бы на том же месте.
+                hasOlder = page.nextFromMessageId != 0L && page.nextFromMessageId != previousCursor
                 loaded = true
             }
             newestId = maxOf(newestId, page.messages.maxOfOrNull { it.id } ?: 0L)
