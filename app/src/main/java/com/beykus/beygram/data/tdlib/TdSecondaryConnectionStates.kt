@@ -13,11 +13,14 @@ import kotlinx.coroutines.flow.asStateFlow
  */
 internal object TdSecondaryConnectionStates {
     private val sessions = HashMap<String, TdAccountSessionState>()
+    /** Generation of the last closed client per account. Its late updates must not bring the account back. */
+    private val closedGenerations = HashMap<String, Long>()
     private val _phases = MutableStateFlow<Map<String, TdAccountConnectionPhase>>(emptyMap())
     val phases: StateFlow<Map<String, TdAccountConnectionPhase>> = _phases.asStateFlow()
 
     @Synchronized
     fun receive(event: TdAccountUpdateRouter.TdAccountRoutedUpdate) {
+        if (event.generation <= (closedGenerations[event.accountId] ?: Long.MIN_VALUE)) return
         val current = sessions[event.accountId]
         if (current != null && event.generation < current.generation) return
         val session = if (current != null && current.generation == event.generation) {
@@ -28,6 +31,7 @@ internal object TdSecondaryConnectionStates {
         session.receive(event)
         val snapshot = session.snapshot.value
         _phases.value = if (snapshot.authorization == TdAccountAuthPhase.CLOSED) {
+            closedGenerations[event.accountId] = event.generation
             sessions.remove(event.accountId)
             _phases.value - event.accountId
         } else {
@@ -39,6 +43,7 @@ internal object TdSecondaryConnectionStates {
     @Synchronized
     internal fun resetForTest() {
         sessions.clear()
+        closedGenerations.clear()
         _phases.value = emptyMap()
     }
 }
