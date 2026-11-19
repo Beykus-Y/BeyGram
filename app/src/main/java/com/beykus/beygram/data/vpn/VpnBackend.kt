@@ -120,7 +120,29 @@ internal class VpnBackend private constructor(
                 }
             }
         }
+        scope.launch(Dispatchers.IO) {
+            var previous = runtimeState.value.status
+            runtimeState.collect { proxy ->
+                val status = proxy.status
+                val dropped = previous == ProxyRuntimeStatus.RUNNING &&
+                    (status == ProxyRuntimeStatus.STOPPED || status == ProxyRuntimeStatus.FAILED)
+                previous = status
+                // Only an unexpected drop reaches here: user stops and route changes switch TDLib off the listener first.
+                if (dropped) scope.launch(Dispatchers.IO) { recoverDroppedListener() }
+            }
+        }
         scope.launch(Dispatchers.IO) { restore() }
+    }
+
+    /**
+     * The listener went down while TDLib still pointed at it. It is started again through the same bounded
+     * restore as at app start: a few attempts, then the existing question asks the user. Nothing polls.
+     */
+    private suspend fun recoverDroppedListener() {
+        delay(LISTENER_DROP_SETTLE_MILLIS)
+        if (_busy.value || listenerInUse()) return
+        MihomoRuntimeDiagnostics.event("backend", "listener dropped while Telegram uses it; recovering")
+        restore()
     }
 
     /**
@@ -599,6 +621,8 @@ internal class VpnBackend private constructor(
 
     companion object {
         private const val MAX_PARALLEL_PROBES = 4
+        /** A short pause after an unexpected drop, so a stop or start that is just under way can settle first. */
+        private const val LISTENER_DROP_SETTLE_MILLIS = 2_000L
         private const val TDLIB_STATE_ATTEMPTS = 3
         private const val TDLIB_STATE_RETRY_MILLIS = 2_000L
         private const val RESTORE_SETTLE_TIMEOUT_MILLIS = 40_000L
