@@ -50,6 +50,24 @@ class ProviderLinkShareTest {
         assertEquals(4096, exactlyFull.codePointCount(0, exactlyFull.length))
     }
 
+    @Test fun albumPayloadContainsOnlyAValidatedPublicLink() {
+        val payload = requireNotNull(providerAlbumSharePayload("  Album Name  ", "812", null))
+        assertEquals("Album Name", payload.title)
+        assertEquals("https://music.yandex.ru/album/812", payload.publicLink)
+        assertEquals("Album Name\nhttps://music.yandex.ru/album/812", payload.text)
+        assertEquals(0L, payload.durationMs)
+        assertNull(providerAlbumSharePayload("Album", "812/track/999", null))
+    }
+
+    @Test fun playlistPayloadRejectsNonUuidAndKeepsCanonicalLink() {
+        val uuid = "abcdef12-3456-7890-abcd-1234567890ab"
+        val payload = requireNotNull(providerPlaylistSharePayload("  My List  ", uuid, "https://covers.example/img"))
+        assertEquals("My List", payload.title)
+        assertEquals("https://music.yandex.ru/playlists/$uuid", payload.publicLink)
+        assertEquals("My List\nhttps://music.yandex.ru/playlists/$uuid", payload.text)
+        assertNull(providerPlaylistSharePayload("Private List", "private_owner/token", null))
+    }
+
     @Test fun giantTrackMetadataDoesNotPermitOversizedTdlibText() {
         assertNull(providerTrackSharePayload(track(title = "x".repeat(5000))))
     }
