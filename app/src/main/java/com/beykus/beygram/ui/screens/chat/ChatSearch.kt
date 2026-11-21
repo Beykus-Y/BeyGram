@@ -304,7 +304,7 @@ private fun SearchFilterSection(title: String) {
 }
 
 @Composable
-private fun ChatSearchFilterChip(label: String, selected: Boolean, onClick: () -> Unit) {
+internal fun ChatSearchFilterChip(label: String, selected: Boolean, onClick: () -> Unit) {
     val palette = beyGramPalette()
     Box(
         Modifier.clip(RoundedCornerShape(50))
