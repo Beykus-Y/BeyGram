@@ -213,6 +213,7 @@ class StorageSettingsViewModelTest {
         assertNull(model.cleaningProgress)
         assertTrue(model.busy)
         assertTrue(model.usageStale)
+        assertFalse(model.policyControlsEnabled)
 
         model.clear(setOf(StorageCategory.Photos))
         assertEquals(1, repository.clears)
@@ -220,6 +221,7 @@ class StorageSettingsViewModelTest {
 
         assertFalse(model.busy)
         assertFalse(model.usageStale)
+        assertTrue(model.policyControlsEnabled)
         assertEquals(0L, model.usage?.bytes(StorageCategory.Photos))
     }
 
