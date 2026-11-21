@@ -482,6 +482,7 @@ private fun PlayerTrackMenu(item: PlaybackItem, onCollapse: () -> Unit, onOpenMy
     val scope = rememberCoroutineScope()
     var menuOpen by remember { mutableStateOf(false) }
     var pendingShare by remember { mutableStateOf<PendingTrackShare?>(null) }
+    var pendingProviderShare by remember { mutableStateOf<PendingProviderLinkShare?>(null) }
     var waveSharing by remember { mutableStateOf(false) }
     // Sharing sends from the chat source the player uses. A track from a chat is offered only once that chat is known
     // not to protect its content; a chat that cannot be checked here gets no share.
@@ -492,6 +493,7 @@ private fun PlayerTrackMenu(item: PlaybackItem, onCollapse: () -> Unit, onOpenMy
         canShareTrack(completedShareItem(item), originUnprotected = item.origin == null || originChat?.hasProtectedContent == false)
     // A source track is shared as its link; the file never leaves the app.
     val providerTrack = ProviderTracks.byKey(item.key)?.takeIf { ProviderTracks.isProviderKey(item.key) }
+    val providerSharePayload = providerTrack?.let(::providerTrackSharePayload)
     val shareLabel = stringResource(R.string.player_share)
     val waveActive = rememberWaveActive()
     val waveShareLabel = stringResource(R.string.bgwave_share_action)
@@ -516,9 +518,13 @@ private fun PlayerTrackMenu(item: PlaybackItem, onCollapse: () -> Unit, onOpenMy
                 // The album opens behind the player, so the player closes first.
                 onLeavePlayer = onCollapse
             )
-            if (providerTrack != null) PlayerMenuEntry(shareLabel, Icons.Rounded.Share) {
+            if (providerSharePayload != null) PlayerMenuEntry(shareLabel, Icons.Rounded.Share) {
                 menuOpen = false
-                ProviderTracks.shareLink(context, providerTrack, shareChooser)
+                val source = shareSource
+                if (source != null) pendingProviderShare = PendingProviderLinkShare(providerSharePayload, source)
+                else if (!ProviderTracks.sharePublicText(context, providerSharePayload.text, shareChooser)) {
+                    Toast.makeText(context, R.string.share_external_unavailable, Toast.LENGTH_SHORT).show()
+                }
             } else if (shareAllowed) PlayerMenuEntry(shareLabel, Icons.Rounded.Share) {
                 menuOpen = false
                 shareSource?.let { source ->
@@ -572,6 +578,9 @@ private fun PlayerTrackMenu(item: PlaybackItem, onCollapse: () -> Unit, onOpenMy
             caption = share.caption,
             onClose = { pendingShare = null }
         )
+    }
+    pendingProviderShare?.let { share ->
+        ShareProviderLinkDialog(share, onClose = { pendingProviderShare = null })
     }
 }
 
