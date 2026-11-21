@@ -58,13 +58,13 @@ class StorageSettingsViewModel(
     }
 
     fun toggle(category: StorageCategory) {
-        if (cleaningProgress != null) return
+        if (loading || busy) return
         selectionTouched = true
         selected = if (category in selected) selected - category else selected + category
     }
 
     fun clear(categories: Set<StorageCategory>) {
-        if (busy || categories.isEmpty()) return
+        if (loading || busy || categories.isEmpty()) return
         error = null
         freedBytes = null
         cleaningProgress = 0f
@@ -88,7 +88,7 @@ class StorageSettingsViewModel(
      * Смены, которые пришли во время применения, не ждут друг друга: репозиторий применит только последнюю.
      */
     fun changeSettings(transform: (StorageSettings) -> StorageSettings) {
-        if (cleaningProgress != null) return
+        if (loading || cleaningProgress != null) return
         if (store.update(transform).isFailure) {
             // Прежняя настройка осталась на месте; экран показывает ошибку и ничего не применяет.
             error = UiText.Res(R.string.storage_settings_save_failed)
