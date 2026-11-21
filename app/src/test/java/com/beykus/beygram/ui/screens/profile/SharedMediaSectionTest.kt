@@ -12,6 +12,14 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class SharedMediaSectionTest {
+    @Test fun autoPaginationWaitsForIdleAndStopsOnError() {
+        assertTrue(shouldAutoLoadSharedMediaPage(true, true, false, null))
+        assertFalse(shouldAutoLoadSharedMediaPage(false, true, false, null))
+        assertFalse(shouldAutoLoadSharedMediaPage(true, false, false, null))
+        assertFalse(shouldAutoLoadSharedMediaPage(true, true, true, null))
+        assertFalse(shouldAutoLoadSharedMediaPage(true, true, false, "network error"))
+    }
+
     @Test fun personalChatIncludesMusicTab() {
         assertEquals(SharedMediaKind.entries.toList(), chatSharedKinds)
         assertEquals(SharedMediaKind.Music, chatSharedKinds.last())
