@@ -180,6 +180,37 @@ class SharedMediaWindowTest {
         assertFalse(window.loading)
     }
 
+    @Test fun restartCanLoadNewPageBeforeObsoleteRequestCompletes() = runBlocking {
+        val oldGate = CompletableDeferred<Unit>()
+        val firstStarted = CompletableDeferred<Unit>()
+        var requests = 0
+        val window = SharedMediaWindow(
+            load = { _, _ ->
+                requests++
+                if (requests == 1) {
+                    firstStarted.complete(Unit)
+                    oldGate.await()
+                    Result.success(MessageSearchPage(listOf(message(99)), 0L))
+                } else Result.success(MessageSearchPage(listOf(message(5)), 0L))
+            },
+            failure = { "failed" }
+        )
+        window.restart(null)
+        val oldRequest = launch { window.loadOlder() }
+        firstStarted.await()
+        window.restart(null)
+        val newRequest = launch { window.loadOlder() }
+        yield()
+        assertTrue("new generation must not wait for stale network I/O", newRequest.isCompleted)
+        assertEquals(listOf(5L), window.messages.map { it.id })
+        assertFalse(window.loading)
+        oldGate.complete(Unit)
+        oldRequest.join()
+        assertEquals(2, requests)
+        assertEquals(listOf(5L), window.messages.map { it.id })
+        assertFalse(window.loading)
+    }
+
     @Test fun duplicateOlderRequestsWhileLoadingAreCoalesced() = runBlocking {
         val gate = CompletableDeferred<Unit>()
         val requested = mutableListOf<Pair<Long, Boolean>>()
