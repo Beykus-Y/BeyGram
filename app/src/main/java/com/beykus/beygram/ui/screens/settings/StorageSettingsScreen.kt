@@ -92,7 +92,7 @@ fun StorageSettingsScreen(
     val settings by model.settings.collectAsStateWithLifecycle()
     val usage = model.usage
     val cleaningProgress = model.cleaningProgress
-    val busy = model.busy
+    val busy = model.busy || model.loading
     var pendingClear by remember { mutableStateOf<ClearScope?>(null) }
     LaunchedEffect(Unit) { model.refresh() }
 
@@ -118,7 +118,7 @@ fun StorageSettingsScreen(
                 Text(stringResource(R.string.storage_limit_title), color = palette.textPrimary, fontWeight = FontWeight.SemiBold, fontSize = 15.sp)
                 Text(stringResource(R.string.storage_limit_detail), color = palette.textSecondary, fontSize = 13.sp)
                 StorageSizeLimit.entries.forEach { limit ->
-                    ChoiceRow(limit.label(), selected = settings.sizeLimit == limit, enabled = cleaningProgress == null) {
+                    ChoiceRow(limit.label(), selected = settings.sizeLimit == limit, enabled = !busy) {
                         if (settings.sizeLimit != limit) model.changeSettings { it.copy(sizeLimit = limit) }
                     }
                 }
@@ -127,7 +127,7 @@ fun StorageSettingsScreen(
                 Text(stringResource(R.string.storage_retention_title), color = palette.textPrimary, fontWeight = FontWeight.SemiBold, fontSize = 15.sp)
                 Text(stringResource(R.string.storage_retention_detail), color = palette.textSecondary, fontSize = 13.sp)
                 StorageRetention.entries.forEach { retention ->
-                    ChoiceRow(retention.label(), selected = settings.retention == retention, enabled = cleaningProgress == null) {
+                    ChoiceRow(retention.label(), selected = settings.retention == retention, enabled = !busy) {
                         if (settings.retention != retention) model.changeSettings { it.copy(retention = retention) }
                     }
                 }
@@ -179,6 +179,12 @@ private fun UsageCard(
                 }
             }
         } else {
+            if (loading) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    CircularProgressIndicator(Modifier.size(18.dp), color = palette.accent, strokeWidth = 2.dp)
+                    Text(stringResource(R.string.storage_usage_loading), color = palette.textSecondary, fontSize = 13.sp, modifier = Modifier.padding(start = 10.dp))
+                }
+            }
             Text(storageSizeText(usage.totalBytes), color = palette.textPrimary, fontSize = 28.sp, fontWeight = FontWeight.Bold)
             UsageBar(usage)
             StorageCategory.entries.forEach { category ->
