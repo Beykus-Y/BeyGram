@@ -345,9 +345,9 @@ fun ChatsScreen(
     val connectionStatus = rememberChatsConnectionStatus(accountId, connectionState)
     // A revealed swipe belongs to the current account and folder only.
     var openSwipeChatId by remember(accountId, activeFolderId) { mutableStateOf<Long?>(null) }
-    var selectedActions by remember(accountId) { mutableStateOf<ChatPreview?>(null) }
-    var peekedChat by remember(accountId) { mutableStateOf<ChatPreview?>(null) }
-    var confirmReadAll by remember(accountId) { mutableStateOf(false) }
+    var selectedActions by remember(accountId, activeFolderId) { mutableStateOf<ChatPreview?>(null) }
+    var peekedChat by remember(accountId, activeFolderId) { mutableStateOf<ChatPreview?>(null) }
+    var confirmReadAll by remember(accountId, activeFolderId) { mutableStateOf(false) }
     val swipeStore = remember(context) { ChatSwipeSettingsStore(context) }
     var swipePreferences by remember(accountId) { mutableStateOf(swipeStore.load(accountId)) }
     var showSwipeSettings by remember(accountId) { mutableStateOf(false) }
