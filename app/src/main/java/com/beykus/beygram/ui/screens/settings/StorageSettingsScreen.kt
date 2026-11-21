@@ -143,6 +143,7 @@ fun StorageSettingsScreen(
             title = stringResource(if (scope == ClearScope.All) R.string.storage_clear_all_title else R.string.storage_clear_selected_title),
             message = stringResource(R.string.storage_clear_text),
             confirmText = stringResource(R.string.storage_clear_confirm),
+            confirmEnabled = !busy,
             onConfirm = {
                 pendingClear = null
                 model.clear(if (scope == ClearScope.All) usage?.categoriesWithFiles().orEmpty() else model.selected)
