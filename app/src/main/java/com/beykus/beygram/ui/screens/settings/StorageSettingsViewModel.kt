@@ -112,6 +112,8 @@ class StorageSettingsViewModel(
     fun changeSettings(transform: (StorageSettings) -> StorageSettings) {
         if (cleaningProgress != null || reconciling) return
         if (store.update(transform).isFailure) {
+            // Поздний результат предыдущего apply не должен стереть ошибку сохранения.
+            policyGeneration++
             // Прежняя настройка осталась на месте; экран показывает ошибку и ничего не применяет.
             error = UiText.Res(R.string.storage_settings_save_failed)
             return
