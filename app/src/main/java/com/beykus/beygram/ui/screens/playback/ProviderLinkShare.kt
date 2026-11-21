@@ -74,8 +74,9 @@ internal fun ShareProviderLinkDialog(share: PendingProviderLinkShare, onClose: (
     val payload = share.payload
     val context = LocalContext.current
     val selectedSource = LocalPlaybackRepositorySource.current
-    val selectedAccountMatches = selectedSource?.accountId == share.source.accountId &&
-        selectedSource.repository === repository
+    val selectedAccountMatches = selectedSource?.let {
+        it.accountId == share.source.accountId && it.repository === repository
+    } == true
     val chats by repository.chats.collectAsStateWithLifecycle()
     val archivedChats by repository.archivedChats.collectAsStateWithLifecycle()
     var sending by remember { mutableStateOf(false) }
