@@ -81,17 +81,20 @@ class StorageSettingsViewModelTest {
         assertFalse(model.busy)
     }
 
-    @Test fun laterSuccessClearsTheErrorOfAnEarlierFailure() {
+    @Test fun olderFailureIsIgnoredWhileANewerPolicyIsPending() {
         val repository = FakeRepository()
         val model = StorageSettingsViewModel(repository, FakeStore())
 
         model.changeSettings { it.copy(sizeLimit = StorageSizeLimit.OneGigabyte) }
         model.changeSettings { it.copy(retention = StorageRetention.Week) }
-        repository.gates[0].complete(Result.failure(IllegalStateException("disk")))
-        assertEquals(UiText.Res(R.string.storage_clear_failed), model.error)
+        repository.gates[0].complete(Result.failure(IllegalStateException("old policy")))
+        // Only the latest policy is authoritative, so an earlier failure is never shown.
+        assertNull(model.error)
+        assertTrue(model.busy)
 
         repository.gates[1].complete(Result.success(0L))
         assertNull(model.error)
+        assertFalse(model.busy)
     }
 
     @Test fun priorApplySuccessCannotHideARecentSaveFailure() {
