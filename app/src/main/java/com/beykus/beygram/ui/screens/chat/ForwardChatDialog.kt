@@ -21,6 +21,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material.icons.rounded.KeyboardArrowUp
+import androidx.compose.material.icons.rounded.Share
 import androidx.compose.material.icons.rounded.ChatBubbleOutline
 import com.beykus.beygram.ui.components.Button
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -124,6 +125,7 @@ internal fun ForwardChatDialog(
     previewText: String? = null,
     previewMedia: MessageMedia? = null,
     previewAlbum: List<MessageMedia> = emptyList(),
+    previewArtwork: (@Composable () -> Unit)? = null,
     sendLabel: String? = null,
     onAsCopyChange: ((Boolean) -> Unit)? = null,
     removeCaption: Boolean = false,
@@ -131,6 +133,8 @@ internal fun ForwardChatDialog(
     retryBlocked: Boolean = false,
     recipientRepository: TelegramRepository? = null,
     candidatePolicy: (List<ChatPreview>) -> List<ChatPreview> = { it },
+    /** Only callers with an explicitly public payload provide this action. */
+    onExternalShare: ((String) -> Unit)? = null,
     onSend: suspend (List<ForwardTarget>, String) -> List<ForwardTarget>,
     onClose: () -> Unit
 ) {
@@ -298,6 +302,12 @@ internal fun ForwardChatDialog(
                         }
                     },
                     actions = {
+                        if (chat == null && onExternalShare != null) IconButton(
+                            onClick = { onExternalShare(if (allowComment) comment.trim() else "") },
+                            enabled = !locked && !attempted && !interrupted && !retryBlocked && !commentOverLimit
+                        ) {
+                            Icon(Icons.Rounded.Share, stringResource(R.string.share_other_app), tint = palette.textPrimary)
+                        }
                         if (sheetState.currentValue != SheetValue.Expanded) IconButton(
                             onClick = { scope.launch { sheetState.expand() } }
                         ) {
@@ -385,7 +395,10 @@ internal fun ForwardChatDialog(
                         items(previewAlbum.take(10)) { media -> ShareMediaThumbnail(media, observeFile) }
                     }
                     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                        if (previewAlbum.isEmpty()) previewMedia?.let { ShareMediaThumbnail(it, observeFile) }
+                        if (previewAlbum.isEmpty()) {
+                            if (previewMedia != null) ShareMediaThumbnail(previewMedia, observeFile)
+                            else previewArtwork?.invoke()
+                        }
                         Text(previewText, color = palette.textPrimary, fontWeight = FontWeight.Medium,
                             maxLines = 3, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
                     }

@@ -1,6 +1,7 @@
 package com.beykus.beygram.ui.screens.music.yandex
 
 import android.content.Context
+import android.widget.Toast
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.lazy.LazyListScope
@@ -90,6 +91,10 @@ import com.beykus.beygram.ui.screens.music.musicCard
 import com.beykus.beygram.ui.screens.music.musicGridRows
 import com.beykus.beygram.ui.screens.music.rememberProviderCover
 import com.beykus.beygram.ui.screens.playback.TrackArtwork
+import com.beykus.beygram.ui.screens.playback.LocalPlaybackRepositorySource
+import com.beykus.beygram.ui.screens.playback.PendingProviderLinkShare
+import com.beykus.beygram.ui.screens.playback.ShareProviderLinkDialog
+import com.beykus.beygram.ui.screens.playback.providerTrackSharePayload
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -787,6 +792,17 @@ class YandexMusicHost : ProviderMusicHost {
         val signedIn = uid != null
         val text = query.trim()
         val openAlbum = LocalOpenProviderAlbum.current
+        val shareSource = LocalPlaybackRepositorySource.current
+        val chooserTitle = stringResource(R.string.music_provider_share_link)
+        var pendingShare by remember(text, uid) { mutableStateOf<PendingProviderLinkShare?>(null) }
+        fun shareTrack(track: ProviderTrack) {
+            val payload = providerTrackSharePayload(track) ?: return
+            val source = shareSource
+            if (source != null) pendingShare = PendingProviderLinkShare(payload, source)
+            else if (!ProviderTracks.sharePublicText(context, payload.text, chooserTitle)) {
+                Toast.makeText(context, R.string.share_external_unavailable, Toast.LENGTH_SHORT).show()
+            }
+        }
 
         LaunchedEffect(text, uid) {
             if (provider == null || uid == null) clearSearch() else ensureSearch(provider, text, uid)
@@ -811,15 +827,22 @@ class YandexMusicHost : ProviderMusicHost {
                     } else {
                         null
                     },
-                    onOpenAlbum = openAlbum
+                    onOpenAlbum = openAlbum,
+                    onShare = ::shareTrack
                 )
             }
         }
+        pendingShare?.let { ShareProviderLinkDialog(it, onClose = { pendingShare = null }) }
     }
 
     /** A search result with the track menu: play next, like, its album and its link. */
     @Composable
-    private fun SearchTrackRow(track: ProviderTrack, onClick: (() -> Unit)?, onOpenAlbum: ((String) -> Unit)?) {
+    private fun SearchTrackRow(
+        track: ProviderTrack,
+        onClick: (() -> Unit)?,
+        onOpenAlbum: ((String) -> Unit)?,
+        onShare: (ProviderTrack) -> Unit
+    ) {
         val palette = beyGramPalette()
         var menu by remember(track.trackId) { mutableStateOf(false) }
         ProviderTrackRow(
@@ -835,7 +858,8 @@ class YandexMusicHost : ProviderMusicHost {
                             track = track,
                             onDismiss = { menu = false },
                             showPlayNext = true,
-                            onOpenAlbum = onOpenAlbum
+                            onOpenAlbum = onOpenAlbum,
+                            onShare = onShare
                         )
                     }
                 }

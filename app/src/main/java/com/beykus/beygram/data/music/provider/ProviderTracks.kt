@@ -1,5 +1,6 @@
 package com.beykus.beygram.data.music.provider
 
+import android.content.ActivityNotFoundException
 import android.content.Context
 import android.content.Intent
 import com.beykus.beygram.domain.model.MediaKind
@@ -105,12 +106,22 @@ object ProviderTracks {
         shareText(context, if (title.isBlank()) link else "$title\n$link", chooserTitle)
     }
 
-    private fun shareText(context: Context, text: String, chooserTitle: String) {
+    /** Shares only the caller's frozen, public text. A cancelled chooser does not imply delivery. */
+    fun sharePublicText(context: Context, text: String, chooserTitle: String): Boolean = try {
         val send = Intent(Intent.ACTION_SEND).apply {
             type = "text/plain"
             putExtra(Intent.EXTRA_TEXT, text)
         }
         context.startActivity(Intent.createChooser(send, chooserTitle).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+        true
+    } catch (_: ActivityNotFoundException) {
+        false
+    } catch (_: SecurityException) {
+        false
+    }
+
+    private fun shareText(context: Context, text: String, chooserTitle: String) {
+        sharePublicText(context, text, chooserTitle)
     }
 
     /**
