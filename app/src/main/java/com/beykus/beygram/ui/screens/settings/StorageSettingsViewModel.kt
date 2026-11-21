@@ -58,6 +58,8 @@ class StorageSettingsViewModel(
     val applying: Boolean get() = pendingChanges > 0
     /** Экран занят, пока идёт очистка или применяется настройка. */
     val busy: Boolean get() = cleaningProgress != null || applying || reconciling
+    /** Policy changes may queue during apply, but cannot race the post-operation recount. */
+    val policyControlsEnabled: Boolean get() = cleaningProgress == null && !reconciling
 
     fun refresh() {
         if (busy) return
@@ -110,7 +112,7 @@ class StorageSettingsViewModel(
      * Смены, которые пришли во время применения, не ждут друг друга: репозиторий применит только последнюю.
      */
     fun changeSettings(transform: (StorageSettings) -> StorageSettings) {
-        if (cleaningProgress != null || reconciling) return
+        if (!policyControlsEnabled) return
         if (store.update(transform).isFailure) {
             // Поздний результат предыдущего apply не должен стереть ошибку сохранения.
             policyGeneration++
