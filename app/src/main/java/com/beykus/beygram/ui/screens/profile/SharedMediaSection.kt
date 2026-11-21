@@ -107,6 +107,10 @@ private const val GRID_PREVIEW_PX = 256
 /** Сколько ячеек или строк остаётся до конца вкладки, когда следующая страница уже нужна. */
 private const val PREFETCH_CELLS = 12
 internal const val PREFETCH_ROWS = 6
+
+/** Do not silently retry a failed page; preserve its cursor for explicit retry. */
+internal fun shouldAutoLoadSharedMediaPage(nearEnd: Boolean, hasOlder: Boolean, loading: Boolean, error: String?): Boolean =
+    nearEnd && hasOlder && !loading && error == null
 private const val PAGER_SCREEN_FRACTION = 0.7f
 private val PAGER_MIN_HEIGHT = 360.dp
 /** Personal/group chat profiles show the same media kinds; the tab bar scrolls on narrow screens. */
@@ -362,7 +366,9 @@ private fun SharedMediaGrid(
     onOpenMedia: (Long) -> Unit, onOpenMessage: (Long) -> Unit, gridState: LazyGridState
 ) {
     val nearEnd by remember(tab) { derivedStateOf { gridState.layoutInfo.visibleItemsInfo.lastOrNull()?.let { it.index >= tab.messages.size - PREFETCH_CELLS } ?: true } }
-    LaunchedEffect(nearEnd, tab.messages.size, tab.hasOlder) { if (nearEnd && tab.hasOlder) onMore() }
+    LaunchedEffect(nearEnd, tab.messages.size, tab.hasOlder, tab.loading, tab.error) {
+        if (shouldAutoLoadSharedMediaPage(nearEnd, tab.hasOlder, tab.loading, tab.error)) onMore()
+    }
     LazyVerticalGrid(
         columns = GridCells.Fixed(GRID_COLUMNS), state = gridState, modifier = Modifier.fillMaxSize(),
         contentPadding = PaddingValues(2.dp), horizontalArrangement = Arrangement.spacedBy(2.dp), verticalArrangement = Arrangement.spacedBy(2.dp)
@@ -388,7 +394,9 @@ private fun SharedMediaList(
 ) {
     val shown = remember(kind, tab.messages) { tab.messages.asReversed().filter { kind == SharedMediaKind.Links || it.media != null } }
     val nearEnd by remember(tab, shown) { derivedStateOf { listState.layoutInfo.visibleItemsInfo.lastOrNull()?.let { it.index >= shown.size - PREFETCH_ROWS } ?: true } }
-    LaunchedEffect(nearEnd, tab.messages.size, tab.hasOlder) { if (nearEnd && tab.hasOlder) onMore() }
+    LaunchedEffect(nearEnd, tab.messages.size, tab.hasOlder, tab.loading, tab.error) {
+        if (shouldAutoLoadSharedMediaPage(nearEnd, tab.hasOlder, tab.loading, tab.error)) onMore()
+    }
     LazyColumn(Modifier.fillMaxSize(), state = listState, contentPadding = PaddingValues(vertical = 4.dp)) {
         items(shown, key = { it.id }) { message ->
             if (kind == SharedMediaKind.Music) {
