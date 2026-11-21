@@ -1,4 +1,5 @@
 package com.beykus.beygram.playback
+import com.beykus.beygram.domain.model.MediaKind
 
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue

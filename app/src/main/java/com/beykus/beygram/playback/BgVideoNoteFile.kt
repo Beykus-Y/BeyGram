@@ -2,6 +2,7 @@ package com.beykus.beygram.playback
 
 import androidx.annotation.Keep
 import com.beykus.beygram.BuildConfig
+import com.beykus.beygram.domain.model.MediaKind
 
 /** BG Video owns reads of a completed file. Media3 still owns the decoder and surface. */
 internal class BgVideoNoteFile private constructor(private var handle: Long, val length: Long) {
