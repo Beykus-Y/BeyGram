@@ -145,6 +145,41 @@ class SharedMediaWindowTest {
         assertFalse(window.hasOlder)
     }
 
+    @Test fun restartResetsLoadingAndIgnoresCompletionFromPreviousGeneration() = runBlocking {
+        val obsoleteGate = CompletableDeferred<Unit>()
+        val started = CompletableDeferred<Unit>()
+        var requests = 0
+        val window = SharedMediaWindow(
+            load = { _, _ ->
+                requests++
+                if (requests == 1) {
+                    started.complete(Unit)
+                    obsoleteGate.await()
+                    Result.success(MessageSearchPage(listOf(message(99)), 0L))
+                } else {
+                    Result.success(MessageSearchPage(listOf(message(5)), 0L))
+                }
+            },
+            failure = { "failed" }
+        )
+        window.restart(null)
+        val oldRequest = launch { window.loadOlder() }
+        started.await()
+        assertTrue(window.loading)
+        window.restart(null)
+        assertFalse(window.loading)
+        assertFalse(window.loaded)
+        obsoleteGate.complete(Unit)
+        oldRequest.join()
+        assertFalse(window.loading)
+        assertTrue(window.messages.isEmpty())
+        assertFalse(window.loaded)
+        window.loadOlder()
+        assertEquals(listOf(5L), window.messages.map { it.id })
+        assertTrue(window.loaded)
+        assertFalse(window.loading)
+    }
+
     @Test fun duplicateOlderRequestsWhileLoadingAreCoalesced() = runBlocking {
         val gate = CompletableDeferred<Unit>()
         val requested = mutableListOf<Pair<Long, Boolean>>()

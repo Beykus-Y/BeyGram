@@ -57,6 +57,7 @@ internal class SharedMediaWindow(
      */
     fun restart(anchor: Long?) {
         generation++
+        loading = false
         messages = emptyList()
         loaded = false
         hasOlder = true
@@ -129,7 +130,8 @@ internal class SharedMediaWindow(
             val result = if (newer) load(newestId, true) else load(olderCursor, false)
             if (current == generation) applyPage(result, newer)
         } finally {
-            loading = false
+            // An obsolete request must not change the loading state of a restarted window.
+            if (current == generation) loading = false
         }
     }
 
