@@ -133,10 +133,10 @@ internal fun ForwardChatDialog(
     retryBlocked: Boolean = false,
     recipientRepository: TelegramRepository? = null,
     candidatePolicy: (List<ChatPreview>) -> List<ChatPreview> = { it },
-    onSend: suspend (List<ForwardTarget>, String) -> List<ForwardTarget>,
-    onClose: () -> Unit,
     /** Only callers with an explicitly public payload provide this action. */
-    onExternalShare: ((String) -> Unit)? = null
+    onExternalShare: ((String) -> Unit)? = null,
+    onSend: suspend (List<ForwardTarget>, String) -> List<ForwardTarget>,
+    onClose: () -> Unit
 ) {
     val palette = beyGramPalette()
     val context = LocalContext.current
