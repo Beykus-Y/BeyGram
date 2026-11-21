@@ -3,6 +3,7 @@ package com.beykus.beygram.ui.screens.chat
 import android.app.DatePickerDialog
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -45,8 +46,6 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
-import androidx.compose.ui.semantics.selected
-import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
@@ -310,8 +309,7 @@ private fun ChatSearchFilterChip(label: String, selected: Boolean, onClick: () -
     Box(
         Modifier.clip(RoundedCornerShape(50))
             .background(if (selected) palette.accent else palette.surface2)
-            .semantics { this.selected = selected }
-            .clickable(role = Role.RadioButton, onClick = onClick)
+            .selectable(selected = selected, role = Role.RadioButton, onClick = onClick)
             .padding(horizontal = 14.dp, vertical = 8.dp)
     ) {
         Text(label, color = if (selected) palette.onAccent else palette.textPrimary, fontSize = 13.sp, maxLines = 1)
