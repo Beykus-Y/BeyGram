@@ -41,6 +41,7 @@ class SwipeChatRowInstrumentedTest {
         val chat = ChatPreview(
             id = 42L,
             title = "QA Chat",
+            unreadCount = 0,
             initials = "QA",
             lastMessage = UiText.Raw("hello"),
             lastMessageTime = "12:00",
