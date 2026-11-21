@@ -93,6 +93,28 @@ internal fun providerLinkMessage(payload: ProviderLinkSharePayload, comment: Str
     return if (note.isEmpty()) payload.text else "$note\n\n${payload.text}"
 }
 
+/** Confirmed recipients are removed before retry; ambiguous outcomes block any blind retry. */
+internal data class ProviderLinkDeliveryOutcome(val failed: List<ForwardTarget>, val uncertain: Boolean)
+
+internal suspend fun sendPublicProviderLinkToRecipients(
+    targets: List<ForwardTarget>,
+    allowedChatIds: Set<Long>,
+    message: String,
+    send: suspend (ForwardTarget, String) -> Result<Unit>
+): ProviderLinkDeliveryOutcome {
+    val failed = mutableListOf<ForwardTarget>()
+    var uncertain = false
+    for (target in targets) {
+        val result = if (target.chatId in allowedChatIds) send(target, message)
+        else Result.failure(IllegalStateException("Recipient not writable"))
+        if (result.isFailure) {
+            failed += target
+            if (isShareOutcomeUnknown(result.exceptionOrNull())) uncertain = true
+        }
+    }
+    return ProviderLinkDeliveryOutcome(failed, uncertain)
+}
+
 /**
  * Send a public Yandex Music link as ordinary Telegram text. Reuses the existing recipient/topic picker,
  * partial-failure selection and unknown-outcome guard; never uploads the provider's audio file.
@@ -172,22 +194,16 @@ internal fun ShareProviderLinkDialog(share: PendingProviderLinkShare, onClose: (
                         (repository.chats.value + repository.archivedChats.value +
                             repository.folderChats.value.values.flatten()).distinctBy { it.id }
                     ).mapTo(mutableSetOf()) { it.id }
-                    val failed = mutableListOf<ForwardTarget>()
-                    for (target in targets) {
-                        val result = if (target.chatId in allowedChats)
-                            repository.sendMessage(
-                                target.chatId, message,
-                                forumTopicId = target.topicId,
-                                clearDraft = false
-                            )
-                        else Result.failure(IllegalStateException("Recipient not writable"))
-                        if (result.isFailure) {
-                            failed += target
-                            if (isShareOutcomeUnknown(result.exceptionOrNull())) retryBlocked = true
-                        }
+                    val outcome = sendPublicProviderLinkToRecipients(targets, allowedChats, message) { target, text ->
+                        repository.sendMessage(
+                            target.chatId, text,
+                            forumTopicId = target.topicId,
+                            clearDraft = false
+                        )
                     }
-                    if (failed.isNotEmpty()) failure = failedText
-                    failed
+                    if (outcome.uncertain) retryBlocked = true
+                    if (outcome.failed.isNotEmpty()) failure = failedText
+                    outcome.failed
                 } finally {
                     sending = false
                 }
