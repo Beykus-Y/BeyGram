@@ -3,7 +3,6 @@ package com.beykus.beygram.ui.screens.chats
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
-import androidx.compose.ui.test.assertDoesNotExist
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.longClick
@@ -46,6 +45,7 @@ class ChatsActionContextInstrumentedTest {
         val chat = ChatPreview(
             id = 42L,
             title = "QA Chat",
+            unreadCount = 0,
             initials = "QA",
             lastMessage = UiText.Raw("hello"),
             lastMessageTime = "12:00",
