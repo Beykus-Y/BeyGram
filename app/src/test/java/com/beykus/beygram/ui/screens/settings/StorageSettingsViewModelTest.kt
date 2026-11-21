@@ -81,17 +81,63 @@ class StorageSettingsViewModelTest {
         assertFalse(model.busy)
     }
 
-    @Test fun laterSuccessClearsTheErrorOfAnEarlierFailure() {
+    @Test fun olderFailureIsIgnoredWhileANewerPolicyIsPending() {
         val repository = FakeRepository()
         val model = StorageSettingsViewModel(repository, FakeStore())
 
         model.changeSettings { it.copy(sizeLimit = StorageSizeLimit.OneGigabyte) }
         model.changeSettings { it.copy(retention = StorageRetention.Week) }
-        repository.gates[0].complete(Result.failure(IllegalStateException("disk")))
-        assertEquals(UiText.Res(R.string.storage_clear_failed), model.error)
+        repository.gates[0].complete(Result.failure(IllegalStateException("old policy")))
+        // Only the latest policy is authoritative, so an earlier failure is never shown.
+        assertNull(model.error)
+        assertTrue(model.busy)
 
         repository.gates[1].complete(Result.success(0L))
         assertNull(model.error)
+        assertFalse(model.busy)
+    }
+
+    @Test fun priorApplySuccessCannotHideARecentSaveFailure() {
+        val store = FakeStore()
+        val repository = FakeRepository()
+        val model = StorageSettingsViewModel(repository, store)
+
+        model.changeSettings { it.copy(sizeLimit = StorageSizeLimit.OneGigabyte) }
+        store.failNextSave = true
+        model.changeSettings { it.copy(retention = StorageRetention.Week) }
+        assertEquals(UiText.Res(R.string.storage_settings_save_failed), model.error)
+
+        repository.gates.single().complete(Result.success(0L))
+        assertEquals(UiText.Res(R.string.storage_settings_save_failed), model.error)
+        assertFalse(model.busy)
+    }
+
+    @Test fun olderFailureDoesNotOverwriteTheNewestPolicySuccess() {
+        val repository = FakeRepository()
+        val model = StorageSettingsViewModel(repository, FakeStore())
+
+        model.changeSettings { it.copy(sizeLimit = StorageSizeLimit.OneGigabyte) }
+        model.changeSettings { it.copy(retention = StorageRetention.Week) }
+
+        repository.gates[1].complete(Result.success(0L))
+        assertNull(model.error)
+        repository.gates[0].complete(Result.failure(IllegalStateException("old policy failed")))
+        assertNull(model.error)
+        assertFalse(model.busy)
+    }
+
+    @Test fun olderSuccessDoesNotHideTheNewestPolicyFailure() {
+        val repository = FakeRepository()
+        val model = StorageSettingsViewModel(repository, FakeStore())
+
+        model.changeSettings { it.copy(sizeLimit = StorageSizeLimit.OneGigabyte) }
+        model.changeSettings { it.copy(retention = StorageRetention.Week) }
+
+        repository.gates[1].complete(Result.failure(IllegalStateException("new policy failed")))
+        assertEquals(UiText.Res(R.string.storage_clear_failed), model.error)
+        repository.gates[0].complete(Result.success(100L))
+        assertEquals(UiText.Res(R.string.storage_clear_failed), model.error)
+        assertFalse(model.busy)
     }
 
     @Test fun olderRecalculationDoesNotOverwriteNewerUsage() {
@@ -156,15 +202,82 @@ class StorageSettingsViewModelTest {
         assertEquals(setOf(StorageCategory.Photos), model.selected)
     }
 
+    @Test fun secondClearWaitsForPostClearRecount() {
+        val repository = FakeRepository().apply { usage = usageOf(StorageCategory.Photos to 10L) }
+        val model = StorageSettingsViewModel(repository, FakeStore())
+        model.refresh()
+        repository.gateUsage = true
+
+        model.clear(setOf(StorageCategory.Photos))
+        // The delete itself returned, but the new size query is still pending.
+        assertNull(model.cleaningProgress)
+        assertTrue(model.busy)
+        assertTrue(model.usageStale)
+        assertFalse(model.policyControlsEnabled)
+
+        model.clear(setOf(StorageCategory.Photos))
+        assertEquals(1, repository.clears)
+        repository.usageGates.single().complete(Result.success(usageOf(StorageCategory.Photos to 0L)))
+
+        assertFalse(model.busy)
+        assertFalse(model.usageStale)
+        assertTrue(model.policyControlsEnabled)
+        assertEquals(0L, model.usage?.bytes(StorageCategory.Photos))
+    }
+
+    @Test fun failedRefreshKeepsOldNumbersMarkedStaleUntilRetry() {
+        val repository = FakeRepository().apply { usage = usageOf(StorageCategory.Photos to 25L) }
+        val model = StorageSettingsViewModel(repository, FakeStore())
+        model.refresh()
+        repository.gateUsage = true
+
+        model.refresh()
+        assertTrue(model.loading)
+        assertTrue(model.usageStale)
+        repository.usageGates[0].complete(Result.failure(IllegalStateException("disk")))
+
+        assertEquals(25L, model.usage?.bytes(StorageCategory.Photos))
+        assertTrue(model.usageStale)
+        assertFalse(model.loading)
+        model.clear(setOf(StorageCategory.Photos))
+        assertEquals(0, repository.clears)
+
+        model.refresh()
+        repository.usageGates[1].complete(Result.success(usageOf(StorageCategory.Photos to 12L)))
+        assertEquals(12L, model.usage?.bytes(StorageCategory.Photos))
+        assertFalse(model.usageStale)
+        assertNull(model.error)
+    }
+
+    @Test fun policyChangeInvalidatesAnOlderRefresh() {
+        val repository = FakeRepository().apply { gateUsage = true }
+        val model = StorageSettingsViewModel(repository, FakeStore())
+        model.refresh()
+        model.changeSettings { it.copy(sizeLimit = StorageSizeLimit.OneGigabyte) }
+        repository.gates.single().complete(Result.success(0L))
+        assertEquals(2, repository.usageGates.size)
+        assertTrue(model.busy)
+
+        repository.usageGates[0].complete(Result.success(usageOf(StorageCategory.Photos to 99L)))
+        assertNull(model.usage)
+        repository.usageGates[1].complete(Result.success(usageOf(StorageCategory.Photos to 8L)))
+        assertEquals(8L, model.usage?.bytes(StorageCategory.Photos))
+        assertFalse(model.busy)
+    }
+
     private fun usageOf(vararg entries: Pair<StorageCategory, Long>) =
         StorageUsage(bytesByCategory = mapOf(*entries), databaseBytes = 0L)
 
     private class FakeStore(private val saveFails: Boolean = false) : StorageSettingsSource {
+        var failNextSave = false
         private val state = MutableStateFlow(StorageSettings())
         override val settings: StateFlow<StorageSettings> = state
 
         override fun update(transform: (StorageSettings) -> StorageSettings): Result<Unit> {
-            if (saveFails) return Result.failure(IllegalStateException("disk full"))
+            if (saveFails || failNextSave) {
+                failNextSave = false
+                return Result.failure(IllegalStateException("disk full"))
+            }
             state.value = transform(state.value)
             return Result.success(Unit)
         }
