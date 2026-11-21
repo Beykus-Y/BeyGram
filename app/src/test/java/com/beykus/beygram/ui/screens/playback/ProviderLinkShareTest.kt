@@ -2,6 +2,9 @@ package com.beykus.beygram.ui.screens.playback
 
 import com.beykus.beygram.data.music.provider.ProviderTrack
 import com.beykus.beygram.data.music.provider.ProviderTracks
+import com.beykus.beygram.share.ShareOutcomeUncertainException
+import com.beykus.beygram.ui.screens.chat.ForwardTarget
+import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
@@ -14,6 +17,36 @@ class ProviderLinkShareTest {
             albumTitle = "Album", durationMs = 83_000L,
             coverUrl = "https://example.com/cover.jpg", isAvailable = true, albumId = albumId
         )
+
+    @Test fun partialBatchFailureLeavesOnlyFailedRecipientsSelected() = runBlocking {
+        val recipients = listOf(
+            ForwardTarget(1L, "First"),
+            ForwardTarget(2L, "Second", topicId = 42L),
+            ForwardTarget(3L, "Removed")
+        )
+        val attempts = mutableListOf<Pair<Long, Long>>()
+        val payload = requireNotNull(providerTrackSharePayload(track()))
+        val message = providerLinkMessage(payload, "Hello")
+        val outcome = sendPublicProviderLinkToRecipients(recipients, setOf(1L, 2L), message) { target, text ->
+            assertEquals(message, text)
+            attempts += target.chatId to target.topicId
+            if (target.chatId == 2L) Result.failure(IllegalStateException("not writable"))
+            else Result.success(Unit)
+        }
+        assertEquals(listOf(1L to 0L, 2L to 42L), attempts)
+        assertEquals(listOf(recipients[1], recipients[2]), outcome.failed)
+        assertEquals(false, outcome.uncertain)
+    }
+
+    @Test fun uncertainDeliveryDisablesBlindRetryEvenIfOtherChatsSucceeded() = runBlocking {
+        val recipients = listOf(ForwardTarget(10L, "Delivered"), ForwardTarget(20L, "Unconfirmed"))
+        val outcome = sendPublicProviderLinkToRecipients(recipients, setOf(10L, 20L), "public link") { target, _ ->
+            if (target.chatId == 20L) Result.failure(ShareOutcomeUncertainException())
+            else Result.success(Unit)
+        }
+        assertEquals(listOf(recipients[1]), outcome.failed)
+        assertTrue(outcome.uncertain)
+    }
 
     @Test fun snapshotCapturesOnlyPublicTrackMetadata() {
         val snapshot = requireNotNull(providerTrackSharePayload(track()))
