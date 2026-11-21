@@ -47,6 +47,8 @@ class StorageSettingsViewModel(
 
     /** Номер последнего пересчёта. Ответ более раннего пересчёта отбрасывается, даже если пришёл позже. */
     private var loadGeneration = 0
+    /** Результат старой политики не должен управлять ошибкой более новой. */
+    private var policyGeneration = 0
     /** Не разрешаем новую очистку между завершением удаления и обновлением размеров. */
     private var reconciling by mutableStateOf(false)
     /** Пользователь сам менял выбор: тогда пересчёт сохраняет его и не добавляет новые категории. */
@@ -118,6 +120,7 @@ class StorageSettingsViewModel(
         // Серия смен суммирует освобождённое: вторая может ничего не освободить, потому что первая уже сделала всё.
         if (!applying) freedBytes = null
         pendingChanges++
+        val generation = ++policyGeneration
         // Любой размер, считанный до изменения политики, теперь устарел.
         loadGeneration++
         loading = false
@@ -126,15 +129,15 @@ class StorageSettingsViewModel(
             try {
                 repository.applyCachePolicy(store.settings.value.policy())
                     .onSuccess { bytes ->
-                        // Успех последнего применения снимает ошибку более раннего.
-                        error = null
+                        // Результат старого применения не может снимать ошибку нового.
+                        if (generation == policyGeneration) error = null
                         if (bytes > 0L) freedBytes = (freedBytes ?: 0L) + bytes
                     }
-                    .onFailure { error = it.toUiText(R.string.storage_clear_failed) }
+                    .onFailure { if (generation == policyGeneration) error = it.toUiText(R.string.storage_clear_failed) }
             } catch (cancelled: CancellationException) {
                 throw cancelled
             } catch (failure: Exception) {
-                error = failure.toUiText(R.string.storage_clear_failed)
+                if (generation == policyGeneration) error = failure.toUiText(R.string.storage_clear_failed)
             } finally {
                 pendingChanges--
                 // Даже когда apply уже завершился, новое удаление запрещено до свежего снимка.
