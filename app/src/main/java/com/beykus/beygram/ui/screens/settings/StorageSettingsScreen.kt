@@ -103,11 +103,11 @@ fun StorageSettingsScreen(
             Modifier.fillMaxWidth().weight(1f).verticalScroll(rememberScrollState()).padding(horizontal = 16.dp, vertical = 8.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
-            UsageCard(usage, model.loading, model.selected, busy, onToggle = model::toggle, onRetry = model::refresh)
+            UsageCard(usage, model.loading, model.usageStale, model.selected, busy, onToggle = model::toggle, onRetry = model::refresh)
             ClearCard(
                 usage = usage,
                 selected = model.selected,
-                busy = busy,
+                busy = busy || model.loading || model.usageStale,
                 cleaningProgress = cleaningProgress,
                 freedBytes = model.freedBytes,
                 error = model.error,
@@ -157,6 +157,7 @@ fun StorageSettingsScreen(
 private fun UsageCard(
     usage: StorageUsage?,
     loading: Boolean,
+    stale: Boolean,
     selected: Set<StorageCategory>,
     busy: Boolean,
     onToggle: (StorageCategory) -> Unit,
@@ -179,11 +180,25 @@ private fun UsageCard(
                 }
             }
         } else {
+            if (loading || stale) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    if (loading) CircularProgressIndicator(Modifier.size(18.dp), color = palette.accent, strokeWidth = 2.dp)
+                    Text(
+                        stringResource(if (loading) R.string.storage_usage_loading else R.string.storage_load_failed),
+                        color = palette.textSecondary,
+                        fontSize = 13.sp,
+                        modifier = Modifier.padding(start = if (loading) 10.dp else 0.dp)
+                    )
+                }
+                if (!loading) OutlinedButton(onClick = onRetry, enabled = !busy, modifier = Modifier.fillMaxWidth()) {
+                    Text(stringResource(R.string.storage_retry))
+                }
+            }
             Text(storageSizeText(usage.totalBytes), color = palette.textPrimary, fontSize = 28.sp, fontWeight = FontWeight.Bold)
             UsageBar(usage)
             StorageCategory.entries.forEach { category ->
                 val bytes = usage.bytes(category)
-                CategoryRow(category, bytes, checked = category in selected, enabled = !busy) { onToggle(category) }
+                CategoryRow(category, bytes, checked = category in selected, enabled = !busy && !loading && !stale) { onToggle(category) }
             }
             SizeInfoRow(palette.accent, stringResource(R.string.storage_uploads), stringResource(R.string.storage_uploads_detail), usage.uploadBytes)
             SizeInfoRow(palette.textSecondary, stringResource(R.string.storage_database), stringResource(R.string.storage_database_detail), usage.databaseBytes)
