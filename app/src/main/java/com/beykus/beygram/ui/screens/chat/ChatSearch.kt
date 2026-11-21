@@ -413,7 +413,7 @@ internal fun ChatSearchResults(
                     )
                 }
                 // Устаревшие результаты (запрос или фильтр уже поменялся) видны, но открыть их нельзя.
-                items(results, key = { it.id }) { message -> SearchResultRow(message, needle) { if (!stale) onOpen(message) } }
+                items(results, key = { it.id }) { message -> SearchResultRow(message, needle, enabled = !stale) { onOpen(message) } }
                 if (hasMore) item(key = "search_more") { SearchMoreButton(busy, onMore) }
                 error?.let { message ->
                     item(key = "search_error") { Text(message, color = palette.danger, fontSize = 14.sp, modifier = Modifier.padding(horizontal = 20.dp, vertical = 8.dp).errorAnnouncement()) }
@@ -431,9 +431,9 @@ private fun SearchMoreButton(busy: Boolean, onMore: () -> Unit) {
 }
 
 @Composable
-private fun SearchResultRow(message: ChatMessage, query: String, onClick: () -> Unit) {
+private fun SearchResultRow(message: ChatMessage, query: String, enabled: Boolean, onClick: () -> Unit) {
     val palette = beyGramPalette()
-    Column(Modifier.fillMaxWidth().heightIn(min = 48.dp).clickable(role = Role.Button, onClick = onClick).padding(horizontal = 20.dp, vertical = 10.dp)) {
+    Column(Modifier.fillMaxWidth().heightIn(min = 48.dp).clickable(enabled = enabled, role = Role.Button, onClick = onClick).padding(horizontal = 20.dp, vertical = 10.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text(
                 if (message.isOutgoing) stringResource(R.string.search_you) else message.senderName, color = palette.accentInk, fontSize = 13.sp,
