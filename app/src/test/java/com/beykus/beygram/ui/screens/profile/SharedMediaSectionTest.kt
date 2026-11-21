@@ -1,6 +1,9 @@
 package com.beykus.beygram.ui.screens.profile
 
 import com.beykus.beygram.domain.model.ChatMessage
+import com.beykus.beygram.domain.model.MessageSearchPage
+import com.beykus.beygram.ui.screens.chat.SharedMediaWindow
+import kotlinx.coroutines.runBlocking
 import com.beykus.beygram.domain.model.MediaKind
 import com.beykus.beygram.domain.model.MessageMedia
 import com.beykus.beygram.domain.model.SharedMediaKind
@@ -18,6 +21,29 @@ class SharedMediaSectionTest {
         assertFalse(shouldAutoLoadSharedMediaPage(true, false, false, null))
         assertFalse(shouldAutoLoadSharedMediaPage(true, true, true, null))
         assertFalse(shouldAutoLoadSharedMediaPage(true, true, false, "network error"))
+    }
+
+    @Test fun manualRetryWorksAfterAutoPaginationStopsOnFailure() = runBlocking {
+        var requests = 0
+        val window = SharedMediaWindow(
+            load = { _, _ ->
+                requests++
+                if (requests == 1) Result.failure(IllegalStateException("network"))
+                else Result.success(MessageSearchPage(listOf(message(7)), nextFromMessageId = 0L))
+            },
+            failure = { "offline" }
+        )
+        window.restart(null)
+        window.loadOlder()
+        assertEquals("offline", window.error)
+        assertFalse(shouldAutoLoadSharedMediaPage(true, window.hasOlder, window.loading, window.error))
+        assertEquals(1, requests)
+        // Explicit retry is still permitted and clears the error when the page arrives.
+        window.loadOlder()
+        assertEquals(2, requests)
+        assertEquals(null, window.error)
+        assertEquals(listOf(7L), window.messages.map { it.id })
+        assertFalse(window.hasOlder)
     }
 
     @Test fun personalChatIncludesMusicTab() {
