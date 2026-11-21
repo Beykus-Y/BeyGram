@@ -1,6 +1,7 @@
 package com.beykus.beygram.ui.screens.playback
 
 import com.beykus.beygram.data.music.provider.ProviderTrack
+import com.beykus.beygram.data.music.provider.ProviderTracks
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
@@ -29,6 +30,18 @@ class ProviderLinkShareTest {
             "https://music.yandex.ru/track/123",
             providerTrackSharePayload(track(albumId = null))?.publicLink
         )
+    }
+
+    @Test fun providerKeysNeverFallBackToSendingAudioFiles() {
+        val knownProviderKey = ProviderTracks.playbackItem(track()).key
+        val malformedProviderKey = ProviderTracks.playbackItem(track(id = "bad/id")).key
+        assertTrue(ProviderTracks.isProviderKey(knownProviderKey))
+        assertTrue(ProviderTracks.isProviderKey(malformedProviderKey))
+        assertNull(providerTrackSharePayload(track(id = "bad/id")))
+        assertEquals(false, canOfferLocalAudioShare(knownProviderKey, allowedByMediaPolicy = true))
+        assertEquals(false, canOfferLocalAudioShare(malformedProviderKey, allowedByMediaPolicy = true))
+        assertTrue(canOfferLocalAudioShare("telegram-audio", allowedByMediaPolicy = true))
+        assertEquals(false, canOfferLocalAudioShare("telegram-audio", allowedByMediaPolicy = false))
     }
 
     @Test fun malformedProviderIdsNeverBecomeOutboundLinks() {
