@@ -94,6 +94,21 @@ class StorageSettingsViewModelTest {
         assertNull(model.error)
     }
 
+    @Test fun priorApplySuccessCannotHideARecentSaveFailure() {
+        val store = FakeStore()
+        val repository = FakeRepository()
+        val model = StorageSettingsViewModel(repository, store)
+
+        model.changeSettings { it.copy(sizeLimit = StorageSizeLimit.OneGigabyte) }
+        store.failNextSave = true
+        model.changeSettings { it.copy(retention = StorageRetention.Week) }
+        assertEquals(UiText.Res(R.string.storage_settings_save_failed), model.error)
+
+        repository.gates.single().complete(Result.success(0L))
+        assertEquals(UiText.Res(R.string.storage_settings_save_failed), model.error)
+        assertFalse(model.busy)
+    }
+
     @Test fun olderFailureDoesNotOverwriteTheNewestPolicySuccess() {
         val repository = FakeRepository()
         val model = StorageSettingsViewModel(repository, FakeStore())
@@ -249,11 +264,15 @@ class StorageSettingsViewModelTest {
         StorageUsage(bytesByCategory = mapOf(*entries), databaseBytes = 0L)
 
     private class FakeStore(private val saveFails: Boolean = false) : StorageSettingsSource {
+        var failNextSave = false
         private val state = MutableStateFlow(StorageSettings())
         override val settings: StateFlow<StorageSettings> = state
 
         override fun update(transform: (StorageSettings) -> StorageSettings): Result<Unit> {
-            if (saveFails) return Result.failure(IllegalStateException("disk full"))
+            if (saveFails || failNextSave) {
+                failNextSave = false
+                return Result.failure(IllegalStateException("disk full"))
+            }
             state.value = transform(state.value)
             return Result.success(Unit)
         }
