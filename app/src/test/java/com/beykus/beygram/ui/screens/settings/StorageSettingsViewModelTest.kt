@@ -94,6 +94,34 @@ class StorageSettingsViewModelTest {
         assertNull(model.error)
     }
 
+    @Test fun olderFailureDoesNotOverwriteTheNewestPolicySuccess() {
+        val repository = FakeRepository()
+        val model = StorageSettingsViewModel(repository, FakeStore())
+
+        model.changeSettings { it.copy(sizeLimit = StorageSizeLimit.OneGigabyte) }
+        model.changeSettings { it.copy(retention = StorageRetention.Week) }
+
+        repository.gates[1].complete(Result.success(0L))
+        assertNull(model.error)
+        repository.gates[0].complete(Result.failure(IllegalStateException("old policy failed")))
+        assertNull(model.error)
+        assertFalse(model.busy)
+    }
+
+    @Test fun olderSuccessDoesNotHideTheNewestPolicyFailure() {
+        val repository = FakeRepository()
+        val model = StorageSettingsViewModel(repository, FakeStore())
+
+        model.changeSettings { it.copy(sizeLimit = StorageSizeLimit.OneGigabyte) }
+        model.changeSettings { it.copy(retention = StorageRetention.Week) }
+
+        repository.gates[1].complete(Result.failure(IllegalStateException("new policy failed")))
+        assertEquals(UiText.Res(R.string.storage_clear_failed), model.error)
+        repository.gates[0].complete(Result.success(100L))
+        assertEquals(UiText.Res(R.string.storage_clear_failed), model.error)
+        assertFalse(model.busy)
+    }
+
     @Test fun olderRecalculationDoesNotOverwriteNewerUsage() {
         val repository = FakeRepository().apply { gateUsage = true }
         val model = StorageSettingsViewModel(repository, FakeStore())
