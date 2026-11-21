@@ -55,6 +55,31 @@ internal fun providerTrackSharePayload(track: ProviderTrack): ProviderLinkShareP
     return ProviderLinkSharePayload(title, performer, track.durationMs, track.coverUrl, link, text)
 }
 
+/** Album and playlist links use the same fixed public-text payload as provider tracks. */
+internal fun providerAlbumSharePayload(title: String, albumId: String, coverUrl: String?): ProviderLinkSharePayload? {
+    val link = ProviderTracks.albumWebLink(albumId)
+    val target = yandexMusicTarget(link) as? YandexMusicTarget.Album ?: return null
+    if (target.albumId != albumId) return null
+    return providerCollectionSharePayload(title, coverUrl, link)
+}
+
+/**
+ * Playlist sharing requires the canonical UUID form accepted by native link handling.
+ * A public URL does not guarantee a private playlist is readable by another account.
+ */
+internal fun providerPlaylistSharePayload(title: String, uuid: String, coverUrl: String?): ProviderLinkSharePayload? {
+    val link = ProviderTracks.playlistWebLink(uuid)
+    if (yandexMusicTarget(link) !is YandexMusicTarget.Playlist) return null
+    return providerCollectionSharePayload(title, coverUrl, link)
+}
+
+private fun providerCollectionSharePayload(title: String, coverUrl: String?, link: String): ProviderLinkSharePayload? {
+    val cleanTitle = title.trim()
+    val text = if (cleanTitle.isEmpty()) link else "$cleanTitle\n$link"
+    if (text.codePointCount(0, text.length) > MAX_SHARED_TEXT_LENGTH) return null
+    return ProviderLinkSharePayload(cleanTitle, "", 0L, coverUrl, link, text)
+}
+
 internal fun providerLinkCommentLimit(payload: ProviderLinkSharePayload): Int =
     (MAX_SHARED_TEXT_LENGTH - payload.text.codePointCount(0, payload.text.length) - 2).coerceAtLeast(0)
 
