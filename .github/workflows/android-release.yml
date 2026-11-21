@@ -319,6 +319,27 @@ jobs:
           if-no-files-found: error
           retention-days: 90
 
+
+      # Run the experiment only on its own PR. Normal DEV/Stable artifacts above
+      # remain built without the pilot, and no release-signing secrets are exposed.
+      - name: Verify opt-in BG Video native library and opt-out reconfiguration
+        if: github.event_name == 'pull_request' && github.head_ref == 'feature/bg-video-note-pilot'
+        env:
+          BEYGRAM_OPENSSL_CACHE: ${{ runner.temp }}/beygram-openssl
+        run: |
+          set -euo pipefail
+          ./gradlew --no-daemon :app:assembleDevDebug -PbeygramBgVideoNotePilot=true
+          apk=app/build/outputs/apk/dev/debug/app-dev-debug.apk
+          unzip -Z1 "$apk" | grep -Fxq 'lib/arm64-v8a/libbgvideo_note_jni.so' || {
+            echo "::error::BG Video JNI library was not packaged in the opt-in APK." >&2
+            exit 1
+          }
+          ./gradlew --no-daemon :app:assembleDevDebug -PbeygramBgVideoNotePilot=false
+          if unzip -Z1 "$apk" | grep -Fxq 'lib/arm64-v8a/libbgvideo_note_jni.so'; then
+            echo "::error::BG Video JNI library leaked into the opt-out APK." >&2
+            exit 1
+          fi
+
   manual-publish-from-branch:
     # Manual publishing is refused outside main, so the run fails instead of passing silently.
     name: Refuse manual publish outside main
