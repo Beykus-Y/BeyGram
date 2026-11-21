@@ -522,7 +522,9 @@ private fun PlayerTrackMenu(item: PlaybackItem, onCollapse: () -> Unit, onOpenMy
                 menuOpen = false
                 val source = shareSource
                 if (source != null) pendingProviderShare = PendingProviderLinkShare(providerSharePayload, source)
-                else ProviderTracks.sharePublicText(context, providerSharePayload.text, shareChooser)
+                else if (!ProviderTracks.sharePublicText(context, providerSharePayload.text, shareChooser)) {
+                    Toast.makeText(context, R.string.share_external_unavailable, Toast.LENGTH_SHORT).show()
+                }
             } else if (shareAllowed) PlayerMenuEntry(shareLabel, Icons.Rounded.Share) {
                 menuOpen = false
                 shareSource?.let { source ->
