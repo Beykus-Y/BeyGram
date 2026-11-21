@@ -1246,7 +1246,7 @@ object PlaybackEngine {
     private fun mediaItemFor(item: PlaybackItem): MediaItem {
         val metadata = item.systemMetadata()
         val mediaId = item.systemMediaId
-        val needsSource = item.fileId != null || item.path.isBlank() || item.growing != null
+        val needsSource = item.fileId != null || item.path.isBlank() || item.growing != null || BgVideoNoteFile.eligible(item)
         val uri = if (needsSource) PlaybackSources.uri(mediaId) else Uri.fromFile(File(item.path))
         val mime = item.mimeType.ifBlank {
             when (item.kind) {

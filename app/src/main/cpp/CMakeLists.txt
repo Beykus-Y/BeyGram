@@ -6,6 +6,10 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
 # Build options for BG Media
+option(BEYGRAM_VIDEO_NOTE_PILOT "Read completed video notes via BG Video" OFF)
+if(BEYGRAM_VIDEO_NOTE_PILOT)
+    set(BGMEDIA_BUILD_VIDEO ON CACHE BOOL "" FORCE)
+endif()
 set(BGMEDIA_BUILD_TESTS OFF CACHE BOOL "" FORCE)
 set(BGMEDIA_BUILD_TOOLS OFF CACHE BOOL "" FORCE)
 set(BGMEDIA_BUILD_MINIAUDIO ON CACHE BOOL "" FORCE)
@@ -13,7 +17,7 @@ set(BGMEDIA_BUILD_DESKTOP OFF CACHE BOOL "" FORCE)
 set(BGMEDIA_WARNINGS_AS_ERRORS OFF CACHE BOOL "" FORCE)
 
 # Pinned commit of BG Media dev (fallback when the submodule is absent). Keep equal to the third_party/bg-media pointer.
-set(BGMEDIA_PINNED_COMMIT "74d309d9bd7aa09b7343b3ecd7bfa0df783adfdf")
+set(BGMEDIA_PINNED_COMMIT "7973fa9e3347f3f332af9c03db7593cb8fcd7da0")
 
 if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/../../../../third_party/bg-media/CMakeLists.txt")
     set(BGMEDIA_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../../../../third_party/bg-media")
@@ -136,4 +140,14 @@ else()
         log
     )
     target_compile_definitions(bgbeat_jni PRIVATE HAVE_BGMEDIA=0)
+endif()
+
+
+if(BEYGRAM_VIDEO_NOTE_PILOT)
+    if(NOT TARGET bgmedia_video)
+        message(FATAL_ERROR "The video note pilot requires the BG Media video library")
+    endif()
+    add_library(bgvideo_note_jni SHARED bgvideo_note_jni.cpp)
+    target_link_libraries(bgvideo_note_jni PRIVATE bgmedia_video)
+    set_target_properties(bgmedia_video PROPERTIES POSITION_INDEPENDENT_CODE ON)
 endif()
