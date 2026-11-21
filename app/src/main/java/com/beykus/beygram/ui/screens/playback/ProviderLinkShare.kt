@@ -42,6 +42,10 @@ internal data class PendingProviderLinkShare(
     val source: PlaybackRepositorySource
 )
 
+/** A provider catalogue track may only leave as a validated public URL, never as local audio bytes. */
+internal fun canOfferLocalAudioShare(itemKey: String, allowedByMediaPolicy: Boolean): Boolean =
+    allowedByMediaPolicy && !ProviderTracks.isProviderKey(itemKey)
+
 /** Accept only web links already supported by the app's Yandex parser. */
 internal fun providerTrackSharePayload(track: ProviderTrack): ProviderLinkSharePayload? {
     val link = ProviderTracks.webLink(track)
