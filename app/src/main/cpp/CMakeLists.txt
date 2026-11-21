@@ -7,9 +7,9 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 
 # Build options for BG Media
 option(BEYGRAM_VIDEO_NOTE_PILOT "Read completed video notes via BG Video" OFF)
-if(BEYGRAM_VIDEO_NOTE_PILOT)
-    set(BGMEDIA_BUILD_VIDEO ON CACHE BOOL "" FORCE)
-endif()
+# Keep the BG Media target in sync on both ON->OFF and OFF->ON reconfigurations.
+# A cached ON must never silently enable native video in a normal Android build.
+set(BGMEDIA_BUILD_VIDEO ${BEYGRAM_VIDEO_NOTE_PILOT} CACHE BOOL "Build BG Video for video note pilot" FORCE)
 set(BGMEDIA_BUILD_TESTS OFF CACHE BOOL "" FORCE)
 set(BGMEDIA_BUILD_TOOLS OFF CACHE BOOL "" FORCE)
 set(BGMEDIA_BUILD_MINIAUDIO ON CACHE BOOL "" FORCE)
