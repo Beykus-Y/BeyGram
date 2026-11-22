@@ -1967,6 +1967,12 @@ class TdLibTelegramRepository private constructor(
 
     /** Номер телефона, введённый пользователем — нужен для [WaitingForCode]. */
     private var submittedPhone: String = ""
+    /** Last TDLib authorization phase (authWireState()), null until the first update. */
+    @Volatile private var lastAuthPhase: String? = null
+    /** Phone the user submitted while the client was not in WaitPhoneNumber; sent once WaitPhoneNumber arrives. */
+    @Volatile private var pendingPhone: String? = null
+    /** Bumped each time the legacy client is recreated so late callbacks of the old client are ignored. */
+    @Volatile private var clientGeneration = 0
 
     // ---- TDLib Client --------------------------------------------------------
 
@@ -2031,6 +2037,7 @@ class TdLibTelegramRepository private constructor(
         // recreation is allowed; doing it asynchronously also keeps the old callback from re-entering TDLib.
         authScope.launch {
             try {
+                clientGeneration++
                 client = createLegacyClient()
                 networkMonitor.start()
                 networkMonitor.reconnect()
@@ -2109,20 +2116,44 @@ class TdLibTelegramRepository private constructor(
     // =========================================================================
 
     override fun startAuthorization() {
-        // Клиент уже создан; TDLib сам отправит UpdateAuthorizationState.
-        if (_authState.value !is AuthState.Ready) {
-            _authState.value = AuthState.Loading
-        }
+        // TDLib may already have sent WaitPhoneNumber; never overwrite a real state with a request-less spinner.
+        val next = startAuthorizationState(_authState.value, lastAuthPhase) ?: return
+        _authState.value = next
+        if (next == AuthState.Loading) startAuthTimeout()
     }
 
     override fun submitPhoneNumber(phone: String) {
         submittedPhone = phone
+        if (!isLegacyAccount) {
+            sendPhoneNumber(phone)
+            return
+        }
+        when (phoneSubmitRoute(lastAuthPhase, qrStateActive || qrRequestInFlight, isLegacyClientRecreatePending())) {
+            PhoneSubmitRoute.SEND -> sendPhoneNumber(phone)
+            PhoneSubmitRoute.CANCEL_QR_THEN_SEND -> {
+                recordAuthRequest("phone_deferred", "cancel_qr")
+                qrRetryAfterReopen = false
+                resetLegacyQrClient(cancelled = true)
+                pendingPhone = phone
+                _authState.value = AuthState.Loading
+                startAuthTimeout()
+            }
+            PhoneSubmitRoute.WAIT_FOR_CLIENT -> {
+                recordAuthRequest("phone_deferred", "wait_client")
+                pendingPhone = phone
+                _authState.value = AuthState.Loading
+                startAuthTimeout()
+            }
+            PhoneSubmitRoute.IGNORE -> Unit
+        }
+    }
+
+    private fun sendPhoneNumber(phone: String) {
+        pendingPhone = null
         _authState.value = AuthState.Loading
         startAuthTimeout()
-        client.send(
-            TdApi.SetAuthenticationPhoneNumber(phone, null),
-            errorHandler()
-        )
+        recordAuthRequest("phone_sent", null)
+        client.send(TdApi.SetAuthenticationPhoneNumber(phone, null), errorHandler("set_phone"))
     }
 
     override fun submitCode(code: String) {
@@ -2130,7 +2161,7 @@ class TdLibTelegramRepository private constructor(
         startAuthTimeout()
         client.send(
             TdApi.CheckAuthenticationCode(code),
-            errorHandler()
+            errorHandler("check_code")
         )
     }
 
@@ -2138,7 +2169,7 @@ class TdLibTelegramRepository private constructor(
         // Передаём null-причину — TDLib выберет способ сам (SMS/звонок и т.д.)
         client.send(
             TdApi.ResendAuthenticationCode(null),
-            errorHandler()
+            errorHandler("resend_code")
         )
     }
 
@@ -2147,7 +2178,7 @@ class TdLibTelegramRepository private constructor(
         startAuthTimeout()
         client.send(
             TdApi.CheckAuthenticationPassword(password),
-            errorHandler()
+            errorHandler("check_password")
         )
     }
 
@@ -2182,6 +2213,7 @@ class TdLibTelegramRepository private constructor(
 
     override fun cancelQrLogin() {
         if (_authState.value == AuthState.Ready) return
+        pendingPhone = null
         authTimeoutJob?.cancel()
         qrRefreshJob?.cancel()
         qrRefreshJob = null
@@ -2212,6 +2244,7 @@ class TdLibTelegramRepository private constructor(
         }
         // Keep the phone button disabled until the replacement client reaches WaitPhoneNumber (or restores Ready).
         _authState.value = AuthState.Loading
+        startAuthTimeout()
         synchronized(legacyClientLock) { recreateLegacyClientOnClose = true }
         client.send(
             TdApi.Close(),
@@ -2227,6 +2260,7 @@ class TdLibTelegramRepository private constructor(
     }
 
     override fun resetError() {
+        pendingPhone = null
         authTimeoutJob?.cancel()
         // A QR attempt can fail after TDLib has already entered WaitOtherDeviceConfirmation. Leaving that
         // state locally would make the phone form unusable, so route through the real cancel path.
@@ -2462,7 +2496,7 @@ class TdLibTelegramRepository private constructor(
     override fun stealthHoldsSends(): Boolean = stealthSettings.current.scheduledSendDelay != null
 
     override fun cancelFileDownload(fileId: Int) {
-        client.send(TdApi.CancelDownloadFile(fileId, false), errorHandler())
+        client.send(TdApi.CancelDownloadFile(fileId, false), errorHandler("cancel_download"))
         mediaFiles.cancel(fileId)
     }
 
@@ -3046,10 +3080,11 @@ class TdLibTelegramRepository private constructor(
             attrs = mapOf("state" to state.authWireState())
         )
         if (BuildConfig.DEBUG) android.util.Log.i(TelegramNetworkMonitor.TAG, "TDLib authorization: ${state.javaClass.simpleName}")
+        lastAuthPhase = state.authWireState()
         authTimeoutJob?.cancel()
         when (state) {
             is TdApi.AuthorizationStateWaitTdlibParameters -> {
-                if (isLegacyAccount) client.send(buildTdLibParameters(), errorHandler())
+                if (isLegacyAccount) client.send(buildTdLibParameters(), errorHandler("set_parameters"))
                 // The secondary native owner itself configures TDLib parameters,
                 // proxy and listener while network is forced OFF.
             }
@@ -3060,8 +3095,13 @@ class TdLibTelegramRepository private constructor(
                 val restartQr = qrRetryAfterReopen
                 qrRetryAfterReopen = false
                 clearQrLoginState()
-                _authState.value = AuthState.WaitingForPhone
-                if (restartQr && isLegacyAccount) requestQrLogin()
+                val deferredPhone = pendingPhone
+                if (deferredPhone != null && isLegacyAccount) {
+                    sendPhoneNumber(deferredPhone)
+                } else {
+                    _authState.value = AuthState.WaitingForPhone
+                    if (restartQr && isLegacyAccount) requestQrLogin()
+                }
             }
             is TdApi.AuthorizationStateWaitOtherDeviceConfirmation -> {
                 qrRequestInFlight = false
@@ -3087,14 +3127,17 @@ class TdLibTelegramRepository private constructor(
                 }
             }
             is TdApi.AuthorizationStateWaitCode -> {
+                pendingPhone = null
                 clearQrLoginState()
                 _authState.value = AuthState.WaitingForCode(submittedPhone)
             }
             is TdApi.AuthorizationStateWaitPassword -> {
+                pendingPhone = null
                 clearQrLoginState()
                 _authState.value = AuthState.WaitingForPassword(state.passwordHint.orEmpty())
             }
             is TdApi.AuthorizationStateReady -> {
+                pendingPhone = null
                 registerWaveSender()
                 runCatching { PendingTextSendSessions.authorized(appContext, accountId) }
                     .onFailure { android.util.Log.w("BeyGramAccounts", "Pending text session cleanup incomplete") }
@@ -3143,6 +3186,7 @@ class TdLibTelegramRepository private constructor(
                 messageDrafts.connectionReady()
             }
             is TdApi.AuthorizationStateLoggingOut -> {
+                pendingPhone = null
                 runCatching { PendingTextSendSessions.signedOut(appContext, accountId) }
                     .onFailure { android.util.Log.w("BeyGramAccounts", "Pending text session cleanup incomplete") }
                 if (!isLegacyAccount) secondaryAuthorizationLost = true
@@ -3168,6 +3212,7 @@ class TdLibTelegramRepository private constructor(
                 } else {
                     AuthState.WaitingForPhone
                 }
+                if (_authState.value == AuthState.Loading) startAuthTimeout()
                 conversationEffects.signedOut()
                 cacheMaintenance.signedOut()
                 // The kept messages belong to the account that signed out, and so do the deletions this app made for it.
@@ -3212,6 +3257,7 @@ class TdLibTelegramRepository private constructor(
                 // While the replacement client starts, the phone button must not send SetAuthenticationPhoneNumber
                 // to the closed client. WaitTdlibParameters -> WaitPhoneNumber will publish WaitingForPhone again.
                 _authState.value = if (reopeningLegacyClient) AuthState.Loading else AuthState.WaitingForPhone
+                if (reopeningLegacyClient) startAuthTimeout()
                 secretChatSession++
                 secretChatDirectory.clear()
                 conversationEffects.signedOut()
@@ -4023,13 +4069,47 @@ class TdLibTelegramRepository private constructor(
      * Возвращает обработчик ошибок для запросов TDLib.
      * Если TDLib вернул [TdApi.Error], обновляем [_authState].
      */
-    private fun errorHandler(): Client.ResultHandler =
-        Client.ResultHandler { result ->
-            if (result is TdApi.Error) {
-                authTimeoutJob?.cancel()
-                _authState.value = AuthState.Error(authErrorText(result.message))
-            }
+    private fun errorHandler(request: String): Client.ResultHandler {
+        val generation = clientGeneration
+        return Client.ResultHandler { result ->
+            if (result !is TdApi.Error) return@ResultHandler
+            val stale = generation != clientGeneration
+            StructuredEventLog.shared.record(
+                kind = EventKind.TDLIB,
+                severity = Severity.WARNING,
+                code = "tdlib_auth_request_failed",
+                message = "Запрос входа отклонён",
+                attrs = mapOf(
+                    "request" to request,
+                    "error_code" to result.code.toString(),
+                    "reason" to authErrorReason(result.message),
+                    "phase" to (lastAuthPhase ?: "unknown"),
+                    "generation" to generation.toString(),
+                    "stale" to stale.toString()
+                )
+            )
+            if (stale) return@ResultHandler // an error from a closed old client must not break the new one
+            // A non-auth request (e.g. a download cancel) failing after sign-in must not replace Ready.
+            if (_authState.value == AuthState.Ready) return@ResultHandler
+            authTimeoutJob?.cancel()
+            _authState.value = AuthState.Error(authErrorText(result.message))
         }
+    }
+
+    private fun recordAuthRequest(event: String, detail: String?) {
+        StructuredEventLog.shared.record(
+            kind = EventKind.TDLIB,
+            severity = Severity.INFO,
+            code = "tdlib_auth_request",
+            message = event,
+            attrs = buildMap {
+                put("event", event)
+                put("phase", lastAuthPhase ?: "unknown")
+                put("generation", clientGeneration.toString())
+                if (detail != null) put("detail", detail)
+            }
+        )
+    }
 
     /** QR requests have their own cancellation gate so a late error cannot reopen the QR screen after Cancel. */
     private fun qrErrorHandler(): Client.ResultHandler =
@@ -4087,6 +4167,9 @@ class TdLibTelegramRepository private constructor(
         authTimeoutJob = authScope.launch {
             delay(AUTH_REQUEST_TIMEOUT_MS)
             if (_authState.value is AuthState.Loading) {
+                // The user retries; a deferred phone must not be sent later without a new tap.
+                pendingPhone = null
+                recordAuthRequest("timeout", null)
                 _authState.value = AuthState.ConnectionTimeout
             }
         }

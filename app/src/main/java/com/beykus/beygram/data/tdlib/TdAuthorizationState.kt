@@ -42,3 +42,38 @@ internal fun qrAuthState(rawLink: String?): AuthState {
         ?: return AuthState.Error(UiText.Res(R.string.err_auth_qr_link))
     return AuthState.WaitingForQr(token.link)
 }
+
+/** What submitPhoneNumber must do for the current TDLib phase (wire state from authWireState(), null = not known yet). */
+internal enum class PhoneSubmitRoute { SEND, CANCEL_QR_THEN_SEND, WAIT_FOR_CLIENT, IGNORE }
+
+internal fun phoneSubmitRoute(phase: String?, qrActive: Boolean, reopening: Boolean): PhoneSubmitRoute = when {
+    phase == "ready" -> PhoneSubmitRoute.IGNORE
+    reopening -> PhoneSubmitRoute.WAIT_FOR_CLIENT
+    qrActive || phase == "wait_other_device" -> PhoneSubmitRoute.CANCEL_QR_THEN_SEND
+    phase == "wait_phone" || phase == "wait_code" || phase == "wait_password" -> PhoneSubmitRoute.SEND
+    else -> PhoneSubmitRoute.WAIT_FOR_CLIENT
+}
+
+/** State for the "Start" button: null keeps the current state. Only Idle may change. */
+internal fun startAuthorizationState(current: AuthState, phase: String?): AuthState? = when {
+    current != AuthState.Idle -> null
+    phase == "wait_phone" -> AuthState.WaitingForPhone
+    else -> AuthState.Loading
+}
+
+/** Stable, payload-free reason key for diagnostics. Never returns the raw TDLib message. */
+internal fun authErrorReason(message: String?): String {
+    val text = message.orEmpty()
+    return when {
+        text.contains("requestQrCodeAuthentication") || text.contains("QR code authentication") -> "qr_failed"
+        text.contains("PHONE_NUMBER_INVALID") -> "phone_invalid"
+        text.contains("PHONE_NUMBER_BANNED") -> "phone_banned"
+        text.contains("PHONE_CODE_INVALID") -> "code_invalid"
+        text.contains("PHONE_CODE_EXPIRED") -> "code_expired"
+        text.contains("PASSWORD_HASH_INVALID") -> "password_invalid"
+        text.contains("FLOOD_WAIT") || text.contains("Too Many Requests") -> "flood_wait"
+        text.contains("unexpected", ignoreCase = true) -> "unexpected_state"
+        text.contains("Request aborted", ignoreCase = true) || text.contains("closed", ignoreCase = true) -> "client_closed"
+        else -> "other"
+    }
+}
