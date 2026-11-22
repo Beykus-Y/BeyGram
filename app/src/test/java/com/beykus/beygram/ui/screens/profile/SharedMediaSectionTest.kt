@@ -101,4 +101,13 @@ class SharedMediaSectionTest {
     @Test fun visibleLinkOpensFromList() {
         assertFalse(sharedLinkUnderSpoiler(message(1, "см. https://example.com тут", MessageTextEntity(4, 19, TextStyleKind.Url), MessageTextEntity(24, 3, TextStyleKind.Spoiler))))
     }
+
+    @Test fun previewFadeMemoryRemembersFileOnce() {
+        val id = 9_000_001
+        assertFalse(SharedPreviewFadeMemory.contains(id))
+        SharedPreviewFadeMemory.add(id)
+        assertTrue(SharedPreviewFadeMemory.contains(id))
+        SharedPreviewFadeMemory.add(id)
+        assertTrue(SharedPreviewFadeMemory.contains(id))
+    }
 }
