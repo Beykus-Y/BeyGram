@@ -135,6 +135,15 @@ internal fun ForwardChatDialog(
     candidatePolicy: (List<ChatPreview>) -> List<ChatPreview> = { it },
     /** Only callers with an explicitly public payload provide this action. */
     onExternalShare: ((String) -> Unit)? = null,
+    /** Компактный предпросмотр вместо текстового, например миниатюры вложений входящего «Поделиться». */
+    previewSlot: (@Composable () -> Unit)? = null,
+    /** Выбор, которым владеет вызывающий код (входящий Share хранит его в сессии). Без него выбор хранится в диалоге. */
+    selection: List<ForwardTarget>? = null,
+    onSelectionChange: ((List<ForwardTarget>) -> Unit)? = null,
+    initialComment: String = "",
+    onCommentChange: ((String) -> Unit)? = null,
+    /** Отправка заблокирована снаружи (файлы ещё готовятся, текста нет). Список чатов при этом доступен. */
+    sendBlocked: Boolean = false,
     onSend: suspend (List<ForwardTarget>, String) -> List<ForwardTarget>,
     onClose: () -> Unit
 ) {
@@ -142,7 +151,7 @@ internal fun ForwardChatDialog(
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     var query by rememberSaveable { mutableStateOf("") }
-    var comment by rememberSaveable { mutableStateOf("") }
+    var comment by rememberSaveable { mutableStateOf(initialComment) }
     var topicQuery by remember { mutableStateOf("") }
     val targetSaver = remember {
         listSaver<List<ForwardTarget>, Any>(
@@ -152,7 +161,12 @@ internal fun ForwardChatDialog(
             } }
         )
     }
-    var targets by rememberSaveable(stateSaver = targetSaver) { mutableStateOf(emptyList<ForwardTarget>()) }
+    var ownTargets by rememberSaveable(stateSaver = targetSaver) { mutableStateOf(emptyList<ForwardTarget>()) }
+    val targets = selection ?: ownTargets
+    fun setTargets(next: List<ForwardTarget>) {
+        val listener = onSelectionChange
+        if (listener != null) listener(next) else ownTargets = next
+    }
     var attempted by rememberSaveable { mutableStateOf(false) }
     // If recreation interrupts an in-flight operation, don't offer a blind repeat.
     var attemptInFlight by rememberSaveable { mutableStateOf(false) }
@@ -177,7 +191,7 @@ internal fun ForwardChatDialog(
 
     fun toggle(target: ForwardTarget) {
         if (busy || sending || loadingTopics || (attempted && !isPicked(target.chatId, target.topicId))) return
-        targets = toggleForwardTarget(targets, target, singleRecipient)
+        setTargets(toggleForwardTarget(targets, target, singleRecipient))
     }
 
     fun backFromTopics() {
@@ -215,7 +229,7 @@ internal fun ForwardChatDialog(
     }
 
     fun send() {
-        if (busy || sending || loadingTopics || interrupted || retryBlocked || targets.isEmpty() || unavailableTarget || commentOverLimit) return
+        if (busy || sending || loadingTopics || interrupted || retryBlocked || sendBlocked || targets.isEmpty() || unavailableTarget || commentOverLimit) return
         sending = true
         attemptInFlight = true
         scope.launch {
@@ -251,7 +265,7 @@ internal fun ForwardChatDialog(
                 sending = false
             }
             if (failed.isEmpty()) onClose() else {
-                targets = failed
+                setTargets(failed)
                 topicChat = null
                 topicQuery = ""
                 topics = emptyList()
@@ -357,7 +371,7 @@ internal fun ForwardChatDialog(
                     if (allowComment) {
                         OutlinedTextField(
                             value = comment,
-                            onValueChange = { comment = it },
+                            onValueChange = { comment = it; onCommentChange?.invoke(it) },
                             enabled = !locked && !attempted,
                             placeholder = { Text(stringResource(R.string.forward_comment_hint)) },
                             maxLines = 3,
@@ -377,7 +391,7 @@ internal fun ForwardChatDialog(
                             else stringResource(R.string.forward_selected_count, targets.size),
                             color = palette.textSecondary, fontSize = 13.sp, modifier = Modifier.weight(1f)
                         )
-                        Button(onClick = { send() }, enabled = targets.isNotEmpty() && !locked && !interrupted && !retryBlocked && !unavailableTarget && !commentOverLimit) {
+                        Button(onClick = { send() }, enabled = targets.isNotEmpty() && !locked && !interrupted && !retryBlocked && !sendBlocked && !unavailableTarget && !commentOverLimit) {
                             Text(sendLabel ?: stringResource(if (titleOverride != null) R.string.share_send_count else R.string.forward_send_count, targets.size))
                         }
                     }
@@ -385,6 +399,7 @@ internal fun ForwardChatDialog(
             }
         ) { padding ->
             Column(Modifier.fillMaxSize().padding(padding)) {
+                if (chat == null) previewSlot?.invoke()
                 if (chat == null && previewText != null) Column(
                     Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp)
                         .clip(styledShape(14.dp)).background(palette.accentSoft).padding(12.dp),
