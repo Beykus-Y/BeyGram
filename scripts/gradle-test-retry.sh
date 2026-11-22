@@ -41,7 +41,10 @@ for attempt in $(seq 1 "$attempts"); do
     exit 0
   fi
   if [ "$attempt" -lt "$attempts" ] && only_download_failures "$results"; then
-    echo "::warning::Robolectric could not download android-all for some tests (attempt $attempt of $attempts). Running the same tests again."
+    # The last run's download failures came back within seconds of each other, so wait before the next try.
+    wait_seconds=$((attempt * ${GRADLE_TEST_BACKOFF:-60}))
+    echo "::warning::Robolectric could not download android-all for some tests (attempt $attempt of $attempts). Waiting ${wait_seconds}s, then running the same tests again."
+    sleep "$wait_seconds"
     continue
   fi
   exit 1
