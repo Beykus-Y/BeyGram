@@ -46,13 +46,30 @@ internal fun qrAuthState(rawLink: String?): AuthState {
 /** What submitPhoneNumber must do for the current TDLib phase (wire state from authWireState(), null = not known yet). */
 internal enum class PhoneSubmitRoute { SEND, CANCEL_QR_THEN_SEND, WAIT_FOR_CLIENT, IGNORE }
 
-internal fun phoneSubmitRoute(phase: String?, qrActive: Boolean, reopening: Boolean): PhoneSubmitRoute = when {
+internal fun phoneSubmitRoute(
+    phase: String?,
+    qrActive: Boolean,
+    reopening: Boolean,
+    authQueryInFlight: Boolean,
+): PhoneSubmitRoute = when {
     phase == "ready" -> PhoneSubmitRoute.IGNORE
     reopening -> PhoneSubmitRoute.WAIT_FOR_CLIENT
     qrActive || phase == "wait_other_device" -> PhoneSubmitRoute.CANCEL_QR_THEN_SEND
-    phase == "wait_phone" || phase == "wait_code" || phase == "wait_password" -> PhoneSubmitRoute.SEND
+    // TDLib accepts a phone number in wait_phone even while another query is pending.
+    phase == "wait_phone" -> PhoneSubmitRoute.SEND
+    // TDLib allows these only when no authentication query is pending.
+    phase == "wait_code" || phase == "wait_password" ->
+        if (authQueryInFlight) PhoneSubmitRoute.IGNORE else PhoneSubmitRoute.SEND
     else -> PhoneSubmitRoute.WAIT_FOR_CLIENT
 }
+
+/** State after "reconnect" on a timed-out login. Without a new auth update a known wait_phone must restore the form. */
+internal fun reconnectAuthState(phase: String?, phonePending: Boolean): AuthState =
+    if (phase == "wait_phone" && !phonePending) AuthState.WaitingForPhone else AuthState.Loading
+
+/** A TDLib callback belongs to the current client only if it was created for the same client generation. */
+internal fun isCurrentClientCallback(callbackGeneration: Int, currentGeneration: Int): Boolean =
+    callbackGeneration == currentGeneration
 
 /** State for the "Start" button: null keeps the current state. Only Idle may change. */
 internal fun startAuthorizationState(current: AuthState, phase: String?): AuthState? = when {

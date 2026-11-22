@@ -1971,6 +1971,8 @@ class TdLibTelegramRepository private constructor(
     @Volatile private var lastAuthPhase: String? = null
     /** Phone the user submitted while the client was not in WaitPhoneNumber; sent once WaitPhoneNumber arrives. */
     @Volatile private var pendingPhone: String? = null
+    /** An authentication query (phone/code/password) awaits its TDLib result. */
+    @Volatile private var authQueryInFlight = false
     /** Bumped each time the legacy client is recreated so late callbacks of the old client are ignored. */
     @Volatile private var clientGeneration = 0
 
@@ -2038,6 +2040,7 @@ class TdLibTelegramRepository private constructor(
         authScope.launch {
             try {
                 clientGeneration++
+                authQueryInFlight = false
                 client = createLegacyClient()
                 networkMonitor.start()
                 networkMonitor.reconnect()
@@ -2128,7 +2131,12 @@ class TdLibTelegramRepository private constructor(
             sendPhoneNumber(phone)
             return
         }
-        when (phoneSubmitRoute(lastAuthPhase, qrStateActive || qrRequestInFlight, isLegacyClientRecreatePending())) {
+        when (phoneSubmitRoute(
+            lastAuthPhase,
+            qrStateActive || qrRequestInFlight,
+            isLegacyClientRecreatePending(),
+            authQueryInFlight,
+        )) {
             PhoneSubmitRoute.SEND -> sendPhoneNumber(phone)
             PhoneSubmitRoute.CANCEL_QR_THEN_SEND -> {
                 recordAuthRequest("phone_deferred", "cancel_qr")
@@ -2153,7 +2161,7 @@ class TdLibTelegramRepository private constructor(
         _authState.value = AuthState.Loading
         startAuthTimeout()
         recordAuthRequest("phone_sent", null)
-        client.send(TdApi.SetAuthenticationPhoneNumber(phone, null), errorHandler("set_phone"))
+        client.send(TdApi.SetAuthenticationPhoneNumber(phone, null), authQueryHandler("set_phone"))
     }
 
     override fun submitCode(code: String) {
@@ -2161,7 +2169,7 @@ class TdLibTelegramRepository private constructor(
         startAuthTimeout()
         client.send(
             TdApi.CheckAuthenticationCode(code),
-            errorHandler("check_code")
+            authQueryHandler("check_code")
         )
     }
 
@@ -2178,7 +2186,7 @@ class TdLibTelegramRepository private constructor(
         startAuthTimeout()
         client.send(
             TdApi.CheckAuthenticationPassword(password),
-            errorHandler("check_password")
+            authQueryHandler("check_password")
         )
     }
 
@@ -2274,8 +2282,9 @@ class TdLibTelegramRepository private constructor(
     override fun reconnect() {
         networkMonitor.reconnect()
         if (_authState.value == AuthState.ConnectionTimeout) {
-            _authState.value = AuthState.Loading
-            startAuthTimeout()
+            val next = reconnectAuthState(lastAuthPhase, pendingPhone != null)
+            _authState.value = next
+            if (next == AuthState.Loading) startAuthTimeout()
         }
     }
 
@@ -2496,7 +2505,19 @@ class TdLibTelegramRepository private constructor(
     override fun stealthHoldsSends(): Boolean = stealthSettings.current.scheduledSendDelay != null
 
     override fun cancelFileDownload(fileId: Int) {
-        client.send(TdApi.CancelDownloadFile(fileId, false), errorHandler("cancel_download"))
+        client.send(TdApi.CancelDownloadFile(fileId, false), Client.ResultHandler { result ->
+            if (result is TdApi.Error) StructuredEventLog.shared.record(
+                kind = EventKind.TDLIB,
+                severity = Severity.WARNING,
+                code = "tdlib_request_failed",
+                message = "Запрос отклонён",
+                attrs = mapOf(
+                    "request" to "cancel_download",
+                    "error_code" to result.code.toString(),
+                    "reason" to authErrorReason(result.message)
+                )
+            )
+        })
         mediaFiles.cancel(fileId)
     }
 
@@ -4075,7 +4096,7 @@ class TdLibTelegramRepository private constructor(
         val generation = clientGeneration
         return Client.ResultHandler { result ->
             if (result !is TdApi.Error) return@ResultHandler
-            val stale = generation != clientGeneration
+            val stale = !isCurrentClientCallback(generation, clientGeneration)
             StructuredEventLog.shared.record(
                 kind = EventKind.TDLIB,
                 severity = Severity.WARNING,
@@ -4098,6 +4119,17 @@ class TdLibTelegramRepository private constructor(
         }
     }
 
+    /** Auth queries clear [authQueryInFlight] on any result from the client that sent them, then handle errors as usual. */
+    private fun authQueryHandler(request: String): Client.ResultHandler {
+        val generation = clientGeneration
+        val onError = errorHandler(request)
+        authQueryInFlight = true
+        return Client.ResultHandler { result ->
+            if (isCurrentClientCallback(generation, clientGeneration)) authQueryInFlight = false
+            onError.onResult(result)
+        }
+    }
+
     private fun recordAuthRequest(event: String, detail: String?) {
         StructuredEventLog.shared.record(
             kind = EventKind.TDLIB,
@@ -4114,9 +4146,27 @@ class TdLibTelegramRepository private constructor(
     }
 
     /** QR requests have their own cancellation gate so a late error cannot reopen the QR screen after Cancel. */
-    private fun qrErrorHandler(): Client.ResultHandler =
-        Client.ResultHandler { result ->
+    private fun qrErrorHandler(): Client.ResultHandler {
+        val generation = clientGeneration
+        return Client.ResultHandler { result ->
             if (result is TdApi.Error) {
+                val stale = !isCurrentClientCallback(generation, clientGeneration)
+                StructuredEventLog.shared.record(
+                    kind = EventKind.TDLIB,
+                    severity = Severity.WARNING,
+                    code = "tdlib_auth_request_failed",
+                    message = "Запрос входа отклонён",
+                    attrs = mapOf(
+                        "request" to "qr_request",
+                        "error_code" to result.code.toString(),
+                        "reason" to authErrorReason(result.message),
+                        "phase" to (lastAuthPhase ?: "unknown"),
+                        "generation" to generation.toString(),
+                        "stale" to stale.toString()
+                    )
+                )
+                // A late QR error from a closed client must not touch the new client's timeout, flags or state.
+                if (stale) return@ResultHandler
                 authTimeoutJob?.cancel()
                 qrRequestInFlight = false
                 if (!qrCancelled && _authState.value !is AuthState.WaitingForQr) {
@@ -4124,6 +4174,7 @@ class TdLibTelegramRepository private constructor(
                 }
             }
         }
+    }
 
     /**
      * Restarts the stale-token watchdog. TDLib refreshes the link automatically; if no update arrives for

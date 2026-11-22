@@ -47,23 +47,59 @@ class TdAuthorizationStateMappingTest {
 
     @Test
     fun phoneSubmitRouteFollowsTheTdlibPhase() {
-        assertEquals(PhoneSubmitRoute.SEND, phoneSubmitRoute("wait_phone", qrActive = false, reopening = false))
-        assertEquals(PhoneSubmitRoute.SEND, phoneSubmitRoute("wait_code", qrActive = false, reopening = false))
+        assertEquals(PhoneSubmitRoute.SEND, phoneSubmitRoute("wait_phone", qrActive = false, reopening = false, authQueryInFlight = false))
+        assertEquals(PhoneSubmitRoute.SEND, phoneSubmitRoute("wait_code", qrActive = false, reopening = false, authQueryInFlight = false))
         assertEquals(
             PhoneSubmitRoute.CANCEL_QR_THEN_SEND,
-            phoneSubmitRoute("wait_other_device", qrActive = false, reopening = false)
+            phoneSubmitRoute("wait_other_device", qrActive = false, reopening = false, authQueryInFlight = false)
         )
-        assertEquals(PhoneSubmitRoute.CANCEL_QR_THEN_SEND, phoneSubmitRoute("wait_phone", qrActive = true, reopening = false))
-        assertEquals(PhoneSubmitRoute.WAIT_FOR_CLIENT, phoneSubmitRoute("wait_phone", qrActive = false, reopening = true))
-        assertEquals(PhoneSubmitRoute.WAIT_FOR_CLIENT, phoneSubmitRoute("closed", qrActive = false, reopening = true))
-        assertEquals(PhoneSubmitRoute.WAIT_FOR_CLIENT, phoneSubmitRoute(null, qrActive = false, reopening = false))
-        assertEquals(PhoneSubmitRoute.WAIT_FOR_CLIENT, phoneSubmitRoute("closed", qrActive = false, reopening = false))
+        assertEquals(PhoneSubmitRoute.CANCEL_QR_THEN_SEND, phoneSubmitRoute("wait_phone", qrActive = true, reopening = false, authQueryInFlight = false))
+        assertEquals(PhoneSubmitRoute.WAIT_FOR_CLIENT, phoneSubmitRoute("wait_phone", qrActive = false, reopening = true, authQueryInFlight = false))
+        assertEquals(PhoneSubmitRoute.WAIT_FOR_CLIENT, phoneSubmitRoute("closed", qrActive = false, reopening = true, authQueryInFlight = false))
+        assertEquals(PhoneSubmitRoute.WAIT_FOR_CLIENT, phoneSubmitRoute(null, qrActive = false, reopening = false, authQueryInFlight = false))
+        assertEquals(PhoneSubmitRoute.WAIT_FOR_CLIENT, phoneSubmitRoute("closed", qrActive = false, reopening = false, authQueryInFlight = false))
         assertEquals(
             PhoneSubmitRoute.WAIT_FOR_CLIENT,
-            phoneSubmitRoute("wait_parameters", qrActive = false, reopening = false)
+            phoneSubmitRoute("wait_parameters", qrActive = false, reopening = false, authQueryInFlight = false)
         )
-        assertEquals(PhoneSubmitRoute.IGNORE, phoneSubmitRoute("ready", qrActive = false, reopening = false))
-        assertEquals(PhoneSubmitRoute.IGNORE, phoneSubmitRoute("ready", qrActive = false, reopening = true))
+        assertEquals(PhoneSubmitRoute.IGNORE, phoneSubmitRoute("ready", qrActive = false, reopening = false, authQueryInFlight = false))
+        assertEquals(PhoneSubmitRoute.IGNORE, phoneSubmitRoute("ready", qrActive = false, reopening = true, authQueryInFlight = false))
+    }
+
+    @Test
+    fun phoneSubmitWaitsForThePendingCodeOrPasswordQuery() {
+        assertEquals(
+            PhoneSubmitRoute.IGNORE,
+            phoneSubmitRoute("wait_code", qrActive = false, reopening = false, authQueryInFlight = true)
+        )
+        assertEquals(
+            PhoneSubmitRoute.IGNORE,
+            phoneSubmitRoute("wait_password", qrActive = false, reopening = false, authQueryInFlight = true)
+        )
+        assertEquals(
+            PhoneSubmitRoute.SEND,
+            phoneSubmitRoute("wait_phone", qrActive = false, reopening = false, authQueryInFlight = true)
+        )
+        assertEquals(
+            PhoneSubmitRoute.SEND,
+            phoneSubmitRoute("wait_code", qrActive = false, reopening = false, authQueryInFlight = false)
+        )
+    }
+
+    @Test
+    fun reconnectRestoresTheFormWhenTdlibAlreadyAskedForThePhone() {
+        // Regression: wait_phone -> Loading -> timeout -> reconnect must restore the form without a new update.
+        assertEquals(AuthState.WaitingForPhone, reconnectAuthState("wait_phone", phonePending = false))
+        assertEquals(AuthState.Loading, reconnectAuthState("wait_phone", phonePending = true))
+        assertEquals(AuthState.Loading, reconnectAuthState(null, phonePending = false))
+        assertEquals(AuthState.Loading, reconnectAuthState("closed", phonePending = false))
+    }
+
+    @Test
+    fun lateCallbacksFromAClosedClientGenerationAreIgnored() {
+        assertTrue(isCurrentClientCallback(1, 1))
+        // Regression: a QR error from closed generation 1 must not touch the client reopened as generation 2.
+        assertFalse(isCurrentClientCallback(1, 2))
     }
 
     @Test
