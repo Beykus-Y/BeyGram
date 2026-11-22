@@ -259,7 +259,7 @@ internal class TdBotFeatures(
             this.resultId = resultId
             hideViaBot = false
             if (replyTarget != null) {
-                topicId = replyTarget.topicId
+                topicId = replySendTopic(replyTarget.topicId)
                 replyTo = TdApi.InputMessageReplyToMessage().apply { messageId = replyTarget.id; pollOptionId = "" }
             } else if (forumTopicId > 0L) {
                 topicId = TdApi.MessageTopicForum(forumTopicId.toInt())
