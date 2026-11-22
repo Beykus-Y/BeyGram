@@ -4,6 +4,10 @@ import android.widget.Toast
 import com.beykus.beygram.ui.design.styledShape
 import com.beykus.beygram.ui.motion.MotionToken
 import com.beykus.beygram.ui.motion.rememberMotionInstant
+import com.beykus.beygram.ui.motion.rememberMotionSpec
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.snap
+import androidx.compose.ui.graphics.graphicsLayer
 import com.beykus.beygram.ui.motion.scrollToPageRespectingMotion
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -708,13 +712,26 @@ internal fun SharedMediaCell(media: MessageMedia, observeFile: (Int) -> StateFlo
             if (autoDownload != null) autoDownload(request) else downloadFile(thumbId)
         }
     }
+    val path = thumb.localPath
+    // Превью мягко появляется один раз на вложение: повторный вход ячейки при скролле не анимируем заново.
+    val fadeSpec = rememberMotionSpec(MotionToken.MediaExpand)
+    var previewShown by remember(thumbId) { mutableStateOf(SharedPreviewFadeMemory.contains(thumbId)) }
+    LaunchedEffect(thumbId, loadPreview, path) {
+        if (loadPreview && path != null && !previewShown) {
+            previewShown = true
+            SharedPreviewFadeMemory.add(thumbId)
+        }
+    }
+    val previewAlpha by animateFloatAsState(
+        targetValue = if (previewShown) 1f else 0f,
+        animationSpec = if (fadeSpec.isInstant) snap() else fadeSpec.animationSpec()
+    )
     Box(
         modifier.aspectRatio(1f).clip(styledShape(4.dp)).background(palette.disabled)
             .clickable(onClick = { if (!revealed) revealed = true else onClick() }),
         contentAlignment = Alignment.Center
     ) {
-        val path = thumb.localPath
-        if (loadPreview && path != null) LocalMediaImage(path, Modifier.fillMaxSize(), maxDimension = GRID_PREVIEW_PX)
+        if (loadPreview && path != null) LocalMediaImage(path, Modifier.fillMaxSize().graphicsLayer { this.alpha = previewAlpha }, maxDimension = GRID_PREVIEW_PX)
         if (!revealed) Text(stringResource(R.string.profile_shared_spoiler), color = palette.textSecondary, fontSize = 11.sp,
             textAlign = TextAlign.Center, modifier = Modifier.padding(4.dp))
         if (media.isSecret) Icon(Icons.Rounded.Lock, null, tint = palette.textSecondary, modifier = Modifier.size(22.dp))
@@ -723,6 +740,21 @@ internal fun SharedMediaCell(media: MessageMedia, observeFile: (Int) -> StateFlo
             modifier = Modifier.align(Alignment.BottomStart).padding(4.dp).background(Color.Black.copy(alpha = 0.5f), styledShape(4.dp)).padding(horizontal = 4.dp)
         )
     }
+}
+
+/**
+ * Какие превью уже проявились в этом процессе, по id файла. Ограничено по размеру, чтобы не расти бесконечно.
+ * Синхронизировано: ячейки композируются на главном потоке, но доступ всё равно защищаем.
+ */
+internal object SharedPreviewFadeMemory {
+    private const val LIMIT = 512
+    private val faded = object : LinkedHashMap<Int, Unit>(LIMIT, 0.75f, true) {
+        override fun removeEldestEntry(eldest: MutableMap.MutableEntry<Int, Unit>?): Boolean = size > LIMIT
+    }
+
+    @Synchronized fun contains(fileId: Int): Boolean = faded.containsKey(fileId)
+
+    @Synchronized fun add(fileId: Int) { faded[fileId] = Unit }
 }
 
 /** Адрес для строки вкладки «Ссылки»: адрес, спрятанный под текстом, или сам текст ссылки. Без ссылки показываем текст сообщения. */
