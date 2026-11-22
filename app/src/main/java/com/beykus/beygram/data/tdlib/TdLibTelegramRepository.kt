@@ -3085,6 +3085,8 @@ class TdLibTelegramRepository private constructor(
         when (state) {
             is TdApi.AuthorizationStateWaitTdlibParameters -> {
                 if (isLegacyAccount) client.send(buildTdLibParameters(), errorHandler("set_parameters"))
+                // A reopening client keeps the spinner until WaitPhoneNumber; keep it bounded.
+                if (_authState.value == AuthState.Loading) startAuthTimeout()
                 // The secondary native owner itself configures TDLib parameters,
                 // proxy and listener while network is forced OFF.
             }
