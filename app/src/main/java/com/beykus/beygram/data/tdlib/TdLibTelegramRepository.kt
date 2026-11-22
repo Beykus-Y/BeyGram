@@ -3006,7 +3006,7 @@ class TdLibTelegramRepository private constructor(
                 reportBotChannel.onSendFailed(update)
                 val sendError = (update.message.sendingState as? TdApi.MessageSendingStateFailed)?.error
                 VideoNoteSendTracking.tracker.onFailed(update.message.chatId, update.oldMessageId, sendError?.code ?: 0)
-                android.util.Log.e("BeyGramNet", "Message send failed chat=${update.message.chatId} id=${update.message.id} content=${update.message.content.javaClass.simpleName} code=${sendError?.code} error=${sendError?.message}")
+                android.util.Log.e("BeyGramNet", "Message send failed chat=${update.message.chatId} id=${update.message.id} content=${update.message.content.javaClass.simpleName} topic=${update.message.topicId?.javaClass?.simpleName} reply=${update.message.replyTo?.javaClass?.simpleName} code=${sendError?.code} error=${sendError?.message}")
                 recordAppEvent(
                     kind = EventKind.TDLIB,
                     code = "message_send_failed",
