@@ -1971,8 +1971,8 @@ class TdLibTelegramRepository private constructor(
     @Volatile private var lastAuthPhase: String? = null
     /** Phone the user submitted while the client was not in WaitPhoneNumber; sent once WaitPhoneNumber arrives. */
     @Volatile private var pendingPhone: String? = null
-    /** An authentication query (phone/code/password) awaits its TDLib result. */
-    @Volatile private var authQueryInFlight = false
+    /** Tracks phone/code/password queries by attempt; only the latest attempt may change the login state. */
+    private val authQueries = AuthQueryTracker()
     /** Bumped each time the legacy client is recreated so late callbacks of the old client are ignored. */
     @Volatile private var clientGeneration = 0
 
@@ -2040,7 +2040,7 @@ class TdLibTelegramRepository private constructor(
         authScope.launch {
             try {
                 clientGeneration++
-                authQueryInFlight = false
+                authQueries.reset()
                 client = createLegacyClient()
                 networkMonitor.start()
                 networkMonitor.reconnect()
@@ -2135,7 +2135,7 @@ class TdLibTelegramRepository private constructor(
             lastAuthPhase,
             qrStateActive || qrRequestInFlight,
             isLegacyClientRecreatePending(),
-            authQueryInFlight,
+            authQueries.inFlight,
         )) {
             PhoneSubmitRoute.SEND -> sendPhoneNumber(phone)
             PhoneSubmitRoute.CANCEL_QR_THEN_SEND -> {
@@ -2282,6 +2282,8 @@ class TdLibTelegramRepository private constructor(
     override fun reconnect() {
         networkMonitor.reconnect()
         if (_authState.value == AuthState.ConnectionTimeout) {
+            // Restoring WaitingForPhone gives an explicit retry. The retry is a new attempt,
+            // so a late result of the first one cannot break it.
             val next = reconnectAuthState(lastAuthPhase, pendingPhone != null)
             _authState.value = next
             if (next == AuthState.Loading) startAuthTimeout()
@@ -4119,14 +4121,33 @@ class TdLibTelegramRepository private constructor(
         }
     }
 
-    /** Auth queries clear [authQueryInFlight] on any result from the client that sent them, then handle errors as usual. */
+    /** Only the latest attempt on the current client may change the login state; superseded results are only logged. */
     private fun authQueryHandler(request: String): Client.ResultHandler {
         val generation = clientGeneration
+        val attempt = authQueries.begin()
         val onError = errorHandler(request)
-        authQueryInFlight = true
         return Client.ResultHandler { result ->
-            if (isCurrentClientCallback(generation, clientGeneration)) authQueryInFlight = false
-            onError.onResult(result)
+            val sameClient = isCurrentClientCallback(generation, clientGeneration)
+            val latest = sameClient && authQueries.finish(attempt)
+            if (latest || !sameClient) {
+                // errorHandler already ignores (and logs as stale) errors of a closed client.
+                onError.onResult(result)
+            } else if (result is TdApi.Error) {
+                StructuredEventLog.shared.record(
+                    kind = EventKind.TDLIB,
+                    severity = Severity.WARNING,
+                    code = "tdlib_auth_request_failed",
+                    message = "Запрос входа отклонён",
+                    attrs = mapOf(
+                        "request" to request,
+                        "error_code" to result.code.toString(),
+                        "reason" to authErrorReason(result.message),
+                        "phase" to (lastAuthPhase ?: "unknown"),
+                        "generation" to generation.toString(),
+                        "stale" to "superseded"
+                    )
+                )
+            }
         }
     }
 

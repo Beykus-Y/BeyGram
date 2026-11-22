@@ -67,6 +67,38 @@ internal fun phoneSubmitRoute(
 internal fun reconnectAuthState(phase: String?, phonePending: Boolean): AuthState =
     if (phase == "wait_phone" && !phonePending) AuthState.WaitingForPhone else AuthState.Loading
 
+/**
+ * Tracks authentication queries (phone/code/password) by attempt. Only the result of the latest attempt
+ * may change the login state; a late result of a superseded attempt or of a closed client is ignored.
+ */
+internal class AuthQueryTracker {
+    private var latest = 0
+    private var pending: Int? = null
+
+    /** Starts a new attempt and returns its id; earlier attempts become superseded. */
+    @Synchronized fun begin(): Int {
+        latest++
+        pending = latest
+        return latest
+    }
+
+    /** True if [attempt] is the latest one; then it is no longer pending. A superseded attempt changes nothing. */
+    @Synchronized fun finish(attempt: Int): Boolean {
+        if (attempt != latest) return false
+        pending = null
+        return true
+    }
+
+    /** The client was recreated: every earlier attempt is superseded and nothing is pending. */
+    @Synchronized fun reset() {
+        latest++
+        pending = null
+    }
+
+    val inFlight: Boolean
+        @Synchronized get() = pending != null
+}
+
 /** A TDLib callback belongs to the current client only if it was created for the same client generation. */
 internal fun isCurrentClientCallback(callbackGeneration: Int, currentGeneration: Int): Boolean =
     callbackGeneration == currentGeneration

@@ -124,4 +124,26 @@ class TdAuthorizationStateMappingTest {
         assertFalse(reason.contains("7999"))
         assertTrue(reason.none { it.isDigit() })
     }
+
+    @Test
+    fun lateResultOfASupersededPhoneAttemptIsIgnored() {
+        val tracker = AuthQueryTracker()
+        val first = tracker.begin()          // phone sent
+        // timeout -> reconnect -> user retries
+        val second = tracker.begin()
+        assertTrue(tracker.inFlight)
+        assertFalse(tracker.finish(first))   // late first result: ignored
+        assertTrue(tracker.inFlight)         // second still pending
+        assertTrue(tracker.finish(second))
+        assertFalse(tracker.inFlight)
+    }
+
+    @Test
+    fun clientResetSupersedesPendingAttempt() {
+        val tracker = AuthQueryTracker()
+        val attempt = tracker.begin()
+        tracker.reset()
+        assertFalse(tracker.inFlight)
+        assertFalse(tracker.finish(attempt))
+    }
 }
