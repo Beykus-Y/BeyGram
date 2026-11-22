@@ -252,4 +252,14 @@ class SharedMediaWindowTest {
         assertEquals(listOf(0L to false, 50L to false), requested)
         assertEquals(listOf(2L, 3L), window.messages.map { it.id })
     }
+
+    @Test fun removeDeletedDropsOnlyDeletedIds() = runBlocking {
+        val window = SharedMediaWindow(
+            load = { _, _ -> Result.success(MessageSearchPage(messages = listOf(message(3), message(2), message(1)), nextFromMessageId = 0L)) },
+            failure = { "failed" }
+        )
+        window.loadOlder()
+        window.removeDeleted(setOf(2L, 9L))
+        assertEquals(listOf(1L, 3L), window.messages.map { it.id })
+    }
 }

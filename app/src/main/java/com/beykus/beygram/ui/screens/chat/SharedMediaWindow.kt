@@ -80,6 +80,23 @@ internal class SharedMediaWindow(
     suspend fun loadNewer() = loadPage(newer = true)
 
     /**
+     * В чат пришло новое сообщение: новее окна могут быть вложения. Тянем страницу новее, но только когда окно уже
+     * загружено, иначе первая страница сама заберёт всё. Повторы в ту же сторону схлопываются в [loadPage].
+     */
+    suspend fun refreshNewer() {
+        if (!loaded) return
+        hasNewer = true
+        loadNewer()
+    }
+
+    /** Убирает вложения, удалённые в чате. Страницы не перезагружаем: удалённым id в окне больше делать нечего. */
+    fun removeDeleted(ids: Set<Long>) {
+        if (ids.isEmpty()) return
+        val kept = messages.filterNot { it.id in ids }
+        if (kept.size != messages.size) messages = kept
+    }
+
+    /**
      * Догружает ту сторону окна, к которой подошло вложение [messageId], например при свайпе в просмотрщике.
      * Край считаем среди [visible] вложений: просмотрщик не листает секретные, и они не должны сдвигать край.
      */

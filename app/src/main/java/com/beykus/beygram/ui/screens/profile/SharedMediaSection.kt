@@ -63,8 +63,10 @@ import com.beykus.beygram.deeplink.MessageEntityLink
 import com.beykus.beygram.deeplink.yandexMusicEntityLink
 import com.beykus.beygram.deeplink.yandexMusicNativeReady
 import com.beykus.beygram.domain.model.AutoDownloadRequest
+import com.beykus.beygram.domain.model.ChatHistory
 import com.beykus.beygram.domain.model.ChatMessage
 import com.beykus.beygram.domain.model.ChatPreview
+import kotlinx.coroutines.flow.MutableStateFlow
 import com.beykus.beygram.domain.repository.TelegramRepository
 import com.beykus.beygram.domain.model.ForumTopic
 import com.beykus.beygram.domain.model.MediaFileState
@@ -110,6 +112,9 @@ internal const val GRID_COLUMNS = 3
 private const val GRID_PREVIEW_PX = 256
 /** Сколько ячеек или строк остаётся до конца вкладки, когда следующая страница уже нужна. */
 private const val PREFETCH_CELLS = 12
+
+/** Сколько превью греем за каждым краем видимой части сетки, чтобы при прокрутке они уже были готовы. */
+private const val PREFETCH_NEIGHBOURS = 6
 internal const val PREFETCH_ROWS = 6
 
 /** Do not silently retry a failed page; preserve its cursor for explicit retry. */
@@ -142,6 +147,18 @@ internal fun SharedMediaSection(
     val palette = beyGramPalette()
     val scope = rememberCoroutineScope()
     val tabs = rememberSharedMediaWindows(chatId, load)
+    // Удаления и новые сообщения приходят из репозитория событиями, без опроса: открытые вкладки обновляются по ним.
+    val deletedFlow = remember(chatId, recipientRepository) {
+        recipientRepository?.observeDeletedMessages(chatId) ?: MutableStateFlow(emptySet<Long>())
+    }
+    val deletedIds by deletedFlow.collectAsStateWithLifecycle()
+    LaunchedEffect(deletedIds) { tabs.values.forEach { it.removeDeleted(deletedIds) } }
+    val historyFlow = remember(chatId, recipientRepository) {
+        recipientRepository?.observeChatHistory(chatId) ?: MutableStateFlow(ChatHistory())
+    }
+    val history by historyFlow.collectAsStateWithLifecycle()
+    val latestMessageId = history.messages.maxOfOrNull { it.id } ?: 0L
+    LaunchedEffect(latestMessageId) { if (latestMessageId != 0L) tabs.values.forEach { it.refreshNewer() } }
     val openMessage: (Long) -> Unit = { id -> onOpenMessage(id, tabs.topicOf(id)) }
     val pagerState = rememberPagerState { chatSharedKinds.size }
     // Прокрутка каждой вкладки хранится в разделе: пейджер убирает далёкие страницы из композиции и терял бы позицию.
@@ -372,6 +389,30 @@ private fun SharedMediaGrid(
     val nearEnd by remember(tab) { derivedStateOf { gridState.layoutInfo.visibleItemsInfo.lastOrNull()?.let { it.index >= tab.messages.size - PREFETCH_CELLS } ?: true } }
     LaunchedEffect(nearEnd, tab.messages.size, tab.hasOlder, tab.loading, tab.error) {
         if (shouldAutoLoadSharedMediaPage(nearEnd, tab.hasOlder, tab.loading, tab.error)) onMore()
+    }
+    val autoDownload = LocalAutoDownloadFile.current
+    val visibleRange by remember(tab) {
+        derivedStateOf { gridState.layoutInfo.visibleItemsInfo.let { v -> if (v.isEmpty()) -1 to -1 else v.first().index to v.last().index } }
+    }
+    // Соседние за краем экрана греем тем же путём, что и видимые ячейки: только по политике автозагрузки и без спойлеров.
+    LaunchedEffect(visibleRange, tab.messages.size) {
+        val (first, last) = visibleRange
+        if (first < 0 || autoDownload == null) return@LaunchedEffect
+        val reversed = tab.messages.asReversed()
+        val from = (first - PREFETCH_NEIGHBOURS).coerceAtLeast(0)
+        val to = (last + PREFETCH_NEIGHBOURS).coerceAtMost(reversed.lastIndex)
+        for (index in from..to) {
+            if (index in first..last) continue
+            val media = reversed.getOrNull(index)?.media ?: continue
+            if (!shouldLoadSharedPreview(media, revealed = !media.hasSpoiler)) continue
+            val thumbId = media.thumbnailFileId ?: media.fileId
+            autoDownload(
+                AutoDownloadRequest(
+                    fileId = thumbId, kind = MediaKind.Photo, sizeBytes = observeFile(thumbId).value.size,
+                    isSecret = media.isSecret, isSecretChat = media.isSecretChat, hasSpoiler = false
+                )
+            )
+        }
     }
     LazyVerticalGrid(
         columns = GridCells.Fixed(GRID_COLUMNS), state = gridState, modifier = Modifier.fillMaxSize(),
