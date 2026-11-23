@@ -6,6 +6,7 @@ import com.beykus.beygram.domain.UserMessageException
 import com.beykus.beygram.domain.model.TelegramConnectionState
 import com.beykus.beygram.domain.model.VpnNetworkState
 import com.beykus.beygram.domain.model.VpnSettings
+import com.beykus.beygram.domain.model.VpnTransport
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.CancellationException
@@ -37,6 +38,14 @@ internal class TelegramAutoSelector(
 ) {
     private var job: Job? = null
     private val checking = AtomicBoolean(false)
+    /** Tracks the node the last sweep relied on and nodes that TDLib did not confirm. Survives collectLatest restarts. */
+    private val routes = AutoSelectRouteTracker(
+        confirmMillis = RETRY_INTERVAL_MS,
+        cooldownMillis = COOLDOWN_MILLIS
+    )
+    @Volatile private var lastGroup: String? = null
+    @Volatile private var lastNetworkKey: VpnTransport? = null
+    @Volatile private var networkKeyInitialized = false
 
     fun start() {
         if (job?.isActive == true) return
@@ -46,14 +55,31 @@ internal class TelegramAutoSelector(
                 AutoSelectInputs(connection, network, currentSettings, runtime)
             }.collectLatest { inputs ->
                 val settings = inputs.settings
+                if (inputs.connection == TelegramConnectionState.Connected) routes.confirm()
+                val networkKey = autoSelectNetworkKey(inputs.network)
+                val reachable = inputs.network.canReachInternetForTelegram()
+                if (shouldResetAutoSelectCooldowns(lastGroup, lastNetworkKey, settings.connectionGroup, networkKey, networkKeyInitialized)) {
+                    val wasInitialized = networkKeyInitialized
+                    lastGroup = settings.connectionGroup
+                    lastNetworkKey = networkKey
+                    networkKeyInitialized = true
+                    routes.clearCooldowns()
+                    if (wasInitialized) {
+                        MihomoRuntimeDiagnostics.event("auto", "network changed; cooldowns cleared")
+                    }
+                }
                 if (!shouldProbeAutomaticRoute(settings.autoSelectEnabled,
-                        inputs.network.canReachInternetForTelegram(), inputs.connection, inputs.runtime.status)
+                        reachable, inputs.connection, inputs.runtime.status)
                 ) return@collectLatest
 
                 delay(settings.handoverDelayMillis)
                 while (shouldProbeAutomaticRoute(inputs.settings.autoSelectEnabled,
                         inputs.network.canReachInternetForTelegram(), inputs.connection, inputs.runtime.status)
                 ) {
+                    // The node selected by the previous sweep had a full retry interval to bring TDLib to Connected.
+                    if (routes.expireIfUnconfirmed()) {
+                        MihomoRuntimeDiagnostics.event("auto", "route not confirmed by Telegram; candidate skipped for a while")
+                    }
                     if (checking.compareAndSet(false, true)) {
                         try {
                             MihomoProbeCoordinator.sweep { evaluateAndSelect(settings.connectionGroup) }
@@ -86,8 +112,14 @@ internal class TelegramAutoSelector(
             return
         }
 
+        val candidates = connections.filterNot { routes.isCoolingDown(it.name) }
+        if (candidates.isEmpty()) {
+            report(AutoSelectEvent.NoReachableConnection)
+            return
+        }
+
         val results = mutableListOf<com.beykus.beygram.domain.model.MihomoProbeResult>()
-        connections.chunked(MAX_PARALLEL_PROBES).forEach { batch ->
+        candidates.chunked(MAX_PARALLEL_PROBES).forEach { batch ->
             val batchResults = coroutineScope {
                 batch.map { connection ->
                     async(Dispatchers.IO) { mihomo.checkTelegram(connection.name) }
@@ -106,11 +138,13 @@ internal class TelegramAutoSelector(
         }
         val selected = connections.firstOrNull { it.name == fastest.connectionName }
         if (selected?.selected == true) {
+            routes.markPending(fastest.connectionName)
             report(AutoSelectEvent.Kept(fastest.connectionName, fastest.delayMillis!!))
             return
         }
         try {
             mihomo.selectConnection(groupName, fastest.connectionName)
+            routes.markPending(fastest.connectionName)
             report(AutoSelectEvent.Switched(fastest.connectionName, fastest.delayMillis!!))
         } catch (error: CancellationException) {
             throw error
@@ -132,6 +166,8 @@ internal class TelegramAutoSelector(
     companion object {
         private const val MAX_PARALLEL_PROBES = 4
         private const val RETRY_INTERVAL_MS = 20_000L
+        /** A node that TDLib has not confirmed within one retry interval is skipped for this long. */
+        private const val COOLDOWN_MILLIS = 10 * 60_000L
     }
 }
 
@@ -147,6 +183,19 @@ internal fun shouldProbeAutomaticRoute(
 ): Boolean = enabled && networkReady && proxyStatus == ProxyRuntimeStatus.RUNNING &&
     (telegramState == TelegramConnectionState.Connecting ||
         telegramState == TelegramConnectionState.WaitingForNetwork)
+
+/** Identifies the network that cooldowns were earned on: only the active transport of a usable network, never availability flags or timestamps. */
+internal fun autoSelectNetworkKey(network: VpnNetworkState): VpnTransport? =
+    if (network.internetAvailable && (network.wifiAvailable || network.cellularAvailable)) network.activeTransport else null
+
+/** Cooldowns are per network: a new connection group or a different usable network (Wi-Fi <-> cellular, reachable <-> unreachable) gives every node a fresh chance. */
+internal fun shouldResetAutoSelectCooldowns(
+    previousGroup: String?,
+    previousNetwork: VpnTransport?,
+    group: String,
+    network: VpnTransport?,
+    initialized: Boolean
+): Boolean = !initialized || previousGroup != group || previousNetwork != network
 
 sealed interface AutoSelectEvent {
     data class Probed(val result: com.beykus.beygram.domain.model.MihomoProbeResult) : AutoSelectEvent

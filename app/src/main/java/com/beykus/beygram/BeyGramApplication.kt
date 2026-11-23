@@ -12,6 +12,7 @@ import com.beykus.beygram.data.tdlib.TdAccountRegistry
 import com.beykus.beygram.data.tdlib.TdLibBootstrap
 import com.beykus.beygram.data.tdlib.TdLibTelegramRepository
 import com.beykus.beygram.data.tdlib.TdSecondaryAccountController
+import com.beykus.beygram.data.tdlib.withSharedMihomoLinks
 import com.beykus.beygram.domain.model.AuthState
 import com.beykus.beygram.data.vpn.MihomoProxyClient
 import com.beykus.beygram.data.vpn.VpnBackend
@@ -70,7 +71,8 @@ class BeyGramApplication : Application() {
                 startDirectShare(legacy)
                 VpnBackend.getInstance(
                     context = this,
-                    connectionState = legacy.connectionState,
+                    // Secondary accounts that really use the shared listener also count for auto-selection.
+                    connectionState = legacy.connectionState.withSharedMihomoLinks(applicationScope),
                     scope = applicationScope,
                     setTdLibProxy = legacy::setMihomoProxyEnabled,
                     isTdLibProxyEnabled = legacy::isMihomoProxyEnabled

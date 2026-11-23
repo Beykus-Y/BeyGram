@@ -69,7 +69,6 @@
     <string name="chat_message_forwarded">Message transféré</string>
     <string name="chat_message_open_failed">Impossible d’ouvrir le message</string>
     <string name="chat_message_unavailable">Message indisponible</string>
-    <string name="chat_network_waiting">Aucun réseau. Les messages seront envoyés plus tard</string>
     <string name="chat_pinned_hide_panel">Masquer la barre des épinglés</string>
     <string name="chat_pinned_show_bar">Afficher la barre des épinglés</string>
     <string name="chat_pinned_unpin">Désépingler le message</string>

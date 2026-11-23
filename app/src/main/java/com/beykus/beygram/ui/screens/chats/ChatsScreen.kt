@@ -304,6 +304,8 @@ fun ChatsScreen(
     val activeFolderId = validTelegramFolderSelection(folderSnapshot, selectedFolderId.takeIf { it > 0 })
     LaunchedEffect(folderSnapshot.initialized, folderSnapshot.folders.map { it.id }) {
         if (folderSnapshot.initialized && selectedFolderId != 0 && activeFolderId == null) state.selectFolder(0)
+        // Позиции и шапка удалённых на сервере папок не нужны. Пустой список папок до инициализации не трогаем.
+        if (folderSnapshot.initialized) state.pruneFolders(setOf(0) + folderSnapshot.folders.map { it.id })
     }
     val displayedChats = activeFolderId?.let { folderChats[it].orEmpty() } ?: chats
     val folderLoad = activeFolderId?.let { folderLoadStates[it] } ?: TelegramFolderLoadState(hasMore = false)
@@ -462,7 +464,11 @@ fun ChatsScreen(
     val entryListState = remember { listState }
     LaunchedEffect(listState) {
         val atTop = listState.firstVisibleItemIndex == 0 && listState.firstVisibleItemScrollOffset == 0
-        if (listState !== entryListState && atTop) headerConnection.animateToTop()
+        if (listState !== entryListState) {
+            // A list that opens at its top expands the header, as before. Any other list gets the collapse it left behind.
+            if (atTop) headerConnection.animateToTop()
+            else headerCollapse.offsetPx = (state.savedHeaderProgress(state.selectedFolderId) ?: 0f) * headerCollapse.rangePx
+        }
     }
     LaunchedEffect(state, headerConnection) {
         // Each scroll runs in its own child job: a drag that cancels the animation must not end the request collector.
@@ -582,6 +588,50 @@ fun ChatsScreen(
             }
     }
 
+    // Серверная папка: якорь первой строки, автоподгрузка страниц и ключи строк (ChatsListPaging.kt, ChatsScreenState.kt).
+    val showStoryBar = activeFolderId == null && query.isBlank()
+    val showArchiveRow = archiveAvailable && !archiveHidden
+    val showLocalSearchHeader = query.isNotBlank()
+    val showFolderFooter = activeFolderId != null
+    val hasFolderRows = pinnedChats.isNotEmpty() || regularChats.isNotEmpty()
+    // Ключи в порядке LazyColumn ниже: по ним ищется строка-якорь и проверяются изменения списка.
+    val chatListKeys = remember(showStoryBar, showArchiveRow, showLocalSearchHeader, showFolderFooter, pinnedChats, regularChats) {
+        chatListItemKeys(
+            showStoryBar,
+            showArchiveRow,
+            pinnedChats.map { it.id },
+            showLocalSearchHeader,
+            regularChats.map { it.id },
+            showFolderFooter
+        )
+    }
+    val folderPagingStalled = ServerFolderAutoPaging(listState, activeFolderId, displayedChats.size, folderLoad, onFolderLoadMore)
+    // Якорь возвращаем, когда строки уже есть: до этого список стоит по запасному индексу. Выдаётся один раз.
+    LaunchedEffect(listState, chatListKeys) {
+        val pending = state.pendingAnchor ?: return@LaunchedEffect
+        val anchor = pending.anchorKey
+        if (query.isNotBlank()) {
+            state.clearPendingAnchor()
+            return@LaunchedEffect
+        }
+        val anchorShown = anchor != null && anchor in chatListKeys
+        // Пока страница папки грузится, якорь ждёт: иначе он уйдёт на запасной индекс раньше, чем появятся чаты.
+        val waitingForRows = if (activeFolderId != null) !folderLoad.loadedOnce || folderLoad.loading else chats.isEmpty()
+        if (!anchorShown && waitingForRows) return@LaunchedEffect
+        val target = resolveChatListAnchorIndex(chatListKeys, pending) ?: return@LaunchedEffect
+        val firstKey = encodeChatListKey(listState.layoutInfo.visibleItemsInfo.firstOrNull()?.key)
+        if (firstKey != anchor && !listState.isScrollInProgress) listState.scrollToItem(target, pending.offset)
+        state.clearPendingAnchor()
+    }
+    // Наверху новые строки над первой (история, архив, закрепление, новое сообщение) не должны сдвинуть список вниз:
+    // Compose держит прежнюю первую строку по ключу. Состояние «наверху» читаем из композиции, до перемера списка.
+    // Пока ждёт восстановление якоря, смена ключей не должна возвращать список наверх поверх него.
+    val wasAtTop = !listMoved && state.pendingAnchor == null
+    LaunchedEffect(chatListKeys) {
+        if (!wasAtTop || listState.isScrollInProgress) return@LaunchedEffect
+        if (listState.firstVisibleItemIndex != 0 || listState.firstVisibleItemScrollOffset != 0) listState.scrollToItem(0)
+    }
+
     if (managingFolders) {
         val manager: @Composable () -> Unit = {
             // Sorting every chat by title is only needed while the manager is open, and once per list change.
@@ -640,7 +690,7 @@ fun ChatsScreen(
                                     title = stringResource(R.string.chat_folders_all),
                                     selected = activeFolderId == null,
                                     unreadCount = null,
-                                    onClick = { state.selectFolder(0) },
+                                    onClick = { state.selectFolder(0, headerCollapse.progress) },
                                     onLongClick = { managingFolders = true }
                                 )
                                 is TelegramFolderTab.Folder -> {
@@ -649,7 +699,7 @@ fun ChatsScreen(
                                         title = folder.title,
                                         selected = activeFolderId == folder.id,
                                         unreadCount = folder.unreadChats,
-                                        onClick = { state.selectFolder(folder.id) },
+                                        onClick = { state.selectFolder(folder.id, headerCollapse.progress) },
                                         onLongClick = { managingFolders = true }
                                     )
                                 }
@@ -918,9 +968,20 @@ fun ChatsScreen(
                         activeFolderId != null && folderLoad.loading -> Box(Modifier.fillMaxWidth().padding(36.dp), contentAlignment = Alignment.Center) {
                             CircularProgressIndicator(color = palette.accent)
                         }
-                        activeFolderId != null && query.isBlank() && selectedFilter == ChatFilter.All ->
-                            Text(stringResource(R.string.chat_folder_empty), color = palette.textSecondary,
-                                modifier = Modifier.fillMaxWidth().padding(32.dp), textAlign = androidx.compose.ui.text.style.TextAlign.Center)
+                        activeFolderId != null && query.isBlank() && selectedFilter == ChatFilter.All -> when (folderEmptyContent(folderLoad)) {
+                            FolderEmptyContent.Loading -> Box(Modifier.fillMaxWidth().padding(36.dp), contentAlignment = Alignment.Center) {
+                                CircularProgressIndicator(color = palette.accent)
+                            }
+                            FolderEmptyContent.Error -> Column(Modifier.fillMaxWidth().padding(32.dp),
+                                horizontalAlignment = Alignment.CenterHorizontally) {
+                                Text(stringResource(R.string.chat_folder_load_failed), color = palette.danger, fontSize = 13.sp,
+                                    modifier = Modifier.errorAnnouncement())
+                                TextButton(onClick = { onFolderLoadMore(activeFolderId) }) { Text(stringResource(R.string.common_retry)) }
+                            }
+                            FolderEmptyContent.Empty ->
+                                Text(stringResource(R.string.chat_folder_empty), color = palette.textSecondary,
+                                    modifier = Modifier.fillMaxWidth().padding(32.dp), textAlign = androidx.compose.ui.text.style.TextAlign.Center)
+                        }
                         else -> EmptyState(selectedFilter, query)
                     }
                 }
@@ -973,10 +1034,13 @@ fun ChatsScreen(
                 item(key = "server_folder_load_more") {
                     Column(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 10.dp),
                         horizontalAlignment = Alignment.CenterHorizontally) {
+                        // Without rows the empty state shows the error instead, so it is not repeated here.
+                        val showFolderError = folderLoad.error && hasFolderRows
                         if (folderLoad.loading) CircularProgressIndicator(color = palette.accent, modifier = Modifier.size(26.dp))
-                        if (folderLoad.error) Text(stringResource(R.string.chat_folder_load_failed),
+                        if (showFolderError) Text(stringResource(R.string.chat_folder_load_failed),
                             color = palette.danger, fontSize = 13.sp, modifier = Modifier.errorAnnouncement())
-                        if (folderLoad.hasMore && !folderLoad.loading) {
+                        // The manual button appears after an error, or when automatic paging got no new rows from a page.
+                        if (folderLoad.hasMore && !folderLoad.loading && (showFolderError || folderPagingStalled)) {
                             TextButton(onClick = { onFolderLoadMore(activeFolderId) }) {
                                 Text(stringResource(if (folderLoad.error) R.string.common_retry else R.string.chat_folder_load_more))
                             }
@@ -1236,14 +1300,6 @@ private fun ChatsConnectionLine(status: ChatsConnectionStatus) {
         Text(label, color = color, fontSize = 13.sp, fontWeight = FontWeight.Medium,
             maxLines = 1, overflow = TextOverflow.Ellipsis)
     }
-}
-
-/** Текст строки для состояния TDLib; [ChatsConnectionStatus.None] сюда не попадает. */
-private fun ChatsConnectionStatus.labelResource(): Int = when (this) {
-    ChatsConnectionStatus.WaitingForNetwork -> R.string.chats_connection_waiting_network
-    ChatsConnectionStatus.Connecting -> R.string.chats_connection_connecting
-    ChatsConnectionStatus.Updating -> R.string.chats_connection_updating
-    ChatsConnectionStatus.None -> error("The plain title has no connection label")
 }
 
 @Composable

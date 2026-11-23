@@ -76,6 +76,10 @@ interface ConversationRepository {
     fun updateForumTopicDraft(chatId: Long, forumTopicId: Long, transform: (MessageDraft) -> MessageDraft)
     /** Atomic updates prevent text/formatting/reply callbacks from overwriting one another. */
     fun updateMessageDraft(chatId: Long, transform: (MessageDraft) -> MessageDraft)
+    /** A forum topic's composer is on screen; cloud changes to its draft are held back until it closes. */
+    fun forumTopicDraftOpened(chatId: Long, forumTopicId: Long) {}
+    /** The topic's composer left the screen; its draft is then read back from TDLib once if nothing is unsent. */
+    fun forumTopicDraftClosed(chatId: Long, forumTopicId: Long) {}
     fun observeChatHistory(chatId: Long): StateFlow<ChatHistory>
     fun observeForumTopicHistory(chatId: Long, forumTopicId: Long): StateFlow<ChatHistory>
     fun loadForumTopicHistory(chatId: Long, forumTopicId: Long)

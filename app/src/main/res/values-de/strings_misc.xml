@@ -10,6 +10,8 @@
     <string name="composer_prepare_failed">Der Anhang konnte nicht vorbereitet werden. Versuchen Sie, ihn als Datei zu senden.</string>
     <string name="composer_remove_attachment">Entfernen</string>
     <string name="composer_send_failed">Anhang konnte nicht gesendet werden</string>
+    <string name="composer_send_partial">%1$d von %2$d gesendet. Die übrigen können Sie erneut senden</string>
+    <string name="composer_send_uncertain">Der Versand konnte nicht bestätigt werden. Prüfen Sie den Chat, bevor Sie erneut senden</string>
     <string name="composer_too_many_attachments">Wählen Sie bis zu 10 Anhänge gleichzeitig aus</string>
     <string name="composer_type_file">Datei</string>
     <string name="composer_type_gif">GIF</string>

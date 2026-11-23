@@ -10,6 +10,8 @@
     <string name="composer_prepare_failed">No se pudo preparar el adjunto. Prueba a enviarlo como archivo.</string>
     <string name="composer_remove_attachment">Quitar</string>
     <string name="composer_send_failed">No se pudo enviar el adjunto</string>
+    <string name="composer_send_partial">Enviados %1$d de %2$d. Puedes volver a enviar los restantes</string>
+    <string name="composer_send_uncertain">No se pudo confirmar el envío. Revisa el chat antes de volver a enviar</string>
     <string name="composer_too_many_attachments">Elige hasta 10 adjuntos a la vez</string>
     <string name="composer_type_file">Archivo</string>
     <string name="composer_type_photo_video">Fotos y videos</string>

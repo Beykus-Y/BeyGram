@@ -35,6 +35,8 @@ fun secretProperty(name: String, defaultValue: String): String =
         .orElse(providers.provider { secretsProperties.getProperty(name, defaultValue) })
         .get()
 
+val bgVideoNotePilot = providers.gradleProperty("beygramBgVideoNotePilot").orNull == "true"
+
 val telegramApiId = secretProperty("telegramApiId", "0").ifBlank { "0" }
 val telegramApiHash = secretProperty("telegramApiHash", "")
 
@@ -102,6 +104,7 @@ android {
             cmake {
                 arguments += listOf(
                     "-DANDROID_STL=c++_shared",
+                    "-DBEYGRAM_VIDEO_NOTE_PILOT=${if (bgVideoNotePilot) "ON" else "OFF"}",
                     "-DBGMEDIA_BUILD_DESKTOP=OFF",
                     "-DBGMEDIA_BUILD_TESTS=OFF",
                     "-DBGMEDIA_BUILD_TOOLS=OFF",
@@ -113,11 +116,13 @@ android {
         versionCode = stableVersionCode
         versionName = stableVersion
 
+        buildConfigField("boolean", "BG_VIDEO_NOTE_PILOT", bgVideoNotePilot.toString())
         buildConfigField("int", "TELEGRAM_API_ID", telegramApiId)
         buildConfigField("String", "TELEGRAM_API_HASH", telegramApiHash.asBuildConfigString())
         // Optional Yandex Music source in both release channels; blank values keep it unavailable.
         buildConfigField("String", "YANDEX_CLIENT_ID", secretProperty("yandexMusicClientId", "").asBuildConfigString())
         buildConfigField("String", "YANDEX_CLIENT_SECRET", secretProperty("yandexMusicClientSecret", "").asBuildConfigString())
+        buildConfigField("String", "YANDEX_LYRICS_SIGN_KEY", secretProperty("yandexMusicLyricsSignKey", "").asBuildConfigString())
 
         // Публичная конфигурация диагностики (не секреты): адрес сервера отчётов и
         // служебный бот. Пустой DIAGNOSTICS_API_BASE_URL отключает отправку отчётов.
@@ -131,6 +136,8 @@ android {
         // Shown in the video-note diagnostics so a report names the exact commit and library versions.
         buildConfigField("String", "BUILD_GIT_SHA",
             (providers.environmentVariable("GITHUB_SHA").orNull?.take(12) ?: "local").asBuildConfigString())
+        // Set by the DEV channel only (-PdevBuildNumber); -1 means the build has no CI run number.
+        buildConfigField("int", "DEV_BUILD_NUMBER", "-1")
         buildConfigField("String", "CAMERAX_VERSION", libs.versions.camerax.get().asBuildConfigString())
         buildConfigField("String", "MEDIA3_VERSION", libs.versions.media3.get().asBuildConfigString())
 
@@ -146,6 +153,8 @@ android {
             // DEV beta builds add the CI run number to the stable code: each published DEV build
             // installs over the previous one and stays above Stable. Local builds keep the stable code.
             versionCode = stableVersionCode + ((project.findProperty("devBuildNumber") as String?)?.toInt() ?: 0)
+            buildConfigField("int", "DEV_BUILD_NUMBER",
+                ((project.findProperty("devBuildNumber") as String?)?.toIntOrNull() ?: -1).toString())
             // Dev and Stable are often installed side by side. Loopback ports are shared by every app on the
             // device, so each variant needs its own listener port (issue #75).
             buildConfigField("int", "MIHOMO_PROXY_PORT", "17892")

@@ -4,6 +4,7 @@ import android.content.Context
 import android.content.Intent
 import androidx.core.content.ContextCompat
 import com.beykus.beygram.R
+import com.beykus.beygram.data.tdlib.TdSecondaryConnectionStates
 import com.beykus.beygram.domain.UiText
 import com.beykus.beygram.domain.UserMessageException
 import com.beykus.beygram.domain.model.MihomoConnection
@@ -83,6 +84,8 @@ internal class VpnBackend private constructor(
     private val subscriptionFetchMutex = Mutex()
     private val automaticActivation = AutomaticActivationGuard()
     private val restoreMutex = Mutex()
+    /** Times of recent automatic listener recoveries, guarded by its own lock. */
+    private val recentListenerDrops = ArrayDeque<Long>()
     private val _restoreFailed = MutableStateFlow(false)
     /** True when the automatic restore failed on every try. The user then decides: try again or turn the proxy off. */
     val restoreFailed: StateFlow<Boolean> = _restoreFailed.asStateFlow()
@@ -120,7 +123,51 @@ internal class VpnBackend private constructor(
                 }
             }
         }
+        scope.launch(Dispatchers.IO) {
+            // STOPPING sits between RUNNING and STOPPED on every stop, so only a final STOPPED/FAILED counts,
+            // and a stop the app asked for never does.
+            var sawRunning = runtimeState.value.status == ProxyRuntimeStatus.RUNNING
+            runtimeState.collect { proxy ->
+                when (proxy.status) {
+                    ProxyRuntimeStatus.RUNNING -> sawRunning = true
+                    ProxyRuntimeStatus.STOPPED, ProxyRuntimeStatus.FAILED -> {
+                        val dropped = sawRunning && !MihomoProxyService.stopRequestedByApp
+                        sawRunning = false
+                        if (dropped) scope.launch(Dispatchers.IO) { recoverDroppedListener() }
+                    }
+                    ProxyRuntimeStatus.STARTING, ProxyRuntimeStatus.STOPPING -> Unit
+                }
+            }
+        }
         scope.launch(Dispatchers.IO) { restore() }
+    }
+
+    /**
+     * The listener went down while TDLib still pointed at it. It is started again through the same bounded
+     * restore as at app start: a few attempts, then the existing question asks the user. Nothing polls.
+     */
+    private suspend fun recoverDroppedListener() {
+        delay(LISTENER_DROP_SETTLE_MILLIS)
+        if (_busy.value || listenerInUse()) return
+        val now = System.currentTimeMillis()
+        val allowed = synchronized(recentListenerDrops) {
+            while (recentListenerDrops.isNotEmpty() && now - recentListenerDrops.first() > LISTENER_DROP_WINDOW_MILLIS) {
+                recentListenerDrops.removeFirst()
+            }
+            if (recentListenerDrops.size >= MAX_LISTENER_RECOVERIES) false else {
+                recentListenerDrops.addLast(now)
+                true
+            }
+        }
+        if (!allowed) {
+            // A listener that keeps dying right after each start is not recovered again without the user.
+            MihomoRuntimeDiagnostics.event("backend", "listener keeps dropping; recovery limit reached")
+            // Ask only while TDLib still points at our listener; if it moved on, there is nothing to decide.
+            if (isTdLibProxyEnabled().getOrNull() != false) _restoreFailed.value = true
+            return
+        }
+        MihomoRuntimeDiagnostics.event("backend", "listener dropped while Telegram uses it; recovering")
+        restore()
     }
 
     /**
@@ -315,15 +362,21 @@ internal class VpnBackend private constructor(
                 appContext.startService(Intent(appContext, MihomoProxyService::class.java).setAction(MihomoProxyService.ACTION_STOP))
                 throw tdlib.exceptionOrNull() ?: UserMessageException(UiText.Res(R.string.err_vpn_telegram_connect_failed))
             }
-            // Confirm TDLib selected this local proxy rather than treating EnableProxy's OK as connectivity.
-            val route = isTdLibProxyEnabled().getOrNull()
-            MihomoRuntimeDiagnostics.event(
-                "tdlib", "EnableProxy accepted currentRoute=${when (route) {
-                    true -> "subscription"
-                    false -> "other"
-                    null -> "unknown"
-                }}; actual connectivity is reported separately"
-            )
+            // EnableProxy's OK alone is not a confirmed start: TDLib must report the subscription proxy as active.
+            val route = confirmTdLibRoute()
+            if (route == false) {
+                // TDLib points elsewhere, so the listener serves nobody and stops.
+                MihomoRuntimeDiagnostics.event("tdlib", "EnableProxy not confirmed; TDLib uses another route, listener stopped")
+                runCatching { appContext.startService(Intent(appContext, MihomoProxyService::class.java).setAction(MihomoProxyService.ACTION_STOP)) }
+                throw UserMessageException(UiText.Res(R.string.err_vpn_telegram_connect_failed), IllegalStateException("TDLib uses another route"))
+            }
+            if (route == null) {
+                // The state is unknown, so TDLib may still point at this listener. It stays up: stopping it would
+                // leave TDLib on a dead port. The failure lets the user retry.
+                MihomoRuntimeDiagnostics.event("tdlib", "EnableProxy state unknown; listener kept running")
+                throw UserMessageException(UiText.Res(R.string.err_vpn_telegram_connect_failed), IllegalStateException("TDLib route state unknown"))
+            }
+            MihomoRuntimeDiagnostics.event("tdlib", "EnableProxy confirmed; actual connectivity is reported separately")
             checkSelectedRoute()
             Result.success(Unit)
         } catch (error: TimeoutCancellationException) {
@@ -334,6 +387,20 @@ internal class VpnBackend private constructor(
             Result.failure(UserMessageException(UiText.Res(R.string.err_vpn_start_timeout)))
         } catch (error: CancellationException) { throw error }
         catch (error: Exception) { MihomoRuntimeDiagnostics.failure("backend start", error); Result.failure(error) }
+    }
+
+    /**
+     * true: TDLib uses the subscription proxy. false: TDLib answered with another route, which is final.
+     * null: TDLib never answered within the attempts, so the route is unknown.
+     */
+    private suspend fun confirmTdLibRoute(): Boolean? {
+        repeat(TDLIB_STATE_ATTEMPTS) { attempt ->
+            val enabled = isTdLibProxyEnabled().getOrNull()
+            MihomoRuntimeDiagnostics.event("tdlib", "route confirmation attempt ${attempt + 1} state=${enabled ?: "unknown"}")
+            if (enabled != null) return enabled
+            if (attempt < TDLIB_STATE_ATTEMPTS - 1) delay(TDLIB_STATE_RETRY_MILLIS)
+        }
+        return null
     }
 
     /** Probe the selected route once after enabling/changing it; do not block TDLib setup on upstream health. */
@@ -438,6 +505,10 @@ internal class VpnBackend private constructor(
     private suspend fun stopListenerNow() {
         routeProbeGeneration.incrementAndGet()
         if (runtimeState.value.status == ProxyRuntimeStatus.STOPPED) return
+        // Secondaries on the shared listener lose it with the listener. They are never moved to Direct here:
+        // only an explicit route change of the primary stops the listener, and each secondary keeps its own route.
+        val sharing = TdSecondaryConnectionStates.links.value.values.count { it.sharesMihomo }
+        if (sharing > 0) MihomoRuntimeDiagnostics.event("backend", "listener stopped; $sharing secondary account(s) shared it")
         appContext.startService(Intent(appContext, MihomoProxyService::class.java).setAction(MihomoProxyService.ACTION_STOP))
         withTimeout(10_000) { MihomoProxyService.runtimeState.first { it.status == ProxyRuntimeStatus.STOPPED } }
     }
@@ -586,6 +657,10 @@ internal class VpnBackend private constructor(
 
     companion object {
         private const val MAX_PARALLEL_PROBES = 4
+        /** A short pause after an unexpected drop, so a stop or start that is just under way can settle first. */
+        private const val LISTENER_DROP_SETTLE_MILLIS = 2_000L
+        private const val MAX_LISTENER_RECOVERIES = 3
+        private const val LISTENER_DROP_WINDOW_MILLIS = 10 * 60_000L
         private const val TDLIB_STATE_ATTEMPTS = 3
         private const val TDLIB_STATE_RETRY_MILLIS = 2_000L
         private const val RESTORE_SETTLE_TIMEOUT_MILLIS = 40_000L

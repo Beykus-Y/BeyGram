@@ -78,8 +78,15 @@ class MihomoProxyService : Service() {
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         lastStartId = startId
         when (intent?.action) {
-            ACTION_START -> startProxy()
-            ACTION_STOP -> enqueueStop(startId)
+            ACTION_START -> {
+                stopRequestedByApp = false
+                startProxy()
+            }
+            ACTION_STOP -> {
+                // Set before the stop begins, so the backend can tell this stop from a drop.
+                stopRequestedByApp = true
+                enqueueStop(startId)
+            }
             else -> stopSelf(startId)
         }
         return START_NOT_STICKY
@@ -215,6 +222,8 @@ class MihomoProxyService : Service() {
     companion object {
         const val ACTION_START = "com.beykus.beygram.mihomo_proxy.START"
         const val ACTION_STOP = "com.beykus.beygram.mihomo_proxy.STOP"
+        /** True after the app asked for a stop and before the next start. A stop that the app did not ask for is a drop. */
+        @Volatile internal var stopRequestedByApp = false
         private const val NOTIFICATION_ID = 7012
         private val _runtimeState = MutableStateFlow(ProxyRuntimeState(ProxyRuntimeStatus.STOPPED))
         val runtimeState: StateFlow<ProxyRuntimeState> = _runtimeState.asStateFlow()

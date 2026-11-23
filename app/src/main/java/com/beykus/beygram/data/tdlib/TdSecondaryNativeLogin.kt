@@ -94,6 +94,8 @@ internal class TdSecondaryNativeLoginLauncher(
         if (planned is TdSecondaryRouteDecision.Blocked) {
             throw TdSecondaryRouteUnavailableException(planned.reason)
         }
+        // Lets the proxy logic know which accounts depend on the shared listener. Observation only.
+        runCatching { TdSecondaryConnectionStates.markRoute(accountId, planned == TdSecondaryRouteDecision.SharedMihomo) }
 
         val phases = MutableStateFlow(TdAccountAuthPhase.STARTING)
         val fullRepositoryObservers = CopyOnWriteArrayList<(TdApi.Object) -> Unit>()
@@ -107,6 +109,8 @@ internal class TdSecondaryNativeLoginLauncher(
             owner.create(accountId,
             onClosed = { nativeLeaseClosed.complete(Unit) },
             onUpdate = { event ->
+                // Observation only: the phase feeds the shared proxy decisions and never alters this update's handling.
+                runCatching { TdSecondaryConnectionStates.receive(event) }
                 // Never dispatch secondary updates through the legacy chat
                 // repository, global notification feed or shared media cache.
                 // The same native client can feed the full TelegramRepository;

@@ -73,6 +73,7 @@ import com.beykus.beygram.domain.model.GroupMemberFilter
 import com.beykus.beygram.domain.model.GroupMemberPage
 import com.beykus.beygram.domain.model.GroupSettingsEdit
 import com.beykus.beygram.domain.model.ForwardedMessages
+import com.beykus.beygram.domain.model.ComposerSendUncertainException
 import com.beykus.beygram.domain.model.OutgoingMedia
 import com.beykus.beygram.domain.model.StickerItem
 import com.beykus.beygram.domain.model.StickerSearchPage
@@ -80,6 +81,8 @@ import com.beykus.beygram.domain.model.StickerSetContent
 import com.beykus.beygram.domain.model.StickerSetSummary
 import com.beykus.beygram.domain.model.normalizedPublicUsername
 import com.beykus.beygram.data.media.VideoNoteSendTracking
+import com.beykus.beygram.share.ShareMediaHandoff
+import com.beykus.beygram.share.isShareOutcomeUnknown
 import com.beykus.beygram.data.music.MusicLibraries
 import com.beykus.beygram.data.media.AutoDownloadDecision
 import com.beykus.beygram.data.media.AutoDownloadNetwork
@@ -451,6 +454,8 @@ class TdLibTelegramRepository private constructor(
         messageDrafts.updateTopic(chatId, forumTopicId, transform)
     override fun updateMessageDraft(chatId: Long, transform: (MessageDraft) -> MessageDraft) =
         messageDrafts.update(chatId, transform)
+    override fun forumTopicDraftOpened(chatId: Long, forumTopicId: Long) = messageDrafts.topicOpened(chatId, forumTopicId)
+    override fun forumTopicDraftClosed(chatId: Long, forumTopicId: Long) = messageDrafts.topicClosed(chatId, forumTopicId)
     private fun invalidatePins(chatId: Long) { pinnedVersions[chatId]?.update { it + 1 } }
 
     private val messageHistory = MessageHistoryStore()
@@ -730,16 +735,18 @@ class TdLibTelegramRepository private constructor(
         require(folderId > 0 && _chatFolders.value.folders.any { it.id == folderId }) {
             "Telegram folder no longer exists"
         }
+        // A page already in flight answers this call: a second LoadChats would only queue behind it and repeat it.
+        if (_folderLoadStates.value[folderId]?.loading == true) return@requestResult Unit
         folderPageLocks.computeIfAbsent(folderId) { Mutex() }.withLock {
             if (_folderLoadStates.value[folderId]?.hasMore == false ||
                 _chatFolders.value.folders.none { it.id == folderId }) return@withLock
             setFolderLoading(folderId, TelegramFolderLoadState(loading = true))
             try {
                 tdRequests(TdApi.LoadChats(TdApi.ChatListFolder(folderId), 100))
-                setFolderLoading(folderId, TelegramFolderLoadState(hasMore = true))
+                setFolderLoading(folderId, TelegramFolderLoadState(hasMore = true, loadedOnce = true))
             } catch (notFound: TdRequestError) {
                 if (notFound.code == 404) {
-                    setFolderLoading(folderId, TelegramFolderLoadState(hasMore = false))
+                    setFolderLoading(folderId, TelegramFolderLoadState(hasMore = false, loadedOnce = true))
                 } else {
                     setFolderLoading(folderId, TelegramFolderLoadState(error = true))
                     throw notFound
@@ -757,7 +764,11 @@ class TdLibTelegramRepository private constructor(
     private fun setFolderLoading(folderId: Int, state: TelegramFolderLoadState) {
         // Ignore a response for a folder removed remotely while a page was loading.
         if (_chatFolders.value.folders.none { it.id == folderId }) return
-        _folderLoadStates.update { it + (folderId to state) }
+        _folderLoadStates.update { states ->
+            // Once a folder has been answered, later loading and error states keep that fact.
+            val loadedOnce = state.loadedOnce || states[folderId]?.loadedOnce == true
+            states + (folderId to state.copy(loadedOnce = loadedOnce))
+        }
     }
 
     override suspend fun setChatPinned(chatId: Long, pinned: Boolean): Result<Unit> = requestResult {
@@ -2545,10 +2556,16 @@ class TdLibTelegramRepository private constructor(
     ): Result<List<Long>> {
         leaveJumpWindow(chatId)
         var ids = emptyList<Long>()
+        val handoff = ShareMediaHandoff()
         val result = if (media.size > 1) {
-            conversationActions.sendMediaAlbum(chatId, media, caption, replyToMessageId, entities, forumTopicId, options) { ids = it }
+            conversationActions.sendMediaAlbum(chatId, media, caption, replyToMessageId, entities, forumTopicId, options, handoff = handoff) { ids = it }
         } else {
-            conversationActions.sendMedia(chatId, media.single(), caption, replyToMessageId, entities, forumTopicId, options) { ids = it }
+            conversationActions.sendMedia(chatId, media.single(), caption, replyToMessageId, entities, forumTopicId, options, handoff = handoff) { ids = it }
+        }
+        // Once TDLib has the request, a timed-out wait does not prove that nothing was sent.
+        val failure = result.exceptionOrNull()
+        if (failure != null && handoff.handedOff() && isShareOutcomeUnknown(failure)) {
+            return Result.failure(ComposerSendUncertainException(failure))
         }
         return result.map { ids }
     }
@@ -2637,6 +2654,7 @@ class TdLibTelegramRepository private constructor(
         conversationActions.retryMessages(chatId, messageIds, sendNowConsent)
 
     override fun openChat(chatId: Long) {
+        messageDrafts.opened(chatId)
         botKeyboards.refresh(chatId)
         _notificationPresentation.update { it.copy(openedChats = it.openedChats + chatId) }
         conversationEffects.opened(chatId)
@@ -2988,7 +3006,7 @@ class TdLibTelegramRepository private constructor(
                 reportBotChannel.onSendFailed(update)
                 val sendError = (update.message.sendingState as? TdApi.MessageSendingStateFailed)?.error
                 VideoNoteSendTracking.tracker.onFailed(update.message.chatId, update.oldMessageId, sendError?.code ?: 0)
-                android.util.Log.e("BeyGramNet", "Message send failed chat=${update.message.chatId} id=${update.message.id} content=${update.message.content.javaClass.simpleName} code=${sendError?.code} error=${sendError?.message}")
+                android.util.Log.e("BeyGramNet", "Message send failed chat=${update.message.chatId} id=${update.message.id} content=${update.message.content.javaClass.simpleName} topic=${update.message.topicId?.javaClass?.simpleName} reply=${update.message.replyTo?.javaClass?.simpleName} code=${sendError?.code} error=${sendError?.message}")
                 recordAppEvent(
                     kind = EventKind.TDLIB,
                     code = "message_send_failed",
@@ -3307,7 +3325,7 @@ class TdLibTelegramRepository private constructor(
             /* apiId                 = */ config.apiId,
             /* apiHash               = */ config.apiHash,
             /* systemLanguageCode    = */ config.systemLanguageCode,
-            /* deviceModel           = */ "${Build.MANUFACTURER} ${Build.MODEL}".trim(),
+            /* deviceModel           = */ config.deviceModel,
             /* systemVersion         = */ Build.VERSION.RELEASE,
             /* applicationVersion    = */ config.applicationVersion
         )

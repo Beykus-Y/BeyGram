@@ -46,7 +46,6 @@ import androidx.compose.material.icons.rounded.MoreVert
 import androidx.compose.material.icons.rounded.PushPin
 import androidx.compose.material.icons.rounded.Schedule
 import androidx.compose.material.icons.rounded.Search
-import androidx.compose.material.icons.rounded.WifiOff
 import androidx.compose.material.icons.automirrored.rounded.Send
 import androidx.compose.material3.*
 import com.beykus.beygram.ui.components.TextButton
@@ -111,6 +110,7 @@ import com.beykus.beygram.domain.model.*
 import com.beykus.beygram.domain.repository.ConversationRepository
 import com.beykus.beygram.domain.search.appendDistinctBy
 import com.beykus.beygram.domain.search.isCurrentChatSearch
+import com.beykus.beygram.domain.search.nextChatSearchCursor
 import com.beykus.beygram.data.media.VideoMessageSettingsStore
 import com.beykus.beygram.data.media.ComposerRecordingMode
 import com.beykus.beygram.data.presence.LastSeenStyle
@@ -239,6 +239,10 @@ fun ChatScreen(
     val draft by remember(composerDraftState) { derivedStateOf { composerDraftState.value.text } }
     val draftEntities by remember(composerDraftState) { derivedStateOf { composerDraftState.value.entities } }
     val replyId by remember(composerDraftState) { derivedStateOf { composerDraftState.value.replyToMessageId } }
+    DisposableEffect(conversation, chat.id, forumTopicId) {
+        if (forumTopicId > 0L) conversation.forumTopicDraftOpened(chat.id, forumTopicId)
+        onDispose { if (forumTopicId > 0L) conversation.forumTopicDraftClosed(chat.id, forumTopicId) }
+    }
     fun updateDraft(transform: (com.beykus.beygram.domain.model.MessageDraft) -> com.beykus.beygram.domain.model.MessageDraft) =
         if (forumTopicId > 0L) conversation.updateForumTopicDraft(chat.id, forumTopicId, transform)
         else conversation.updateMessageDraft(chat.id, transform)
@@ -362,12 +366,14 @@ fun ChatScreen(
     var searchGeneration by remember(chat.id, forumTopicId) { mutableIntStateOf(0) }
     var searchBusy by remember(chat.id, forumTopicId) { mutableStateOf(false) }
     var searchError by remember(chat.id, forumTopicId) { mutableStateOf<String?>(null) }
+    var searchRefreshing by remember(chat.id, forumTopicId) { mutableStateOf(false) }
+    var searchRetry by remember(chat.id, forumTopicId) { mutableIntStateOf(0) }
     var searchMatchSession by remember(chat.id, forumTopicId) { mutableStateOf(ChatSearchMatchSession()) }
     var searchMatchGeneration by remember(chat.id, forumTopicId) { mutableIntStateOf(0) }
     fun closeSearch(clearMatchSession: Boolean = true) {
         searching = false; searchQuery = ""; searchFilter = ChatSearchFilter()
         searchResults = emptyList(); searchNextId = 0L; searchTotalCount = 0; searchGeneration++
-        searchBusy = false; searchError = null
+        searchBusy = false; searchError = null; searchRefreshing = false
         if (clearMatchSession) {
             searchMatchGeneration++
             searchMatchSession = ChatSearchMatchSession()
@@ -462,6 +468,8 @@ fun ChatScreen(
     val design = LocalDesignSystem.current
     // Each forum topic keeps its own list position.
     val scrollPosition: ChatScrollPositionViewModel = viewModel(key = "chat-scroll-$accountId-${chat.id}-$forumTopicId")
+    // A send started here follows the list to the bottom when its message arrives (see the newest-arrival effect).
+    fun noteLocalSend() = scrollPosition.markLocalSend(System.currentTimeMillis())
     val listState = rememberLazyListState(scrollPosition.firstVisibleItemIndex, scrollPosition.firstVisibleItemScrollOffset)
     DisposableEffect(listState) {
         onDispose {
@@ -588,6 +596,7 @@ fun ChatScreen(
     }
     /** Ставит запись в отправку. Пропусков нет: занятый worker сам подхватит очередь. */
     fun sendRecordedMedia(mediaList: List<OutgoingMedia>, destination: VoiceRecordingDestination) {
+        noteLocalSend()
         pendingRecordingSends.addLast(destination to mediaList)
         startRecordingSendWorker()
     }
@@ -627,32 +636,35 @@ fun ChatScreen(
     val attachments = rememberAttachmentState(
         chatId = chat.id,
         mediaLaunchController = mediaLaunchController,
-        sendMedia = { media, caption, options ->
-            val stealthScheduledBefore = stealthWillSchedule(conversation, options)
+        sendMedia = { snapshot, media, caption, entities ->
+            noteLocalSend()
+            val sendOptions = snapshot.options
+            val stealthScheduledBefore = stealthWillSchedule(conversation, sendOptions)
             // Only the real, visible outgoing photo can receive the spatial effect. Never match by caption/file name.
             val capture = if (design.navigationFloating && messageAnimations.enabled && !mediaLaunchMotion.isInstant &&
-                !chat.isSecret && !chat.hasProtectedContent && !options.viewOnce &&
-                options.scheduledAtSeconds == null && !stealthScheduledBefore) {
+                !chat.isSecret && !chat.hasProtectedContent && !sendOptions.viewOnce &&
+                sendOptions.scheduledAtSeconds == null && !stealthScheduledBefore) {
                 mediaLaunchController.capture(media)
             } else null
-            val result = conversation.sendComposerMedia(chat.id, media, caption, replyId, draftEntities, sendForumTopicId, options)
+            val result = conversation.sendComposerMedia(snapshot.chatId, media, caption, snapshot.replyToMessageId, entities, snapshot.forumTopicId, sendOptions)
             if (result.isSuccess) {
                 val ids = result.getOrNull().orEmpty()
                 if (capture != null && ids.isNotEmpty() && ids.none { mediaCoordinates[it] != null }) {
                     mediaLaunchController.accept(capture, ids)
                 }
-                clearReply()
                 if (stealthScheduledBefore) showStealthScheduledNotice(context)
             }
             result.map { Unit }
         },
         sendSticker = { sticker, options ->
+            noteLocalSend()
             val stealthScheduledBefore = stealthWillSchedule(conversation, options)
             val result = conversation.sendSticker(chat.id, sticker, replyId, forumTopicId = sendForumTopicId, options = options)
             if (result.isSuccess) { clearReply(); if (stealthScheduledBefore) showStealthScheduledNotice(context) }
             result
         },
         sendExtra = { draft, options ->
+            noteLocalSend()
             val stealthScheduledBefore = stealthWillSchedule(conversation, options)
             val result = when (draft) {
                 is MessageExtraDraft.Poll -> conversation.sendPoll(chat.id, draft.poll, replyId, forumTopicId = sendForumTopicId, options = options)
@@ -721,6 +733,7 @@ fun ChatScreen(
             VideoNoteExportCenter.results.collect { list ->
                 list.filter { it.claimedBy(chat.id, accountId, videoClaimTopicId) && !it.requiresPreview && !it.sending }.forEach { item ->
                     val reply = item.sendReplyId(feedSender = forumAllMessages, composerReplyId = replyId)
+                    noteLocalSend()
                     val accepted = VideoNoteExportCenter.send(item.chatId, item.sessionName, reply, accountId) { media, targetReply ->
                         conversation.sendMedia(item.chatId, media, "", targetReply, forumTopicId = item.topicId).map { Unit }
                     }
@@ -883,6 +896,23 @@ fun ChatScreen(
     }
     val senderHeaderByKey = remember(timelineRows.structureVersion, timelineGrouper, pendingVideoNotes, visibleTextAttempts, scrollPosition.readBoundaryId, chat.isGroup, chat.isChannel, chat.isSavedMessages, forumAllMessages, feedGeneralTopic) {
         senderHeaderVisibility(chat, messageListItems, if (forumAllMessages) feedTopicOf else null)
+    }
+    // The position is saved by message as well as by index: history changes move indexes, not the message on screen.
+    val currentListItems by rememberUpdatedState(messageListItems)
+    val bottomThresholdPx = with(LocalDensity.current) { 48.dp.roundToPx() }
+    DisposableEffect(listState) {
+        onDispose {
+            chatScrollAnchorOf(currentListItems, listState.firstVisibleItemIndex, listState.firstVisibleItemScrollOffset, bottomThresholdPx, System.currentTimeMillis())
+                ?.let { scrollPosition.anchor = it }
+            scrollPosition.anchorRestored = false
+        }
+    }
+    // Remembers which row sat at the bottom, so the next arrival can tell a reader at the bottom from one above it.
+    LaunchedEffect(listState) {
+        snapshotFlow {
+            val atBottom = listState.firstVisibleItemIndex == 0 && listState.firstVisibleItemScrollOffset <= bottomThresholdPx
+            if (atBottom) listState.layoutInfo.visibleItemsInfo.firstOrNull()?.key as? String else null
+        }.collect { key -> if (key != null) scrollPosition.previousFirstKey = key }
     }
     val messageItemsByKey = remember(messageListItems) { messageListItems.associateBy { it.key } }
     val currentMessageItemsByKey by rememberUpdatedState(messageItemsByKey)
@@ -1418,17 +1448,53 @@ fun ChatScreen(
     LaunchedEffect(pendingVideoNotes.firstOrNull()?.sessionName) {
         if (pendingVideoNotes.isNotEmpty()) listState.scrollToItemRespectingMotion(0, motionInstant = listScrollInstant)
     }
+    // Restores the position saved when the chat was left. Another opening owns the position while a jump, a focused message
+    // or the unread separator is pending: a restore that ran after the separator was placed would move it.
+    LaunchedEffect(chat.id, messageListItems, history.isLoading) {
+        if (scrollPosition.anchorRestored || messageListItems.isEmpty()) return@LaunchedEffect
+        val unreadOpening = !scrollPosition.readBoundaryChecked && (if (forumTopicId > 0L) topicUnreadCount else chat.unreadCount) > 0
+        val anchor = scrollPosition.anchor
+        if (focusMessageId != 0L || scrollPosition.focusClaimed || pendingJumpId != null || unreadOpening ||
+            anchor == null || !anchor.isFresh(System.currentTimeMillis())) {
+            scrollPosition.anchorRestored = true
+            return@LaunchedEffect
+        }
+        // While history is still loading, an older anchor may not be in the list yet: wait rather than take a neighbour.
+        val found = messageListItems.any { item ->
+            item.key == anchor.key || (anchor.messageId != 0L && item.messages.any { it.id == anchor.messageId })
+        }
+        if (!found && history.isLoading) return@LaunchedEffect
+        val index = resolveAnchorIndex(messageListItems, anchor)
+        if (index == null) listState.scrollToItem(0) else listState.scrollToItem(index, anchor.offset)
+        scrollPosition.anchorRestored = true
+    }
     LaunchedEffect(chat.id, newest?.id) {
         // A message sent while the chat opens drops the boundary: the list goes to the bottom and the boundary is not placed.
         val arrived = scrollPosition.seenNewestId != 0L && newest != null && newest.id != scrollPosition.seenNewestId
         scrollPosition.seenNewestId = newest?.id ?: 0L
+        // The opening position belongs to the restore effect above until it has finished: following here would undo it.
+        if (!arrived && !scrollPosition.anchorRestored) return@LaunchedEffect
+        val now = System.currentTimeMillis()
+        val localSend = scrollPosition.localSendPending(now)
         if ((if (forumTopicId > 0L) topicUnreadCount else chat.unreadCount) > 0 && !scrollPosition.readBoundaryChecked) {
-            if (arrived && newest?.isOutgoing == true) scrollPosition.readBoundaryChecked = true
+            if (arrived && newest?.isOutgoing == true && localSend) scrollPosition.readBoundaryChecked = true
             else return@LaunchedEffect
         }
-        if (!history.hasNewerMessages && messages.isNotEmpty() && (listState.firstVisibleItemIndex < 2 || newest?.isOutgoing == true)) {
+        // The list is newest-first, so the row that was at the bottom before this arrival is now one index lower, with the same key.
+        val firstIndex = listState.firstVisibleItemIndex
+        val firstOffset = listState.firstVisibleItemScrollOffset
+        val atBottomPosition = firstIndex == 0 && firstOffset <= bottomThresholdPx
+        val previousKey = scrollPosition.previousFirstKey
+        val wasAtBottom = atBottomPosition ||
+            (previousKey != null && firstOffset <= bottomThresholdPx && messageListItems.getOrNull(firstIndex)?.key == previousKey)
+        val follow = messages.isNotEmpty() && shouldFollowNewest(
+            wasAtBottom, listState.isScrollInProgress, newest?.isOutgoing == true, localSend, history.hasNewerMessages
+        )
+        if (follow) {
             listState.scrollToItemRespectingMotion(0, motionInstant = listScrollInstant)
+            if (localSend) scrollPosition.consumeLocalSend()
         }
+        if (atBottomPosition || follow) scrollPosition.previousFirstKey = messageListItems.firstOrNull()?.key
     }
     // Открытие с непрочитанными: экран встаёт у разделителя «Непрочитанные», а не у последнего сообщения.
     // Пока граница не зафиксирована, отметки прочтения не отправляются (см. сбор видимых сообщений выше), поэтому она не сдвигается.
@@ -1507,14 +1573,26 @@ fun ChatScreen(
         }
     }
     // Results refresh after a short pause in typing; a new query or filter replaces the pending request.
-    LaunchedEffect(searching, searchQuery, searchFilter) {
+    LaunchedEffect(searching, searchQuery, searchFilter, searchRetry) {
         val generation = ++searchGeneration
-        searchResults = emptyList(); searchNextId = 0L; searchTotalCount = 0; searchError = null
+        searchNextId = 0L; searchError = null
         val needle = searchQuery.trim()
         val requestedFilter = searchFilter
         val active = needle.isNotEmpty() || requestedFilter.isActive
         searchBusy = searching && active
-        if (!searching || !active) return@LaunchedEffect
+        if (!searching || !active) {
+            searchResults = emptyList(); searchTotalCount = 0; searchRefreshing = false
+            return@LaunchedEffect
+        }
+        val restore = searchMatchSession
+        if (restore.canRestoreResults(searchQuery, requestedFilter)) {
+            // Возврат из найденного сообщения: прежние результаты без повторного запроса, позицию восстановит список.
+            searchResults = restore.results; searchNextId = restore.nextFromMessageId
+            searchTotalCount = restore.totalCount; searchBusy = false; searchRefreshing = false
+            return@LaunchedEffect
+        }
+        // Прежние результаты остаются на месте, но помечены устаревшими до ответа: без вспышки пустого экрана.
+        searchRefreshing = searchResults.isNotEmpty()
         delay(300)
         (if (forumTopicId > 0L) conversation.searchForumTopicMessages(chat.id, forumTopicId, needle, 0L, requestedFilter)
         else conversation.searchMessages(chat.id, needle, 0L, requestedFilter))
@@ -1524,10 +1602,13 @@ fun ChatScreen(
                     searchNextId = page.nextFromMessageId
                     // TDLib's total predates the local date filter, so the UI falls back to the loaded count then.
                     searchTotalCount = if (requestedFilter.hasDateRange) 0 else page.totalCount
+                    searchRefreshing = false
                 }
             }
             .onFailure { failure ->
                 if (generation == searchGeneration && isCurrentChatSearch(needle, requestedFilter, searchQuery, searchFilter)) {
+                    searchResults = emptyList(); searchTotalCount = 0
+                    searchRefreshing = false
                     searchError = failure.userMessage(context, R.string.chat_search_failed)
                 }
             }
@@ -1546,7 +1627,8 @@ fun ChatScreen(
                 .onSuccess { page ->
                     if (generation == searchGeneration && isCurrentChatSearch(needle, requestedFilter, searchQuery, searchFilter)) {
                         searchResults = appendDistinctBy(searchResults, page.messages) { it.id }
-                        searchNextId = page.nextFromMessageId
+                        // Повторённый курсор означает ту же страницу: останавливаем автодогрузку, а не крутим её по кругу.
+                        searchNextId = nextChatSearchCursor(cursor, page.nextFromMessageId)
                     }
                 }
                 .onFailure { failure ->
@@ -1590,7 +1672,7 @@ fun ChatScreen(
             }
         }
     }
-    fun openSearchResult(message: ChatMessage) {
+    fun openSearchResult(message: ChatMessage, scrollIndex: Int, scrollOffset: Int) {
         val snapshot = searchResults
         val index = snapshot.indexOfFirst { it.id == message.id }.coerceAtLeast(0)
         val total = searchTotalCount
@@ -1605,7 +1687,9 @@ fun ChatScreen(
             results = snapshot,
             index = index,
             totalCount = total,
-            nextFromMessageId = nextId
+            nextFromMessageId = nextId,
+            scrollIndex = scrollIndex,
+            scrollOffset = scrollOffset
         )
         jumpToMessage(message.id, R.string.err_chat_history_load_failed)
     }
@@ -1615,7 +1699,7 @@ fun ChatScreen(
         searchMatchGeneration++
         searchQuery = session.query
         searchFilter = session.filter
-        searchMatchSession = ChatSearchMatchSession()
+        // Сессия остаётся до закрытия поиска: по ней восстанавливается выдача и позиция списка.
         searching = true
     }
     fun stepNewerSearchMatch() {
@@ -1805,6 +1889,8 @@ fun ChatScreen(
             }
             return
         }
+        // Everything below sends: text, attachments, stickers and the paid path that came back here after its check.
+        noteLocalSend()
         pendingSticker?.let { sticker ->
             pendingSticker = null
             attachments.sendStickerWithOptions(sticker, options)
@@ -1816,7 +1902,11 @@ fun ChatScreen(
             options.copy(viewOnce = attachments.viewOnce && ViewOncePolicy.canSend(attachments.pending, isPrivateChat = allowViewOnce, isSecretChat = chat.isSecret, scheduled = options.scheduledAtSeconds != null))
         } else options
         if (attachments.active) {
-            attachments.send(draft, effectiveOptions) { value -> updateDraft { it.copy(text = value, entities = if (value.isEmpty()) emptyList() else it.entities) } }
+            attachments.send(
+                draft, draftEntities, replyId, sendForumTopicId, effectiveOptions,
+                onCaptionConsumed = { sentCaption -> updateDraft { it.withAttachmentCaptionConsumed(sentCaption) } },
+                onReplyConsumed = { sentReplyId -> updateDraft { it.withAttachmentReplyConsumed(sentReplyId) } }
+            )
             return
         }
         val outgoingAnimation = messageAnimations.direction(outgoing = true)
@@ -1930,12 +2020,12 @@ fun ChatScreen(
             try {
                 val result = conversation.sendMessage(
                     chat.id, outgoing.text, replyId, outgoing.entities, forumTopicId = sendForumTopicId,
-                    clearDraft = !stealthWaitsLocally, options = effectiveOptions
+                    clearDraft = false, options = effectiveOptions
                 )
                 if (stealthWaitsLocally && result.isFailure) updateDraft { current -> if (current.text.isEmpty()) submitted else current }
                 if (result.isSuccess) {
                     delivered = true
-                    if (!stealthWaitsLocally) updateDraft { MessageDraft() }
+                    if (!stealthWaitsLocally) updateDraft { current -> if (current == submitted) MessageDraft() else current }
                     launch?.awaitingSend = false
                     if (composerDraftLaunchKey == launch?.key) composerDraftLaunchKey = null
                     botKeyboard?.takeIf { it.forceReply }?.let { conversation.dismissBotKeyboard(chat.id, it.messageId) }
@@ -2220,14 +2310,7 @@ fun ChatScreen(
         }
         // Sync the pinned preview with what the reader is currently seeing, as in official Telegram.
         if (!design.navigationFloating) pinnedBarSlot()
-        if (connectionState == TelegramConnectionState.WaitingForNetwork) Row(
-            Modifier.fillMaxWidth().background(palette.warningSurface).errorAnnouncement().padding(horizontal = 16.dp, vertical = 8.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Icon(Icons.Rounded.WifiOff, null, tint = palette.warningText, modifier = Modifier.size(18.dp))
-            Spacer(Modifier.width(8.dp))
-            Text(stringResource(R.string.chat_network_waiting), color = palette.warningText, fontSize = 13.sp, fontWeight = FontWeight.Medium)
-        }
+        ChatConnectionBanner(accountId, connectionState)
         // Non-inline wrappers keep these large blocks out of ChatScreen's own bytecode (JVM 64 KB method limit).
             },
             floatingContent = { if (design.navigationFloating) pinnedBarSlot() }
@@ -2581,8 +2664,11 @@ fun ChatScreen(
             busy = searchBusy,
             error = searchError,
             hasMore = searchNextId != 0L,
+            stale = searchRefreshing,
+            restore = searchMatchSession,
             onOpen = ::openSearchResult,
             onMore = ::loadMoreResults,
+            onRetry = { searchRetry++ },
             onResetFilters = { searchFilter = ChatSearchFilter() }
         )
         if (videoNote.active) VideoNoteRecordingOverlay(videoNote)
@@ -2940,6 +3026,7 @@ fun ChatScreen(
             onDelete = { VideoNoteExportCenter.discard(video.chatId, video.sessionName, accountId) },
             onSend = {
                 val reply = video.sendReplyId(feedSender = forumAllMessages, composerReplyId = replyId)
+                noteLocalSend()
                 val accepted = VideoNoteExportCenter.send(video.chatId, video.sessionName, reply, accountId) { media, targetReply ->
                     conversation.sendMedia(video.chatId, media, "", targetReply, forumTopicId = video.topicId).map { Unit }
                 }

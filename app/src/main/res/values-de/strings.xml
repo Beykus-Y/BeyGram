@@ -12,6 +12,7 @@
     <string name="chats_connection_connecting">Verbinden…</string>
     <string name="chats_connection_updating">Aktualisieren…</string>
     <string name="chats_connection_waiting_network">Warten auf Netzwerk</string>
+    <string name="chat_connection_waiting_network">Warten auf Netzwerk. Nachrichten werden nach der Verbindung gesendet</string>
     <string name="chats_detail_empty_title">Chat auswählen</string>
     <string name="chats_detail_empty_hint">Öffnen Sie eine Unterhaltung aus der Liste; sie erscheint hier.</string>
     <string name="settings_title">Einstellungen</string>

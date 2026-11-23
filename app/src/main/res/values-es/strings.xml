@@ -12,6 +12,7 @@
     <string name="chats_connection_connecting">Conectando…</string>
     <string name="chats_connection_updating">Actualizando…</string>
     <string name="chats_connection_waiting_network">Esperando la red</string>
+    <string name="chat_connection_waiting_network">Esperando red. Los mensajes se enviarán al conectarse</string>
     <string name="settings_title">Ajustes</string>
     <string name="settings_group_interface">Interfaz</string>
     <string name="settings_group_devices_privacy">Dispositivos y privacidad</string>
