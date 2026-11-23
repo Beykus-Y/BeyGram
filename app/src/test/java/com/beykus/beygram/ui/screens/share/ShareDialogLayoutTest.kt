@@ -58,7 +58,6 @@ class ShareDialogLayoutTest(private val widthDp: Int) {
     fun composerStaysOnScreenAndBelowThePreview() {
         val density = context.resources.displayMetrics.density
         val screenWidthPx = widthDp * density
-        val screenHeightPx = screenHeightDp * density
         val longTitle = "Очень длинное название группы, которое не помещается в один ряд на узком экране"
 
         compose.setContent {
@@ -83,13 +82,21 @@ class ShareDialogLayoutTest(private val widthDp: Int) {
         compose.mainClock.advanceTimeBy(3_000)
         compose.waitForIdle()
 
-        val send = compose.onNodeWithText(context.getString(R.string.share_send_count, 2), useUnmergedTree = true)
-            .fetchSemanticsNode().boundsInRoot
+        val sendNode = compose.onNodeWithText(context.getString(R.string.share_send_count, 2), useUnmergedTree = true)
+            .fetchSemanticsNode()
+        val send = sendNode.boundsInRoot
+        // The sheet is its own window: compare against that window's root, not the activity's screen size.
+        var windowRoot = sendNode
+        while (true) windowRoot = windowRoot.parent ?: break
+        val windowBounds = windowRoot.boundsInRoot
         val preview = compose.onNodeWithText("preview", useUnmergedTree = true).fetchSemanticsNode().boundsInRoot
         assertTrue("$widthDp dp: send label has no size: $send (preview $preview)", send.width > 0f && send.height > 0f)
 
         assertTrue("$widthDp dp: send button ends at ${send.right}, past the screen width $screenWidthPx", send.right <= screenWidthPx + 1f)
-        assertTrue("$widthDp dp: send button ends at ${send.bottom}, past the screen height $screenHeightPx", send.bottom <= screenHeightPx + 1f)
+        assertTrue(
+            "$widthDp dp: send button ends at ${send.bottom}, past the sheet window bottom ${windowBounds.bottom}",
+            send.bottom <= windowBounds.bottom + 1f
+        )
         assertTrue("$widthDp dp: send button starts at ${send.top}, above the preview bottom ${preview.bottom}", send.top >= preview.bottom)
 
         val fields = compose.onAllNodes(hasSetTextAction()).fetchSemanticsNodes()
