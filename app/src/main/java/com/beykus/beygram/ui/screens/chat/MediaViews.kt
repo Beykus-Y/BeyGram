@@ -43,6 +43,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.gestures.Orientation
 import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.foundation.gestures.draggable
 import androidx.compose.foundation.gestures.rememberDraggableState
 import androidx.compose.foundation.gestures.rememberTransformableState
@@ -69,6 +70,7 @@ import androidx.compose.material.icons.rounded.InsertDriveFile
 import androidx.compose.material.icons.rounded.Lock
 import androidx.compose.material.icons.rounded.MusicNote
 import androidx.compose.material.icons.rounded.Pause
+import androidx.compose.material.icons.rounded.PictureInPictureAlt
 import androidx.compose.material.icons.rounded.PlayArrow
 import androidx.compose.material.icons.rounded.Remove
 import androidx.compose.material.icons.rounded.Replay
@@ -2072,6 +2074,12 @@ private fun LocalVideo(
         }
     }
     else Box(Modifier.fillMaxSize()) {
+        val haptic = androidx.compose.ui.platform.LocalHapticFeedback.current
+        var boost2x by remember(path) { mutableStateOf(false) }
+        var gestureHud by remember(path) { mutableStateOf<String?>(null) }
+        val brightnessLabel = stringResource(R.string.viewer_brightness)
+        val volumeLabel = stringResource(R.string.viewer_volume)
+        val speed2xLabel = stringResource(R.string.viewer_speed_2x)
         AndroidView(
             factory = { viewContext ->
                 PlayerView(viewContext).apply {
@@ -2081,14 +2089,112 @@ private fun LocalVideo(
             },
             update = { it.player = player },
             onRelease = { it.player = null },
-            modifier = Modifier.fillMaxSize()
+            modifier = Modifier
+                .fillMaxSize()
+                .then(
+                    if (!loop) {
+                        Modifier
+                            .pointerInput(player, path) {
+                                detectTapGestures(
+                                    onPress = {
+                                        val holdJob = kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.Main).launch {
+                                            kotlinx.coroutines.delay(280L)
+                                            boost2x = true
+                                            haptic.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.LongPress)
+                                            player.setPlaybackSpeed(2.0f)
+                                        }
+                                        try {
+                                            tryAwaitRelease()
+                                        } finally {
+                                            holdJob.cancel()
+                                            if (boost2x) {
+                                                boost2x = false
+                                                player.setPlaybackSpeed(1.0f)
+                                            }
+                                        }
+                                    }
+                                )
+                            }
+                            .pointerInput(context, path) {
+                                val audioManager = context.getSystemService(android.content.Context.AUDIO_SERVICE) as? android.media.AudioManager
+                                val maxVol = (audioManager?.getStreamMaxVolume(android.media.AudioManager.STREAM_MUSIC) ?: 15).coerceAtLeast(1)
+                                var mode = 0 // -1 = brightness, 1 = volume
+                                var startLevel = 0.5f
+                                var totalDy = 0f
+                                detectVerticalDragGestures(
+                                    onDragStart = { start ->
+                                        totalDy = 0f
+                                        val fracX = start.x / size.width.toFloat().coerceAtLeast(1f)
+                                        mode = when {
+                                            fracX < 0.35f -> -1
+                                            fracX > 0.65f -> 1
+                                            else -> 0
+                                        }
+                                        if (mode == -1) {
+                                            val window = (context as? android.app.Activity)?.window
+                                            val cur = window?.attributes?.screenBrightness ?: 0.5f
+                                            startLevel = if (cur in 0f..1f) cur else 0.5f
+                                        } else if (mode == 1 && audioManager != null) {
+                                            startLevel = audioManager.getStreamVolume(android.media.AudioManager.STREAM_MUSIC).toFloat() / maxVol
+                                        }
+                                    },
+                                    onDragEnd = { gestureHud = null; mode = 0 },
+                                    onDragCancel = { gestureHud = null; mode = 0 },
+                                    onVerticalDrag = { change, dragAmount ->
+                                        if (mode == 0) return@detectVerticalDragGestures
+                                        change.consume()
+                                        totalDy -= dragAmount
+                                        val range = (size.height * 0.55f).coerceAtLeast(1f)
+                                        val next = (startLevel + totalDy / range).coerceIn(0.05f, 1f)
+                                        val pct = (next * 100f).toInt().coerceIn(0, 100)
+                                        if (mode == -1) {
+                                            val window = (context as? android.app.Activity)?.window
+                                            window?.attributes = window?.attributes?.apply { screenBrightness = next }
+                                            gestureHud = "$brightnessLabel $pct%"
+                                        } else if (mode == 1 && audioManager != null) {
+                                            val targetVol = (next * maxVol).toInt().coerceIn(0, maxVol)
+                                            audioManager.setStreamVolume(android.media.AudioManager.STREAM_MUSIC, targetVol, 0)
+                                            gestureHud = "$volumeLabel $pct%"
+                                        }
+                                    }
+                                )
+                            }
+                    } else Modifier
+                )
         )
+        if (boost2x) {
+            Box(
+                Modifier
+                    .align(Alignment.TopCenter)
+                    .padding(top = 72.dp)
+                    .clip(RoundedCornerShape(50))
+                    .background(Color.Black.copy(alpha = 0.65f))
+                    .padding(horizontal = 14.dp, vertical = 6.dp)
+            ) {
+                Text(speed2xLabel, color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+            }
+        }
+        gestureHud?.let { hud ->
+            Box(
+                Modifier
+                    .align(Alignment.Center)
+                    .clip(RoundedCornerShape(14.dp))
+                    .background(Color.Black.copy(alpha = 0.65f))
+                    .padding(horizontal = 16.dp, vertical = 10.dp)
+            ) {
+                Text(hud, color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
+            }
+        }
         if (video.buffering) CircularProgressIndicator(modifier = Modifier.align(Alignment.Center), color = Color.White)
-        // Анимация играет по кругу без панели управления; обычное видео получает кнопку и ползунок.
+        // Анимация играет по кругу без панели управления; обычное видео получает кнопку, ползунок и PiP.
         if (!loop) VideoControls(
             state = video,
             onAction = { action -> if (action == VideoAction.Pause) player.pause() else play() },
             onSeek = ::seek,
+            onOpenPip = {
+                player.pause()
+                InAppVideoPip.open(path, player.currentPosition)
+            },
             modifier = Modifier.align(Alignment.BottomCenter)
         )
     }
@@ -2096,7 +2202,13 @@ private fun LocalVideo(
 
 /** Кнопка и ползунок поверх видео. Ползунок работает, только когда известна длина: перематывать без неё некуда. */
 @Composable
-private fun VideoControls(state: VideoPlayerState, onAction: (VideoAction) -> Unit, onSeek: (Float) -> Unit, modifier: Modifier) {
+private fun VideoControls(
+    state: VideoPlayerState,
+    onAction: (VideoAction) -> Unit,
+    onSeek: (Float) -> Unit,
+    onOpenPip: (() -> Unit)? = null,
+    modifier: Modifier
+) {
     val action = state.primaryAction()
     // Позиция во время перетаскивания живёт в ползунке, а перемотка уходит один раз, когда палец отпущен.
     var dragFraction by remember { mutableStateOf<Float?>(null) }
@@ -2134,6 +2246,15 @@ private fun VideoControls(state: VideoPlayerState, onAction: (VideoAction) -> Un
             fontSize = 12.sp,
             modifier = Modifier.padding(start = 8.dp)
         )
+        if (onOpenPip != null) {
+            IconButton(onClick = onOpenPip) {
+                Icon(
+                    Icons.Rounded.PictureInPictureAlt,
+                    contentDescription = stringResource(R.string.viewer_pip_open),
+                    tint = Color.White
+                )
+            }
+        }
     }
 }
 

@@ -1734,6 +1734,8 @@ class TdLibTelegramRepository private constructor(
     override suspend fun messageContext(chatId: Long, messageId: Long) = conversationActions.context(chatId, messageId)
     override suspend fun singleMessage(chatId: Long, messageId: Long) = conversationActions.single(chatId, messageId)
     override suspend fun linkedDiscussionChatId(chatId: Long) = conversationActions.linkedDiscussionChatId(chatId)
+    override suspend fun nextUnreadMention(chatId: Long, forumTopicId: Long) = conversationActions.nextUnreadMention(chatId, forumTopicId)
+    override suspend fun nextUnreadReaction(chatId: Long, forumTopicId: Long) = conversationActions.nextUnreadReaction(chatId, forumTopicId)
     override suspend fun loadMessageThread(chatId: Long, messageId: Long) = conversationActions.messageThread(chatId, messageId)
     override suspend fun loadMessageThreadComments(discussionChatId: Long, threadId: Long, fromMessageId: Long) =
         conversationActions.threadComments(discussionChatId, threadId, fromMessageId)
@@ -2847,6 +2849,14 @@ class TdLibTelegramRepository private constructor(
             is TdApi.UpdateChatReadInbox -> {
                 messageHistory.readInbox(update.chatId, update.lastReadInboxMessageId)
                 chatCache[update.chatId]?.let { chatCache[update.chatId] = it.copy(unreadCount = update.unreadCount) }
+                publishChat(update.chatId)
+            }
+            is TdApi.UpdateChatUnreadMentionCount -> {
+                chatCache[update.chatId]?.let { chatCache[update.chatId] = it.copy(unreadMentionCount = update.unreadMentionCount) }
+                publishChat(update.chatId)
+            }
+            is TdApi.UpdateChatUnreadReactionCount -> {
+                chatCache[update.chatId]?.let { chatCache[update.chatId] = it.copy(unreadReactionCount = update.unreadReactionCount) }
                 publishChat(update.chatId)
             }
             is TdApi.UpdateChatIsMarkedAsUnread -> {
@@ -4008,6 +4018,8 @@ class TdLibTelegramRepository private constructor(
             lastMessage = lastMessage?.toTextPreview() ?: UiText.Raw(""),
             lastMessageTime = lastMessage?.toTimeString() ?: "",
             unreadCount = unreadCount,
+            unreadMentionCount = unreadMentionCount,
+            unreadReactionCount = unreadReactionCount,
             avatarColorArgb = id.stableColor(),
             isGroup = type is TdApi.ChatTypeBasicGroup || type is TdApi.ChatTypeSupergroup,
             isChannel = (type as? TdApi.ChatTypeSupergroup)?.isChannel == true,

@@ -31,6 +31,7 @@ internal fun OutgoingMedia.toInputContent(
             }
             this.caption = formattedCaption
             this.selfDestructType = selfDestructType
+            this.hasSpoiler = this@toInputContent.hasSpoiler && selfDestructType == null
         }
         MediaKind.Video -> TdApi.InputMessageVideo().apply {
             video = TdApi.InputVideo().apply {
@@ -46,6 +47,7 @@ internal fun OutgoingMedia.toInputContent(
             }
             this.caption = formattedCaption
             this.selfDestructType = selfDestructType
+            this.hasSpoiler = this@toInputContent.hasSpoiler && selfDestructType == null
         }
         MediaKind.VideoNote -> TdApi.InputMessageVideoNote().apply {
             videoNote = local
@@ -78,7 +80,7 @@ internal fun OutgoingMedia.toInputContent(
             )
             this.caption = formattedCaption
             showCaptionAboveMedia = false
-            hasSpoiler = false
+            hasSpoiler = this@toInputContent.hasSpoiler
         }
         // Music keeps its player bubble and tags; only the music picker produces this kind.
         MediaKind.Audio -> TdApi.InputMessageAudio().apply {

@@ -86,6 +86,32 @@ internal class TdConversationActions(
         request(TdApi.GetSupergroupFullInfo(type.supergroupId)).linkedChatId
     }
 
+    suspend fun nextUnreadMention(chatId: Long, forumTopicId: Long = 0L): Result<Long?> = conversationResult {
+        val result = request(TdApi.SearchChatMessages().apply {
+            this.chatId = chatId
+            topicId = if (forumTopicId > 0L) TdApi.MessageTopicForum(forumTopicId.toInt()) else null
+            query = ""
+            fromMessageId = 0L
+            offset = 0
+            limit = 1
+            filter = TdApi.SearchMessagesFilterUnreadMention()
+        })
+        result.messages.firstOrNull()?.id
+    }
+
+    suspend fun nextUnreadReaction(chatId: Long, forumTopicId: Long = 0L): Result<Long?> = conversationResult {
+        val result = request(TdApi.SearchChatMessages().apply {
+            this.chatId = chatId
+            topicId = if (forumTopicId > 0L) TdApi.MessageTopicForum(forumTopicId.toInt()) else null
+            query = ""
+            fromMessageId = 0L
+            offset = 0
+            limit = 1
+            filter = TdApi.SearchMessagesFilterUnreadReaction()
+        })
+        result.messages.firstOrNull()?.id
+    }
+
     /**
      * Resolves a channel post to its discussion thread with GetMessageThread. A channel post whose comments were
      * disabled is reported by canGetMessageThread; TDLib errors are translated so hidden/removed threads never look
@@ -575,7 +601,13 @@ internal class TdConversationActions(
                 inputMessageContents = resolved.media.mapIndexed { index, item -> item.toInputContent(if (index == 0) boundedCaption.text else "", if (index == 0) boundedCaption.entities else emptyList()) }.toTypedArray()
                 if (replyTarget != null) {
                     topicId = replySendTopic(replyTarget.topicId)
-                    replyTo = TdApi.InputMessageReplyToMessage().apply { messageId = replyTarget.id; pollOptionId = "" }
+                    replyTo = TdApi.InputMessageReplyToMessage().apply {
+                    messageId = replyTarget.id
+                    pollOptionId = ""
+                    options.replyQuote?.takeIf { it.isNotBlank() }?.let { q ->
+                        quote = TdApi.InputTextQuote(TdApi.FormattedText(q, emptyArray()), options.replyQuotePosition.coerceAtLeast(0))
+                    }
+                }
                 } else if (forumTopicId > 0L) {
                     topicId = TdApi.MessageTopicForum(forumTopicId.toInt())
                 }
@@ -650,7 +682,13 @@ internal class TdConversationActions(
             this.chatId = chatId; inputMessageContent = inputContent; this.options = protocolOptions
             if (replyTarget != null) {
                 topicId = replySendTopic(replyTarget.topicId)
-                replyTo = TdApi.InputMessageReplyToMessage().apply { messageId = replyTarget.id; pollOptionId = "" }
+                replyTo = TdApi.InputMessageReplyToMessage().apply {
+                    messageId = replyTarget.id
+                    pollOptionId = ""
+                    options.replyQuote?.takeIf { it.isNotBlank() }?.let { q ->
+                        quote = TdApi.InputTextQuote(TdApi.FormattedText(q, emptyArray()), options.replyQuotePosition.coerceAtLeast(0))
+                    }
+                }
             } else if (forumTopicId > 0L) {
                 topicId = TdApi.MessageTopicForum(forumTopicId.toInt())
             }

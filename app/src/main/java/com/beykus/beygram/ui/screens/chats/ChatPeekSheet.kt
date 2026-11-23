@@ -135,15 +135,23 @@ private fun PeekCard(
         ) {
             ChatAvatar(chat, 42.dp, observeFile, downloadFile)
             Spacer(Modifier.width(12.dp))
-            Text(
-                chat.title,
-                color = palette.textPrimary,
-                fontSize = 17.sp,
-                fontWeight = FontWeight.SemiBold,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.weight(1f)
-            )
+            Column(Modifier.weight(1f)) {
+                Text(
+                    chat.title,
+                    color = palette.textPrimary,
+                    fontSize = 17.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+                Text(
+                    stringResource(R.string.peek_no_read_hint),
+                    color = palette.textSecondary,
+                    fontSize = 11.sp,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
         }
         Box(Modifier.fillMaxWidth().height(1.dp).background(palette.divider))
         Box(Modifier.weight(1f, fill = false).fillMaxWidth()) {

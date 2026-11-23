@@ -107,5 +107,7 @@ data class OutgoingMedia(
     val title: String = "",
     val performer: String = "",
     /** Per-occurrence identity for duplicate server-side media staged in the composer. */
-    val stagingKey: String = ""
+    val stagingKey: String = "",
+    /** Sends photo/video/animation covered by Telegram's spoiler shimmer. */
+    val hasSpoiler: Boolean = false
 ) : Serializable

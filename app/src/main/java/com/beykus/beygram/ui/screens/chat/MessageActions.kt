@@ -36,6 +36,7 @@ import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.ContentCopy
 import androidx.compose.material.icons.rounded.Delete
 import androidx.compose.material.icons.rounded.Edit
+import androidx.compose.material.icons.rounded.FormatQuote
 import androidx.compose.material.icons.rounded.Flag
 import androidx.compose.material.icons.rounded.KeyboardArrowDown
 import androidx.compose.material.icons.rounded.KeyboardArrowUp
@@ -128,6 +129,7 @@ internal fun MessageActionsBar(
     onClose: () -> Unit,
     onRetry: () -> Unit,
     onReply: () -> Unit,
+    onQuote: (() -> Unit)? = null,
     onCopy: () -> Unit,
     onEdit: () -> Unit,
     onDelete: () -> Unit,
@@ -259,6 +261,7 @@ internal fun MessageContextPopover(
     onClose: () -> Unit,
     onRetry: () -> Unit,
     onReply: () -> Unit,
+    onQuote: (() -> Unit)? = null,
     onCopy: () -> Unit,
     onEdit: () -> Unit,
     onDelete: () -> Unit,
@@ -463,6 +466,25 @@ internal fun MessageContextPopover(
                                         onReport = onReport,
                                         onDelete = onDelete
                                     )
+                                }
+                                if (onQuote != null && capabilities.canReply && hasText) {
+                                    Row(
+                                        Modifier
+                                            .fillMaxWidth()
+                                            .heightIn(min = 48.dp)
+                                            .clickable(role = Role.Button, onClick = onQuote)
+                                            .padding(horizontal = 16.dp),
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Icon(Icons.Rounded.FormatQuote, null, tint = palette.textSecondary, modifier = Modifier.size(20.dp))
+                                        Spacer(Modifier.width(14.dp))
+                                        Text(
+                                            stringResource(R.string.chat_quote_action),
+                                            color = palette.textPrimary,
+                                            fontSize = 15.sp,
+                                            modifier = Modifier.weight(1f)
+                                        )
+                                    }
                                 }
                                 if (planned.secondary.isNotEmpty()) {
                                     HorizontalDivider(color = palette.divider.copy(alpha = 0.7f), modifier = Modifier.padding(vertical = 2.dp))

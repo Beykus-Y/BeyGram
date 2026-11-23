@@ -701,6 +701,20 @@ internal class AttachmentState(
         if (item.path.isNotBlank()) scope.launch { importer.discard(item) }
     }
 
+    /** Toggles Telegram's spoiler shimmer on all visual media (photos, videos, animations) staged in the tray. */
+    fun setSpoilerForVisuals(enabled: Boolean) {
+        if (sending || importing) return
+        pendingState.value = ArrayList(
+            pending.map { item ->
+                if (item.kind == MediaKind.Photo || item.kind == MediaKind.Video || item.kind == MediaKind.Animation) {
+                    item.copy(hasSpoiler = enabled)
+                } else {
+                    item
+                }
+            }
+        )
+    }
+
     /**
      * Per-file quality selection. Changing one file never changes another file or a future import;
      * the untouched original stays staged until the attachment is sent or removed.
@@ -1473,6 +1487,29 @@ private fun PreparedAttachmentsPanel(
                 Spacer(Modifier.width(10.dp))
                 Text(stringResource(R.string.composer_preparing), color = palette.textSecondary, fontSize = 13.sp)
             }
+        }
+    }
+    val visualPending = displayPending.filter {
+        it.kind == MediaKind.Photo || it.kind == MediaKind.Video || it.kind == MediaKind.Animation
+    }
+    if (visualPending.isNotEmpty() && !state.viewOnce && !closing) {
+        val spoilerOn = visualPending.all { it.hasSpoiler }
+        Row(
+            Modifier.fillMaxWidth().heightIn(min = 44.dp)
+                .toggleable(value = spoilerOn, enabled = !state.sending, role = Role.Checkbox) {
+                    state.setSpoilerForVisuals(it)
+                }
+                .padding(horizontal = 14.dp, vertical = 2.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Checkbox(checked = spoilerOn, onCheckedChange = null, enabled = !state.sending)
+            Text(
+                stringResource(R.string.attach_spoiler),
+                color = palette.textPrimary,
+                fontSize = 14.sp,
+                fontWeight = FontWeight.Medium,
+                modifier = Modifier.weight(1f)
+            )
         }
     }
     if (viewOnceAvailable && !closing) {
