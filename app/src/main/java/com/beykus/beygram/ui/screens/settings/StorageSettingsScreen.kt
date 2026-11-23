@@ -103,11 +103,11 @@ fun StorageSettingsScreen(
             Modifier.fillMaxWidth().weight(1f).verticalScroll(rememberScrollState()).padding(horizontal = 16.dp, vertical = 8.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
-            UsageCard(usage, model.loading, model.selected, busy, onToggle = model::toggle, onRetry = model::refresh)
+            UsageCard(usage, model.loading, model.usageStale, model.selected, busy, onToggle = model::toggle, onRetry = model::refresh)
             ClearCard(
                 usage = usage,
                 selected = model.selected,
-                busy = busy,
+                busy = busy || model.loading || model.usageStale,
                 cleaningProgress = cleaningProgress,
                 freedBytes = model.freedBytes,
                 error = model.error,
@@ -118,7 +118,7 @@ fun StorageSettingsScreen(
                 Text(stringResource(R.string.storage_limit_title), color = palette.textPrimary, fontWeight = FontWeight.SemiBold, fontSize = 15.sp)
                 Text(stringResource(R.string.storage_limit_detail), color = palette.textSecondary, fontSize = 13.sp)
                 StorageSizeLimit.entries.forEach { limit ->
-                    ChoiceRow(limit.label(), selected = settings.sizeLimit == limit, enabled = cleaningProgress == null) {
+                    ChoiceRow(limit.label(), selected = settings.sizeLimit == limit, enabled = model.policyControlsEnabled) {
                         if (settings.sizeLimit != limit) model.changeSettings { it.copy(sizeLimit = limit) }
                     }
                 }
@@ -127,7 +127,7 @@ fun StorageSettingsScreen(
                 Text(stringResource(R.string.storage_retention_title), color = palette.textPrimary, fontWeight = FontWeight.SemiBold, fontSize = 15.sp)
                 Text(stringResource(R.string.storage_retention_detail), color = palette.textSecondary, fontSize = 13.sp)
                 StorageRetention.entries.forEach { retention ->
-                    ChoiceRow(retention.label(), selected = settings.retention == retention, enabled = cleaningProgress == null) {
+                    ChoiceRow(retention.label(), selected = settings.retention == retention, enabled = model.policyControlsEnabled) {
                         if (settings.retention != retention) model.changeSettings { it.copy(retention = retention) }
                     }
                 }
@@ -143,6 +143,7 @@ fun StorageSettingsScreen(
             title = stringResource(if (scope == ClearScope.All) R.string.storage_clear_all_title else R.string.storage_clear_selected_title),
             message = stringResource(R.string.storage_clear_text),
             confirmText = stringResource(R.string.storage_clear_confirm),
+            confirmEnabled = !busy && !model.loading && !model.usageStale,
             onConfirm = {
                 pendingClear = null
                 model.clear(if (scope == ClearScope.All) usage?.categoriesWithFiles().orEmpty() else model.selected)
@@ -157,6 +158,7 @@ fun StorageSettingsScreen(
 private fun UsageCard(
     usage: StorageUsage?,
     loading: Boolean,
+    stale: Boolean,
     selected: Set<StorageCategory>,
     busy: Boolean,
     onToggle: (StorageCategory) -> Unit,
@@ -179,11 +181,25 @@ private fun UsageCard(
                 }
             }
         } else {
+            if (loading || stale) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    if (loading) CircularProgressIndicator(Modifier.size(18.dp), color = palette.accent, strokeWidth = 2.dp)
+                    Text(
+                        stringResource(if (loading) R.string.storage_usage_loading else R.string.storage_load_failed),
+                        color = palette.textSecondary,
+                        fontSize = 13.sp,
+                        modifier = Modifier.padding(start = if (loading) 10.dp else 0.dp)
+                    )
+                }
+                if (!loading) OutlinedButton(onClick = onRetry, enabled = !busy, modifier = Modifier.fillMaxWidth()) {
+                    Text(stringResource(R.string.storage_retry))
+                }
+            }
             Text(storageSizeText(usage.totalBytes), color = palette.textPrimary, fontSize = 28.sp, fontWeight = FontWeight.Bold)
             UsageBar(usage)
             StorageCategory.entries.forEach { category ->
                 val bytes = usage.bytes(category)
-                CategoryRow(category, bytes, checked = category in selected, enabled = !busy) { onToggle(category) }
+                CategoryRow(category, bytes, checked = category in selected, enabled = !busy && !loading && !stale) { onToggle(category) }
             }
             SizeInfoRow(palette.accent, stringResource(R.string.storage_uploads), stringResource(R.string.storage_uploads_detail), usage.uploadBytes)
             SizeInfoRow(palette.textSecondary, stringResource(R.string.storage_database), stringResource(R.string.storage_database_detail), usage.databaseBytes)

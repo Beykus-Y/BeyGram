@@ -38,7 +38,8 @@ internal class SharedMediaWindow(
     var error by mutableStateOf<String?>(null)
         private set
 
-    private val lock = Mutex()
+    // Each generation owns its own lock: a stalled obsolete network request cannot block a restart.
+    private var lock = Mutex()
     private var generation = 0
     /** Курсор TDLib для страниц старше; без якоря 0 — от самого нового вложения. */
     private var olderCursor = 0L
@@ -57,6 +58,8 @@ internal class SharedMediaWindow(
      */
     fun restart(anchor: Long?) {
         generation++
+        lock = Mutex()
+        loading = false
         messages = emptyList()
         loaded = false
         hasOlder = true
@@ -75,6 +78,23 @@ internal class SharedMediaWindow(
 
     /** Догружает вложения новее уже загруженных. Если новее больше нет, ничего не делает. */
     suspend fun loadNewer() = loadPage(newer = true)
+
+    /**
+     * В чат пришло новое сообщение: новее окна могут быть вложения. Тянем страницу новее, но только когда окно уже
+     * загружено, иначе первая страница сама заберёт всё. Повторы в ту же сторону схлопываются в [loadPage].
+     */
+    suspend fun refreshNewer() {
+        if (!loaded) return
+        hasNewer = true
+        loadNewer()
+    }
+
+    /** Убирает вложения, удалённые в чате. Страницы не перезагружаем: удалённым id в окне больше делать нечего. */
+    fun removeDeleted(ids: Set<Long>) {
+        if (ids.isEmpty()) return
+        val kept = messages.filterNot { it.id in ids }
+        if (kept.size != messages.size) messages = kept
+    }
 
     /**
      * Догружает ту сторону окна, к которой подошло вложение [messageId], например при свайпе в просмотрщике.
@@ -99,10 +119,11 @@ internal class SharedMediaWindow(
         }
         if (newer) newerQueued = true else olderQueued = true
         val token = generation
+        val requestLock = lock
         try {
             do {
                 if (newer) newerAgain = false else olderAgain = false
-                lock.withLock { runLoop(newer, token) }
+                requestLock.withLock { runLoop(newer, token) }
             } while (token == generation && (if (newer) newerAgain else olderAgain))
         } finally {
             // Старая корутина после restart не трогает флаги новой генерации.
@@ -129,7 +150,8 @@ internal class SharedMediaWindow(
             val result = if (newer) load(newestId, true) else load(olderCursor, false)
             if (current == generation) applyPage(result, newer)
         } finally {
-            loading = false
+            // An obsolete request must not change the loading state of a restarted window.
+            if (current == generation) loading = false
         }
     }
 

@@ -6,6 +6,7 @@ import com.beykus.beygram.domain.UserMessageException
 import com.beykus.beygram.domain.model.TelegramConnectionState
 import com.beykus.beygram.domain.model.VpnNetworkState
 import com.beykus.beygram.domain.model.VpnSettings
+import com.beykus.beygram.domain.model.VpnTransport
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.CancellationException
@@ -43,7 +44,8 @@ internal class TelegramAutoSelector(
         cooldownMillis = COOLDOWN_MILLIS
     )
     @Volatile private var lastGroup: String? = null
-    @Volatile private var lastReachable: Boolean? = null
+    @Volatile private var lastNetworkKey: VpnTransport? = null
+    @Volatile private var networkKeyInitialized = false
 
     fun start() {
         if (job?.isActive == true) return
@@ -54,11 +56,17 @@ internal class TelegramAutoSelector(
             }.collectLatest { inputs ->
                 val settings = inputs.settings
                 if (inputs.connection == TelegramConnectionState.Connected) routes.confirm()
+                val networkKey = autoSelectNetworkKey(inputs.network)
                 val reachable = inputs.network.canReachInternetForTelegram()
-                if (settings.connectionGroup != lastGroup || reachable != lastReachable) {
+                if (shouldResetAutoSelectCooldowns(lastGroup, lastNetworkKey, settings.connectionGroup, networkKey, networkKeyInitialized)) {
+                    val wasInitialized = networkKeyInitialized
                     lastGroup = settings.connectionGroup
-                    lastReachable = reachable
+                    lastNetworkKey = networkKey
+                    networkKeyInitialized = true
                     routes.clearCooldowns()
+                    if (wasInitialized) {
+                        MihomoRuntimeDiagnostics.event("auto", "network changed; cooldowns cleared")
+                    }
                 }
                 if (!shouldProbeAutomaticRoute(settings.autoSelectEnabled,
                         reachable, inputs.connection, inputs.runtime.status)
@@ -175,6 +183,19 @@ internal fun shouldProbeAutomaticRoute(
 ): Boolean = enabled && networkReady && proxyStatus == ProxyRuntimeStatus.RUNNING &&
     (telegramState == TelegramConnectionState.Connecting ||
         telegramState == TelegramConnectionState.WaitingForNetwork)
+
+/** Identifies the network that cooldowns were earned on: only the active transport of a usable network, never availability flags or timestamps. */
+internal fun autoSelectNetworkKey(network: VpnNetworkState): VpnTransport? =
+    if (network.internetAvailable && (network.wifiAvailable || network.cellularAvailable)) network.activeTransport else null
+
+/** Cooldowns are per network: a new connection group or a different usable network (Wi-Fi <-> cellular, reachable <-> unreachable) gives every node a fresh chance. */
+internal fun shouldResetAutoSelectCooldowns(
+    previousGroup: String?,
+    previousNetwork: VpnTransport?,
+    group: String,
+    network: VpnTransport?,
+    initialized: Boolean
+): Boolean = !initialized || previousGroup != group || previousNetwork != network
 
 sealed interface AutoSelectEvent {
     data class Probed(val result: com.beykus.beygram.domain.model.MihomoProbeResult) : AutoSelectEvent

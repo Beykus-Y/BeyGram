@@ -233,6 +233,8 @@ internal class PlaybackDataSourceFactory(context: Context) : DataSource.Factory 
 @OptIn(UnstableApi::class)
 internal class PlaybackDataSource(private val fallback: DataSource) : DataSource {
     private var file: RandomAccessFile? = null
+    private var bgVideoFile: BgVideoNoteFile? = null
+    private var bgVideoEnd: Long? = null
     private var filePath: String? = null
     private var growing: GrowingPlaybackSource? = null
     private var position = 0L
@@ -261,13 +263,22 @@ internal class PlaybackDataSource(private val fallback: DataSource) : DataSource
         if (!handle.canResolve()) throw IOException("No account-scoped playback source for this item")
         val resolved = awaitSource(handle)
         handle.publish(resolved)
-        val opened = RandomAccessFile(resolved.path, "r")
-        opened.seek(dataSpec.position.coerceAtLeast(0L))
-        file = opened
         filePath = resolved.path
         growing = resolved.growing
         position = dataSpec.position.coerceAtLeast(0L)
         uri = dataSpec.uri
+        if (resolved.growing == null && BgVideoNoteFile.eligible(handle.item)) {
+            BgVideoNoteFile.open(resolved.path)?.let { native ->
+                bgVideoFile = native
+                val remaining = (native.length - position).coerceAtLeast(0L)
+                val length = if (dataSpec.length == C.LENGTH_UNSET.toLong()) remaining else minOf(remaining, dataSpec.length)
+                bgVideoEnd = position + length
+                return length
+            }
+        }
+        val opened = RandomAccessFile(resolved.path, "r")
+        opened.seek(position)
+        file = opened
         val total = when {
             resolved.growing == null -> opened.length()
             resolved.growing.isComplete() -> opened.length()
@@ -281,6 +292,30 @@ internal class PlaybackDataSource(private val fallback: DataSource) : DataSource
 
     override fun read(buffer: ByteArray, offset: Int, length: Int): Int {
         if (fallbackOpen) return fallback.read(buffer, offset, length)
+        if (length == 0) return 0
+        val requested = bgVideoEnd?.let { minOf(length.toLong(), it - position).coerceAtLeast(0L).toInt() }
+            ?: length
+        if (closed || requested == 0) return C.RESULT_END_OF_INPUT
+        bgVideoFile?.let { native ->
+            val read = native.read(position, buffer, offset, requested)
+            if (read > 0) {
+                position += read
+                return read
+            }
+            // Retry once through the existing reader at the same byte position.
+            native.close()
+            bgVideoFile = null
+            if (closed) return C.RESULT_END_OF_INPUT
+            val path = filePath ?: return C.RESULT_END_OF_INPUT
+            val recovered = RandomAccessFile(path, "r")
+            try {
+                recovered.seek(position)
+                file = recovered
+            } catch (error: IOException) {
+                recovered.close()
+                throw error
+            }
+        }
         var opened = file ?: return C.RESULT_END_OF_INPUT
         val source = growing
         val startedAt = SystemClock.elapsedRealtime()
@@ -304,7 +339,7 @@ internal class PlaybackDataSource(private val fallback: DataSource) : DataSource
             }
             val available = readable - position
             if (available > 0L) {
-                val toRead = minOf(available, length.toLong()).toInt()
+                val toRead = minOf(available, requested.toLong()).toInt()
                 val read = opened.read(buffer, offset, toRead)
                 if (read > 0) {
                     position += read
@@ -334,6 +369,9 @@ internal class PlaybackDataSource(private val fallback: DataSource) : DataSource
         closed = true
         fallbackOpen = false
         growing = null
+        bgVideoFile?.close()
+        bgVideoFile = null
+        bgVideoEnd = null
         runCatching { file?.close() }
         file = null
         filePath = null
