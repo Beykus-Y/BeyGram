@@ -143,17 +143,23 @@ internal fun BubbleLayout(
     body: @Composable () -> Unit,
     meta: @Composable () -> Unit,
     footer: @Composable () -> Unit = {},
-    bottomBar: @Composable () -> Unit = {}
+    bottomBar: (@Composable () -> Unit)? = null
 ) {
     // Каждая часть обёрнута в Box, чтобы пустая часть всё равно давала одно измеряемое место.
-    Layout(content = { Box { body() }; Box { meta() }; Box { footer() }; Box { bottomBar() } }, modifier = modifier) { measurables, constraints ->
+    Layout(content = { Box { body() }; Box { meta() }; Box { footer() }; Box { bottomBar?.invoke() } }, modifier = modifier) { measurables, constraints ->
         com.beykus.beygram.perf.ProfDiagnostics.traceSection("BG:BubbleLayout.measure") {
         val loose = constraints.copy(minWidth = 0, minHeight = 0)
         val bodyPlaceable = measurables[0].measure(loose)
         val metaPlaceable = measurables[1].measure(loose)
         val footerPlaceable = measurables[2].measure(loose)
         // Полоса сама не растягивает пузырь до максимума, но и не даёт ему стать уже своей подписи.
-        val barWidth = if (com.beykus.beygram.perf.ProfDiagnostics.bubbleNoIntrinsic) {
+        // For a genuinely absent bottom bar its intrinsic width is zero.
+        // Keep the original intrinsic measurement for channel posts with comments,
+        // even during the PROF diagnostic, or their bubble width could change.
+        val barWidth = if (!bubbleBarNeedsIntrinsicMeasurement(
+                bottomBarPresent = bottomBar != null,
+                diagnosticSkip = com.beykus.beygram.perf.ProfDiagnostics.bubbleNoIntrinsic
+            )) {
             0
         } else {
             com.beykus.beygram.perf.ProfDiagnostics.traceSection("BG:BubbleLayout.intrinsic") {
@@ -196,6 +202,10 @@ internal fun BubbleLayout(
         }
     }
 }
+
+/** Keep intrinsic measurement whenever the bottom bar can contain real content. */
+internal fun bubbleBarNeedsIntrinsicMeasurement(bottomBarPresent: Boolean, diagnosticSkip: Boolean): Boolean =
+    bottomBarPresent || !diagnosticSkip
 
 /** Safe width check for compact text timestamps. A wide or empty child keeps the separate metadata row. */
 internal fun bubbleMetaFitsBesideBody(bodyWidth: Int, metaWidth: Int, maxWidth: Int): Boolean =

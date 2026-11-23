@@ -4056,7 +4056,9 @@ internal fun MessageBubble(message: ChatMessage, observeFile: (Int) -> StateFlow
                         )
                     }
                 },
-                bottomBar = { if (!circle && !sticker) commentsBar?.invoke() }
+                // A null slot means an intrinsically zero-width bottom bar. Posts with
+                // comments retain the measured bar width, including in PROF H2 tests.
+                bottomBar = if (!circle && !sticker) commentsBar else null
             )
                 // Media previews own tap gestures (play, open, video note). In selection mode a transparent overlay
                 // makes the whole bubble selectable and keeps playback/download controls out of the way.
