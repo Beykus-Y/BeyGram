@@ -87,6 +87,10 @@ interface ConversationRepository {
     suspend fun loadForumTopicMessagesAround(chatId: Long, forumTopicId: Long, messageId: Long): Result<Boolean>
     /** The linked discussion supergroup of a channel, or zero when the channel has none. */
     suspend fun linkedDiscussionChatId(chatId: Long): Result<Long>
+    /** Returns the message id of the next unread mention in [chatId], or null when none remain. */
+    suspend fun nextUnreadMention(chatId: Long, forumTopicId: Long = 0L): Result<Long?> = Result.success(null)
+    /** Returns the message id of the next unread reaction in [chatId], or null when none remain. */
+    suspend fun nextUnreadReaction(chatId: Long, forumTopicId: Long = 0L): Result<Long?> = Result.success(null)
     /**
      * Opens a channel post's comment thread. TDLib resolves the linked discussion chat and thread id; a post with
      * comments disabled or hidden fails with a user-facing explanation instead of an empty thread.

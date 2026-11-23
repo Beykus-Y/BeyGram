@@ -246,7 +246,11 @@ fun ChatScreen(
     fun updateDraft(transform: (com.beykus.beygram.domain.model.MessageDraft) -> com.beykus.beygram.domain.model.MessageDraft) =
         if (forumTopicId > 0L) conversation.updateForumTopicDraft(chat.id, forumTopicId, transform)
         else conversation.updateMessageDraft(chat.id, transform)
-    fun clearReply() = updateDraft { it.copy(replyToMessageId = null) }
+    val quoteState = remember(chat.id) { ChatQuoteState() }
+    fun clearReply() {
+        quoteState.clear()
+        updateDraft { it.copy(replyToMessageId = null) }
+    }
     // The all-messages feed has no topic of its own. A reply goes into the topic of the message it answers, and any other message
     // goes to the General topic; the composer waits when that topic is hidden or cannot take messages.
     val feedGeneralTopic = remember(forumTopicsById) { forumTopicsById.values.firstOrNull { it.isGeneral } }
@@ -1898,9 +1902,10 @@ fun ChatScreen(
         }
         // View-once is selected in the attachment panel; scheduling or groups silently drop the flag instead of
         // producing a TDLib error, and the composer hides those paths for view-once media.
+        val quotedOptions = quoteState.consumeInto(options)
         val effectiveOptions = if (attachments.active) {
-            options.copy(viewOnce = attachments.viewOnce && ViewOncePolicy.canSend(attachments.pending, isPrivateChat = allowViewOnce, isSecretChat = chat.isSecret, scheduled = options.scheduledAtSeconds != null))
-        } else options
+            quotedOptions.copy(viewOnce = attachments.viewOnce && ViewOncePolicy.canSend(attachments.pending, isPrivateChat = allowViewOnce, isSecretChat = chat.isSecret, scheduled = quotedOptions.scheduledAtSeconds != null))
+        } else quotedOptions
         if (attachments.active) {
             attachments.send(
                 draft, draftEntities, replyId, sendForumTopicId, effectiveOptions,
@@ -2233,6 +2238,10 @@ fun ChatScreen(
                 onDismiss = { reportMessageId = null }
             )
         }
+        ChatQuoteHost(quoteState) { id ->
+            updateDraft { it.copy(replyToMessageId = id) }
+            replyFocusRequest++
+        }
         if (actionMessage != null && !deleting && !reactionPickerOpen && !pinConfirm) {
             val chosenReactions = reactionOwner?.reactions
                 ?.filter { it.isChosen && !it.isPaid }
@@ -2263,7 +2272,8 @@ fun ChatScreen(
                 } else null,
                 onClose = ::closeActions,
                 onRetry = { capabilitiesAttempt++ },
-                onReply = { updateDraft { it.copy(replyToMessageId = actionMessage.id) }; replyFocusRequest++; closeActions() },
+                onReply = { quoteState.clear(); updateDraft { it.copy(replyToMessageId = actionMessage.id) }; replyFocusRequest++; closeActions() },
+                onQuote = if (actionMessage.text.isNotBlank()) { { quoteState.pickerTarget = actionMessage; closeActions() } } else null,
                 onCopy = { clipboard.setPrimaryClip(ClipData.newPlainText(context.getString(R.string.chat_message), actionMessage.text)); closeActions() },
                 onEdit = { editId = actionMessage.id; editText = actionMessage.text; closeActions() },
                 onDelete = { deleteEveryone = capabilities?.canDeleteForSelf == false; deleting = true },
@@ -2628,16 +2638,15 @@ fun ChatScreen(
         }
         if (!searching) FloatingMessageDate(listState, messageListItems, Modifier.align(Alignment.TopCenter).padding(top = 8.dp))
         val away by remember(listState) { derivedStateOf { listState.firstVisibleItemIndex > 3 } }
-        val jumpMotion = rememberMotionSpec(MotionToken.BannerChange)
-        // Qualify the top-level animation: the outer chat ColumnScope overload is not valid in this BoxScope.
-        // The list box ends above the composer and the keyboard, so a bottom-end control stays clear of both.
-        androidx.compose.animation.AnimatedVisibility(
-            visible = away || history.hasNewerMessages,
-            modifier = Modifier.align(Alignment.BottomEnd).padding(end = 12.dp, bottom = 12.dp),
-            enter = if (jumpMotion.isInstant) EnterTransition.None else
-                jumpMotion.fadeEnter() + slideInVertically(jumpMotion.animationSpec()) { it / 2 },
-            exit = if (jumpMotion.isInstant) ExitTransition.None else
-                jumpMotion.fadeExit() + slideOutVertically(jumpMotion.animationSpec()) { it / 2 }
+        ChatJumpControls(
+            chatId = chat.id,
+            forumTopicId = forumTopicId,
+            unreadMentions = if (forumTopicId > 0L) 0 else chat.unreadMentionCount,
+            unreadReactions = if (forumTopicId > 0L) 0 else chat.unreadReactionCount,
+            showJumpLatest = away || history.hasNewerMessages,
+            conversation = conversation,
+            onJumpToMessage = { id -> jumpToMessage(id, R.string.chat_message_unavailable) },
+            modifier = Modifier.align(Alignment.BottomEnd).padding(end = 12.dp, bottom = 12.dp)
         ) {
             JumpToLatestButton(unread = if (forumTopicId > 0L) topicUnreadCount else chat.unreadCount, onClick = {
                 val hasNewerMessages = history.hasNewerMessages
@@ -2646,8 +2655,6 @@ fun ChatScreen(
                     else conversation.loadLatestMessages(chat.id)
                 }
                 scope.launch {
-                    // Honor Motion Off / system reduced motion for the scroll itself,
-                    // not only for the button's entrance and exit.
                     if (shouldAnimateJumpToLatest(listScrollInstant.value, hasNewerMessages)) {
                         listState.scrollToItemRespectingMotion(0, motionInstant = listScrollInstant)
                     } else {
@@ -2767,13 +2774,9 @@ fun ChatScreen(
         }
         // The reply strip lives inside the field container, above the text, as one composer unit.
         val replyHeader: (@Composable () -> Unit)? = if (replyId == null) null else ({
-            Row(Modifier.fillMaxWidth().motionEntrance(MotionToken.BannerChange, 8.dp).padding(start = 12.dp, end = 4.dp, top = 6.dp), verticalAlignment = Alignment.CenterVertically) {
-                Column(Modifier.weight(1f).clip(styledShape(12.dp)).then(if (chatGlass) Modifier.background(palette.surface.copy(alpha = 0.35f)) else Modifier).border(1.dp, palette.accent.copy(alpha = 0.45f), styledShape(12.dp)).padding(horizontal = 10.dp, vertical = 6.dp)) {
-                    Text(stringResource(R.string.chat_reply_label) + " · " + (replyTarget?.senderName?.ifBlank { if (replyTarget.isOutgoing) stringResource(R.string.chat_you) else chat.title } ?: stringResource(R.string.chat_message)), color = palette.accentInk, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
-                    Text(replyTarget?.summary() ?: stringResource(R.string.chat_message_unavailable), color = palette.textSecondary, maxLines = 2, overflow = TextOverflow.Ellipsis, fontSize = 14.sp)
-                }
-                IconButton(enabled = !sending, onClick = ::clearReply) { Icon(Icons.Rounded.Close, stringResource(R.string.chat_cancel_reply_description), tint = palette.textSecondary) }
-            }
+            val senderLabel = stringResource(R.string.chat_reply_label) + " · " + (replyTarget?.senderName?.ifBlank { if (replyTarget.isOutgoing) stringResource(R.string.chat_you) else chat.title } ?: stringResource(R.string.chat_message))
+            val previewText = quoteState.quote?.first?.let { "«$it»" } ?: replyTarget?.summary() ?: stringResource(R.string.chat_message_unavailable)
+            ChatReplyHeaderStrip(senderLabel, previewText, chatGlass, sending, ::clearReply)
         })
         val editing = editMessage != null
         val fieldText = if (editing) editText else draft
@@ -3202,6 +3205,7 @@ fun ChatScreen(
             onClose = { forwardId = null; selectionForwardOpen = false; frozenForwardSelection = longArrayOf(); forwardError = null; forwardAsCopy = false }
         )
     }
+    ChatScreenOverlays {
     contextMessageId?.let { id -> MessageContextDialog(contextChatId, id, conversation, riskGuard, observeFile, onDownloadFile, onClose = { contextMessageId = null }, autoDownloadFile = onAutoDownloadFile, onOpenMessageEntity = onOpenMessageEntity, allowEntityCopy = !chat.hasProtectedContent) }
     playlistTrack?.let { track -> AddToPlaylistSheet(accountId = accountId, track = track, onDismiss = { playlistTrack = null }) }
     if (copyLinks.isNotEmpty()) MessageLinkCopyDialog(
@@ -3357,6 +3361,7 @@ fun ChatScreen(
     botCommandMenu?.let { menu ->
         if (botCommandMenuOpen) BotCommandSheet(chat.title, menu, onDismiss = { botCommandMenuOpen = false }, onInsert = ::insertBotCommand)
     }
+    }
     pendingWebApp?.let { request ->
         BeyGramDialog(
             onDismissRequest = { pendingWebApp = null },
@@ -3445,6 +3450,11 @@ private fun ChatScreenBox(modifier: Modifier, content: @Composable BoxScope.() -
 @Composable
 private fun ChatScreenColumn(modifier: Modifier, content: @Composable ColumnScope.() -> Unit) {
     Column(modifier, content = content)
+}
+
+@Composable
+private fun ChatScreenOverlays(content: @Composable () -> Unit) {
+    content()
 }
 
 /** Keeps the attachment strip and the unified sticker panel out of ChatScreen's own bytecode-heavy composer lambda. */
@@ -3887,8 +3897,16 @@ internal fun MessageBubble(message: ChatMessage, observeFile: (Int) -> StateFlow
     val bubbleMax = chatBubbleMaxWidthDp(com.beykus.beygram.ui.screens.chats.LocalChatPaneWidthDp.current ?: chatPaneWidthDp(LocalWindowLayout.current)).dp
     val mediaFlightModifier = composerMediaLaunchModifier(composerMediaLaunch, onComposerMediaLaunchFinished)
     Column(Modifier.fillMaxWidth().then(if (circle) Modifier else Modifier.padding(horizontal = metrics.sideInset)), horizontalAlignment = if (message.isOutgoing) Alignment.End else Alignment.Start) {
-        SwipeToReply(enabled = onReply != null && message.sendState == MessageSendState.Sent, outgoing = message.isOutgoing,
-            onReply = { onReply?.invoke(message.id) }) { swipe ->
+        val secondarySwipe = rememberSecondarySwipeAction()
+        SwipeToReply(
+            enabled = onReply != null && message.sendState == MessageSendState.Sent,
+            outgoing = message.isOutgoing,
+            onReply = { onReply?.invoke(message.id) },
+            onSecondaryAction = when (secondarySwipe) {
+                MessageSecondarySwipeAction.QuickReaction -> { { onReaction(message.id, ReactionOption("❤")) } }
+                MessageSecondarySwipeAction.SaveToSaved, MessageSecondarySwipeAction.Off -> null
+            }
+        ) { swipe ->
             // Голосовое и кружок управляются своими элементами в пузыре и не открывают просмотрщик.
             Box(swipe) {
                 BubbleLayout(

@@ -3664,6 +3664,7 @@ GlobalSearchScreen(
             }
         }
         PlayerExpansionHost()
+        com.beykus.beygram.ui.screens.chat.InAppVideoPipHost()
     }
     }
     AccountSwitcherSheet(
