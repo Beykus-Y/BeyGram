@@ -1,15 +1,26 @@
 package com.beykus.beygram.ui.screens.playback
 
+import android.content.ClipData
+import android.content.ClipboardManager
+import android.content.Context
+import android.widget.Toast
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.interaction.collectIsDraggedAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -27,18 +38,25 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
+import androidx.compose.material.icons.rounded.ContentCopy
 import androidx.compose.material.icons.rounded.Pause
 import androidx.compose.material.icons.rounded.PlayArrow
 import androidx.compose.material.icons.rounded.Replay
+import androidx.compose.material.icons.rounded.Tune
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.State
@@ -59,6 +77,7 @@ import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
@@ -80,6 +99,7 @@ import com.beykus.beygram.data.music.provider.YANDEX_TRACK_KEY_PREFIX
 import com.beykus.beygram.data.yandex.YandexConfig
 import com.beykus.beygram.domain.lyrics.SyncedLyrics
 import com.beykus.beygram.playback.PlaybackEngine
+import com.beykus.beygram.ui.components.BeyGramSheet
 import com.beykus.beygram.ui.components.TextButton
 import com.beykus.beygram.ui.components.beyGramPalette
 import com.beykus.beygram.ui.design.styledShape
@@ -166,7 +186,7 @@ private fun MusicProviderFailure.toLyricsReason(): LyricsUnavailableReason = whe
 /**
  * Full-height lyrics panel inside the player overlay (parallel to Queue). Uses the player's own cover-adapted
  * palette ([beyGramPalette]) for guaranteed contrast, smooth frame-interpolated playhead tracking, tap-to-seek,
- * manual scroll pause with a return pill, and explicit retry on network errors.
+ * interactive bottom timeline, manual scroll pause with a return pill, long-press style/copy sheet, and retry.
  */
 @Composable
 internal fun LyricsPanel(
@@ -175,12 +195,16 @@ internal fun LyricsPanel(
     modifier: Modifier = Modifier,
     fetchLyrics: (suspend (String) -> YandexLyricsState)? = null,
     positionMsOverride: State<Long>? = null,
-    onSeekToMs: ((Long) -> Unit)? = null
+    onSeekToMs: ((Long) -> Unit)? = null,
+    showTimeline: Boolean = positionMsOverride == null
 ) {
     val context = LocalContext.current
+    val styleConfig = rememberLyricsStyleConfig()
     val isYandexTrack = player.item.key.startsWith(YANDEX_TRACK_KEY_PREFIX)
     val trackId = remember(player.item.key) { player.item.key.removePrefix(YANDEX_TRACK_KEY_PREFIX) }
     var retryNonce by remember(player.item.key) { mutableIntStateOf(0) }
+    var styleSheetOpen by remember { mutableStateOf(false) }
+    var selectedLineForSheet by remember { mutableStateOf<String?>(null) }
 
     val fallbackDurationMs = player.item.durationSeconds.coerceAtLeast(0) * 1000L
     val smoothPosition: State<Long> = if (positionMsOverride != null) {
@@ -212,6 +236,10 @@ internal fun LyricsPanel(
         LyricsHeader(
             player = player,
             onBack = onBack,
+            onOpenStyle = {
+                selectedLineForSheet = null
+                styleSheetOpen = true
+            },
             backFocus = backFocus
         )
         Box(Modifier.weight(1f).fillMaxWidth()) {
@@ -220,7 +248,12 @@ internal fun LyricsPanel(
                 state = state,
                 positionMs = smoothPosition,
                 playing = player.playing,
+                style = styleConfig,
                 onSeekToMs = seekHandler,
+                onLongPressLine = { lineText ->
+                    selectedLineForSheet = lineText
+                    styleSheetOpen = true
+                },
                 onRetry = {
                     if (isYandexTrack) {
                         MusicProviders.yandex(context)?.invalidateLyrics(trackId)
@@ -229,6 +262,28 @@ internal fun LyricsPanel(
                 }
             )
         }
+        if (showTimeline) {
+            PlayerSeekSection(
+                player = player,
+                modifier = Modifier.padding(horizontal = 20.dp, vertical = 4.dp)
+            )
+            Spacer(Modifier.height(4.dp))
+        }
+    }
+
+    if (styleSheetOpen) {
+        LyricsStyleSheet(
+            config = styleConfig,
+            selectedLine = selectedLineForSheet,
+            onUpdate = { transform -> LyricsStyleStore.update(context, transform) },
+            onCopyLine = { text ->
+                val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager
+                clipboard?.setPrimaryClip(ClipData.newPlainText("lyric", text))
+                Toast.makeText(context, R.string.lyrics_copied, Toast.LENGTH_SHORT).show()
+                styleSheetOpen = false
+            },
+            onDismiss = { styleSheetOpen = false }
+        )
     }
 }
 
@@ -236,6 +291,7 @@ internal fun LyricsPanel(
 private fun LyricsHeader(
     player: MusicPlayerUi,
     onBack: () -> Unit,
+    onOpenStyle: () -> Unit,
     backFocus: FocusRequester
 ) {
     val palette = beyGramPalette()
@@ -263,7 +319,7 @@ private fun LyricsHeader(
         Modifier
             .fillMaxWidth()
             .heightIn(min = 56.dp)
-            .padding(horizontal = 8.dp, vertical = 4.dp),
+            .padding(horizontal = 6.dp, vertical = 4.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
         IconButton(
@@ -307,6 +363,17 @@ private fun LyricsHeader(
             }
         }
         IconButton(
+            onClick = onOpenStyle,
+            modifier = Modifier.size(44.dp)
+        ) {
+            Icon(
+                Icons.Rounded.Tune,
+                contentDescription = stringResource(R.string.lyrics_style_title),
+                tint = palette.textSecondary,
+                modifier = Modifier.size(20.dp)
+            )
+        }
+        IconButton(
             onClick = { PlaybackEngine.togglePlayPause() },
             modifier = Modifier
                 .size(48.dp)
@@ -326,7 +393,9 @@ internal fun LyricsContent(
     state: YandexLyricsState,
     positionMs: State<Long>,
     playing: Boolean,
+    style: LyricsStyleConfig = LyricsStyleConfig(),
     onSeekToMs: (Long) -> Unit,
+    onLongPressLine: (String) -> Unit = {},
     onRetry: () -> Unit,
     modifier: Modifier = Modifier
 ) {
@@ -364,7 +433,9 @@ internal fun LyricsContent(
             lyrics = state.lyrics,
             positionMs = positionMs,
             playing = playing,
+            style = style,
             onSeekToMs = onSeekToMs,
+            onLongPressLine = onLongPressLine,
             modifier = modifier
         )
     }
@@ -382,7 +453,9 @@ private fun ReadyLyrics(
     lyrics: ProviderLyrics,
     positionMs: State<Long>,
     playing: Boolean,
+    style: LyricsStyleConfig,
     onSeekToMs: (Long) -> Unit,
+    onLongPressLine: (String) -> Unit,
     modifier: Modifier = Modifier
 ) {
     val palette = beyGramPalette()
@@ -431,25 +504,52 @@ private fun ReadyLyrics(
             .map { it.trim() }
             .filter { it.isNotEmpty() }
     }
+    val itemSpacing = when (style.visual) {
+        LyricsVisualStyle.Reading -> 10.dp
+        LyricsVisualStyle.Focus -> 20.dp
+        LyricsVisualStyle.Editorial -> 16.dp
+    }
+    val plainFontSize = when (style.size) {
+        LyricsTextSize.Compact -> 17.sp
+        LyricsTextSize.Normal -> 20.sp
+        LyricsTextSize.Large -> 23.sp
+    }
+    val plainLineHeight = when (style.size) {
+        LyricsTextSize.Compact -> 25.sp
+        LyricsTextSize.Normal -> 29.sp
+        LyricsTextSize.Large -> 33.sp
+    }
+    val textAlign = if (style.alignment == LyricsAlignment.Center) TextAlign.Center else TextAlign.Start
     val holder = lyrics.copyrightHolder
 
     Box(modifier.fillMaxSize()) {
         LazyColumn(
             state = listState,
             modifier = Modifier.fillMaxSize(),
-            contentPadding = PaddingValues(start = 24.dp, end = 24.dp, top = 36.dp, bottom = 72.dp),
-            verticalArrangement = Arrangement.spacedBy(16.dp)
+            contentPadding = PaddingValues(start = 24.dp, end = 24.dp, top = 32.dp, bottom = 64.dp),
+            verticalArrangement = Arrangement.spacedBy(itemSpacing)
         ) {
             if (timed.isEmpty) {
                 itemsIndexed(plainParagraphs) { _, block ->
+                    @OptIn(ExperimentalFoundationApi::class)
                     Text(
                         text = block,
                         color = palette.textPrimary,
-                        fontSize = 20.sp,
-                        lineHeight = 29.sp,
+                        fontSize = plainFontSize,
+                        lineHeight = plainLineHeight,
                         fontWeight = FontWeight.Medium,
-                        textAlign = TextAlign.Start,
-                        modifier = Modifier.fillMaxWidth()
+                        textAlign = textAlign,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(styledShape(10.dp))
+                            .combinedClickable(
+                                onClick = {},
+                                onLongClick = {
+                                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                    onLongPressLine(block)
+                                }
+                            )
+                            .padding(vertical = 2.dp)
                     )
                 }
             } else {
@@ -458,7 +558,8 @@ private fun ReadyLyrics(
                         InstrumentalDotsRow(
                             active = active == -1,
                             playing = playing,
-                            reducedMotion = microMotion.isInstant
+                            centered = style.alignment == LyricsAlignment.Center,
+                            reducedMotion = microMotion.isInstant || style.motion == LyricsMotionStyle.Calm
                         )
                     }
                 }
@@ -471,16 +572,22 @@ private fun ReadyLyrics(
                         InstrumentalDotsRow(
                             active = phase == LyricLinePhase.Active,
                             playing = playing,
-                            reducedMotion = microMotion.isInstant
+                            centered = style.alignment == LyricsAlignment.Center,
+                            reducedMotion = microMotion.isInstant || style.motion == LyricsMotionStyle.Calm
                         )
                     } else {
                         LyricRow(
                             text = line.text,
                             phase = phase,
+                            style = style,
                             onClick = {
                                 haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
                                 userDetached = false
                                 onSeekToMs(line.startMs)
+                            },
+                            onLongClick = {
+                                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                onLongPressLine(line.text)
                             }
                         )
                     }
@@ -494,7 +601,7 @@ private fun ReadyLyrics(
                         color = palette.textSecondary,
                         fontSize = 12.sp,
                         lineHeight = 16.sp,
-                        textAlign = TextAlign.Start,
+                        textAlign = textAlign,
                         modifier = Modifier.fillMaxWidth()
                     )
                 }
@@ -506,14 +613,14 @@ private fun ReadyLyrics(
             Modifier
                 .align(Alignment.TopCenter)
                 .fillMaxWidth()
-                .height(28.dp)
+                .height(26.dp)
                 .background(topFade)
         )
         Box(
             Modifier
                 .align(Alignment.BottomCenter)
                 .fillMaxWidth()
-                .height(40.dp)
+                .height(34.dp)
                 .background(bottomFade)
         )
 
@@ -523,7 +630,7 @@ private fun ReadyLyrics(
             exit = microMotion.fadeExit(),
             modifier = Modifier
                 .align(Alignment.BottomCenter)
-                .padding(bottom = 16.dp)
+                .padding(bottom = 12.dp)
         ) {
             Surface(
                 color = palette.accent,
@@ -546,61 +653,148 @@ private fun ReadyLyrics(
     }
 }
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun LyricRow(
     text: String,
     phase: LyricLinePhase,
-    onClick: () -> Unit
+    style: LyricsStyleConfig,
+    onClick: () -> Unit,
+    onLongClick: () -> Unit
 ) {
     val palette = beyGramPalette()
     val motion = rememberMotionSpec(MotionToken.MicroFeedback)
+    val reduced = motion.isInstant || style.motion == LyricsMotionStyle.Calm
     val seekLabel = stringResource(R.string.lyrics_seek_a11y, text)
+    val optionsLabel = stringResource(R.string.lyrics_line_options_a11y)
+    val density = LocalDensity.current
 
-    val targetAlpha = when (phase) {
-        LyricLinePhase.Active -> 1f
-        LyricLinePhase.Upcoming -> 0.56f
-        LyricLinePhase.Past -> 0.34f
+    val isActive = phase == LyricLinePhase.Active
+    val targetAlpha = when (style.visual) {
+        LyricsVisualStyle.Editorial -> when (phase) {
+            LyricLinePhase.Active -> 1f
+            LyricLinePhase.Upcoming -> 0.54f
+            LyricLinePhase.Past -> 0.28f
+        }
+        LyricsVisualStyle.Focus -> when (phase) {
+            LyricLinePhase.Active -> 1f
+            LyricLinePhase.Upcoming -> 0.34f
+            LyricLinePhase.Past -> 0.18f
+        }
+        LyricsVisualStyle.Reading -> when (phase) {
+            LyricLinePhase.Active -> 1f
+            LyricLinePhase.Upcoming -> 0.72f
+            LyricLinePhase.Past -> 0.44f
+        }
     }
-    val targetScale = if (phase == LyricLinePhase.Active) 1.04f else 1f
+    val targetScale = when {
+        reduced || !isActive -> 1f
+        style.motion == LyricsMotionStyle.Dynamic -> 1.06f
+        else -> 1.035f
+    }
+    val targetLiftPx = if (!reduced && isActive && style.motion == LyricsMotionStyle.Dynamic) {
+        with(density) { (-2).dp.toPx() }
+    } else {
+        0f
+    }
 
-    val alpha by animateFloatAsState(
-        targetValue = targetAlpha,
+    val floatSpec = if (!reduced && style.motion == LyricsMotionStyle.Dynamic) {
+        spring(dampingRatio = Spring.DampingRatioLowBouncy, stiffness = Spring.StiffnessMediumLow)
+    } else {
+        motion.animationSpec<Float>()
+    }
+
+    val alpha by animateFloatAsState(targetValue = targetAlpha, animationSpec = motion.animationSpec(), label = "lyricAlpha")
+    val scale by animateFloatAsState(targetValue = targetScale, animationSpec = floatSpec, label = "lyricScale")
+    val liftPx by animateFloatAsState(targetValue = targetLiftPx, animationSpec = floatSpec, label = "lyricLift")
+
+    val targetHighlightBg = if (isActive && style.visual == LyricsVisualStyle.Focus) {
+        palette.accentSoft.copy(alpha = 0.28f)
+    } else {
+        Color.Transparent
+    }
+    val highlightBg by animateColorAsState(
+        targetValue = targetHighlightBg,
         animationSpec = motion.animationSpec(),
-        label = "lyricAlpha"
+        label = "lyricHighlightBg"
     )
-    val scale by animateFloatAsState(
-        targetValue = targetScale,
+    val accentBarAlpha by animateFloatAsState(
+        targetValue = if (isActive && (style.visual == LyricsVisualStyle.Focus || style.motion == LyricsMotionStyle.Dynamic)) 1f else 0f,
         animationSpec = motion.animationSpec(),
-        label = "lyricScale"
+        label = "lyricAccentBar"
     )
+
+    val fontSize = when (style.size) {
+        LyricsTextSize.Compact -> 19.sp
+        LyricsTextSize.Normal -> 22.sp
+        LyricsTextSize.Large -> 26.sp
+    }
+    val lineHeight = when (style.size) {
+        LyricsTextSize.Compact -> 26.sp
+        LyricsTextSize.Normal -> 30.sp
+        LyricsTextSize.Large -> 35.sp
+    }
+    val fontWeight = when (style.visual) {
+        LyricsVisualStyle.Reading -> FontWeight.SemiBold
+        else -> FontWeight.Bold
+    }
+    val centered = style.alignment == LyricsAlignment.Center
+    val origin = if (centered) TransformOrigin(0.5f, 0.5f) else TransformOrigin(0f, 0.5f)
 
     // Layout metrics stay constant across phases; emphasis is applied in graphicsLayer so the list never jumps.
-    Text(
-        text = text,
-        color = palette.textPrimary,
-        fontSize = 22.sp,
-        lineHeight = 30.sp,
-        fontWeight = FontWeight.Bold,
-        letterSpacing = (-0.2).sp,
-        textAlign = TextAlign.Start,
+    Row(
         modifier = Modifier
             .fillMaxWidth()
-            .clip(styledShape(10.dp))
-            .clickable(role = Role.Button, onClickLabel = seekLabel, onClick = onClick)
-            .padding(vertical = 4.dp)
+            .clip(styledShape(12.dp))
+            .background(highlightBg)
+            .combinedClickable(
+                role = Role.Button,
+                onClickLabel = seekLabel,
+                onLongClickLabel = optionsLabel,
+                onClick = onClick,
+                onLongClick = onLongClick
+            )
+            .padding(
+                horizontal = if (style.visual == LyricsVisualStyle.Focus) 10.dp else 2.dp,
+                vertical = if (style.visual == LyricsVisualStyle.Focus) 6.dp else 4.dp
+            )
             .graphicsLayer {
                 this.alpha = alpha
                 this.scaleX = scale
                 this.scaleY = scale
-                this.transformOrigin = TransformOrigin(0f, 0.5f)
-            }
-    )
+                this.translationY = liftPx
+                this.transformOrigin = origin
+            },
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        if (!centered && (style.visual == LyricsVisualStyle.Focus || style.motion == LyricsMotionStyle.Dynamic)) {
+            Box(
+                Modifier
+                    .padding(end = 10.dp)
+                    .size(width = 3.dp, height = 22.dp)
+                    .graphicsLayer { this.alpha = accentBarAlpha }
+                    .clip(RoundedCornerShape(50))
+                    .background(palette.accent)
+            )
+        }
+        Text(
+            text = text,
+            color = palette.textPrimary,
+            fontSize = fontSize,
+            lineHeight = lineHeight,
+            fontWeight = fontWeight,
+            letterSpacing = (-0.25).sp,
+            textAlign = if (centered) TextAlign.Center else TextAlign.Start,
+            modifier = Modifier.weight(1f)
+        )
+    }
 }
 
 @Composable
 private fun InstrumentalDotsRow(
     active: Boolean,
     playing: Boolean,
+    centered: Boolean,
     reducedMotion: Boolean
 ) {
     val palette = beyGramPalette()
@@ -625,7 +819,7 @@ private fun InstrumentalDotsRow(
             .fillMaxWidth()
             .padding(vertical = 8.dp)
             .semantics { contentDescription = label },
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        horizontalArrangement = Arrangement.spacedBy(8.dp, if (centered) Alignment.CenterHorizontally else Alignment.Start),
         verticalAlignment = Alignment.CenterVertically
     ) {
         repeat(3) { dot ->
@@ -645,5 +839,186 @@ private fun InstrumentalDotsRow(
                     .background(palette.textPrimary)
             )
         }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun LyricsStyleSheet(
+    config: LyricsStyleConfig,
+    selectedLine: String?,
+    onUpdate: ((LyricsStyleConfig) -> LyricsStyleConfig) -> Unit,
+    onCopyLine: (String) -> Unit,
+    onDismiss: () -> Unit
+) {
+    val palette = beyGramPalette()
+    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    BeyGramSheet(
+        onDismissRequest = onDismiss,
+        sheetState = sheetState,
+        scrollableContent = false,
+        containerColor = palette.surface
+    ) {
+        Column(
+            Modifier
+                .fillMaxWidth()
+                .verticalScroll(rememberScrollState())
+                .padding(start = 20.dp, end = 20.dp, bottom = 24.dp)
+        ) {
+            if (!selectedLine.isNullOrBlank()) {
+                Text(
+                    text = selectedLine,
+                    color = palette.textPrimary,
+                    fontSize = 15.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis
+                )
+                Spacer(Modifier.height(10.dp))
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .heightIn(min = 46.dp)
+                        .clip(styledShape(12.dp))
+                        .background(palette.accentSoft)
+                        .clickable(role = Role.Button) { onCopyLine(selectedLine) }
+                        .padding(horizontal = 14.dp, vertical = 10.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Icon(
+                        Icons.Rounded.ContentCopy,
+                        contentDescription = null,
+                        tint = palette.accentInk,
+                        modifier = Modifier.size(18.dp)
+                    )
+                    Spacer(Modifier.width(10.dp))
+                    Text(
+                        text = stringResource(R.string.lyrics_copy_line),
+                        color = palette.accentInk,
+                        fontSize = 14.sp,
+                        fontWeight = FontWeight.SemiBold
+                    )
+                }
+                Spacer(Modifier.height(14.dp))
+                HorizontalDivider(color = palette.divider)
+                Spacer(Modifier.height(14.dp))
+            }
+
+            Text(
+                text = stringResource(R.string.lyrics_style_title),
+                color = palette.textPrimary,
+                fontSize = 17.sp,
+                fontWeight = FontWeight.SemiBold
+            )
+
+            LyricsOptionSection(stringResource(R.string.lyrics_style_section)) {
+                LyricsStyleChip(
+                    text = stringResource(R.string.lyrics_style_editorial),
+                    selected = config.visual == LyricsVisualStyle.Editorial,
+                    onClick = { onUpdate { it.copy(visual = LyricsVisualStyle.Editorial) } }
+                )
+                LyricsStyleChip(
+                    text = stringResource(R.string.lyrics_style_focus),
+                    selected = config.visual == LyricsVisualStyle.Focus,
+                    onClick = { onUpdate { it.copy(visual = LyricsVisualStyle.Focus) } }
+                )
+                LyricsStyleChip(
+                    text = stringResource(R.string.lyrics_style_reading),
+                    selected = config.visual == LyricsVisualStyle.Reading,
+                    onClick = { onUpdate { it.copy(visual = LyricsVisualStyle.Reading) } }
+                )
+            }
+
+            LyricsOptionSection(stringResource(R.string.lyrics_motion_section)) {
+                LyricsStyleChip(
+                    text = stringResource(R.string.lyrics_motion_smooth),
+                    selected = config.motion == LyricsMotionStyle.Smooth,
+                    onClick = { onUpdate { it.copy(motion = LyricsMotionStyle.Smooth) } }
+                )
+                LyricsStyleChip(
+                    text = stringResource(R.string.lyrics_motion_dynamic),
+                    selected = config.motion == LyricsMotionStyle.Dynamic,
+                    onClick = { onUpdate { it.copy(motion = LyricsMotionStyle.Dynamic) } }
+                )
+                LyricsStyleChip(
+                    text = stringResource(R.string.lyrics_motion_calm),
+                    selected = config.motion == LyricsMotionStyle.Calm,
+                    onClick = { onUpdate { it.copy(motion = LyricsMotionStyle.Calm) } }
+                )
+            }
+
+            LyricsOptionSection(stringResource(R.string.lyrics_size_section)) {
+                LyricsStyleChip(
+                    text = stringResource(R.string.lyrics_size_compact),
+                    selected = config.size == LyricsTextSize.Compact,
+                    onClick = { onUpdate { it.copy(size = LyricsTextSize.Compact) } }
+                )
+                LyricsStyleChip(
+                    text = stringResource(R.string.lyrics_size_normal),
+                    selected = config.size == LyricsTextSize.Normal,
+                    onClick = { onUpdate { it.copy(size = LyricsTextSize.Normal) } }
+                )
+                LyricsStyleChip(
+                    text = stringResource(R.string.lyrics_size_large),
+                    selected = config.size == LyricsTextSize.Large,
+                    onClick = { onUpdate { it.copy(size = LyricsTextSize.Large) } }
+                )
+            }
+
+            LyricsOptionSection(stringResource(R.string.lyrics_align_section)) {
+                LyricsStyleChip(
+                    text = stringResource(R.string.lyrics_align_start),
+                    selected = config.alignment == LyricsAlignment.Start,
+                    onClick = { onUpdate { it.copy(alignment = LyricsAlignment.Start) } }
+                )
+                LyricsStyleChip(
+                    text = stringResource(R.string.lyrics_align_center),
+                    selected = config.alignment == LyricsAlignment.Center,
+                    onClick = { onUpdate { it.copy(alignment = LyricsAlignment.Center) } }
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun LyricsOptionSection(title: String, content: @Composable () -> Unit) {
+    val palette = beyGramPalette()
+    Text(
+        text = title,
+        color = palette.textSecondary,
+        fontSize = 12.sp,
+        fontWeight = FontWeight.SemiBold,
+        modifier = Modifier.padding(top = 14.dp, bottom = 8.dp)
+    )
+    Row(
+        modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+        horizontalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        content()
+    }
+}
+
+@Composable
+private fun LyricsStyleChip(text: String, selected: Boolean, onClick: () -> Unit) {
+    val palette = beyGramPalette()
+    val shape = styledShape(22.dp)
+    Box(
+        Modifier
+            .heightIn(min = 44.dp)
+            .clip(shape)
+            .background(if (selected) palette.accent else Color.Transparent, shape)
+            .border(1.dp, if (selected) palette.accent else palette.divider, shape)
+            .clickable(role = Role.Button, onClick = onClick)
+            .padding(horizontal = 14.dp, vertical = 10.dp),
+        contentAlignment = Alignment.Center
+    ) {
+        Text(
+            text = text,
+            color = if (selected) palette.onAccent else palette.textPrimary,
+            fontSize = 13.sp,
+            fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
+            maxLines = 1
+        )
     }
 }

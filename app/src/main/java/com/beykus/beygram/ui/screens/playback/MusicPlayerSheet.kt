@@ -733,13 +733,13 @@ private fun PlayerDetails(
     Spacer(Modifier.height(6.dp))
     TransportControls(player, mediaMotion)
     Spacer(Modifier.height(14.dp))
+    PlayerActions(player, onOpenQueue, onOpenLyrics, onOpenEqualizer)
+    Spacer(Modifier.height(10.dp))
     BgBeatSection(
         item = player.item,
         playbackFractionProvider = playedProvider,
         modifier = Modifier.padding(horizontal = 4.dp)
     )
-    Spacer(Modifier.height(10.dp))
-    PlayerActions(player, onOpenQueue, onOpenLyrics, onOpenEqualizer)
 }
 
 @Composable
@@ -820,10 +820,10 @@ private fun PlayerArtwork(player: MusicPlayerUi, size: Dp, mediaMotion: MotionSp
                 scaleX = combined
                 scaleY = combined
                 translationX = animatedDragX
+                alpha = if (PlayerExpansion.fullSharedHidden(FlightRole.Artwork)) 0f else 1f
             }
             .shadow(elevation, styledShape(20.dp), clip = false)
             .onGloballyPositioned { targets.artwork = it }
-            .graphicsLayer { alpha = if (PlayerExpansion.fullSharedHidden(FlightRole.Artwork)) 0f else 1f }
     ) {
         TrackArtwork(
             artworkPath = player.item.artworkPath,
@@ -1037,7 +1037,7 @@ private fun PlayerStatusLine(player: MusicPlayerUi) {
 }
 
 @Composable
-private fun PlayerSeekSection(player: MusicPlayerUi) {
+internal fun PlayerSeekSection(player: MusicPlayerUi, modifier: Modifier = Modifier) {
     // The drag and pending seek live here, so the time labels and thumb stay in sync without snapping back on release.
     var dragging by remember(player.item.key) { mutableStateOf<Float?>(null) }
     var pendingSeek by remember(player.item.key) { mutableStateOf<Float?>(null) }
@@ -1055,26 +1055,28 @@ private fun PlayerSeekSection(player: MusicPlayerUi) {
         }
     }
     val overrideFraction = dragging ?: pendingSeek
-    PlayerSeekBar(
-        position = position,
-        fallbackDurationSeconds = player.item.durationSeconds,
-        contentLabel = stringResource(R.string.player_progress),
-        dragging = dragging,
-        overrideFraction = overrideFraction,
-        onDragging = { dragging = it },
-        onSeekCommitted = { fraction ->
-            pendingSeek = fraction
-            PlaybackEngine.seekTo(fraction.coerceIn(0f, 1f), fallbackDurationMs = fallbackDurationMs)
-        },
-        smoothMs = smooth
-    )
-    PlayerTimeRow(
-        position = position,
-        fallbackDurationSeconds = player.item.durationSeconds,
-        overrideFraction = overrideFraction,
-        isDragging = dragging != null,
-        smoothMs = smooth
-    )
+    Column(modifier.fillMaxWidth()) {
+        PlayerSeekBar(
+            position = position,
+            fallbackDurationSeconds = player.item.durationSeconds,
+            contentLabel = stringResource(R.string.player_progress),
+            dragging = dragging,
+            overrideFraction = overrideFraction,
+            onDragging = { dragging = it },
+            onSeekCommitted = { fraction ->
+                pendingSeek = fraction
+                PlaybackEngine.seekTo(fraction.coerceIn(0f, 1f), fallbackDurationMs = fallbackDurationMs)
+            },
+            smoothMs = smooth
+        )
+        PlayerTimeRow(
+            position = position,
+            fallbackDurationSeconds = player.item.durationSeconds,
+            overrideFraction = overrideFraction,
+            isDragging = dragging != null,
+            smoothMs = smooth
+        )
+    }
 }
 
 /**
@@ -1416,15 +1418,16 @@ private fun PlayPauseButton(player: MusicPlayerUi, mediaMotion: MotionSpec) {
     Box(
         Modifier
             .size(72.dp)
+            .onGloballyPositioned { PlayerExpansion.targets.play = it }
+            // Must sit before clip/background so the static circle hides completely while the flight circle animates.
+            .graphicsLayer { alpha = if (PlayerExpansion.fullSharedHidden(FlightRole.Play)) 0f else 1f }
             .clip(CircleShape)
             .background(palette.accent)
             .clickable(role = Role.Button) { PlaybackEngine.togglePlayPause() }
             .semantics {
                 contentDescription = label
                 stateDescription = stateText
-            }
-            .onGloballyPositioned { PlayerExpansion.targets.play = it }
-            .graphicsLayer { alpha = if (PlayerExpansion.fullSharedHidden(FlightRole.Play)) 0f else 1f },
+            },
         contentAlignment = Alignment.Center
     ) {
         val targets = PlayerExpansion.targets

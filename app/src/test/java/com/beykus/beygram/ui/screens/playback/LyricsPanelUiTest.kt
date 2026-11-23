@@ -11,6 +11,8 @@ import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performTouchInput
+import androidx.compose.ui.test.longClick
 import com.beykus.beygram.R
 import com.beykus.beygram.data.music.provider.LyricLine
 import com.beykus.beygram.data.music.provider.ProviderLyrics
@@ -253,5 +255,42 @@ class LyricsPanelUiTest {
         compose.waitForIdle()
 
         compose.onNodeWithText(context.getString(R.string.lyrics_none_for_track)).assertIsDisplayed()
+    }
+
+    @Test
+    fun longPressOnLine_opensStyleAndCopySheet_andTimelineIsVisible() {
+        val pos = mutableLongStateOf(1_000L)
+        val lyrics = ProviderLyrics(
+            lines = listOf(LyricLine(1_000L, "Hold me for style options")),
+            plainText = null,
+            copyrightHolder = null
+        )
+
+        compose.setContent {
+            BeyGramTheme {
+                LyricsPanel(
+                    player = playerUi(key = "ym:300", playing = false),
+                    onBack = {},
+                    positionMsOverride = pos,
+                    showTimeline = true,
+                    fetchLyrics = { YandexLyricsState.Ready(lyrics) }
+                )
+            }
+        }
+        compose.waitForIdle()
+
+        // Interactive timeline is visible in lyrics mode.
+        compose.onNodeWithContentDescription(context.getString(R.string.player_progress)).assertIsDisplayed()
+
+        // Long-pressing a line opens the style + copy sheet.
+        compose.onNodeWithText("Hold me for style options").performTouchInput { longClick() }
+        compose.waitForIdle()
+
+        compose.onNodeWithText(context.getString(R.string.lyrics_copy_line)).assertIsDisplayed()
+        compose.onNodeWithText(context.getString(R.string.lyrics_style_title)).assertIsDisplayed()
+        compose.onNodeWithText(context.getString(R.string.lyrics_style_focus)).assertIsDisplayed().performClick()
+        compose.waitForIdle()
+
+        assertEquals(LyricsVisualStyle.Focus, LyricsStyleStore.flow(context).value.visual)
     }
 }
