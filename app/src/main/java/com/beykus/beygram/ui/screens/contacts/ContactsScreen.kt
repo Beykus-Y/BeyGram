@@ -131,6 +131,15 @@ fun ContactsScreen(
     var sharingContact by remember(accountId) { mutableStateOf<ContactPreview?>(null) }
     var query by rememberSaveable(accountId) { mutableStateOf("") }
     var showAddDialog by rememberSaveable(accountId) { mutableStateOf(false) }
+    val coveredByOverlay = com.beykus.beygram.LocalMainTabsCovered.current
+    LaunchedEffect(coveredByOverlay) {
+        if (coveredByOverlay) {
+            showAddDialog = false
+            editingContact = null
+            deletingContact = null
+            sharingContact = null
+        }
+    }
     val activeAccountId by rememberUpdatedState(accountId)
     val visible = remember(contacts, query) {
         contacts.filter { contactMatchesQuery(it, query) }

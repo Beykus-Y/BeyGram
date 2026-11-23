@@ -351,6 +351,17 @@ fun ChatsScreen(
     val swipeStore = remember(context) { ChatSwipeSettingsStore(context) }
     var swipePreferences by remember(accountId) { mutableStateOf(swipeStore.load(accountId)) }
     var showSwipeSettings by remember(accountId) { mutableStateOf(false) }
+    val coveredByOverlay = com.beykus.beygram.LocalMainTabsCovered.current
+    LaunchedEffect(coveredByOverlay) {
+        if (coveredByOverlay) {
+            openSwipeChatId = null
+            selectedActions = null
+            peekedChat = null
+            confirmReadAll = false
+            showSwipeSettings = false
+            managingFolders = false
+        }
+    }
     val snackbarState = remember(accountId) { SnackbarHostState() }
     val snackbarScope = rememberCoroutineScope()
     val changeSwipePreferences: (ChatSwipePreferences) -> Unit = { updated ->
@@ -633,7 +644,7 @@ fun ChatsScreen(
         if (listState.firstVisibleItemIndex != 0 || listState.firstVisibleItemScrollOffset != 0) listState.scrollToItem(0)
     }
 
-    if (managingFolders) {
+    if (managingFolders && !coveredByOverlay) {
         val manager: @Composable () -> Unit = {
             // Sorting every chat by title is only needed while the manager is open, and once per list change.
             val knownChats = remember(chats, archivedChats, folderChats) {

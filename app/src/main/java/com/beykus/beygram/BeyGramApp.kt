@@ -45,6 +45,10 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.saveable.rememberSaveableStateHolder
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.focusProperties
+import androidx.compose.ui.input.pointer.PointerEventPass
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.material3.CircularProgressIndicator
@@ -2908,6 +2912,10 @@ GlobalSearchScreen(
                     val pushSpec = rememberMotionSpec(MotionToken.NavigationPush)
                     val popSpec = rememberMotionSpec(MotionToken.NavigationPop)
                     val tabSpec = rememberMotionSpec(MotionToken.TabSelect)
+                    // Hoisted above key(selectedAccountId, routeTwoPane) so rotation / twoPane layout switches
+                    // preserve the visited root-tab state and active tab across single-pane <-> two-pane (#1117).
+                    var phoneTabsVisited by rememberSaveable(selectedAccountId) { mutableStateOf(false) }
+                    var lastMountedMainTabName by rememberSaveable(selectedAccountId) { mutableStateOf(MainTab.Chats.name) }
                     when {
                         !accountRegistryReady -> CircularProgressIndicator(Modifier.align(Alignment.Center))
                         accountRegistryError -> Text(
@@ -3008,9 +3016,37 @@ GlobalSearchScreen(
                                     } else baseRouteTransitionSpec()
                                 }
                             }
+                        val currentFrame = RouteTransitionFrame(route, routeTwoPane)
+                        if (usesSharedPhoneTabs(currentFrame)) {
+                            phoneTabsVisited = true
+                            lastMountedMainTabName = MainTab.entries.first { it.route == route }.name
+                        }
+                        val lastMountedMainTab = MainTab.entries.firstOrNull { it.name == lastMountedMainTabName } ?: MainTab.Chats
+                        val keepPhoneTabsMounted = shouldKeepPhoneTabsMounted(currentFrame, phoneTabsVisited)
+                        val phoneTabsCovered = keepPhoneTabsMounted && !usesSharedPhoneTabs(currentFrame)
                         Box(Modifier.fillMaxSize()) {
+                        if (keepPhoneTabsMounted) {
+                            PersistentPhoneTabsBackdrop(covered = phoneTabsCovered) {
+                                MainTabsHost(
+                                    accountId = selectedAccountId,
+                                    selected = lastMountedMainTab,
+                                    visibility = tabVisibility,
+                                    onSelect = selectTab,
+                                    stateHolder = tabStateHolder,
+                                    tabMotion = tabSpec,
+                                    tabDirection = routeHistory.tabDirection
+                                ) { tab ->
+                                    when (tab) {
+                                        MainTab.Chats -> chatsList(false, false)
+                                        MainTab.Calls -> callsTabContent()
+                                        MainTab.Contacts -> contactsTabContent()
+                                        MainTab.Settings -> settingsTabContent()
+                                    }
+                                }
+                            }
+                        }
                         AnimatedContent(
-                            targetState = RouteTransitionFrame(route, routeTwoPane),
+                            targetState = currentFrame,
                             modifier = Modifier.fillMaxSize().clipToBounds(),
                             // Phones: all four roots share one stable chrome slot; the inner viewport owns their slide.
                             // Threads keep the chat slot; on wide screens preserve the existing list/detail slot.
@@ -3020,22 +3056,10 @@ GlobalSearchScreen(
                         ) { frame ->
                         val screenRoute = frame.route
                         if (usesSharedPhoneTabs(frame)) {
-                            MainTabsHost(
-                                accountId = selectedAccountId,
-                                selected = MainTab.entries.first { it.route == screenRoute },
-                                visibility = tabVisibility,
-                                onSelect = selectTab,
-                                stateHolder = tabStateHolder,
-                                tabMotion = tabSpec,
-                                tabDirection = routeHistory.tabDirection
-                            ) { tab ->
-                                when (tab) {
-                                    MainTab.Chats -> chatsList(false, false)
-                                    MainTab.Calls -> callsTabContent()
-                                    MainTab.Contacts -> contactsTabContent()
-                                    MainTab.Settings -> settingsTabContent()
-                                }
-                            }
+                            // Single MainTabsHost lives in PersistentPhoneTabsBackdrop directly below this
+                            // transparent slot, so returning from any non-auth route never disposes or duplicates
+                            // MainTabsHost inside AnimatedContent (#1109).
+                            Box(Modifier.fillMaxSize())
                         } else Box(Modifier.fillMaxSize().background(beyGramPalette().screen)) {
                         when (if (frame.twoPane && screenRoute in twoPaneSlotRoutes) AppRoute.Chats else screenRoute) {
                         AppRoute.Start -> StartScreen(
@@ -3917,6 +3941,66 @@ internal fun routeTransitionMove(
 /** Single-pane root tabs share one outer route slot; only their inner page is animated. */
 internal fun usesSharedPhoneTabs(frame: RouteTransitionFrame): Boolean =
     !frame.twoPane && frame.route in tabRootRoutes
+
+/** Auth routes where the main tab host must never remain mounted. */
+private val phoneAuthRoutes = setOf(
+    AppRoute.Start,
+    AppRoute.LoginPhone,
+    AppRoute.LoginCode,
+    AppRoute.LoginPassword
+)
+
+/**
+ * Keeps the single [MainTabsHost] mounted beneath non-auth single-pane routes once the user has visited a root tab,
+ * avoiding costly full subcomposition on Back navigation (#1109).
+ *
+ * Cold deep links / pushes directly into [AppRoute.Chat] before any root tab was visited keep [phoneTabsVisited] false
+ * so the tab host is not eagerly composed underneath the cold-start chat. Auth routes and two-pane layouts never mount
+ * this layer.
+ */
+internal fun shouldKeepPhoneTabsMounted(frame: RouteTransitionFrame, phoneTabsVisited: Boolean): Boolean =
+    !frame.twoPane && (frame.route in tabRootRoutes || (phoneTabsVisited && frame.route !in phoneAuthRoutes))
+
+/** True when the persistent single-pane [MainTabsHost] is covered by an overlay route (Chat, Profile, etc.). */
+val LocalMainTabsCovered = androidx.compose.runtime.compositionLocalOf { false }
+
+/**
+ * Hosts the persistent single-pane [MainTabsHost] beneath overlay routes and blocks TalkBack semantics,
+ * hardware/keyboard focus, modal windows ([LocalMainTabsCovered]), and pointer input at [PointerEventPass.Initial]
+ * whenever [covered] is true (including during partial slide or predictive Back transitions).
+ */
+@Composable
+internal fun PersistentPhoneTabsBackdrop(
+    covered: Boolean,
+    modifier: Modifier = Modifier,
+    content: @Composable () -> Unit
+) {
+    CompositionLocalProvider(LocalMainTabsCovered provides covered) {
+        Box(modifier.fillMaxSize()) {
+            Box(
+                Modifier
+                    .fillMaxSize()
+                    .focusProperties { canFocus = !covered }
+                    .then(if (covered) Modifier.clearAndSetSemantics {} else Modifier)
+            ) {
+                content()
+            }
+            if (covered) {
+                Box(
+                    Modifier
+                        .fillMaxSize()
+                        .pointerInput(Unit) {
+                            awaitPointerEventScope {
+                                while (true) {
+                                    awaitPointerEvent(PointerEventPass.Initial).changes.forEach { it.consume() }
+                                }
+                            }
+                        }
+                )
+            }
+        }
+    }
+}
 
 private object SharedPhoneTabsSlot
 
