@@ -17,7 +17,7 @@ set(BGMEDIA_BUILD_DESKTOP OFF CACHE BOOL "" FORCE)
 set(BGMEDIA_WARNINGS_AS_ERRORS OFF CACHE BOOL "" FORCE)
 
 # Pinned commit of BG Media dev (fallback when the submodule is absent). Keep equal to the third_party/bg-media pointer.
-set(BGMEDIA_PINNED_COMMIT "7973fa9e3347f3f332af9c03db7593cb8fcd7da0")
+set(BGMEDIA_PINNED_COMMIT "bd732411e6ac43514c001562074e88fb87582026")
 
 if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/../../../../third_party/bg-media/CMakeLists.txt")
     set(BGMEDIA_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../../../../third_party/bg-media")
