@@ -236,7 +236,7 @@ dependencies {
     implementation(files(mihomoAndroidAar).builtBy(downloadMihomoAndroid))
     implementation(platform(libs.androidx.compose.bom))
     // Only PROF carries composition tracing. Other channels retain their existing dependencies.
-    add("profImplementation", "androidx.compose.runtime:runtime-tracing:1.12.1")
+    add("profImplementation", "androidx.compose.runtime:runtime-tracing:1.10.4")
     implementation(libs.re2j)
     implementation(libs.androidx.activity.compose)
     implementation(libs.androidx.camera.camera2)
