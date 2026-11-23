@@ -96,6 +96,7 @@ jobs:
             echo "telegramApiHash="
             echo "yandexMusicClientId="
             echo "yandexMusicClientSecret="
+            echo "yandexMusicLyricsSignKey="
           } > secrets.properties
 
       - name: Run unit tests
@@ -193,12 +194,15 @@ jobs:
           # Public OAuth pair for the experimental Yandex Music sign-in (DEV build only). Empty disables it.
           YANDEX_MUSIC_CLIENT_ID: ${{ secrets.YANDEX_MUSIC_CLIENT_ID }}
           YANDEX_MUSIC_CLIENT_SECRET: ${{ secrets.YANDEX_MUSIC_CLIENT_SECRET }}
+          # Signs the Yandex lyrics requests (DEV build only). Empty disables lyrics.
+          YANDEX_LYRICS_SIGN_KEY: ${{ secrets.SIGN_KEY }}
         run: |
           {
             echo "telegramApiId=${TELEGRAM_API_ID:-0}"
             echo "telegramApiHash=${TELEGRAM_API_HASH:-}"
             echo "yandexMusicClientId=${YANDEX_MUSIC_CLIENT_ID:-}"
             echo "yandexMusicClientSecret=${YANDEX_MUSIC_CLIENT_SECRET:-}"
+            echo "yandexMusicLyricsSignKey=${YANDEX_LYRICS_SIGN_KEY:-}"
           } > secrets.properties
 
       - name: Read the NDK version

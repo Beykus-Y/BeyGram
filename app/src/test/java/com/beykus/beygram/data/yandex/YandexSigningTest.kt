@@ -35,6 +35,28 @@ class YandexSigningTest {
     }
 
     @Test
+    fun lrcWithCrlfAndByteOrderMarkParses() {
+        val lrc = "\uFEFF[ar:Someone]\r\n[00:01.00]Hello\r\n[00:02]World\r\n"
+        assertEquals(listOf(LyricLine(1_000, "Hello"), LyricLine(2_000, "World")), YandexSigning.parseLrc(lrc))
+    }
+
+    @Test
+    fun plainLyricsKeepsBracketedLinesAndCollapsesBlankRuns() {
+        val body = "\uFEFF[Verse]\r\n Line one \r\n\r\n\r\n\r\nLine two\r\n"
+        assertEquals("[Verse]\nLine one\n\nLine two", YandexSigning.plainLyricsText(body))
+        assertNull(YandexSigning.plainLyricsText(" \r\n\uFEFF"))
+    }
+
+    @Test
+    fun lyricsSignIsBase64HmacOfTrackIdAndTimeStamp() {
+        // HMAC-SHA256 with key "test-key" over "12345678" + "1700000000", Base64 with padding; computed outside the app.
+        assertEquals(
+            "6fLBHHYwybVHW8n4Ufc251D3YEjL+h/DEu54YGLu8W8=",
+            YandexSigning.lyricsSign("12345678", "1700000000", "test-key"),
+        )
+    }
+
+    @Test
     fun directLinkUsesSaltPathAndSecond() {
         val info = YandexSigning.DownloadInfo(host = "storage.example", path = "/abc", ts = "123", s = "xyz")
         // MD5("XGRlBW9FXlekgbPrRHuSiA" + "abc" + "xyz"), computed outside the app for this fixed input.
