@@ -4,7 +4,6 @@ import android.app.Application
 import androidx.compose.material3.Text
 import androidx.compose.ui.test.hasSetTextAction
 import androidx.compose.ui.test.junit4.createComposeRule
-import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.onNodeWithText
 import com.beykus.beygram.R
 import com.beykus.beygram.domain.UiText
@@ -80,12 +79,14 @@ class ShareDialogLayoutTest(private val widthDp: Int) {
                 )
             }
         }
+        // Let the sheet finish its expand animation (a non-empty selection expands it).
+        compose.mainClock.advanceTimeBy(3_000)
         compose.waitForIdle()
 
-        val send = compose.onNodeWithText(context.getString(R.string.share_send_count, 2))
-            .assertIsDisplayed()
+        val send = compose.onNodeWithText(context.getString(R.string.share_send_count, 2), useUnmergedTree = true)
             .fetchSemanticsNode().boundsInRoot
-        val preview = compose.onNodeWithText("preview").fetchSemanticsNode().boundsInRoot
+        val preview = compose.onNodeWithText("preview", useUnmergedTree = true).fetchSemanticsNode().boundsInRoot
+        assertTrue("$widthDp dp: send label has no size: $send (preview $preview)", send.width > 0f && send.height > 0f)
 
         assertTrue("$widthDp dp: send button ends at ${send.right}, past the screen width $screenWidthPx", send.right <= screenWidthPx + 1f)
         assertTrue("$widthDp dp: send button ends at ${send.bottom}, past the screen height $screenHeightPx", send.bottom <= screenHeightPx + 1f)
