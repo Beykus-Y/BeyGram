@@ -966,6 +966,8 @@
     <string name="share_send_count">Send (%1$d)</string>
     <string name="share_add_recipient">Add recipient</string>
     <string name="share_delivery_progress">Sent to %1$d of %2$d recipients. Some parts remain unsent.</string>
+    <string name="share_preparing_progress">Preparing files: %1$d of %2$d</string>
+    <string name="share_drop_pending_hint">Tap a recipient below to remove it and skip sending to it again.</string>
     <string name="forum_navigation_title">Topic view</string>
     <string name="forum_navigation_classic">Topic list</string>
     <string name="forum_navigation_tabs">Tabs on top</string>

@@ -992,6 +992,8 @@
     <string name="share_send_count">Envoyer (%1$d)</string>
     <string name="share_add_recipient">Ajouter un destinataire</string>
     <string name="share_delivery_progress">Envoyé à %1$d destinataires sur %2$d. Certains éléments restent à envoyer.</string>
+    <string name="share_preparing_progress">Préparation des fichiers : %1$d sur %2$d</string>
+    <string name="share_drop_pending_hint">Touchez un destinataire ci-dessous pour le retirer et ne pas lui renvoyer le contenu.</string>
     <string name="forum_navigation_title">Affichage des sujets</string>
     <string name="forum_navigation_classic">Liste des sujets</string>
     <string name="forum_navigation_tabs">Onglets en haut</string>
