@@ -2601,7 +2601,11 @@ object PlaybackEngine {
                         // Like the regular Next, a paused queue stays paused on the new track.
                         continueBgMixQueueOnExo(state.queue, it, autoPlay = state.playing || state.intentPlaying || state.ended)
                     }
-                !last -> bgMix?.next()
+                // Manual Next is an explicit jump: the native planned transition (session.next()) would add a
+                // crossfade and could lift a pause, so the queue moves to the regular player at the next track from 0.
+                // The automatic handover back to BG Mix is scheduled by startQueue. A native manual transport command
+                // replaces this once BG-Media#77 is pinned.
+                !last -> continueBgMixQueueOnExo(state.queue, state.queueIndex + 1, autoPlay = state.playing || state.intentPlaying || state.ended)
                 state.repeatMode == PlaybackRepeatMode.All -> restartBgMix(state.queue, 0, 0L, state.intentPlaying || state.ended)
             }
             return
