@@ -41,6 +41,9 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.saveable.rememberSaveableStateHolder
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.input.pointer.PointerEventPass
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.material3.CircularProgressIndicator
@@ -2997,10 +3000,19 @@ GlobalSearchScreen(
                         if (usesSharedPhoneTabs(currentFrame)) {
                             lastMountedMainTab = MainTab.entries.first { it.route == route }
                         }
-                        val keepTabsAlive = profFlags.keepTabsMounted && !routeTwoPane &&
-                            (usesSharedPhoneTabs(currentFrame) || route == AppRoute.Chat)
+                        val keepTabsAlive = shouldKeepProfMainTabsMounted(
+                            currentFrame, profFlags.keepTabsMounted && com.beykus.beygram.perf.ProfDiagnostics.isProfBuild,
+                            lastMountedMainTab
+                        )
+                        val tabsHiddenUnderChat = keepTabsAlive && !usesSharedPhoneTabs(currentFrame)
                         Box(Modifier.fillMaxSize()) {
                         if (keepTabsAlive) {
+                            // Remain composed for fast chat→list return, but remove background tab
+                            // actions from TalkBack while a chat covers the host. A full-size
+                            // pointer shield also prevents taps during partially revealed transitions.
+                            Box(Modifier.fillMaxSize().then(
+                                if (tabsHiddenUnderChat) Modifier.clearAndSetSemantics { } else Modifier
+                            )) {
                             MainTabsHost(
                                 accountId = selectedAccountId,
                                 selected = lastMountedMainTab,
@@ -3016,6 +3028,17 @@ GlobalSearchScreen(
                                     MainTab.Contacts -> contactsTabContent()
                                     MainTab.Settings -> settingsTabContent()
                                 }
+                            }
+                            if (tabsHiddenUnderChat) {
+                                Box(Modifier.fillMaxSize().pointerInput(Unit) {
+                                    awaitPointerEventScope {
+                                        while (true) {
+                                            awaitPointerEvent(PointerEventPass.Initial)
+                                                .changes.forEach { it.consume() }
+                                        }
+                                    }
+                                })
+                            }
                             }
                         }
                         AnimatedContent(
@@ -3930,6 +3953,13 @@ internal fun routeTransitionMove(
 /** Single-pane root tabs share one outer route slot; only their inner page is animated. */
 internal fun usesSharedPhoneTabs(frame: RouteTransitionFrame): Boolean =
     !frame.twoPane && frame.route in tabRootRoutes
+
+/** PROF H4 is scoped to the chat stack entered from Chats. Unrelated routes keep old lifecycles. */
+internal fun shouldKeepProfMainTabsMounted(frame: RouteTransitionFrame, enabled: Boolean, lastTab: MainTab): Boolean =
+    enabled && !frame.twoPane && (
+        usesSharedPhoneTabs(frame) ||
+            (lastTab == MainTab.Chats && frame.route in setOf(AppRoute.Chat, AppRoute.MessageThread, AppRoute.ChatInfo))
+        )
 
 private object SharedPhoneTabsSlot
 
