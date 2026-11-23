@@ -20,6 +20,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.interaction.collectIsDraggedAsState
 import androidx.compose.foundation.layout.Arrangement
@@ -48,6 +49,8 @@ import androidx.compose.material.icons.rounded.ContentCopy
 import androidx.compose.material.icons.rounded.Pause
 import androidx.compose.material.icons.rounded.PlayArrow
 import androidx.compose.material.icons.rounded.Replay
+import androidx.compose.material.icons.rounded.SkipNext
+import androidx.compose.material.icons.rounded.SkipPrevious
 import androidx.compose.material.icons.rounded.Tune
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -68,6 +71,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
@@ -76,6 +80,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalHapticFeedback
@@ -265,10 +270,10 @@ internal fun LyricsPanel(
         if (showTimeline) {
             PlayerSeekSection(
                 player = player,
-                modifier = Modifier.padding(horizontal = 20.dp, vertical = 4.dp)
+                modifier = Modifier.padding(horizontal = 20.dp, vertical = 2.dp)
             )
-            Spacer(Modifier.height(4.dp))
         }
+        LyricsTransportBar(player = player)
     }
 
     if (styleSheetOpen) {
@@ -295,23 +300,9 @@ private fun LyricsHeader(
     backFocus: FocusRequester
 ) {
     val palette = beyGramPalette()
+    val haptic = LocalHapticFeedback.current
+    val swipeThresholdPx = with(LocalDensity.current) { 64.dp.toPx() }
     val providerCover = rememberProviderCover(ProviderTracks.byKey(player.item.key)?.coverUrl)
-    val playIcon = when {
-        player.failed || player.ended -> Icons.Rounded.Replay
-        player.playing || player.intentPlaying -> Icons.Rounded.Pause
-        else -> Icons.Rounded.PlayArrow
-    }
-    val playLabel = when {
-        player.failed -> stringResource(R.string.player_retry)
-        player.ended -> stringResource(R.string.player_replay)
-        player.playing || player.intentPlaying -> stringResource(R.string.common_pause)
-        else -> stringResource(R.string.common_play)
-    }
-    val playState = when {
-        player.intentPlaying && player.buffering -> stringResource(R.string.player_buffering)
-        player.playing -> stringResource(R.string.a11y_state_playing)
-        else -> stringResource(R.string.a11y_state_paused)
-    }
     val title = player.item.musicTitle().ifBlank { stringResource(R.string.media_kind_audio) }
     val artist = player.item.musicArtist()
 
@@ -332,57 +323,146 @@ private fun LyricsHeader(
                 tint = palette.textSecondary
             )
         }
-        TrackArtwork(
-            artworkPath = player.item.artworkPath?.takeIf { it.isNotBlank() } ?: providerCover,
-            audioPath = player.item.path.takeIf { it.isNotBlank() },
-            modifier = Modifier.size(36.dp),
-            background = palette.accentSoft,
-            tint = palette.accentInk,
-            symbolSize = 18.dp,
-            cornerRadius = 8.dp,
-            border = palette.divider.copy(alpha = 0.5f)
-        )
-        Spacer(Modifier.width(10.dp))
-        Column(Modifier.weight(1f)) {
-            Text(
-                text = title,
-                color = palette.textPrimary,
-                fontSize = 14.sp,
-                fontWeight = FontWeight.SemiBold,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis
+        Row(
+            modifier = Modifier
+                .weight(1f)
+                .clip(styledShape(12.dp))
+                .pointerInput(player.item.key, player.canNext, player.canPrevious) {
+                    var total = 0f
+                    detectHorizontalDragGestures(
+                        onDragStart = { total = 0f },
+                        onDragCancel = { total = 0f },
+                        onDragEnd = {
+                            val dx = total
+                            total = 0f
+                            when {
+                                dx <= -swipeThresholdPx && player.canNext -> {
+                                    haptic.performHapticFeedback(HapticFeedbackType.ContextClick)
+                                    PlaybackEngine.next()
+                                }
+                                dx >= swipeThresholdPx && player.canPrevious -> {
+                                    haptic.performHapticFeedback(HapticFeedbackType.ContextClick)
+                                    PlaybackEngine.previous()
+                                }
+                            }
+                        },
+                        onHorizontalDrag = { change, amount ->
+                            change.consume()
+                            total += amount
+                        }
+                    )
+                }
+                .padding(horizontal = 4.dp, vertical = 4.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            TrackArtwork(
+                artworkPath = player.item.artworkPath?.takeIf { it.isNotBlank() } ?: providerCover,
+                audioPath = player.item.path.takeIf { it.isNotBlank() },
+                modifier = Modifier.size(36.dp),
+                background = palette.accentSoft,
+                tint = palette.accentInk,
+                symbolSize = 18.dp,
+                cornerRadius = 8.dp,
+                border = palette.divider.copy(alpha = 0.5f)
             )
-            if (artist.isNotBlank()) {
+            Spacer(Modifier.width(10.dp))
+            Column(Modifier.weight(1f)) {
                 Text(
-                    text = artist,
-                    color = palette.textSecondary,
-                    fontSize = 12.sp,
+                    text = title,
+                    color = palette.textPrimary,
+                    fontSize = 14.sp,
+                    fontWeight = FontWeight.SemiBold,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
                 )
+                if (artist.isNotBlank()) {
+                    Text(
+                        text = artist,
+                        color = palette.textSecondary,
+                        fontSize = 12.sp,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
             }
         }
         IconButton(
             onClick = onOpenStyle,
-            modifier = Modifier.size(44.dp)
+            modifier = Modifier.size(48.dp)
         ) {
             Icon(
                 Icons.Rounded.Tune,
                 contentDescription = stringResource(R.string.lyrics_style_title),
                 tint = palette.textSecondary,
-                modifier = Modifier.size(20.dp)
+                modifier = Modifier.size(22.dp)
             )
         }
+    }
+}
+
+@Composable
+private fun LyricsTransportBar(player: MusicPlayerUi) {
+    val palette = beyGramPalette()
+    val playIcon = when {
+        player.failed || player.ended -> Icons.Rounded.Replay
+        player.playing || player.intentPlaying -> Icons.Rounded.Pause
+        else -> Icons.Rounded.PlayArrow
+    }
+    val playLabel = when {
+        player.failed -> stringResource(R.string.player_retry)
+        player.ended -> stringResource(R.string.player_replay)
+        player.playing || player.intentPlaying -> stringResource(R.string.common_pause)
+        else -> stringResource(R.string.common_play)
+    }
+    val playState = when {
+        player.intentPlaying && player.buffering -> stringResource(R.string.player_buffering)
+        player.playing -> stringResource(R.string.a11y_state_playing)
+        else -> stringResource(R.string.a11y_state_paused)
+    }
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 24.dp, vertical = 8.dp),
+        horizontalArrangement = Arrangement.spacedBy(28.dp, Alignment.CenterHorizontally),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
         IconButton(
-            onClick = { PlaybackEngine.togglePlayPause() },
+            onClick = { PlaybackEngine.previous() },
+            enabled = player.canPrevious,
+            modifier = Modifier.size(48.dp).alpha(if (player.canPrevious) 1f else 0.35f)
+        ) {
+            Icon(
+                Icons.Rounded.SkipPrevious,
+                contentDescription = stringResource(R.string.player_previous),
+                tint = palette.textPrimary,
+                modifier = Modifier.size(28.dp)
+            )
+        }
+        Box(
             modifier = Modifier
-                .size(48.dp)
+                .size(52.dp)
+                .clip(CircleShape)
+                .background(palette.accent)
+                .clickable(role = Role.Button) { PlaybackEngine.togglePlayPause() }
                 .semantics {
                     contentDescription = playLabel
                     stateDescription = playState
-                }
+                },
+            contentAlignment = Alignment.Center
         ) {
-            Icon(playIcon, contentDescription = null, tint = palette.textPrimary)
+            Icon(playIcon, contentDescription = null, tint = palette.onAccent, modifier = Modifier.size(28.dp))
+        }
+        IconButton(
+            onClick = { PlaybackEngine.next() },
+            enabled = player.canNext,
+            modifier = Modifier.size(48.dp).alpha(if (player.canNext) 1f else 0.35f)
+        ) {
+            Icon(
+                Icons.Rounded.SkipNext,
+                contentDescription = stringResource(R.string.player_next),
+                tint = palette.textPrimary,
+                modifier = Modifier.size(28.dp)
+            )
         }
     }
 }
