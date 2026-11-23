@@ -1191,7 +1191,8 @@ fun ChatsScreen(
                     Result.failure(IllegalStateException("archive"))
                 }
             },
-            delete = { onDeleteChat(selected.id) }
+            delete = { onDeleteChat(selected.id) },
+            onPeek = { peekedChat = selected }
         )
     }
     peekedChat?.let { peek ->
@@ -1200,7 +1201,14 @@ fun ChatsScreen(
             observeFile = observeFile,
             downloadFile = downloadFile,
             load = onPeekChat,
-            onClose = { peekedChat = null }
+            onClose = { peekedChat = null },
+            onOpenChat = { onChatClick(peek) },
+            onToggleMute = { onMuteChat(peek.id, !peek.isMuted) },
+            onTogglePin = {
+                if (activeFolderId != null) onPinFolderChat(activeFolderId, peek.id, !peek.isPinned)
+                else onPinChat(peek.id, !peek.isPinned)
+            },
+            onMarkRead = { onMarkRead(peek) }
         )
     }
 }

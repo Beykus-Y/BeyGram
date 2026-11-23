@@ -1564,7 +1564,8 @@ private fun MediaViewerPage(
             streamSource != null -> LocalVideo(
                 streamSource.path, loop = media.kind == MediaKind.Animation, active = active,
                 onStarted = { currentOnViewed(item.messageId) }, progressive = streamSource,
-                onManualDownload = { downloadFile(media.fileId) }
+                onManualDownload = { downloadFile(media.fileId) },
+                onOpenPipDismiss = onDismiss
             )
             path == null && media.mimeType.startsWith("image/") -> PhotoPreview(file, thumb.localPath) { downloadFile(media.fileId) }
             path == null && media.mimeType.startsWith("video/") && thumb.localPath != null -> Column(
@@ -1600,7 +1601,7 @@ private fun MediaViewerPage(
                 showZoomControls = showZoomControls, zoomControlsBottomPadding = zoomControlsBottomPadding, onUserInteraction = onUserInteraction,
                 contentDescription = media.kind.label(context))
             media.kind == MediaKind.Video || media.kind == MediaKind.Animation || media.mimeType.startsWith("video/") ->
-                LocalVideo(path, media.kind == MediaKind.Animation, active, onStarted = { currentOnViewed(item.messageId) })
+                LocalVideo(path, media.kind == MediaKind.Animation, active, onStarted = { currentOnViewed(item.messageId) }, onOpenPipDismiss = onDismiss)
             else -> Column(horizontalAlignment = Alignment.CenterHorizontally) {
                 Text(formatMediaSize(file.size), color = Color.LightGray)
                 if (exportable) TextButton(onClick = { onOpenFile(path) }) { Text(stringResource(R.string.media_open_file)) }
@@ -1960,7 +1961,8 @@ private fun LocalVideo(
     active: Boolean,
     onStarted: () -> Unit,
     progressive: ProgressiveVideoSource? = null,
-    onManualDownload: (() -> Unit)? = null
+    onManualDownload: (() -> Unit)? = null,
+    onOpenPipDismiss: () -> Unit = {}
 ) {
     val context = LocalContext.current
     val lifecycle = LocalLifecycleOwner.current.lifecycle
@@ -2194,6 +2196,7 @@ private fun LocalVideo(
             onOpenPip = {
                 player.pause()
                 InAppVideoPip.open(path, player.currentPosition)
+                onOpenPipDismiss()
             },
             modifier = Modifier.align(Alignment.BottomCenter)
         )

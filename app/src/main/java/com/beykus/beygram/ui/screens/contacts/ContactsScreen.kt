@@ -225,17 +225,17 @@ fun ContactsScreen(
             visible.isEmpty() -> EmptyState(stringResource(R.string.contacts_empty_no_results), Modifier.weight(1f))
             else -> Box(
                 // The list is one group card, as a settings list is; the hint, the headings and the rows inside carry no glass.
-                Modifier.weight(1f).fillMaxWidth().padding(start = 16.dp, end = 16.dp, bottom = if (dockInset > 0.dp) 0.dp else 16.dp)
+                Modifier.weight(1f).fillMaxWidth().padding(start = 16.dp, end = 16.dp, top = 10.dp, bottom = if (dockInset > 0.dp) 0.dp else 16.dp)
                     .glassCard(design, groupSurfaceColor(), palette.textSecondary, groupCardShape())
             ) {
-                LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(top = 4.dp, bottom = 4.dp + dockInset)) {
+                LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(top = 6.dp, bottom = 6.dp + dockInset)) {
                     item(key = "contacts_actions_hint") {
                         Text(
                             stringResource(R.string.contacts_actions_hint),
                             color = palette.textSecondary,
-                            fontSize = 13.sp,
-                            lineHeight = 18.sp,
-                            modifier = Modifier.padding(start = 20.dp, end = 20.dp, top = 10.dp, bottom = 4.dp)
+                            fontSize = 12.sp,
+                            lineHeight = 16.sp,
+                            modifier = Modifier.padding(start = 20.dp, end = 20.dp, top = 6.dp, bottom = 2.dp)
                         )
                     }
                     contactGroups.forEach { (initial, group) ->
@@ -245,7 +245,7 @@ fun ContactsScreen(
                                 color = palette.accent,
                                 fontSize = 13.sp,
                                 fontWeight = FontWeight.SemiBold,
-                                modifier = Modifier.fillMaxWidth().padding(start = 20.dp, top = 14.dp, bottom = 4.dp)
+                                modifier = Modifier.fillMaxWidth().padding(start = 20.dp, top = 10.dp, bottom = 4.dp)
                             )
                         }
                         items(group, key = { it.userId }) { contact ->

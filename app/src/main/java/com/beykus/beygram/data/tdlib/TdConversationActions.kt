@@ -934,11 +934,31 @@ internal class TdConversationActions(
 
     /**
      * The newest messages for the long-press preview. Only GetChatHistory is sent: no OpenChat and no ViewMessages,
-     * so the chat keeps its unread count. Forum chats or other refusals become an error that the card shows as empty.
+     * so the chat keeps its unread count. Loops up to 3 pages because TDLib's first GetChatHistory call frequently
+     * returns only the single cached lastMessage when local history is not warmed up yet.
      */
     suspend fun peekMessages(chatId: Long): Result<List<ChatMessage>> = conversationResult {
         if (chatId == 0L) throw UserMessageException(UiText.Res(R.string.err_message_original_unavailable))
-        request(peekHistoryRequest(chatId, PEEK_MESSAGE_LIMIT)).messages.orEmpty().filterNotNull().sortedBy { it.id }.map(map)
+        val collected = LinkedHashMap<Long, TdApi.Message>()
+        var fromMessageId = 0L
+        repeat(3) {
+            val remaining = (PEEK_MESSAGE_LIMIT - collected.size).coerceAtLeast(1)
+            val req = if (fromMessageId == 0L) {
+                peekHistoryRequest(chatId, remaining)
+            } else {
+                TdApi.GetChatHistory(chatId, fromMessageId, 0, remaining, false)
+            }
+            val page = request(req).messages.orEmpty().filterNotNull()
+            if (page.isEmpty()) return@repeat
+            val before = collected.size
+            for (msg in page) collected.putIfAbsent(msg.id, msg)
+            val oldest = page.minOf { it.id }
+            if (collected.size >= PEEK_MESSAGE_LIMIT || oldest == fromMessageId || (fromMessageId != 0L && collected.size == before)) {
+                return@repeat
+            }
+            fromMessageId = oldest
+        }
+        collected.values.sortedBy { it.id }.map(map)
     }
 
     /**

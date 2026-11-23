@@ -1,5 +1,7 @@
 package com.beykus.beygram.ui.screens.chat
 
+import android.view.TextureView
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -29,6 +31,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
@@ -43,6 +47,10 @@ import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.ui.AspectRatioFrameLayout
 import androidx.media3.ui.PlayerView
 import com.beykus.beygram.R
+import com.beykus.beygram.domain.model.MediaKind
+import com.beykus.beygram.playback.PlaybackEngine
+import com.beykus.beygram.playback.PlaybackState
+import com.beykus.beygram.ui.components.beyGramPalette
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -69,18 +77,50 @@ internal object InAppVideoPip {
     }
 }
 
+/** Tracks whether an inline [VideoNoteBubble] currently owns the video surface inside a visible chat. */
+internal object VideoNoteInlineSurfaceRegistry {
+    private val _owners = MutableStateFlow<Set<Any>>(emptySet())
+    val owners: StateFlow<Set<Any>> = _owners.asStateFlow()
+
+    fun register(owner: Any) {
+        _owners.value = _owners.value + owner
+    }
+
+    fun unregister(owner: Any) {
+        _owners.value = _owners.value - owner
+    }
+}
+
 /**
- * Floating draggable in-app Picture-in-Picture video overlay. Lives in the root window above chats so the user
- * can keep watching a video while browsing other conversations.
+ * Floating draggable in-app Picture-in-Picture overlay for both fullscreen videos ([InAppVideoPip])
+ * and off-screen playing video notes (кружки) from [PlaybackEngine].
  */
 @Composable
 internal fun InAppVideoPipHost() {
     val request by InAppVideoPip.current.collectAsStateWithLifecycle()
-    val active = request ?: return
+    if (request != null) {
+        FloatingVideoPip(request!!)
+        return
+    }
+    val playback by PlaybackEngine.state.collectAsStateWithLifecycle()
+    val inlineOwners by VideoNoteInlineSurfaceRegistry.owners.collectAsStateWithLifecycle()
+    val item = playback.item
+    val showVideoNotePip = item != null &&
+        item.kind == MediaKind.VideoNote &&
+        !playback.ended &&
+        !playback.failed &&
+        inlineOwners.isEmpty()
+    if (showVideoNotePip) {
+        FloatingVideoNotePip(playback)
+    }
+}
+
+@Composable
+private fun FloatingVideoPip(active: InAppVideoPipRequest) {
     val context = LocalContext.current
     val density = LocalDensity.current
-    val pipWidthDp = 188.dp
-    val pipHeightDp = 112.dp
+    val pipWidthDp = 196.dp
+    val pipHeightDp = 116.dp
 
     val player = remember(active.path) {
         ExoPlayer.Builder(context.applicationContext).build().apply {
@@ -132,7 +172,6 @@ internal fun InAppVideoPipHost() {
                 onRelease = { it.player = null },
                 modifier = Modifier.fillMaxSize()
             )
-            // Center play/pause tap target
             Box(
                 Modifier
                     .align(Alignment.Center)
@@ -157,7 +196,6 @@ internal fun InAppVideoPipHost() {
                     modifier = Modifier.size(22.dp)
                 )
             }
-            // Top-end close button
             Box(
                 Modifier
                     .align(Alignment.TopEnd)
@@ -166,6 +204,108 @@ internal fun InAppVideoPipHost() {
                     .clip(CircleShape)
                     .background(Color.Black.copy(alpha = 0.55f))
                     .clickable(role = Role.Button) { InAppVideoPip.close() },
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    Icons.Rounded.Close,
+                    contentDescription = stringResource(R.string.viewer_pip_close),
+                    tint = Color.White,
+                    modifier = Modifier.size(16.dp)
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun FloatingVideoNotePip(playback: PlaybackState) {
+    val palette = beyGramPalette()
+    val density = LocalDensity.current
+    val circleSizeDp = 136.dp
+    val pipOwner = remember { Any() }
+    val itemKey = playback.item?.key ?: return
+
+    DisposableEffect(pipOwner) {
+        onDispose { PlaybackEngine.detachVideo(pipOwner) }
+    }
+
+    BoxWithConstraints(Modifier.fillMaxSize()) {
+        val marginPx = with(density) { 14.dp.toPx() }
+        val sizePx = with(density) { circleSizeDp.toPx() }
+        val maxX = (constraints.maxWidth - sizePx - marginPx).coerceAtLeast(marginPx)
+        val maxY = (constraints.maxHeight - sizePx - with(density) { 104.dp.toPx() }).coerceAtLeast(marginPx)
+        var offsetX by remember(itemKey) { mutableFloatStateOf(maxX) }
+        var offsetY by remember(itemKey) { mutableFloatStateOf(with(density) { 88.dp.toPx() }.coerceIn(marginPx, maxY)) }
+
+        Box(
+            Modifier
+                .offset { IntOffset(offsetX.roundToInt(), offsetY.roundToInt()) }
+                .size(circleSizeDp)
+                .pointerInput(maxX, maxY) {
+                    detectDragGestures { change, dragAmount ->
+                        change.consume()
+                        offsetX = (offsetX + dragAmount.x).coerceIn(marginPx, maxX)
+                        offsetY = (offsetY + dragAmount.y).coerceIn(marginPx, maxY)
+                    }
+                }
+        ) {
+            Box(
+                Modifier
+                    .fillMaxSize()
+                    .shadow(10.dp, CircleShape)
+                    .clip(CircleShape)
+                    .background(VideoNoteBackground)
+                    .clickable(role = Role.Button) {
+                        if (playback.playing) PlaybackEngine.pause() else PlaybackEngine.resume(itemKey) {}
+                    },
+                contentAlignment = Alignment.Center
+            ) {
+                AndroidView(
+                    factory = { TextureView(it).apply { setOpaque(false) } },
+                    update = { PlaybackEngine.attachVideo(pipOwner, it) },
+                    onRelease = { PlaybackEngine.detachVideo(pipOwner) },
+                    modifier = Modifier.fillMaxSize()
+                )
+                Canvas(Modifier.fillMaxSize()) {
+                    val stroke = 3.dp.toPx()
+                    drawCircle(
+                        color = Color.White.copy(alpha = 0.22f),
+                        style = Stroke(width = stroke)
+                    )
+                    drawArc(
+                        color = palette.accent,
+                        startAngle = -90f,
+                        sweepAngle = 360f * playback.fraction.coerceIn(0f, 1f),
+                        useCenter = false,
+                        style = Stroke(width = stroke, cap = StrokeCap.Round)
+                    )
+                }
+                if (!playback.playing) {
+                    Box(
+                        Modifier
+                            .size(40.dp)
+                            .clip(CircleShape)
+                            .background(Color.Black.copy(alpha = 0.5f)),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            Icons.Rounded.PlayArrow,
+                            contentDescription = stringResource(R.string.common_play),
+                            tint = Color.White,
+                            modifier = Modifier.size(24.dp)
+                        )
+                    }
+                }
+            }
+            Box(
+                Modifier
+                    .align(Alignment.TopEnd)
+                    .size(28.dp)
+                    .shadow(4.dp, CircleShape)
+                    .clip(CircleShape)
+                    .background(Color.Black.copy(alpha = 0.72f))
+                    .border(1.dp, Color.White.copy(alpha = 0.25f), CircleShape)
+                    .clickable(role = Role.Button) { PlaybackEngine.stop() },
                 contentAlignment = Alignment.Center
             ) {
                 Icon(

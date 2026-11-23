@@ -250,8 +250,14 @@ internal fun VideoNoteBubble(
                 // Кадры выводятся в общий плеер, пока кружок показан. Звук от них не зависит: без экрана он продолжает играть.
                 if (showing) AndroidView(
                     factory = { TextureView(it).apply { setOpaque(false) } },
-                    update = { PlaybackEngine.attachVideo(row, it) },
-                    onRelease = { PlaybackEngine.detachVideo(row) },
+                    update = {
+                        VideoNoteInlineSurfaceRegistry.register(row)
+                        PlaybackEngine.attachVideo(row, it)
+                    },
+                    onRelease = {
+                        VideoNoteInlineSurfaceRegistry.unregister(row)
+                        PlaybackEngine.detachVideo(row)
+                    },
                     modifier = Modifier.fillMaxSize()
                 )
                 // Свой кружок во время загрузки на сервер: кольцо показывает прогресс, после приёма кружок принимает обычный вид.
