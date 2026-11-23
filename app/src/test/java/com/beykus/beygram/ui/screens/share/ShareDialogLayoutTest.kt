@@ -5,7 +5,6 @@ import androidx.compose.material3.Text
 import androidx.compose.ui.test.hasSetTextAction
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.assertIsDisplayed
-import androidx.compose.ui.test.onAllNodes
 import androidx.compose.ui.test.onNodeWithText
 import com.beykus.beygram.R
 import com.beykus.beygram.domain.UiText
@@ -17,9 +16,11 @@ import com.beykus.beygram.ui.theme.BeyGramTheme
 import kotlinx.coroutines.flow.MutableStateFlow
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
-import org.junit.Before
 import org.junit.Rule
 import org.junit.Test
+import org.junit.rules.TestRule
+import org.junit.runner.Description
+import org.junit.runners.model.Statement
 import org.junit.runner.RunWith
 import org.robolectric.ParameterizedRobolectricTestRunner
 import org.robolectric.RuntimeEnvironment
@@ -36,17 +37,23 @@ import org.robolectric.annotation.GraphicsMode
 // SDK 34 runs on the JDK 17 used by CI; a plain Application keeps TDLib and the native media libraries out.
 @Config(sdk = [34], qualifiers = "w360dp-h640dp-xhdpi", application = Application::class)
 class ShareDialogLayoutTest(private val widthDp: Int) {
-    @get:Rule
+    // The qualifier is per test (@Config cannot take the parameter) and must be set before the rule below launches
+    // its activity: an activity that already exists does not pick up a later setQualifiers.
+    @get:Rule(order = 0)
+    val screenSize = TestRule { base: Statement, _: Description ->
+        object : Statement() {
+            override fun evaluate() {
+                RuntimeEnvironment.setQualifiers("w${widthDp}dp-h${screenHeightDp}dp-xhdpi")
+                base.evaluate()
+            }
+        }
+    }
+
+    @get:Rule(order = 1)
     val compose = createComposeRule()
 
     private val context get() = RuntimeEnvironment.getApplication()
     private val screenHeightDp = 640
-
-    @Before
-    fun setUp() {
-        // The qualifier is per test; @Config cannot take the parameter.
-        RuntimeEnvironment.setQualifiers("w${widthDp}dp-h${screenHeightDp}dp-xhdpi")
-    }
 
     @Test
     fun composerStaysOnScreenAndBelowThePreview() {
