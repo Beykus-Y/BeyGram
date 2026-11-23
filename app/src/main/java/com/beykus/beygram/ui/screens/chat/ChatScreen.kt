@@ -1584,6 +1584,13 @@ fun ChatScreen(
             searchResults = emptyList(); searchTotalCount = 0; searchRefreshing = false
             return@LaunchedEffect
         }
+        val restore = searchMatchSession
+        if (restore.canRestoreResults(searchQuery, requestedFilter)) {
+            // Возврат из найденного сообщения: прежние результаты без повторного запроса, позицию восстановит список.
+            searchResults = restore.results; searchNextId = restore.nextFromMessageId
+            searchTotalCount = restore.totalCount; searchBusy = false; searchRefreshing = false
+            return@LaunchedEffect
+        }
         // Прежние результаты остаются на месте, но помечены устаревшими до ответа: без вспышки пустого экрана.
         searchRefreshing = searchResults.isNotEmpty()
         delay(300)
@@ -1665,7 +1672,7 @@ fun ChatScreen(
             }
         }
     }
-    fun openSearchResult(message: ChatMessage) {
+    fun openSearchResult(message: ChatMessage, scrollIndex: Int, scrollOffset: Int) {
         val snapshot = searchResults
         val index = snapshot.indexOfFirst { it.id == message.id }.coerceAtLeast(0)
         val total = searchTotalCount
@@ -1680,7 +1687,9 @@ fun ChatScreen(
             results = snapshot,
             index = index,
             totalCount = total,
-            nextFromMessageId = nextId
+            nextFromMessageId = nextId,
+            scrollIndex = scrollIndex,
+            scrollOffset = scrollOffset
         )
         jumpToMessage(message.id, R.string.err_chat_history_load_failed)
     }
@@ -1690,7 +1699,7 @@ fun ChatScreen(
         searchMatchGeneration++
         searchQuery = session.query
         searchFilter = session.filter
-        searchMatchSession = ChatSearchMatchSession()
+        // Сессия остаётся до закрытия поиска: по ней восстанавливается выдача и позиция списка.
         searching = true
     }
     fun stepNewerSearchMatch() {
@@ -2656,6 +2665,7 @@ fun ChatScreen(
             error = searchError,
             hasMore = searchNextId != 0L,
             stale = searchRefreshing,
+            restore = searchMatchSession,
             onOpen = ::openSearchResult,
             onMore = ::loadMoreResults,
             onRetry = { searchRetry++ },

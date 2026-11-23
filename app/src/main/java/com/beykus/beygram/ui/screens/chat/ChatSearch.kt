@@ -341,7 +341,8 @@ internal fun ChatSearchResults(
     error: String?,
     hasMore: Boolean,
     stale: Boolean,
-    onOpen: (ChatMessage) -> Unit,
+    restore: ChatSearchMatchSession,
+    onOpen: (ChatMessage, Int, Int) -> Unit,
     onMore: () -> Unit,
     onRetry: () -> Unit,
     onResetFilters: () -> Unit
@@ -350,6 +351,15 @@ internal fun ChatSearchResults(
     val needle = query.trim()
     val criteriaActive = needle.isNotEmpty() || filter.isActive
     val listState = rememberLazyListState()
+    var scrollRestored by remember { mutableStateOf(false) }
+    // Новый запрос или фильтр начинает список сверху; возврат из сообщения восстанавливает сохранённую позицию.
+    LaunchedEffect(query, filter) { listState.scrollToItem(0) }
+    LaunchedEffect(results.isNotEmpty()) {
+        if (!scrollRestored && results.isNotEmpty() && restore.canRestoreResults(query, filter)) {
+            scrollRestored = true
+            listState.scrollToItem(restore.scrollIndex, restore.scrollOffset)
+        }
+    }
     val lastVisible by remember { derivedStateOf { listState.layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: -1 } }
     // Автодогрузка: у конца списка, без ошибки, без устаревших результатов и без параллельного запроса.
     LaunchedEffect(lastVisible, results.size, hasMore, busy, error, stale) {
@@ -410,7 +420,7 @@ internal fun ChatSearchResults(
                     )
                 }
                 // Устаревшие результаты (запрос или фильтр уже поменялся) видны, но открыть их нельзя.
-                items(results, key = { it.id }) { message -> SearchResultRow(message, needle) { if (!stale) onOpen(message) } }
+                items(results, key = { it.id }) { message -> SearchResultRow(message, needle) { if (!stale) onOpen(message, listState.firstVisibleItemIndex, listState.firstVisibleItemScrollOffset) } }
                 if (hasMore) item(key = "search_more") { SearchMoreButton(busy, onMore) }
                 error?.let { message ->
                     item(key = "search_error") { Text(message, color = palette.danger, fontSize = 14.sp, modifier = Modifier.padding(horizontal = 20.dp, vertical = 8.dp).errorAnnouncement()) }
@@ -520,7 +530,10 @@ internal data class ChatSearchMatchSession(
     val index: Int = -1,
     val totalCount: Int = 0,
     val nextFromMessageId: Long = 0L,
-    val busy: Boolean = false
+    val busy: Boolean = false,
+    /** Позиция списка результатов на момент открытия сообщения. */
+    val scrollIndex: Int = 0,
+    val scrollOffset: Int = 0
 ) {
     val isActive: Boolean get() = index in results.indices
     val currentMessageId: Long? get() = results.getOrNull(index)?.id
@@ -539,6 +552,10 @@ internal data class ChatSearchMatchSession(
         val nextIndex = if (index < merged.lastIndex) index + 1 else index
         return copy(results = merged, nextFromMessageId = nextId, index = nextIndex, busy = false)
     }
+
+    /** Возврат к результатам из найденного сообщения: прежняя выдача годится, пока запрос и фильтры те же. */
+    fun canRestoreResults(query: String, filter: ChatSearchFilter): Boolean =
+        results.isNotEmpty() && this.query == query && this.filter == filter
 }
 
 @Composable
