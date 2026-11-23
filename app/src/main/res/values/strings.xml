@@ -2684,6 +2684,10 @@
     <string name="lyrics_need_sign_in">Войдите в Яндекс Музыку, чтобы смотреть тексты</string>
     <string name="lyrics_failed">Не удалось загрузить текст. Попробуйте позже.</string>
     <string name="lyrics_copyright">Текст: %1$s</string>
+    <string name="player_lyrics">Текст</string>
+    <string name="lyrics_return_to_current">К текущей строке</string>
+    <string name="lyrics_seek_a11y">Перемотать к строке: %1$s</string>
+    <string name="lyrics_instrumental_a11y">Проигрыш</string>
     <string name="chat_preview_animation">🎞 GIF</string>
     <string name="chat_preview_expired_media">⌛ Медиа недоступно</string>
     <string name="deleted_account_name">Удалённый аккаунт</string>

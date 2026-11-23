@@ -4,8 +4,11 @@ import androidx.activity.compose.BackHandler
 import com.beykus.beygram.ui.design.styledShape
 import android.os.SystemClock
 import android.widget.Toast
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.Crossfade
 import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -13,6 +16,7 @@ import androidx.compose.foundation.focusable
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.detectDragGestures
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import com.beykus.beygram.ui.screens.music.WaveBackdrop
@@ -49,11 +53,14 @@ import androidx.compose.material.icons.rounded.ChatBubble
 import androidx.compose.material.icons.rounded.DragHandle
 import androidx.compose.material.icons.rounded.Equalizer
 import androidx.compose.material.icons.rounded.KeyboardArrowDown
+import androidx.compose.material.icons.rounded.Lyrics
 import androidx.compose.material.icons.rounded.MoreHoriz
 import androidx.compose.material.icons.rounded.MoreVert
 import com.beykus.beygram.ui.components.sheetSurfaceColor
 import com.beykus.beygram.ui.motion.MotionSpec
 import com.beykus.beygram.ui.motion.MotionToken
+import com.beykus.beygram.ui.motion.fadeEnter
+import com.beykus.beygram.ui.motion.fadeExit
 import com.beykus.beygram.ui.motion.rememberMotionSpec
 import com.beykus.beygram.ui.theme.LocalBeyGramTokens
 import com.beykus.beygram.media.bgbeat.BgBeatSection
@@ -117,10 +124,12 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.onGloballyPositioned
@@ -198,7 +207,7 @@ private const val SEEK_STEP_MS = 5_000L
 private val QUEUE_ROW_HEIGHT = 76.dp
 private val QUEUE_RISE_DP = 48.dp
 
-internal enum class PlayerPanel { Player, Queue }
+internal enum class PlayerPanel { Player, Queue, Lyrics }
 
 /**
  * Stops the sheet from taking over a list's overscroll at its end. When a list reaches its bottom, the upward
@@ -228,7 +237,8 @@ internal fun MusicPlayerContent(
     onOpenEqualizer: (() -> Unit)?,
     onOpenMusicSearch: (() -> Unit)?,
     onOpenMyMusic: (() -> Unit)?,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    ambientAccent: Color = beyGramPalette().surface
 ) {
     val source = rememberPlaybackSourceLabel(
         origin = player.item.origin,
@@ -236,7 +246,7 @@ internal fun MusicPlayerContent(
         // Not a state: read again on each recomposition, which every queue change causes.
         radio = PlaybackEngine.activeRadio
     )
-    BackHandler(enabled = panel == PlayerPanel.Queue) { onPanel(PlayerPanel.Player) }
+    BackHandler(enabled = panel != PlayerPanel.Player) { onPanel(PlayerPanel.Player) }
     // The endless radio (a wave) gets soft drifting ribbons behind the player while it is audible.
     val endless = PlaybackEngine.activeRadio != null && PlaybackEngine.currentQueueIsEndless()
     val waveRibbons = endless && player.playing
@@ -281,7 +291,7 @@ internal fun MusicPlayerContent(
         }
         settled = panel
     }
-    val moving = settled != panel
+    val moving = (settled == PlayerPanel.Queue) != (panel == PlayerPanel.Queue)
     // The mini bar's shared elements do not fly while the queue moves; the container still does.
     SideEffect { PlayerExpansion.queueBusy = moving }
     DisposableEffect(Unit) {
@@ -292,10 +302,30 @@ internal fun MusicPlayerContent(
     }
     val showPlayer = settled == PlayerPanel.Player || panel == PlayerPanel.Player
     val showQueue = settled == PlayerPanel.Queue || panel == PlayerPanel.Queue
+    val lyricsVisible = panel == PlayerPanel.Lyrics
+    val playerOverlayAlpha by animateFloatAsState(
+        targetValue = if (lyricsVisible) 0f else 1f,
+        animationSpec = queueSpec.animationSpec(),
+        label = "playerLyricsFade"
+    )
+    // Precomputed lightweight gradient from the cached cover palette: no realtime blur, single draw pass.
+    val ambientBrush = remember(ambientAccent, palette.surface) {
+        if (ambientAccent == palette.surface) null
+        else Brush.verticalGradient(
+            0.0f to ambientAccent,
+            0.55f to palette.surface,
+            1.0f to palette.surface
+        )
+    }
     // Kept across Player and Queue, so the list keeps its place while the overlay stays open.
     val queueList = rememberSaveable(saver = LazyListState.Saver) { LazyListState() }
     var queuePlaced by rememberSaveable { mutableStateOf(false) }
-    Box(modifier.fillMaxWidth().onGloballyPositioned { contentCoords = it }) {
+    Box(
+        modifier
+            .fillMaxWidth()
+            .then(if (ambientBrush != null) Modifier.drawBehind { drawRect(ambientBrush) } else Modifier)
+            .onGloballyPositioned { contentCoords = it }
+    ) {
         if (waveRibbons) {
             WaveBackdrop(
                 color = palette.accent,
@@ -314,8 +344,8 @@ internal fun MusicPlayerContent(
                 Column(
                     Modifier
                         .fillMaxSize()
-                        .graphicsLayer { alpha = 1f - ramp(queueMotion.value, 0f, 0.45f) }
-                        .blockInputWhile(moving)
+                        .graphicsLayer { alpha = (1f - ramp(queueMotion.value, 0f, 0.45f)) * playerOverlayAlpha }
+                        .blockInputWhile(moving || lyricsVisible)
                 ) {
                     PlayerHeader(
                         player = player,
@@ -329,6 +359,7 @@ internal fun MusicPlayerContent(
                         modifier = Modifier.weight(1f),
                         player = player,
                         onOpenQueue = { onPanel(PlayerPanel.Queue) },
+                        onOpenLyrics = { onPanel(PlayerPanel.Lyrics) },
                         onOpenEqualizer = onOpenEqualizer?.let { open ->
                             {
                                 // Leave the player before navigating to the equalizer route; otherwise it stays
@@ -340,6 +371,18 @@ internal fun MusicPlayerContent(
                         onShowInChat = player.item.origin?.let { origin -> { PlaybackEngine.requestShowInChat(origin); onLeave() } }
                     )
                 }
+            }
+            AnimatedVisibility(
+                visible = lyricsVisible,
+                enter = queueSpec.fadeEnter(),
+                exit = queueSpec.fadeExit(),
+                modifier = Modifier.fillMaxSize()
+            ) {
+                LyricsPanel(
+                    player = player,
+                    onBack = { onPanel(PlayerPanel.Player) },
+                    modifier = Modifier.fillMaxSize()
+                )
             }
             if (showQueue) {
                 // The queue fades in while it rises; it starts only after the player has faded, so the two never overlap.
@@ -600,6 +643,7 @@ internal const val SLEEP_EXTEND_MINUTES = 15
 private fun PlayerBody(
     player: MusicPlayerUi,
     onOpenQueue: () -> Unit,
+    onOpenLyrics: () -> Unit,
     onOpenEqualizer: (() -> Unit)?,
     onShowInChat: (() -> Unit)?,
     modifier: Modifier = Modifier
@@ -628,13 +672,14 @@ private fun PlayerBody(
                         player = player,
                         mediaMotion = mediaMotion,
                         onOpenQueue = onOpenQueue,
+                        onOpenLyrics = onOpenLyrics,
                         onOpenEqualizer = onOpenEqualizer,
                         onShowInChat = onShowInChat
                     )
                 }
             }
         } else {
-            val artwork = minOf(maxWidth - 64.dp, maxHeight * 0.36f, 360.dp).coerceAtLeast(140.dp)
+            val artwork = minOf(maxWidth - 64.dp, maxHeight * 0.40f, 360.dp).coerceAtLeast(140.dp)
             Box(Modifier.fillMaxSize().padding(horizontal = 24.dp)) {
                 Column(
                     Modifier
@@ -653,6 +698,7 @@ private fun PlayerBody(
                         player = player,
                         mediaMotion = mediaMotion,
                         onOpenQueue = onOpenQueue,
+                        onOpenLyrics = onOpenLyrics,
                         onOpenEqualizer = onOpenEqualizer,
                         onShowInChat = onShowInChat
                     )
@@ -667,6 +713,7 @@ private fun PlayerDetails(
     player: MusicPlayerUi,
     mediaMotion: MotionSpec,
     onOpenQueue: () -> Unit,
+    onOpenLyrics: () -> Unit,
     onOpenEqualizer: (() -> Unit)?,
     onShowInChat: (() -> Unit)?
 ) {
@@ -692,18 +739,14 @@ private fun PlayerDetails(
         modifier = Modifier.padding(horizontal = 4.dp)
     )
     Spacer(Modifier.height(10.dp))
-    // Lyrics only for tracks of the Yandex Music provider (DEV build); other tracks get no extra row.
-    if (YANDEX_LYRICS_ENABLED && player.item.key.startsWith(YANDEX_TRACK_KEY_PREFIX)) {
-        YandexLyricsSection(key = player.item.key, positionState = positionState)
-        Spacer(Modifier.height(10.dp))
-    }
-    PlayerActions(player, onOpenQueue, onOpenEqualizer)
+    PlayerActions(player, onOpenQueue, onOpenLyrics, onOpenEqualizer)
 }
 
 @Composable
 private fun PlayerArtwork(player: MusicPlayerUi, size: Dp, mediaMotion: MotionSpec) {
     val palette = beyGramPalette()
     val density = LocalDensity.current
+    val haptic = LocalHapticFeedback.current
     val targets = PlayerExpansion.targets
     SideEffect {
         targets.artworkBackground = palette.accentSoft
@@ -713,21 +756,72 @@ private fun PlayerArtwork(player: MusicPlayerUi, size: Dp, mediaMotion: MotionSp
     }
     DisposableEffect(Unit) { onDispose { targets.artwork = null } }
     val reduced = mediaMotion.isInstant
-    val scale = remember(player.item.key) {
+    val entryScale = remember(player.item.key) {
         Animatable(if (reduced) 1f else 1f - 0.06f * mediaMotion.intensity)
     }
     LaunchedEffect(player.item.key, reduced) {
-        if (reduced) scale.snapTo(1f)
-        else scale.animateTo(1f, mediaMotion.animationSpec())
+        if (reduced) entryScale.snapTo(1f)
+        else entryScale.animateTo(1f, mediaMotion.animationSpec())
     }
+    val playing = player.playing || player.intentPlaying
+    val breatheScale by animateFloatAsState(
+        targetValue = if (reduced || playing) 1f else 0.94f,
+        animationSpec = mediaMotion.animationSpec(),
+        label = "artworkBreathe"
+    )
+    val elevation by animateDpAsState(
+        targetValue = if (reduced || playing) 10.dp else 4.dp,
+        animationSpec = mediaMotion.animationSpec(),
+        label = "artworkElevation"
+    )
+    val swipeThresholdPx = with(density) { 72.dp.toPx() }
+    var dragOffsetX by remember(player.item.key) { mutableFloatStateOf(0f) }
+    val animatedDragX by animateFloatAsState(
+        targetValue = if (reduced) 0f else dragOffsetX,
+        animationSpec = mediaMotion.animationSpec(),
+        label = "artworkSwipe"
+    )
     Box(
         Modifier
             .size(size)
-            .shadow(6.dp, styledShape(20.dp), clip = false)
-            .graphicsLayer {
-                scaleX = scale.value
-                scaleY = scale.value
+            .pointerInput(player.item.key, player.canNext, player.canPrevious) {
+                var total = 0f
+                detectHorizontalDragGestures(
+                    onDragStart = { total = 0f },
+                    onDragCancel = {
+                        total = 0f
+                        dragOffsetX = 0f
+                    },
+                    onDragEnd = {
+                        val dx = total
+                        total = 0f
+                        dragOffsetX = 0f
+                        when {
+                            dx <= -swipeThresholdPx && player.canNext -> {
+                                haptic.performHapticFeedback(HapticFeedbackType.ContextClick)
+                                PlaybackEngine.next()
+                            }
+                            dx >= swipeThresholdPx && player.canPrevious -> {
+                                haptic.performHapticFeedback(HapticFeedbackType.ContextClick)
+                                PlaybackEngine.previous()
+                            }
+                        }
+                    },
+                    onHorizontalDrag = { change, dragAmount ->
+                        change.consume()
+                        total += dragAmount
+                        val maxShift = swipeThresholdPx * 0.65f
+                        dragOffsetX = (total * 0.45f).coerceIn(-maxShift, maxShift)
+                    }
+                )
             }
+            .graphicsLayer {
+                val combined = entryScale.value * breatheScale
+                scaleX = combined
+                scaleY = combined
+                translationX = animatedDragX
+            }
+            .shadow(elevation, styledShape(20.dp), clip = false)
             .onGloballyPositioned { targets.artwork = it }
             .graphicsLayer { alpha = if (PlayerExpansion.fullSharedHidden(FlightRole.Artwork)) 0f else 1f }
     ) {
@@ -854,10 +948,14 @@ private fun PlayerStatusLine(player: MusicPlayerUi) {
     val palette = beyGramPalette()
     val sleepTimer by PlaybackEngine.sleepTimer.collectAsStateWithLifecycle()
     val minutesRemaining = rememberSleepMinutes(sleepTimer)
-    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+    Column(
+        modifier = Modifier.heightIn(min = 24.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.Center
+    ) {
     when {
         player.failed -> Row(
-            Modifier.padding(top = 6.dp),
+            Modifier.padding(top = 4.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
             Text(stringResource(R.string.player_failed), color = palette.danger, fontSize = 13.sp)
@@ -867,7 +965,7 @@ private fun PlayerStatusLine(player: MusicPlayerUi) {
         }
 
         player.waitingForNetwork -> Row(
-            Modifier.padding(top = 6.dp),
+            Modifier.padding(top = 4.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
             CircularProgressIndicator(Modifier.size(14.dp), strokeWidth = 2.dp, color = palette.accent)
@@ -876,7 +974,7 @@ private fun PlayerStatusLine(player: MusicPlayerUi) {
         }
 
         player.intentPlaying && player.buffering -> Row(
-            Modifier.padding(top = 6.dp),
+            Modifier.padding(top = 4.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
             CircularProgressIndicator(Modifier.size(14.dp), strokeWidth = 2.dp, color = palette.accent)
@@ -888,65 +986,95 @@ private fun PlayerStatusLine(player: MusicPlayerUi) {
             stringResource(R.string.player_ended),
             color = palette.textSecondary,
             fontSize = 13.sp,
-            modifier = Modifier.padding(top = 6.dp)
+            modifier = Modifier.padding(top = 4.dp)
         )
     }
     val activeSpeed = player.speed.takeIf { it != 1f }?.let { stringResource(R.string.player_speed_option, speedLabel(it)) }
     val sleepText = sleepTimer?.let { sleepTimerStatusText(it, minutesRemaining) }
     val statusParts = listOfNotNull(activeSpeed, sleepText)
-    if (statusParts.isNotEmpty()) {
-        Text(
-            statusParts.joinToString(" · "),
-            color = palette.textSecondary,
-            fontSize = 12.sp,
-            modifier = Modifier.padding(top = 4.dp)
-        )
-    }
-    if (player.bgMix || player.bgMixPreparing) {
-        var explain by remember { mutableStateOf(false) }
-        // Two letters instead of a badge: grey while BG Mix prepares the track, the theme accent once BG Mix plays it.
-        val active = player.bgMix
-        val markDescription = stringResource(if (active) R.string.player_bgmix_icon_active else R.string.player_bgmix_icon_preparing)
-        Text(
-            stringResource(R.string.player_bgmix_mark),
-            color = if (active) palette.accent else palette.textSecondary.copy(alpha = 0.6f),
-            fontSize = 12.sp,
-            fontWeight = FontWeight.Bold,
-            letterSpacing = 0.5.sp,
-            modifier = Modifier
-                .padding(top = 4.dp)
-                .clip(styledShape(6.dp))
-                .clickable(role = Role.Button) { explain = true }
-                .semantics { contentDescription = markDescription }
-                .padding(horizontal = 6.dp, vertical = 4.dp)
-        )
-        if (explain) BeyGramDialog(
-            onDismissRequest = { explain = false },
-            title = stringResource(R.string.player_bgmix_badge),
-            message = stringResource(if (player.bgMix) R.string.player_bgmix_explain else R.string.player_bgmix_preparing_explain),
-            confirmText = stringResource(R.string.common_close),
-            onConfirm = { explain = false }
-        )
+    val showBgMix = player.bgMix || player.bgMixPreparing
+    if (statusParts.isNotEmpty() || showBgMix) {
+        Row(
+            modifier = Modifier.padding(top = 4.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            if (statusParts.isNotEmpty()) {
+                Text(
+                    statusParts.joinToString(" · "),
+                    color = palette.textSecondary,
+                    fontSize = 12.sp
+                )
+            }
+            if (showBgMix) {
+                var explain by remember { mutableStateOf(false) }
+                // Two letters instead of a badge: grey while BG Mix prepares the track, the theme accent once BG Mix plays it.
+                val active = player.bgMix
+                val markDescription = stringResource(if (active) R.string.player_bgmix_icon_active else R.string.player_bgmix_icon_preparing)
+                Text(
+                    stringResource(R.string.player_bgmix_mark),
+                    color = if (active) palette.accent else palette.textSecondary.copy(alpha = 0.6f),
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.Bold,
+                    letterSpacing = 0.5.sp,
+                    modifier = Modifier
+                        .clip(styledShape(6.dp))
+                        .clickable(role = Role.Button) { explain = true }
+                        .semantics { contentDescription = markDescription }
+                        .padding(horizontal = 6.dp, vertical = 2.dp)
+                )
+                if (explain) BeyGramDialog(
+                    onDismissRequest = { explain = false },
+                    title = stringResource(R.string.player_bgmix_badge),
+                    message = stringResource(if (player.bgMix) R.string.player_bgmix_explain else R.string.player_bgmix_preparing_explain),
+                    confirmText = stringResource(R.string.common_close),
+                    onConfirm = { explain = false }
+                )
+            }
+        }
     }
     }
 }
 
 @Composable
 private fun PlayerSeekSection(player: MusicPlayerUi) {
-    // The drag lives here, so the time labels follow the finger as well as the thumb.
-    var dragging by remember { mutableStateOf<Float?>(null) }
+    // The drag and pending seek live here, so the time labels and thumb stay in sync without snapping back on release.
+    var dragging by remember(player.item.key) { mutableStateOf<Float?>(null) }
+    var pendingSeek by remember(player.item.key) { mutableStateOf<Float?>(null) }
     val position = rememberPlaybackPositionUi()
     val fallbackDurationMs = player.item.durationSeconds.coerceAtLeast(0) * 1000L
     val duration = position.durationMs.takeIf { it > 0L } ?: fallbackDurationMs
     val smooth = rememberSmoothPositionMs(position.positionMs, duration, player.playing, player.speed)
+    LaunchedEffect(position.positionMs) {
+        if (pendingSeek != null) pendingSeek = null
+    }
+    LaunchedEffect(pendingSeek) {
+        if (pendingSeek != null) {
+            delay(600L)
+            pendingSeek = null
+        }
+    }
+    val overrideFraction = dragging ?: pendingSeek
     PlayerSeekBar(
+        position = position,
         fallbackDurationSeconds = player.item.durationSeconds,
         contentLabel = stringResource(R.string.player_progress),
         dragging = dragging,
+        overrideFraction = overrideFraction,
         onDragging = { dragging = it },
+        onSeekCommitted = { fraction ->
+            pendingSeek = fraction
+            PlaybackEngine.seekTo(fraction.coerceIn(0f, 1f), fallbackDurationMs = fallbackDurationMs)
+        },
         smoothMs = smooth
     )
-    PlayerTimeRow(fallbackDurationSeconds = player.item.durationSeconds, dragFraction = dragging, smoothMs = smooth)
+    PlayerTimeRow(
+        position = position,
+        fallbackDurationSeconds = player.item.durationSeconds,
+        overrideFraction = overrideFraction,
+        isDragging = dragging != null,
+        smoothMs = smooth
+    )
 }
 
 /**
@@ -955,7 +1083,7 @@ private fun PlayerSeekSection(player: MusicPlayerUi) {
  * and corrected by each new tick.
  */
 @Composable
-private fun rememberSmoothPositionMs(positionMs: Long, durationMs: Long, playing: Boolean, speed: Float): State<Long> {
+internal fun rememberSmoothPositionMs(positionMs: Long, durationMs: Long, playing: Boolean, speed: Float): State<Long> {
     val shown = remember { mutableLongStateOf(positionMs) }
     LaunchedEffect(positionMs, durationMs, playing, speed) {
         shown.longValue = positionMs
@@ -973,19 +1101,33 @@ private fun rememberSmoothPositionMs(positionMs: Long, durationMs: Long, playing
 
 @Composable
 private fun PlayerSeekBar(
+    position: PlaybackPositionUi,
     fallbackDurationSeconds: Int,
     contentLabel: String,
     dragging: Float?,
+    overrideFraction: Float?,
     onDragging: (Float?) -> Unit,
+    onSeekCommitted: (Float) -> Unit,
     smoothMs: State<Long>
 ) {
     val palette = beyGramPalette()
-    val position = rememberPlaybackPositionUi()
+    val haptic = LocalHapticFeedback.current
+    val microMotion = rememberMotionSpec(MotionToken.MicroFeedback)
     val fallbackDurationMs = (fallbackDurationSeconds.coerceAtLeast(0) * 1000L)
     val duration = position.durationMs.takeIf { it > 0L } ?: fallbackDurationMs
     val enabled = duration > 0L
-    val played = dragging ?: if (duration > 0L) (smoothMs.value.toFloat() / duration).coerceIn(0f, 1f) else 0f
+    val played = overrideFraction ?: if (duration > 0L) (smoothMs.value.toFloat() / duration).coerceIn(0f, 1f) else 0f
     val buffered = if (duration > 0L) position.bufferedFraction.coerceIn(0f, 1f) else 0f
+    val trackHeightDp by animateDpAsState(
+        targetValue = if (dragging != null) 6.dp else 4.dp,
+        animationSpec = microMotion.animationSpec(),
+        label = "seekTrackHeight"
+    )
+    val thumbRadiusDp by animateDpAsState(
+        targetValue = if (dragging != null) 9.dp else 7.dp,
+        animationSpec = microMotion.animationSpec(),
+        label = "seekThumbRadius"
+    )
     val stateText = stringResource(
         R.string.player_progress_a11y,
         playbackClock((played * duration).toLong()),
@@ -995,7 +1137,7 @@ private fun PlayerSeekBar(
     val horizontalPaddingPx = with(density) { 10.dp.toPx() }
     fun seekTo(fraction: Float) {
         if (!enabled) return
-        PlaybackEngine.seekTo(fraction.coerceIn(0f, 1f), fallbackDurationMs = fallbackDurationMs)
+        onSeekCommitted(fraction.coerceIn(0f, 1f))
     }
     Box(
         Modifier
@@ -1034,6 +1176,7 @@ private fun PlayerSeekBar(
                     val width = (size.width - horizontalPadding * 2f).coerceAtLeast(1f)
                     fun fractionAt(x: Float): Float = ((x - horizontalPadding) / width).coerceIn(0f, 1f)
                     var current: Float = fractionAt(down.position.x)
+                    haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
                     onDragging(current)
                     down.consume()
                     while (true) {
@@ -1046,8 +1189,9 @@ private fun PlayerSeekBar(
                         }
                         if (!change.pressed) break
                     }
-                    onDragging(null)
+                    haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
                     seekTo(current)
+                    onDragging(null)
                 }
             },
         contentAlignment = Alignment.Center
@@ -1069,7 +1213,7 @@ private fun PlayerSeekBar(
             val padding = 10.dp.toPx()
             val trackWidth = (size.width - padding * 2f).coerceAtLeast(1f)
             val centerY = size.height / 2f
-            val trackHeight = 4.dp.toPx()
+            val trackHeight = trackHeightDp.toPx()
             val start = Offset(padding, centerY)
             fun barEnd(fraction: Float) = Offset(padding + trackWidth * fraction, centerY)
             val track = if (enabled) palette.divider else palette.divider.copy(alpha = 0.5f)
@@ -1095,12 +1239,12 @@ private fun PlayerSeekBar(
             if (enabled) {
                 drawCircle(
                     color = palette.accent,
-                    radius = 7.dp.toPx(),
+                    radius = thumbRadiusDp.toPx(),
                     center = Offset(barEnd(played).x, centerY)
                 )
                 drawCircle(
                     color = palette.surface,
-                    radius = 3.dp.toPx(),
+                    radius = (thumbRadiusDp * 0.42f).toPx(),
                     center = Offset(barEnd(played).x, centerY)
                 )
             }
@@ -1109,19 +1253,33 @@ private fun PlayerSeekBar(
 }
 
 @Composable
-private fun PlayerTimeRow(fallbackDurationSeconds: Int, dragFraction: Float?, smoothMs: State<Long>) {
+private fun PlayerTimeRow(
+    position: PlaybackPositionUi,
+    fallbackDurationSeconds: Int,
+    overrideFraction: Float?,
+    isDragging: Boolean,
+    smoothMs: State<Long>
+) {
     val palette = beyGramPalette()
-    val position = rememberPlaybackPositionUi()
     val fallbackDurationMs = (fallbackDurationSeconds.coerceAtLeast(0) * 1000L)
     val duration = position.durationMs.takeIf { it > 0L } ?: fallbackDurationMs
     // Whole seconds only, so the labels recompose once a second even though the playhead moves every frame.
     val playedSecond by remember(smoothMs) { derivedStateOf { smoothMs.value / 1_000L } }
-    // While the thumb is dragged, the labels show the place under the finger, not the place the music is at.
-    val shownMs = dragFraction?.let { (it * duration).toLong() } ?: (playedSecond * 1_000L)
+    // While the thumb is dragged or settling, the labels show the target time, not the old position.
+    val shownMs = overrideFraction?.let { (it * duration).toLong() } ?: (playedSecond * 1_000L)
+    val timeStyle = remember { TextStyle(fontSize = 12.sp, fontFeatureSettings = "tnum") }
     Column(Modifier.fillMaxWidth()) {
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-            Text(playbackClock(shownMs), color = if (dragFraction != null) palette.accent else palette.textSecondary, fontSize = 12.sp)
-            Text(playbackRemaining(shownMs, duration), color = palette.textSecondary, fontSize = 12.sp)
+            Text(
+                playbackClock(shownMs),
+                color = if (isDragging) palette.accent else palette.textSecondary,
+                style = timeStyle
+            )
+            Text(
+                playbackRemaining(shownMs, duration),
+                color = palette.textSecondary,
+                style = timeStyle
+            )
         }
         if (duration <= 0L) {
             Text(
@@ -1294,10 +1452,47 @@ private fun PlayPauseButton(player: MusicPlayerUi, mediaMotion: MotionSpec) {
     }
 }
 
+internal enum class PlayerActionKind {
+    ProviderLike,
+    TelegramFavorite,
+    RadioDislike,
+    AddToPlaylist,
+    Lyrics,
+    Queue,
+    Sound
+}
+
+/**
+ * Pure policy for which bottom-row actions are shown for a track, ensuring unified UX across Telegram and Yandex
+ * Music while exposing only capabilities that genuinely depend on the source.
+ */
+internal fun resolvePlayerActionKinds(
+    isProviderTrack: Boolean,
+    isEndlessRadio: Boolean,
+    lyricsEnabled: Boolean
+): List<PlayerActionKind> = buildList {
+    add(if (isProviderTrack) PlayerActionKind.ProviderLike else PlayerActionKind.TelegramFavorite)
+    when {
+        isProviderTrack && isEndlessRadio -> {
+            add(PlayerActionKind.RadioDislike)
+            if (lyricsEnabled) add(PlayerActionKind.Lyrics)
+        }
+        isProviderTrack -> {
+            if (lyricsEnabled) add(PlayerActionKind.Lyrics)
+        }
+        else -> {
+            add(PlayerActionKind.AddToPlaylist)
+        }
+    }
+    add(PlayerActionKind.Queue)
+    add(PlayerActionKind.Sound)
+}
+
 @Composable
 private fun PlayerActions(
     player: MusicPlayerUi,
     onOpenQueue: () -> Unit,
+    onOpenLyrics: () -> Unit,
     onOpenEqualizer: (() -> Unit)?
 ) {
     val item = player.item
@@ -1305,9 +1500,7 @@ private fun PlayerActions(
     val scope = rememberCoroutineScope()
     val queueLabel = stringResource(R.string.player_queue)
     val soundLabel = stringResource(R.string.player_sound)
-    // Heart and add need a Telegram origin and a loaded library for this account. When they cannot be offered, their
-    // place stays in the row and the button is off, so the row never shifts.
-    // Items of a chat with protected content are never kept in the library, so they stay off too.
+    val lyricsLabel = stringResource(R.string.player_lyrics)
     val originChat = rememberOriginChat(item.origin)
     val protectedChat = originChat?.hasProtectedContent == true
     val track = remember(item.occurrenceId, item.origin) { item.toPlaylistTrack() }?.takeUnless { protectedChat }
@@ -1319,10 +1512,12 @@ private fun PlayerActions(
     val favoriteOnState = stringResource(R.string.music_favorite_state_on)
     val favoriteOffState = stringResource(R.string.music_favorite_state_off)
     val addLabel = stringResource(R.string.music_playlist_label)
-    // A track of an endless radio gets a heart. It toggles the like on the service, not the library.
-    val radioTrack = ProviderTracks.byKey(item.key)?.takeIf { ProviderTracks.isProviderKey(item.key) && PlaybackEngine.currentQueueIsEndless() }
+    // Provider tracks (radio, album, playlist, search) all support liking on the service; dislike is radio-only.
+    val isProviderKey = ProviderTracks.isProviderKey(item.key)
+    val providerTrack = ProviderTracks.byKey(item.key)?.takeIf { isProviderKey }
+    val isEndlessRadio = isProviderKey && PlaybackEngine.currentQueueIsEndless()
     val likes by ProviderTracks.liked.collectAsStateWithLifecycle()
-    val radioLiked = radioTrack?.let { likes[it.trackId] ?: it.liked ?: false }
+    val providerLiked = providerTrack?.let { likes[it.trackId] ?: it.liked ?: false }
     val likeLabel = stringResource(R.string.music_provider_like)
     val likeFailed = stringResource(R.string.music_provider_like_failed)
     val dislikeLabel = stringResource(R.string.music_radio_dislike)
@@ -1333,56 +1528,85 @@ private fun PlayerActions(
         if (timer.untilTrackEnd) stringResource(R.string.player_sleep_until_track_end)
         else stringResource(R.string.player_sleep_minutes_short, minutesRemaining)
     } ?: player.speed.takeIf { it != 1f }?.let { stringResource(R.string.player_speed_option, speedLabel(it)) }
-    val libraryTrack = track != null && library != null && radioTrack == null
-    val likeSlot = when {
-        radioTrack != null && radioLiked != null -> PlayerActionUi(
-            icon = if (radioLiked) Icons.Rounded.Favorite else Icons.Rounded.FavoriteBorder,
-            label = likeLabel,
-            onClick = {
-                ProviderTracks.setLikedInBackground(context, radioTrack, !radioLiked) {
-                    Toast.makeText(context.applicationContext, likeFailed, Toast.LENGTH_SHORT).show()
-                }
-            },
-            active = radioLiked,
-            stateDescription = if (radioLiked) favoriteOnState else favoriteOffState
-        )
-        track != null && library != null && radioTrack == null -> PlayerActionUi(
-            icon = if (favorite) Icons.Rounded.Star else Icons.Rounded.StarBorder,
-            label = favoriteLabel,
-            onClick = { scope.launch { context.reportMusicOutcome(MusicLibraries.get(context).toggleFavorite(track)) } },
-            active = favorite,
-            stateDescription = if (favorite) favoriteOnState else favoriteOffState
-        )
-        else -> PlayerActionUi(
-            icon = if (radioTrack != null) Icons.Rounded.FavoriteBorder else Icons.Rounded.StarBorder,
-            label = if (radioTrack != null) likeLabel else favoriteLabel,
-            onClick = {},
-            enabled = false
-        )
+    val libraryTrack = track != null && library != null && !isProviderKey
+
+    val kinds = resolvePlayerActionKinds(
+        isProviderTrack = isProviderKey,
+        isEndlessRadio = isEndlessRadio,
+        lyricsEnabled = YANDEX_LYRICS_ENABLED
+    )
+    val actions = kinds.map { kind ->
+        when (kind) {
+            PlayerActionKind.ProviderLike -> if (providerTrack != null && providerLiked != null) {
+                PlayerActionUi(
+                    icon = if (providerLiked) Icons.Rounded.Favorite else Icons.Rounded.FavoriteBorder,
+                    label = likeLabel,
+                    onClick = {
+                        ProviderTracks.setLikedInBackground(context, providerTrack, !providerLiked) {
+                            Toast.makeText(context.applicationContext, likeFailed, Toast.LENGTH_SHORT).show()
+                        }
+                    },
+                    active = providerLiked,
+                    stateDescription = if (providerLiked) favoriteOnState else favoriteOffState
+                )
+            } else {
+                PlayerActionUi(
+                    icon = Icons.Rounded.FavoriteBorder,
+                    label = likeLabel,
+                    onClick = {},
+                    enabled = false
+                )
+            }
+            PlayerActionKind.TelegramFavorite -> if (libraryTrack && track != null) {
+                PlayerActionUi(
+                    icon = if (favorite) Icons.Rounded.Star else Icons.Rounded.StarBorder,
+                    label = favoriteLabel,
+                    onClick = { scope.launch { context.reportMusicOutcome(MusicLibraries.get(context).toggleFavorite(track)) } },
+                    active = favorite,
+                    stateDescription = if (favorite) favoriteOnState else favoriteOffState
+                )
+            } else {
+                PlayerActionUi(
+                    icon = Icons.Rounded.StarBorder,
+                    label = favoriteLabel,
+                    onClick = {},
+                    enabled = false
+                )
+            }
+            PlayerActionKind.RadioDislike -> PlayerActionUi(
+                icon = Icons.Rounded.ThumbDown,
+                label = dislikeLabel,
+                onClick = { providerTrack?.let { ProviderTracks.dislikeWithUndo(context, it) } },
+                enabled = providerTrack != null
+            )
+            PlayerActionKind.AddToPlaylist -> PlayerActionUi(
+                icon = Icons.Rounded.Add,
+                label = addLabel,
+                onClick = { addOpen = true },
+                enabled = libraryTrack
+            )
+            PlayerActionKind.Lyrics -> PlayerActionUi(
+                icon = Icons.Rounded.Lyrics,
+                label = lyricsLabel,
+                onClick = onOpenLyrics
+            )
+            PlayerActionKind.Queue -> PlayerActionUi(
+                icon = Icons.Rounded.QueueMusic,
+                label = queueLabel,
+                onClick = onOpenQueue
+            )
+            PlayerActionKind.Sound -> PlayerActionUi(
+                icon = Icons.Rounded.Tune,
+                label = soundStatus ?: soundLabel,
+                onClick = { soundOpen = true },
+                active = soundStatus != null
+            )
+        }
     }
-    // In a radio this slot dislikes the track instead: it is skipped at once and an undo offer shows for a few seconds.
-    val playlistSlot = if (radioTrack != null) PlayerActionUi(
-        icon = Icons.Rounded.ThumbDown,
-        label = dislikeLabel,
-        onClick = { ProviderTracks.dislikeWithUndo(context, radioTrack) }
-    ) else PlayerActionUi(
-        icon = Icons.Rounded.Add,
-        label = addLabel,
-        onClick = { addOpen = true },
-        enabled = libraryTrack
-    )
-    val queueSlot = PlayerActionUi(Icons.Rounded.QueueMusic, queueLabel, onOpenQueue)
-    val soundSlot = PlayerActionUi(
-        icon = Icons.Rounded.Tune,
-        label = soundStatus ?: soundLabel,
-        onClick = { soundOpen = true },
-        active = soundStatus != null
-    )
     val pendingDislike by ProviderTracks.pendingDislike.collectAsStateWithLifecycle()
     if (pendingDislike != null) DislikeUndoBar(onUndo = { ProviderTracks.undoDislike(context) })
-    // Always four places, in the same order for every source.
-    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        listOf(likeSlot, playlistSlot, queueSlot, soundSlot).forEach { action ->
+    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+        actions.forEach { action ->
             PlayerAction(action, Modifier.weight(1f))
         }
     }
@@ -1500,7 +1724,8 @@ private fun QueuePanel(
                 Text(
                     stringResource(R.string.queue_back_to_player),
                     color = palette.textSecondary,
-                    maxLines = 1
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
                 )
             }
             Column(Modifier.weight(1.2f), horizontalAlignment = Alignment.CenterHorizontally) {
@@ -1720,6 +1945,7 @@ private fun QueuePanel(
 @Composable
 private fun QueuePlayedRow(row: QueueItemUi, onPlay: () -> Unit) {
     val palette = beyGramPalette()
+    val artist = row.item.musicArtist()
     Row(
         Modifier
             .fillMaxWidth()
@@ -1732,14 +1958,24 @@ private fun QueuePlayedRow(row: QueueItemUi, onPlay: () -> Unit) {
     ) {
         QueueArtwork(row.item, 36.dp, palette)
         Spacer(Modifier.width(12.dp))
-        Text(
-            row.item.title,
-            color = palette.textPrimary,
-            fontSize = 14.sp,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-            modifier = Modifier.weight(1f)
-        )
+        Column(Modifier.weight(1f)) {
+            Text(
+                row.item.musicTitle(),
+                color = palette.textPrimary,
+                fontSize = 14.sp,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+            if (artist.isNotBlank()) {
+                Text(
+                    artist,
+                    color = palette.textSecondary,
+                    fontSize = 11.sp,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
+        }
     }
 }
 

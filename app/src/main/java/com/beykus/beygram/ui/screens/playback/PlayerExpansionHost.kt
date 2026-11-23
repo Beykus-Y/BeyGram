@@ -260,6 +260,7 @@ private fun PlayerOverlay(
                     onOpenEqualizer = onOpenEqualizer,
                     onOpenMusicSearch = onOpenMusicSearch,
                     onOpenMyMusic = onOpenMyMusic,
+                    ambientAccent = cover.ambientAccent,
                     modifier = Modifier.weight(1f)
                 )
             }

@@ -1019,8 +1019,17 @@ private fun Modifier.miniShared(id: Long, role: FlightRole): Modifier = graphics
  */
 private fun Modifier.miniPlayerGestures(anchorId: Long, onPrevious: () -> Unit, onNext: () -> Unit): Modifier = composed {
     val haptic = androidx.compose.ui.platform.LocalHapticFeedback.current
+    val microSpec = rememberMotionSpec(MotionToken.MicroFeedback)
     val threshold = with(androidx.compose.ui.platform.LocalDensity.current) { 72.dp.toPx() }
-    pointerInput(anchorId) {
+    var dragOffsetX by remember(anchorId) { androidx.compose.runtime.mutableFloatStateOf(0f) }
+    val visualOffsetX by androidx.compose.animation.core.animateFloatAsState(
+        targetValue = if (microSpec.isInstant) 0f else dragOffsetX,
+        animationSpec = microSpec.animationSpec(),
+        label = "miniSwipeOffset"
+    )
+    this
+        .graphicsLayer { translationX = visualOffsetX }
+        .pointerInput(anchorId) {
         awaitEachGesture {
             val down = awaitFirstDown(requireUnconsumed = false)
             var vertical: Boolean? = null
@@ -1035,9 +1044,16 @@ private fun Modifier.miniPlayerGestures(anchorId: Long, onPrevious: () -> Unit, 
             } ?: return@awaitEachGesture
             if (vertical != true) {
                 var total = overSlop.x
-                val completed = horizontalDrag(drag.id) { change ->
-                    total += change.position.x - change.previousPosition.x
-                    change.consume()
+                val maxShift = threshold * 0.45f
+                dragOffsetX = (total * 0.4f).coerceIn(-maxShift, maxShift)
+                val completed = try {
+                    horizontalDrag(drag.id) { change ->
+                        total += change.position.x - change.previousPosition.x
+                        dragOffsetX = (total * 0.4f).coerceIn(-maxShift, maxShift)
+                        change.consume()
+                    }
+                } finally {
+                    dragOffsetX = 0f
                 }
                 if (completed) {
                     when {
