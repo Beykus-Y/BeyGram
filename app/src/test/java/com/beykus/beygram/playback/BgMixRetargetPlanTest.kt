@@ -76,7 +76,7 @@ class BgMixRetargetPlanTest {
         assertNull(missingFromNew)
         val missingFromOld = bgMixRetargetPlan(
             oldKeys = listOf("b", "c"), oldCurrent = 0, oldAppendedUntil = 2,
-            newKeys = listOf("a", "b"), newCurrent = 1
+            newKeys = listOf("a", "c"), newCurrent = 0
         )
         assertNull(missingFromOld)
         assertNull(
