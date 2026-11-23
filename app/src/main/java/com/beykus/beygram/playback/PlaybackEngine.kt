@@ -3651,6 +3651,29 @@ object PlaybackEngine {
     }
 
     /**
+     * The track that plays after the current one in real play order (BG Mix queue order, or ExoPlayer's order with shuffle
+     * and repeat), with its local path when its file is resolved; null when there is none or it is private. Main thread only.
+     */
+    fun nextInPlayOrder(): PlaybackItem? {
+        val state = _state.value
+        val current = state.item ?: return null
+        if (current.systemPrivate || state.queue.isEmpty()) return null
+        val next = (
+            if (bgMixActive()) {
+                bgMix?.itemAt(state.queueIndex + 1)
+            } else {
+                val target = exo ?: return null
+                val nextIndex = target.nextMediaItemIndex
+                if (nextIndex == C.INDEX_UNSET) return null
+                val nextMediaId = target.getMediaItemAt(nextIndex).mediaId
+                state.queue.firstOrNull { it.systemMediaId == nextMediaId }
+            }
+        ) ?: return null
+        if (next.systemPrivate || next.key == current.key) return null
+        return withResolvedSource(next)
+    }
+
+    /**
      * Moves on early when the rest of the current track is silence, and starts the next track after its own leading
      * silence. Runs on the progress tick, and only in the last [SILENCE_SCAN_MS] of a measured track.
      */
