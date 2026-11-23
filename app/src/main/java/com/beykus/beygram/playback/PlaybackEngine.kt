@@ -2015,6 +2015,8 @@ object PlaybackEngine {
             }
         }
         startBgMixFeed()
+        // A radio handed over near the end of its page asks for the next one right away.
+        loadNextQueuePage()
         startPlaybackService()
         if (!autoPlay) pauseBgMix()
     }
@@ -2060,7 +2062,7 @@ object PlaybackEngine {
         cancelBgMixHandover()
         val context = appContext ?: return
         BgMixSettingsStore.load(context)
-        if (!BgMixSettingsStore.enabled.value || !bgMixAdmitsSource(queueSource)) return
+        if (!BgMixSettingsStore.enabled.value) return
         if (!BgMixNative.isAvailable) return
         bgMixHandoverJob = scope.launch {
             runBgMixHandover(context, rejectedKey)
@@ -2396,6 +2398,20 @@ object PlaybackEngine {
             }
             return
         }
+        // An endless queue (a radio) played out its known tracks while the next page loads: keep the play intent and wait,
+        // the page joins through extendBgMixQueue and the status is applied again from loadNextQueuePage.
+        if (finished && pending == null && queueSource?.loadMore != null && _state.value.repeatMode == PlaybackRepeatMode.Off) {
+            // Only while a retry is left: once they are used up the end is reported instead of asking again at once.
+            if (queuePageRetryJob?.isActive != true && queuePageRetryDelayMs(queuePageRetries) != null) loadNextQueuePage()
+        }
+        val awaitingPage = bgMixAwaitsNextPage(
+            finished = finished,
+            pendingIndex = pending,
+            endless = queueSource?.loadMore != null,
+            repeat = _state.value.repeatMode,
+            pageInFlight = queuePageJob?.isActive == true || queuePageRetryJob?.isActive == true
+        )
+        val reportFinished = finished && !awaitingPage
         val playing = !status.paused && deckPlaying && !finished
         val hasNext = status.queue.any { (driver.indexOfNative(it.id) ?: -1) > index } || pending != null
         _state.update { current ->
@@ -2408,22 +2424,24 @@ object PlaybackEngine {
                 queue = driver.queueItems,
                 queueIndex = index,
                 playing = playing,
-                intentPlaying = !status.paused && !finished,
+                intentPlaying = !status.paused && (!finished || awaitingPage),
                 positionMs = ((master?.positionSeconds ?: 0.0) * 1000).toLong(),
                 durationMs = ((master?.durationSeconds ?: 0.0) * 1000).toLong(),
                 started = current.started || playing,
-                ended = finished,
-                isBuffering = false,
+                ended = reportFinished,
+                isBuffering = awaitingPage,
                 bgMixActive = true
             )
         }
+        // A radio asks for its next page as BG Mix advances, the same way the regular player does on a track change.
+        if (before.queueIndex != index) loadNextQueuePage()
         if (before.item?.key != _state.value.item?.key) {
             exo?.let { target ->
                 if (target.mediaItemCount > 0) target.replaceMediaItem(0, placeholderItem(item))
             }
         }
         val repeat = _state.value.repeatMode
-        val repeatsQueue = finished && !before.ended && repeat != PlaybackRepeatMode.Off &&
+        val repeatsQueue = reportFinished && !before.ended && repeat != PlaybackRepeatMode.Off &&
             (masterEnded || status.queue.any { it.state == "played" })
         if (repeatsQueue) {
             // Repeat One plays the same track again, Repeat All starts the queue over; the mode stays BG Mix.
@@ -2433,7 +2451,7 @@ object PlaybackEngine {
             scope.launch { restartBgMix(items, next, 0L, autoPlay = true) }
             return
         }
-        if (finished && !before.ended) {
+        if (reportFinished && !before.ended) {
             releaseBgFocus()
             releaseBgWakeLock()
         }
@@ -3554,10 +3572,13 @@ object PlaybackEngine {
                 val now = _state.value
                 if (now.queue.isEmpty() || now.item?.accountId != currentAccount) return@launch
                 val fresh = appendMusicPage(now.queue, page, currentAccount)
-                if (fresh.isEmpty()) return@launch
+                if (fresh.isEmpty()) {
+                    // An empty or fully repeated radio batch is not the end of an endless source: try again with the bounded backoff.
+                    if (providerItem) scheduleQueuePageRetry(generation)
+                    return@launch
+                }
                 if (bgMixActive()) {
-                    // BG Mix plays its own queue: the page extends it instead of the Exo timeline. Reached when a retry
-                    // was scheduled before BG Mix started.
+                    // BG Mix plays its own queue: the page extends it instead of the Exo timeline.
                     if (extendBgMixQueue(fresh, source)) queuePageRetries = 0 else scheduleQueuePageRetry(generation)
                     return@launch
                 }
@@ -3585,13 +3606,20 @@ object PlaybackEngine {
                     queuePageJob = null
                     _queuePageLoading.value = false
                     stopServiceIfQueueStillEnded()
+                    // BG Mix may be waiting at the end of the radio for this page: apply its status again, so it either
+                    // continues with the new tracks or reports the end once no retry is left.
+                    if (bgMixActive()) bgMix?.status?.value?.let(::applyBgMix)
                 }
             }
         }
     }
 
     private fun scheduleQueuePageRetry(generation: Long) {
-        val pause = queuePageRetryDelayMs(queuePageRetries) ?: return
+        val pause = queuePageRetryDelayMs(queuePageRetries) ?: run {
+            // No retry left: a BG Mix queue that waited for this page reports its end now.
+            if (generation == queuePageGeneration && bgMixActive()) bgMix?.status?.value?.let(::applyBgMix)
+            return
+        }
         queuePageRetries++
         queuePageRetryJob?.cancel()
         queuePageRetryJob = scope.launch {

@@ -16,7 +16,8 @@ import java.io.File
  *
  * Only complete local WAV, MP3 or FLAC files qualify (see [isEligible]). The session starts with the tapped track;
  * its successor joins after the deck is loaded, and the rest of the queue follows as playback advances
- * ([appendReady]). Streaming, secret and video media stay on the ExoPlayer path.
+ * ([appendReady]). Endless queues (a radio with `loadMore`) are allowed: their next pages join through [extendQueue].
+ * Streaming, secret and video media stay on the ExoPlayer path.
  *
  * A session can be staged first: it prepares its first track silently while ExoPlayer keeps playing, and only
  * [commitStaged] makes it the active one. Until then [isActive] stays false, so the engine still routes everything to ExoPlayer.
@@ -417,12 +418,6 @@ internal fun bgMixReadyPrefix(ready: List<PlaybackItem?>, startIndex: Int): List
     return (startIndex until ready.size).takeWhile { ready[it] != null }
 }
 
-/**
- * Whether BG Mix may take a queue from [source]. A source with more pages still to load stays on ExoPlayer: the native queue
- * holds only the items that are known now, so it would end at the edge of the first page.
- */
-internal fun bgMixAdmitsSource(source: PlaybackQueueSource?): Boolean = source?.loadMore == null
-
 /** The queue with the cover [path] on every item of [key]; other items are returned as they are. */
 internal fun List<PlaybackItem>.withArtwork(key: String, path: String): List<PlaybackItem> =
     map { item -> if (item.key == key && item.artworkPath != path) item.copy(artworkPath = path) else item }
@@ -440,3 +435,16 @@ internal fun bgMixAlignmentOffsetMs(audible: BgMixAudible, exoMs: Double): Doubl
  */
 internal fun bgMixAlignmentSeekMs(audible: BgMixAudible, exoMs: Double): Double =
     exoMs + audible.bufferedSeconds * 1_000.0
+
+/**
+ * Whether a BG Mix queue that has played out its known tracks should wait for the next page of an endless source instead of
+ * reporting the end: the source can load more, no queue item is still waiting for its file, Repeat is off, and a page request
+ * is running or scheduled. A temporarily empty radio page is not the end of the radio.
+ */
+internal fun bgMixAwaitsNextPage(
+    finished: Boolean,
+    pendingIndex: Int?,
+    endless: Boolean,
+    repeat: PlaybackRepeatMode,
+    pageInFlight: Boolean
+): Boolean = finished && pendingIndex == null && endless && repeat == PlaybackRepeatMode.Off && pageInFlight
