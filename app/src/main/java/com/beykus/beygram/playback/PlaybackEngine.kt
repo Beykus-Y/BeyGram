@@ -2658,6 +2658,13 @@ object PlaybackEngine {
         if (bgMixActive()) {
             val context = appContext
             _manualSkips.update { it + 1 }
+            // A prepared row switches in the native session at once, without a crossfade. An explicit row pick plays,
+            // as it always did, so play is requested after the switch. Otherwise the regular player takes over below.
+            if (index in _state.value.queue.indices && bgMix?.manualSelect(index) == true) {
+                bgMix?.resume()
+                _state.update { it.copy(ended = false, failed = false, intentPlaying = true) }
+                return
+            }
             val queue = PlaybackQueue(_state.value.queue, index)
             // The regular player starts the track at once; BG Mix takes it back as soon as it has prepared it.
             stopBgMix()
