@@ -2991,21 +2991,19 @@ GlobalSearchScreen(
                                     }
                                 }
                             }
+                        val profFlags by com.beykus.beygram.perf.ProfDiagnostics.flags.collectAsStateWithLifecycle()
+                        val currentFrame = RouteTransitionFrame(route, routeTwoPane)
+                        var lastMountedMainTab by remember(selectedAccountId) { mutableStateOf(MainTab.Chats) }
+                        if (usesSharedPhoneTabs(currentFrame)) {
+                            lastMountedMainTab = MainTab.entries.first { it.route == route }
+                        }
+                        val keepTabsAlive = profFlags.keepTabsMounted && !routeTwoPane &&
+                            (usesSharedPhoneTabs(currentFrame) || route == AppRoute.Chat)
                         Box(Modifier.fillMaxSize()) {
-                        AnimatedContent(
-                            targetState = RouteTransitionFrame(route, routeTwoPane),
-                            modifier = Modifier.fillMaxSize().clipToBounds(),
-                            // Phones: all four roots share one stable chrome slot; the inner viewport owns their slide.
-                            // Threads keep the chat slot; on wide screens preserve the existing list/detail slot.
-                            contentKey = ::routeHostContentKey,
-                            transitionSpec = routeTransitionSpec,
-                            label = "routeTransition"
-                        ) { frame ->
-                        val screenRoute = frame.route
-                        if (usesSharedPhoneTabs(frame)) {
+                        if (keepTabsAlive) {
                             MainTabsHost(
                                 accountId = selectedAccountId,
-                                selected = MainTab.entries.first { it.route == screenRoute },
+                                selected = lastMountedMainTab,
                                 visibility = tabVisibility,
                                 onSelect = selectTab,
                                 stateHolder = tabStateHolder,
@@ -3017,6 +3015,39 @@ GlobalSearchScreen(
                                     MainTab.Calls -> callsTabContent()
                                     MainTab.Contacts -> contactsTabContent()
                                     MainTab.Settings -> settingsTabContent()
+                                }
+                            }
+                        }
+                        AnimatedContent(
+                            targetState = currentFrame,
+                            modifier = Modifier.fillMaxSize().clipToBounds(),
+                            // Phones: all four roots share one stable chrome slot; the inner viewport owns their slide.
+                            // Threads keep the chat slot; on wide screens preserve the existing list/detail slot.
+                            contentKey = ::routeHostContentKey,
+                            transitionSpec = routeTransitionSpec,
+                            label = "routeTransition"
+                        ) { frame ->
+                        val screenRoute = frame.route
+                        if (usesSharedPhoneTabs(frame)) {
+                            if (keepTabsAlive) {
+                                // Persistent MainTabsHost is already mounted directly below this transparent slot.
+                                Box(Modifier.fillMaxSize())
+                            } else {
+                                MainTabsHost(
+                                    accountId = selectedAccountId,
+                                    selected = MainTab.entries.first { it.route == screenRoute },
+                                    visibility = tabVisibility,
+                                    onSelect = selectTab,
+                                    stateHolder = tabStateHolder,
+                                    tabMotion = tabSpec,
+                                    tabDirection = routeHistory.tabDirection
+                                ) { tab ->
+                                    when (tab) {
+                                        MainTab.Chats -> chatsList(false, false)
+                                        MainTab.Calls -> callsTabContent()
+                                        MainTab.Contacts -> contactsTabContent()
+                                        MainTab.Settings -> settingsTabContent()
+                                    }
                                 }
                             }
                         } else Box(Modifier.fillMaxSize().background(beyGramPalette().screen)) {
