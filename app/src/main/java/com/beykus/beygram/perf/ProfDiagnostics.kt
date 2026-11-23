@@ -10,9 +10,9 @@ import kotlinx.coroutines.flow.asStateFlow
 
 /**
  * PROF-only diagnostic A/B switches for issue #1109 (chats <-> chat navigation jank).
- * Every flag defaults to false so default UX is completely unchanged.
- *
- * Non-prof builds never activate any toggle.
+ * H4 tab retention is enabled by default only in PROF after the reproducible A/B
+ * in issue #1109. It can still be disabled by the prof_keep_tabs_mounted intent.
+ * All other diagnostic flags remain disabled. Non-PROF builds activate none.
  */
 data class ProfAbFlags(
     val navInstant: Boolean = false,
@@ -23,6 +23,11 @@ data class ProfAbFlags(
 ) {
     val glassBypass: Boolean get() = glassChromeOnly && underChromeBypass
 }
+
+
+/** Default PROF experiment: preserve the tab host on chat navigation only in PROF builds. */
+internal fun defaultProfAbFlags(isProfBuild: Boolean): ProfAbFlags =
+    ProfAbFlags(keepTabsMounted = isProfBuild)
 
 object ProfDiagnostics {
     private const val TAG = "ProfDiagnostics"
@@ -36,7 +41,7 @@ object ProfDiagnostics {
 
     val isProfBuild: Boolean = BuildConfig.APPLICATION_ID == "com.beykus.beygram.prof"
 
-    private val _flags = MutableStateFlow(ProfAbFlags())
+    private val _flags = MutableStateFlow(defaultProfAbFlags(isProfBuild))
     val flags: StateFlow<ProfAbFlags> = _flags.asStateFlow()
 
     @Volatile
@@ -56,7 +61,7 @@ object ProfDiagnostics {
         private set
 
     @Volatile
-    var keepTabsMounted: Boolean = false
+    var keepTabsMounted: Boolean = isProfBuild
         private set
 
     val glassBypass: Boolean get() = glassChromeOnly && underChromeBypass
@@ -86,7 +91,7 @@ object ProfDiagnostics {
             extras.containsKey(EXTRA_KEEP_TABS_MOUNTED)
         if (!hasAny) return
 
-        val base = if (extras.getBoolean(EXTRA_RESET, false)) ProfAbFlags() else _flags.value
+        val base = if (extras.getBoolean(EXTRA_RESET, false)) defaultProfAbFlags(isProfBuild) else _flags.value
         val combinedGlass = if (extras.containsKey(EXTRA_GLASS_BYPASS)) extras.getBoolean(EXTRA_GLASS_BYPASS, false) else null
         val next = base.copy(
             navInstant = if (extras.containsKey(EXTRA_NAV_INSTANT)) extras.getBoolean(EXTRA_NAV_INSTANT, false) else base.navInstant,
