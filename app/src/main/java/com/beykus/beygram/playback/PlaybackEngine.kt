@@ -2932,11 +2932,13 @@ object PlaybackEngine {
         val state = _state.value
         val current = state.item ?: return false
         val currentIsLegacyMusic = current.isMusic && !current.systemPrivate && current.accountId == LEGACY_PLAYBACK_ACCOUNT_ID
-        if (!yandexRestMayJoinQueue(generation, queuePageGeneration, bgMixActive(), currentIsLegacyMusic)) return false
+        // BG Mix is checked below: its own queue takes the tracks, the Exo timeline stays untouched.
+        if (!yandexRestMayJoinQueue(generation, queuePageGeneration, bgMixActive = false, currentIsLegacyMusic = currentIsLegacyMusic)) return false
         val base = state.queue.ifEmpty { listOf(current) }
         val queued = base.mapTo(HashSet()) { it.key }
         val items = tracks.filter { it.isAvailable }.distinctBy { it.key }.filter { it.key !in queued }.map(::providerPlaybackItem)
         if (items.isEmpty()) return false
+        if (bgMixActive()) return extendBgMixQueue(items, queueSource)
         val target = exo ?: return false
         val queue = base + items
         // The queue ran out while the rest was loading: its first new track plays on, as a page of an endless queue does.
@@ -2959,6 +2961,19 @@ object PlaybackEngine {
         } else {
             rebuildTimeline(queue, base.indexOfFirst { it.key == current.key }.coerceAtLeast(0), state.positionMs, state.playing || state.intentPlaying)
         }
+        return true
+    }
+
+    /**
+     * Adds [items] after the running BG Mix session's queue; they join its native queue as their files finish and
+     * [startBgMixFeed] restarts for them. False when no session runs or BG Mix cannot take them.
+     */
+    private fun extendBgMixQueue(items: List<PlaybackItem>, source: PlaybackQueueSource?): Boolean {
+        val driver = bgMix?.takeIf { it.isActive } ?: return false
+        if (!driver.extendQueue(items)) return false
+        items.forEach { registerSource(it, source) }
+        _state.update { it.copy(queue = driver.queueItems) }
+        startBgMixFeed()
         return true
     }
 
@@ -3496,6 +3511,11 @@ object PlaybackEngine {
                 if (now.queue.isEmpty() || now.item?.accountId != currentAccount) return@launch
                 val fresh = appendMusicPage(now.queue, page, currentAccount)
                 if (fresh.isEmpty()) return@launch
+                if (bgMixActive()) {
+                    // BG Mix plays its own queue: the page extends it instead of the Exo timeline.
+                    if (extendBgMixQueue(fresh, source)) queuePageRetries = 0 else scheduleQueuePageRetry(generation)
+                    return@launch
+                }
                 val target = exo ?: return@launch
                 fresh.forEach { registerSource(it, source) }
                 target.addMediaItems(fresh.map(::mediaItemFor))
