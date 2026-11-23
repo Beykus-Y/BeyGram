@@ -6,7 +6,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -344,12 +344,12 @@ internal fun ChatSearchResults(
     onOpen: (ChatMessage) -> Unit,
     onMore: () -> Unit,
     onRetry: () -> Unit,
-    onResetFilters: () -> Unit
+    onResetFilters: () -> Unit,
+    listState: LazyListState
 ) {
     val palette = beyGramPalette()
     val needle = query.trim()
     val criteriaActive = needle.isNotEmpty() || filter.isActive
-    val listState = rememberLazyListState()
     val lastVisible by remember { derivedStateOf { listState.layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: -1 } }
     // Автодогрузка: у конца списка, без ошибки, без устаревших результатов и без параллельного запроса.
     LaunchedEffect(lastVisible, results.size, hasMore, busy, error, stale) {
@@ -539,6 +539,10 @@ internal data class ChatSearchMatchSession(
         val nextIndex = if (index < merged.lastIndex) index + 1 else index
         return copy(results = merged, nextFromMessageId = nextId, index = nextIndex, busy = false)
     }
+
+    /** Возврат к результатам из найденного сообщения: прежняя выдача годится, пока запрос и фильтры те же. */
+    fun canRestoreResults(query: String, filter: ChatSearchFilter): Boolean =
+        results.isNotEmpty() && this.query == query && this.filter == filter
 }
 
 @Composable

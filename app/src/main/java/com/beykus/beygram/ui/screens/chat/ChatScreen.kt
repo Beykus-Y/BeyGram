@@ -28,6 +28,7 @@ import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -370,6 +371,10 @@ fun ChatScreen(
     var searchRetry by remember(chat.id, forumTopicId) { mutableIntStateOf(0) }
     var searchMatchSession by remember(chat.id, forumTopicId) { mutableStateOf(ChatSearchMatchSession()) }
     var searchMatchGeneration by remember(chat.id, forumTopicId) { mutableIntStateOf(0) }
+    // Выдача, из которой открыли сообщение: при возврате показываем её без нового запроса.
+    var searchRestore by remember(chat.id, forumTopicId) { mutableStateOf<ChatSearchMatchSession?>(null) }
+    // Позиция списка живёт вне composable поиска, чтобы пережить переход к сообщению и возврат.
+    val searchListState = remember(chat.id, forumTopicId) { LazyListState() }
     fun closeSearch(clearMatchSession: Boolean = true) {
         searching = false; searchQuery = ""; searchFilter = ChatSearchFilter()
         searchResults = emptyList(); searchNextId = 0L; searchTotalCount = 0; searchGeneration++
@@ -377,6 +382,7 @@ fun ChatScreen(
         if (clearMatchSession) {
             searchMatchGeneration++
             searchMatchSession = ChatSearchMatchSession()
+            searchRestore = null
             cancelActiveJump()
         }
     }
@@ -1584,6 +1590,16 @@ fun ChatScreen(
             searchResults = emptyList(); searchTotalCount = 0; searchRefreshing = false
             return@LaunchedEffect
         }
+        val restore = searchRestore
+        searchRestore = null
+        if (restore != null && restore.canRestoreResults(searchQuery, requestedFilter)) {
+            // Возврат из найденного сообщения: прежние результаты и позиция списка без повторного запроса.
+            searchResults = restore.results; searchNextId = restore.nextFromMessageId
+            searchTotalCount = restore.totalCount; searchBusy = false; searchRefreshing = false
+            return@LaunchedEffect
+        }
+        // Новый запрос или фильтр начинается с верха списка.
+        searchListState.scrollToItem(0)
         // Прежние результаты остаются на месте, но помечены устаревшими до ответа: без вспышки пустого экрана.
         searchRefreshing = searchResults.isNotEmpty()
         delay(300)
@@ -1691,6 +1707,7 @@ fun ChatScreen(
         searchQuery = session.query
         searchFilter = session.filter
         searchMatchSession = ChatSearchMatchSession()
+        searchRestore = session
         searching = true
     }
     fun stepNewerSearchMatch() {
@@ -2659,7 +2676,8 @@ fun ChatScreen(
             onOpen = ::openSearchResult,
             onMore = ::loadMoreResults,
             onRetry = { searchRetry++ },
-            onResetFilters = { searchFilter = ChatSearchFilter() }
+            onResetFilters = { searchFilter = ChatSearchFilter() },
+            listState = searchListState
         )
         if (videoNote.active) VideoNoteRecordingOverlay(videoNote)
         }
