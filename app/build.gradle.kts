@@ -71,7 +71,7 @@ val checkTelegramCredentials = tasks.register("checkTelegramCredentials") {
     }
 }
 
-tasks.matching { Regex("(assemble|install)(Dev|Prod)(Debug|Release)").matches(it.name) }.configureEach {
+tasks.matching { Regex("(assemble|install)(Dev|Prod|Prof)(Debug|Release)").matches(it.name) }.configureEach {
     dependsOn(checkTelegramCredentials)
 }
 
@@ -138,6 +138,7 @@ android {
             (providers.environmentVariable("GITHUB_SHA").orNull?.take(12) ?: "local").asBuildConfigString())
         // Set by the DEV channel only (-PdevBuildNumber); -1 means the build has no CI run number.
         buildConfigField("int", "DEV_BUILD_NUMBER", "-1")
+        buildConfigField("int", "PROF_BUILD_NUMBER", "-1")
         buildConfigField("String", "CAMERAX_VERSION", libs.versions.camerax.get().asBuildConfigString())
         buildConfigField("String", "MEDIA3_VERSION", libs.versions.media3.get().asBuildConfigString())
 
@@ -158,6 +159,19 @@ android {
             // Dev and Stable are often installed side by side. Loopback ports are shared by every app on the
             // device, so each variant needs its own listener port (issue #75).
             buildConfigField("int", "MIHOMO_PROXY_PORT", "17892")
+        }
+        create("prof") {
+            dimension = "environment"
+            applicationIdSuffix = ".prof"
+            versionNameSuffix = "-prof"
+            // Separate package and loopback port, never replacing DEV or Stable.
+            val profBuildNumber = (project.findProperty("profBuildNumber") as String?)?.toIntOrNull() ?: 0
+            require(profBuildNumber in 0..10_000_000 && stableVersionCode <= 2_100_000_000 - profBuildNumber) {
+                "Invalid PROF build number for Android versionCode"
+            }
+            versionCode = stableVersionCode + profBuildNumber
+            buildConfigField("int", "PROF_BUILD_NUMBER", if (profBuildNumber > 0) profBuildNumber.toString() else "-1")
+            buildConfigField("int", "MIHOMO_PROXY_PORT", "17893")
         }
         create("prod") {
             dimension = "environment"
