@@ -205,6 +205,7 @@ fun devBuildInfoText(
     installed: InstalledBuild,
     availableBuild: Int? = null,
     availableCommit: String? = null,
+    channelName: String = "DEV",
 ): String {
     val build = when (installed) {
         is InstalledBuild.Ci -> installed.number.toString()
@@ -212,7 +213,7 @@ fun devBuildInfoText(
         InstalledBuild.Local -> "local"
     }
     return buildString {
-        appendLine("BeyGram DEV")
+        appendLine("BeyGram $channelName")
         appendLine("package: $packageName")
         appendLine("versionName: $versionName")
         appendLine("versionCode: $versionCode")
