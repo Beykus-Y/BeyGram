@@ -113,6 +113,8 @@ internal class WaveListenTracker(
             broken = false
         }
         if (now != null && key == now) {
+            // A restart of the same track (Repeat One, Previous) is not a skip of it.
+            if (skippedByListener && state.positionMs + STEP_SLACK_MS < lastPositionMs) skippedByListener = false
             if (lastPlaying && state.playing) listenedMs += heardStep(state.positionMs, wall)
             lastPositionMs = state.positionMs
             lastWallMs = wall
@@ -120,7 +122,8 @@ internal class WaveListenTracker(
             positionMs = state.positionMs
             if (state.durationMs > 0L) durationMs = state.durationMs
             if (state.ended) ended = true
-            if (state.failed) broken = true
+            // Follows the player: a track the player recovered on and then heard counts again.
+            broken = state.failed
             if (state.playing && !started) {
                 started = true
                 events += WaveListenEvent.Started(now)

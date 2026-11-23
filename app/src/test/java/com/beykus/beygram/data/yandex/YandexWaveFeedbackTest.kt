@@ -105,6 +105,17 @@ class YandexWaveFeedbackTest {
     }
 
     @Test
+    fun restartingTheSameTrackIsNotASkip() {
+        val t = tracker()
+        t.play("ym:1", 0L, 100_000L)
+        // Repeat One: the same track starts again from zero after a manual Next.
+        t.onState(state("ym:1", position = 0L, manualSkips = 1L))
+        clock.now += 1_000L
+        t.play("ym:1", 1_000L, 199_000L)
+        assertEquals(WaveListenEvent.Finished("ym:1", 200.0), t.onState(state("ym:2"))[0])
+    }
+
+    @Test
     fun trackThePlayerFailedOnSendsNothing() {
         val t = tracker()
         t.play("ym:1", 0L, 5_000L)

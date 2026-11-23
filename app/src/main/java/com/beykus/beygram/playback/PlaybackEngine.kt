@@ -2569,9 +2569,12 @@ object PlaybackEngine {
 
     fun next() {
         if (bgMixActive()) {
-            _manualSkips.update { it + 1 }
             val state = _state.value
             val last = state.queueIndex >= state.queue.lastIndex
+            // A Next that moves nowhere (the last track without repeat) is not a skip.
+            if (!last || state.repeatMode == PlaybackRepeatMode.One || state.repeatMode == PlaybackRepeatMode.All) {
+                _manualSkips.update { it + 1 }
+            }
             when {
                 state.repeatMode == PlaybackRepeatMode.One -> restartBgMix(state.queue, if (last) 0 else state.queueIndex + 1, 0L, state.intentPlaying || state.ended)
                 // A successor rejected by the decoder must not be skipped on manual Next either.
