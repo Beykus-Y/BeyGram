@@ -312,7 +312,7 @@ class BgBeatManager(
         if (!bgBeatLookaheadNeeded(identity, currentAnalysing, lookaheadIdentity, lookaheadDone, completedIdentity)) return
 
         lookaheadIdentity = identity
-        lookaheadJob = scope.launch {
+        val launched = scope.launch {
             // Let manual skips settle and keep the start of the current track free for its own work.
             delay(LOOKAHEAD_DELAY_MS)
             val token = BgBeatNative.nativeCreateCancelToken()
@@ -332,16 +332,21 @@ class BgBeatManager(
                 throw ce
             } catch (e: Exception) {
                 Log.w(TAG, "Lookahead analysis failed for ${identity.itemKey}", e)
+                // A failed lookahead is not tried again for the same file, so it cannot repeat every few seconds.
+                lookaheadDone.add(identity)
+                while (lookaheadDone.size > 16) lookaheadDone.remove(lookaheadDone.first())
             } finally {
                 holder.get()?.release()
                 BgBeatNative.nativeDestroyCancelToken(token)
                 if (lookaheadToken == token) lookaheadToken = 0L
-                if (lookaheadIdentity == identity) {
+                // Only this run clears the slot: a newer lookahead for the same file may already have taken it.
+                if (lookaheadJob === coroutineContext[Job]) {
                     lookaheadIdentity = null
                     lookaheadJob = null
                 }
             }
         }
+        lookaheadJob = launched
     }
 
     fun reanalyze() {
@@ -396,7 +401,11 @@ class BgBeatManager(
         force: Boolean
     ) {
         // The current track has priority over a lookahead, unless the lookahead is already doing this very file.
-        if (lookaheadIdentity != identity) cancelLookahead()
+        // The same file under another key or account shares the native work too, so it is compared by file.
+        val ahead = lookaheadIdentity
+        if (ahead == null || ahead.filePath != identity.filePath || ahead.fileLength != identity.fileLength ||
+            ahead.fileLastModified != identity.fileLastModified
+        ) cancelLookahead()
         cancelCurrentAnalysis()
         val reqSeq = sequenceId.incrementAndGet()
         val itemKey = item.key
