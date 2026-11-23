@@ -55,7 +55,9 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.beykus.beygram.R
 import com.beykus.beygram.domain.model.ChatMessage
+import com.beykus.beygram.domain.search.ChatSearchListState
 import com.beykus.beygram.domain.search.appendDistinctBy
+import com.beykus.beygram.domain.search.chatSearchListState
 import com.beykus.beygram.domain.search.shouldAutoLoadChatSearchPage
 import com.beykus.beygram.ui.accessibility.errorAnnouncement
 import com.beykus.beygram.domain.model.ChatSearchFilter
@@ -366,12 +368,13 @@ internal fun ChatSearchResults(
         if (shouldAutoLoadChatSearchPage(lastVisible, results.size, hasMore, busy, error != null, stale)) onMore()
     }
     Box(Modifier.fillMaxSize().background(palette.screen).imePadding()) {
-        when {
-            !criteriaActive -> SearchNote(stringResource(R.string.search_type_to_search), palette.textSecondary)
-            busy && results.isEmpty() -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+        when (chatSearchListState(criteriaActive, busy, results.size, error != null, hasMore, filter.isActive)) {
+            ChatSearchListState.Idle -> SearchNote(stringResource(R.string.search_type_to_search), palette.textSecondary)
+            ChatSearchListState.Loading -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                 CircularProgressIndicator(color = palette.accent)
             }
-            results.isEmpty() -> Column(Modifier.fillMaxSize()) {
+            ChatSearchListState.FirstPageError, ChatSearchListState.NoMatches,
+            ChatSearchListState.NoMatchesOnPage, ChatSearchListState.NoFilterMatches -> Column(Modifier.fillMaxSize()) {
                 Box(Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
                     Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.padding(24.dp)) {
                         if (error != null) {
@@ -405,7 +408,7 @@ internal fun ChatSearchResults(
                 // Пустая первая страница с курсором: дальше можно пройти кнопкой, иначе выдача обрывается.
                 if (hasMore) SearchMoreButton(busy, onMore)
             }
-            else -> LazyColumn(
+            ChatSearchListState.Results -> LazyColumn(
                 Modifier.fillMaxSize().alpha(if (stale) 0.5f else 1f),
                 state = listState,
                 contentPadding = PaddingValues(vertical = 8.dp)
