@@ -15,7 +15,7 @@ internal class YandexResponse(val code: Int, val body: String, val retryAfterMs:
  * The only path to Yandex. Requests go directly, not through the local proxy (the service answers "unavailable"
  * outside its regions), in one queue with a fixed gap between requests. A 429 pauses the whole queue.
  */
-internal class YandexHttp(
+internal open class YandexHttp(
     private val now: () -> Long = { System.currentTimeMillis() },
     private val pause: (Long) -> Unit = { ms -> Thread.sleep(ms) },
 ) {
@@ -27,7 +27,7 @@ internal class YandexHttp(
      * Throws [IOException] when the network is unreachable. [paced] false skips the gap between requests: it is for
      * helper files on the storage hosts (the download XML of a track), which are not API calls. A 429 pause still applies.
      */
-    fun get(url: String, token: String? = null, paced: Boolean = true): YandexResponse =
+    open fun get(url: String, token: String? = null, paced: Boolean = true): YandexResponse =
         send("GET", url, token, null, paced)
 
     fun post(url: String, form: Map<String, String>, token: String? = null): YandexResponse {

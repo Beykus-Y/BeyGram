@@ -46,6 +46,10 @@ internal class ShareSession(val requestId: Long, val uris: List<Uri>, initialDra
         if (selectedDestinations.none { it.chatId == destination.chatId && it.topicId == destination.topicId })
             selectedDestinations = selectedDestinations + destination
     }
+    /** Заменяет выбранных адресатов до начала отправки. Список хранится здесь, а не в композиции: переживает поворот. */
+    fun replaceDestinations(destinations: List<ShareDestination>) {
+        if (!deliveryStarted) selectedDestinations = destinations.distinctBy { it.chatId to it.topicId }
+    }
     fun removeDestination(destination: ShareDestination) {
         if (!deliveryStarted) selectedDestinations = selectedDestinations.filterNot {
             it.chatId == destination.chatId && it.topicId == destination.topicId

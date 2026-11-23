@@ -39,6 +39,7 @@ import com.beykus.beygram.ui.motion.scrollToItemRespectingMotion
 import com.beykus.beygram.data.music.provider.MusicProviderFailure
 import com.beykus.beygram.data.music.provider.MusicProviders
 import com.beykus.beygram.data.music.provider.ProviderLyrics
+import com.beykus.beygram.data.yandex.YandexConfig
 import com.beykus.beygram.data.music.provider.ProviderResult
 import com.beykus.beygram.data.music.provider.YANDEX_TRACK_KEY_PREFIX
 import com.beykus.beygram.domain.lyrics.LyricLine as TimedLyricLine
@@ -55,14 +56,15 @@ internal sealed interface YandexLyricsState {
 internal enum class LyricsUnavailableReason { NoText, NotSignedIn, Failed }
 
 /**
+ * Switch for the lyrics button of Yandex tracks. On when this build has the lyrics signing key (SIGN_KEY secret);
+ * without the key the button stays hidden.
+ */
+internal val YANDEX_LYRICS_ENABLED: Boolean get() = YandexConfig.lyricsSigningAvailable
+
+/**
  * Lyrics section of the full player for a Yandex Music track. It is shown only when the DEV build has the provider
  * and the current item has a `ym:` key; everywhere else the player is unchanged.
  */
-/**
- * Switch for the lyrics button of Yandex tracks. Off: the service refuses the unsigned lyrics request (400), and the
- * signing decision is still open. The code stays in place. Turn on only after that decision.
- */
-internal const val YANDEX_LYRICS_ENABLED = false
 
 @Composable
 internal fun YandexLyricsSection(

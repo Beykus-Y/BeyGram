@@ -14,6 +14,10 @@ import org.json.JSONException
 import org.json.JSONObject
 import java.io.IOException
 import java.net.URLEncoder
+import java.security.GeneralSecurityException
+
+private const val LYRICS_FORMAT_LRC = "LRC"
+private const val LYRICS_FORMAT_TEXT = "TEXT"
 
 /** One batch of radio tracks and the session it belongs to. */
 internal data class YandexWaveBatch(
@@ -38,7 +42,13 @@ internal data class YandexAccount(
  * Requests and response mapping for the endpoints the app uses. Every call returns a [ProviderResult]; no
  * exception leaves this class. Unknown fields are ignored, and a missing required field gives ServiceChanged.
  */
-internal open class YandexApi(private val http: YandexHttp) {
+internal open class YandexApi(
+    private val http: YandexHttp,
+    /** Lyrics signing key. Blank means lyrics are unavailable. Injectable for tests. */
+    private val lyricsSignKey: () -> String = { YandexConfig.lyricsSignKey },
+    /** Clock for the lyrics timeStamp, in milliseconds. Injectable for tests. */
+    private val clock: () -> Long = { System.currentTimeMillis() },
+) {
 
     open fun account(token: String): ProviderResult<YandexAccount> = call(token, "/account/status") { root ->
         parseAccountStatus(root)
@@ -217,54 +227,87 @@ internal open class YandexApi(private val http: YandexHttp) {
         }
 
     /**
-     * Lyrics come as a link to a file: LRC when it has time tags, plain text otherwise. The file is fetched without the
-     * token. Returns the result and a redacted report of the requests: status codes, key names, value types and line
-     * counts. No token, link, lyrics text or track id goes into the report.
+     * Lyrics as a link to a file. The request is signed (see [YandexSigning.lyricsSign]) with the SIGN_KEY secret; without
+     * the key nothing is sent. LRC is asked first. When the service has no synced lyrics (404, a 2xx without a link, or a
+     * file with no time-tagged line) one TEXT request follows. Track ids of the form "id:albumId" use the id only.
+     * The file is fetched without the token. Returns the result and a redacted report: format, status codes, key names,
+     * value types and line counts. No token, sign, link, lyrics text or track id goes into the report.
      */
     open fun lyricsWithReport(token: String, trackId: String): Pair<ProviderResult<ProviderLyrics>, String> {
+        val key = lyricsSignKey()
+        if (key.isBlank()) return ProviderResult.Failure(MusicProviderFailure.Unavailable) to "lyrics.sign=missing"
+        val id = trackId.substringBefore(':')
+        val synced = fetchLyrics(token, id, key, LYRICS_FORMAT_LRC)
+        if (!synced.fallback) return synced.result to synced.report
+        val text = fetchLyrics(token, id, key, LYRICS_FORMAT_TEXT)
+        // Plain text found: use it. When the TEXT request only has no lyrics either (NotFound), the LRC outcome stands.
+        // Any other TEXT failure (auth, network, server) is the real answer and must not be hidden behind that NotFound.
+        val textFailure = (text.result as? ProviderResult.Failure)?.failure
+        val result = if (textFailure == MusicProviderFailure.NotFound) synced.result else text.result
+        return result to "${synced.report}; fallback=TEXT; ${text.report}"
+    }
+
+    fun lyrics(token: String, trackId: String): ProviderResult<ProviderLyrics> = lyricsWithReport(token, trackId).first
+
+    /** One lyrics request in one format. [fallback] is set on an LRC attempt that found no synced text. */
+    private class LyricsAttempt(val result: ProviderResult<ProviderLyrics>, val report: String, val fallback: Boolean)
+
+    private fun fetchLyrics(token: String, trackId: String, key: String, format: String): LyricsAttempt {
+        val prefix = "lyrics.format=$format"
+        val timeStamp = (clock() / 1_000L).toString()
+        val sign = try {
+            YandexSigning.lyricsSign(trackId, timeStamp, key)
+        } catch (e: GeneralSecurityException) {
+            return LyricsAttempt(ProviderResult.Failure(MusicProviderFailure.Unknown), "$prefix; lyrics.sign=error", false)
+        }
+        val url = YandexConfig.API_BASE + "/tracks/$trackId/lyrics" +
+            "?format=$format&timeStamp=$timeStamp&sign=${encode(sign)}"
         val response = try {
-            http.get(YandexConfig.API_BASE + "/tracks/$trackId/lyrics?format=LRC", token)
+            http.get(url, token)
         } catch (e: IOException) {
-            return ProviderResult.Failure(MusicProviderFailure.Network) to "lyrics.api=network"
+            return LyricsAttempt(ProviderResult.Failure(MusicProviderFailure.Network), "$prefix; lyrics.api=network", false)
         }
         val root = try { JSONObject(response.body) } catch (e: JSONException) { null }
-        val head = "lyrics.api=${response.code}; " +
+        val head = "$prefix; lyrics.api=${response.code}; " +
             (root?.let { shapeSummary(it) } ?: "body is not JSON (${response.body.length} chars)")
+        if (response.code == 404) {
+            return LyricsAttempt(ProviderResult.Failure(MusicProviderFailure.NotFound), head, fallback = true)
+        }
         if (response.code !in 200..299) {
-            return ProviderResult.Failure(YandexAuth.failureForCode(response.code)) to head
+            return LyricsAttempt(ProviderResult.Failure(YandexAuth.failureForCode(response.code)), head, fallback = false)
         }
         val info = root?.optJSONObject("result")
-        val link = info?.optString("downloadUrl")?.takeIf { it.isNotBlank() }
-            ?: return ProviderResult.Failure(MusicProviderFailure.ServiceChanged) to head
-        val holder = info?.optJSONObject("major")?.optString("name")?.takeIf { it.isNotBlank() }
+            ?: return LyricsAttempt(ProviderResult.Failure(MusicProviderFailure.ServiceChanged), head, fallback = format == LYRICS_FORMAT_LRC)
+        val link = info.optString("downloadUrl").takeIf { it.isNotBlank() }
+            ?: return LyricsAttempt(ProviderResult.Failure(MusicProviderFailure.ServiceChanged), head, fallback = format == LYRICS_FORMAT_LRC)
+        val holder = info.optJSONObject("major")?.optString("name")?.takeIf { it.isNotBlank() }
         val file = try {
             http.get(link)
         } catch (e: IOException) {
-            return ProviderResult.Failure(MusicProviderFailure.Network) to "$head; lyrics.file=network"
+            return LyricsAttempt(ProviderResult.Failure(MusicProviderFailure.Network), "$head; lyrics.file=network", fallback = false)
         }
         val fileHead = "$head; lyrics.file=${file.code}"
         if (file.code !in 200..299) {
-            return ProviderResult.Failure(YandexAuth.failureForCode(file.code)) to fileHead
+            return LyricsAttempt(ProviderResult.Failure(YandexAuth.failureForCode(file.code)), fileHead, fallback = false)
         }
-        val lines = YandexSigning.parseLrc(file.body)
-        val plain = file.body.lineSequence().map { it.trim() }
-            .filter { it.isNotEmpty() && !it.startsWith("[") }
-            .joinToString("\n")
-            .takeIf { it.isNotEmpty() }
         val nonEmpty = file.body.lineSequence().count { it.isNotBlank() }
         val tagged = file.body.lineSequence().count {
             val line = it.trim()
             line.startsWith("[") && line.getOrNull(1)?.isDigit() == true
         }
-        val lyrics = ProviderLyrics(
-            lines = lines,
-            plainText = if (lines.isEmpty()) plain else null,
-            copyrightHolder = holder,
-        )
-        return ProviderResult.Success(lyrics) to "$fileHead, lines=$nonEmpty, timeTagged=$tagged"
+        val report = "$fileHead, lines=$nonEmpty, timeTagged=$tagged"
+        if (format == LYRICS_FORMAT_LRC) {
+            val lines = YandexSigning.parseLrc(file.body)
+            return if (lines.isNotEmpty()) {
+                LyricsAttempt(ProviderResult.Success(ProviderLyrics(lines, null, holder)), report, fallback = false)
+            } else {
+                LyricsAttempt(ProviderResult.Failure(MusicProviderFailure.NotFound), report, fallback = true)
+            }
+        }
+        val plain = YandexSigning.plainLyricsText(file.body)
+            ?: return LyricsAttempt(ProviderResult.Failure(MusicProviderFailure.NotFound), report, fallback = false)
+        return LyricsAttempt(ProviderResult.Success(ProviderLyrics(emptyList(), plain, holder)), report, fallback = false)
     }
-
-    fun lyrics(token: String, trackId: String): ProviderResult<ProviderLyrics> = lyricsWithReport(token, trackId).first
 
     /**
      * Full-track MP3 link from the download-info XML. Requires a subscription, which the provider checks first.

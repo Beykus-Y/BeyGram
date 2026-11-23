@@ -574,7 +574,7 @@ internal class TdConversationActions(
                 this.options = protocolOptions
                 inputMessageContents = resolved.media.mapIndexed { index, item -> item.toInputContent(if (index == 0) boundedCaption.text else "", if (index == 0) boundedCaption.entities else emptyList()) }.toTypedArray()
                 if (replyTarget != null) {
-                    topicId = replyTarget.topicId
+                    topicId = replySendTopic(replyTarget.topicId)
                     replyTo = TdApi.InputMessageReplyToMessage().apply { messageId = replyTarget.id; pollOptionId = "" }
                 } else if (forumTopicId > 0L) {
                     topicId = TdApi.MessageTopicForum(forumTopicId.toInt())
@@ -649,7 +649,7 @@ internal class TdConversationActions(
         val message = stealth.scheduledRequest(resolved, TdApi.SendMessage().apply {
             this.chatId = chatId; inputMessageContent = inputContent; this.options = protocolOptions
             if (replyTarget != null) {
-                topicId = replyTarget.topicId
+                topicId = replySendTopic(replyTarget.topicId)
                 replyTo = TdApi.InputMessageReplyToMessage().apply { messageId = replyTarget.id; pollOptionId = "" }
             } else if (forumTopicId > 0L) {
                 topicId = TdApi.MessageTopicForum(forumTopicId.toInt())
@@ -1081,6 +1081,14 @@ internal fun inputMessagePoll(poll: OutgoingPoll): TdApi.InputMessagePoll {
 /** TDLib scheduling state for a Unix timestamp in seconds; null keeps an immediate send. */
 internal fun scheduledState(atSeconds: Long?): TdApi.MessageSchedulingState? =
     atSeconds?.let { TdApi.MessageSchedulingStateSendAtDate(it.toInt(), 0) }
+
+/**
+ * Topic for a send that replies to a message. Forum and thread topics are copied from the target. A Saved Messages
+ * topic is not: copying it into SendMessage makes TDLib reject a reply in Saved Messages (issue #1077), and the reply
+ * itself already places the message in the right conversation.
+ */
+internal fun replySendTopic(replyTopic: TdApi.MessageTopic?): TdApi.MessageTopic? =
+    replyTopic?.takeUnless { it is TdApi.MessageTopicSavedMessages }
 
 /** Protocol options for an ordinary send, a silent send, or a scheduled one. */
 internal fun sendOptions(options: MessageSendOptions): TdApi.MessageSendOptions = TdApi.MessageSendOptions().apply {

@@ -1,5 +1,7 @@
 package com.beykus.beygram.ui.screens.music.yandex
 
+import android.widget.Toast
+
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -63,6 +65,13 @@ import com.beykus.beygram.ui.screens.music.ProviderTrackMenuItems
 import com.beykus.beygram.ui.screens.music.ProviderTrackRow
 import com.beykus.beygram.ui.screens.music.musicCollectionSummary
 import com.beykus.beygram.ui.screens.music.rememberProviderCover
+import com.beykus.beygram.ui.screens.playback.LocalPlaybackRepositorySource
+import com.beykus.beygram.ui.screens.playback.PendingProviderLinkShare
+import com.beykus.beygram.ui.screens.playback.ProviderLinkSharePayload
+import com.beykus.beygram.ui.screens.playback.ShareProviderLinkDialog
+import com.beykus.beygram.ui.screens.playback.providerAlbumSharePayload
+import com.beykus.beygram.ui.screens.playback.providerPlaylistSharePayload
+import com.beykus.beygram.ui.screens.playback.providerTrackSharePayload
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -106,6 +115,18 @@ internal fun YandexCollectionScreen(
     val appScope = remember(context) { (context.applicationContext as BeyGramApplication).applicationScope }
     val likedTitle = stringResource(R.string.yandex_library_liked)
     val playlistTitle = stringResource(R.string.yandex_library_playlists)
+    val shareSource = LocalPlaybackRepositorySource.current
+    val chooserTitle = stringResource(R.string.music_provider_share_link)
+    var pendingShare by remember(ref) { mutableStateOf<PendingProviderLinkShare?>(null) }
+
+    fun openShare(payload: ProviderLinkSharePayload?) {
+        if (payload == null) return
+        val source = shareSource
+        if (source != null) pendingShare = PendingProviderLinkShare(payload, source)
+        else if (!ProviderTracks.sharePublicText(context, payload.text, chooserTitle)) {
+            Toast.makeText(context, R.string.share_external_unavailable, Toast.LENGTH_SHORT).show()
+        }
+    }
 
     var head by remember(ref) {
         mutableStateOf(
@@ -344,8 +365,8 @@ internal fun YandexCollectionScreen(
                                     )
                                 }
                             },
-                        ) { context, label ->
-                            ProviderTracks.shareAlbumLink(context, menuTitle, ref.id, label)
+                        ) { _, _ ->
+                            openShare(providerAlbumSharePayload(menuTitle, ref.id, head.coverUrl))
                         }
                     }
                     playlistUuid?.let { uuid ->
@@ -372,8 +393,8 @@ internal fun YandexCollectionScreen(
                                     onDone = {},
                                 )
                             }) else null,
-                        ) { context, label ->
-                            ProviderTracks.sharePlaylistLink(context, menuTitle, uuid, label)
+                        ) { _, _ ->
+                            openShare(providerPlaylistSharePayload(menuTitle, uuid, head.coverUrl))
                         }
                     }
                 }
@@ -421,7 +442,8 @@ internal fun YandexCollectionScreen(
                             number = if (ref is YandexCollectionRef.Album) index + 1 else null,
                             inAlbum = (ref as? YandexCollectionRef.Album)?.id,
                             onClick = if (track.isAvailable) ({ play(index, false) }) else null,
-                            onOpenCollection = onOpenCollection
+                            onOpenCollection = onOpenCollection,
+                            onShare = ::openShare
                         )
                     }
                 }
@@ -432,6 +454,7 @@ internal fun YandexCollectionScreen(
             }
         }
     }
+    pendingShare?.let { ShareProviderLinkDialog(it, onClose = { pendingShare = null }) }
 }
 
 @Composable
@@ -440,7 +463,8 @@ private fun TrackRowWithMenu(
     number: Int?,
     inAlbum: String?,
     onClick: (() -> Unit)?,
-    onOpenCollection: (String) -> Unit
+    onOpenCollection: (String) -> Unit,
+    onShare: (ProviderLinkSharePayload?) -> Unit
 ) {
     val palette = beyGramPalette()
     var menu by remember(track.trackId) { mutableStateOf(false) }
@@ -464,7 +488,8 @@ private fun TrackRowWithMenu(
                                 { albumId -> onOpenCollection(YandexCollectionRef.album(albumId)) }
                             } else {
                                 null
-                            }
+                            },
+                            onShare = { chosen -> onShare(providerTrackSharePayload(chosen)) }
                         )
                     }
                 }

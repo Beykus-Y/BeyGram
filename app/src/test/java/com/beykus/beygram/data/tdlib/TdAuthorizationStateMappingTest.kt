@@ -6,6 +6,8 @@ import com.beykus.beygram.domain.model.AuthState
 import org.drinkless.tdlib.TdApi
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class TdAuthorizationStateMappingTest {
@@ -41,5 +43,107 @@ class TdAuthorizationStateMappingTest {
         assertEquals("wait_code", TdApi.AuthorizationStateWaitCode().authWireState())
         assertEquals("ready", TdApi.AuthorizationStateReady().authWireState())
         assertEquals("closed", TdApi.AuthorizationStateClosed().authWireState())
+    }
+
+    @Test
+    fun phoneSubmitRouteFollowsTheTdlibPhase() {
+        assertEquals(PhoneSubmitRoute.SEND, phoneSubmitRoute("wait_phone", qrActive = false, reopening = false, authQueryInFlight = false))
+        assertEquals(PhoneSubmitRoute.SEND, phoneSubmitRoute("wait_code", qrActive = false, reopening = false, authQueryInFlight = false))
+        assertEquals(
+            PhoneSubmitRoute.CANCEL_QR_THEN_SEND,
+            phoneSubmitRoute("wait_other_device", qrActive = false, reopening = false, authQueryInFlight = false)
+        )
+        assertEquals(PhoneSubmitRoute.CANCEL_QR_THEN_SEND, phoneSubmitRoute("wait_phone", qrActive = true, reopening = false, authQueryInFlight = false))
+        assertEquals(PhoneSubmitRoute.WAIT_FOR_CLIENT, phoneSubmitRoute("wait_phone", qrActive = false, reopening = true, authQueryInFlight = false))
+        assertEquals(PhoneSubmitRoute.WAIT_FOR_CLIENT, phoneSubmitRoute("closed", qrActive = false, reopening = true, authQueryInFlight = false))
+        assertEquals(PhoneSubmitRoute.WAIT_FOR_CLIENT, phoneSubmitRoute(null, qrActive = false, reopening = false, authQueryInFlight = false))
+        assertEquals(PhoneSubmitRoute.WAIT_FOR_CLIENT, phoneSubmitRoute("closed", qrActive = false, reopening = false, authQueryInFlight = false))
+        assertEquals(
+            PhoneSubmitRoute.WAIT_FOR_CLIENT,
+            phoneSubmitRoute("wait_parameters", qrActive = false, reopening = false, authQueryInFlight = false)
+        )
+        assertEquals(PhoneSubmitRoute.IGNORE, phoneSubmitRoute("ready", qrActive = false, reopening = false, authQueryInFlight = false))
+        assertEquals(PhoneSubmitRoute.IGNORE, phoneSubmitRoute("ready", qrActive = false, reopening = true, authQueryInFlight = false))
+    }
+
+    @Test
+    fun phoneSubmitWaitsForThePendingCodeOrPasswordQuery() {
+        assertEquals(
+            PhoneSubmitRoute.IGNORE,
+            phoneSubmitRoute("wait_code", qrActive = false, reopening = false, authQueryInFlight = true)
+        )
+        assertEquals(
+            PhoneSubmitRoute.IGNORE,
+            phoneSubmitRoute("wait_password", qrActive = false, reopening = false, authQueryInFlight = true)
+        )
+        assertEquals(
+            PhoneSubmitRoute.SEND,
+            phoneSubmitRoute("wait_phone", qrActive = false, reopening = false, authQueryInFlight = true)
+        )
+        assertEquals(
+            PhoneSubmitRoute.SEND,
+            phoneSubmitRoute("wait_code", qrActive = false, reopening = false, authQueryInFlight = false)
+        )
+    }
+
+    @Test
+    fun reconnectRestoresTheFormWhenTdlibAlreadyAskedForThePhone() {
+        // Regression: wait_phone -> Loading -> timeout -> reconnect must restore the form without a new update.
+        assertEquals(AuthState.WaitingForPhone, reconnectAuthState("wait_phone", phonePending = false))
+        assertEquals(AuthState.Loading, reconnectAuthState("wait_phone", phonePending = true))
+        assertEquals(AuthState.Loading, reconnectAuthState(null, phonePending = false))
+        assertEquals(AuthState.Loading, reconnectAuthState("closed", phonePending = false))
+    }
+
+    @Test
+    fun lateCallbacksFromAClosedClientGenerationAreIgnored() {
+        assertTrue(isCurrentClientCallback(1, 1))
+        // Regression: a QR error from closed generation 1 must not touch the client reopened as generation 2.
+        assertFalse(isCurrentClientCallback(1, 2))
+    }
+
+    @Test
+    fun startAuthorizationNeverOverwritesARealPhoneStateWithASpinner() {
+        // Regression: TDLib already sent WaitPhoneNumber, so no new update would ever clear a Loading spinner.
+        assertNull(startAuthorizationState(AuthState.WaitingForPhone, "wait_phone"))
+        assertEquals(AuthState.WaitingForPhone, startAuthorizationState(AuthState.Idle, "wait_phone"))
+        assertEquals(AuthState.Loading, startAuthorizationState(AuthState.Idle, null))
+        assertNull(startAuthorizationState(AuthState.WaitingForQr("tg://login?token=x"), "wait_other_device"))
+        assertNull(startAuthorizationState(AuthState.Ready, "ready"))
+    }
+
+    @Test
+    fun authErrorReasonIsAStableKeyWithoutPayload() {
+        assertEquals("phone_invalid", authErrorReason("PHONE_NUMBER_INVALID"))
+        assertEquals("flood_wait", authErrorReason("FLOOD_WAIT_30"))
+        assertEquals("unexpected_state", authErrorReason("Unexpected setAuthenticationPhoneNumber"))
+        assertEquals("other", authErrorReason(null))
+
+        val reason = authErrorReason("+79991234567 PHONE_NUMBER_INVALID")
+        assertEquals("phone_invalid", reason)
+        assertFalse(reason.contains("7999"))
+        assertTrue(reason.none { it.isDigit() })
+    }
+
+    @Test
+    fun lateResultOfASupersededPhoneAttemptIsIgnored() {
+        val tracker = AuthQueryTracker()
+        val first = tracker.begin()          // phone sent
+        // timeout -> reconnect -> user retries
+        val second = tracker.begin()
+        assertTrue(tracker.inFlight)
+        assertFalse(tracker.finish(first))   // late first result: ignored
+        assertTrue(tracker.inFlight)         // second still pending
+        assertTrue(tracker.finish(second))
+        assertFalse(tracker.inFlight)
+    }
+
+    @Test
+    fun clientResetSupersedesPendingAttempt() {
+        val tracker = AuthQueryTracker()
+        val attempt = tracker.begin()
+        tracker.reset()
+        assertFalse(tracker.inFlight)
+        assertFalse(tracker.finish(attempt))
     }
 }
