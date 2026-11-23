@@ -73,7 +73,7 @@ internal object YandexSigning {
      * Null when nothing is left.
      */
     fun plainLyricsText(text: String): String? =
-        text.removePrefix(BOM).lineSequence().map { it.trim() }.joinToString("\n")
+        text.replace(BOM, "").lineSequence().map { it.trim() }.joinToString("\n")
             .replace(Regex("\n{3,}"), "\n\n")
             .trim()
             .takeIf { it.isNotEmpty() }
