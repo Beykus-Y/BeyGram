@@ -236,9 +236,10 @@ private fun updatesSettingsSubtitle(): String {
         lifecycleOwner.lifecycle.addObserver(observer)
         onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
     }
-    val isDev = updateChannelFor(BuildConfig.APPLICATION_ID) == UpdateChannel.DevBeta
-    val installedLine = if (isDev) {
-        installedBuildLabel(installedBuild(BuildConfig.DEV_BUILD_NUMBER, BuildConfig.BUILD_GIT_SHA))
+    val channel = updateChannelFor(BuildConfig.APPLICATION_ID)
+    val installedLine = if (channel != UpdateChannel.Stable) {
+        val number = if (channel == UpdateChannel.ProfBeta) BuildConfig.PROF_BUILD_NUMBER else BuildConfig.DEV_BUILD_NUMBER
+        installedBuildLabel(installedBuild(number, BuildConfig.BUILD_GIT_SHA))
     } else {
         stringResource(R.string.updates_installed_stable, BuildConfig.VERSION_NAME)
     }
