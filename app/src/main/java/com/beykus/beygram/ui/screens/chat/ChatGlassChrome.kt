@@ -12,7 +12,9 @@ import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.getValue
 import androidx.compose.runtime.staticCompositionLocalOf
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
@@ -60,17 +62,19 @@ internal fun ChatChromeHost(
     floatingContent: @Composable ColumnScope.() -> Unit = {},
     floatingComposer: Boolean = false
 ) {
+    val profFlags by com.beykus.beygram.perf.ProfDiagnostics.flags.collectAsStateWithLifecycle()
+    val effectiveGlass = glass && !profFlags.glassBypass
     val palette = beyGramPalette()
     // The top stack's background covers the status bar; its content starts below the top safe inset.
     val statusBarSpacer: @Composable ColumnScope.() -> Unit = {
         if (edge == GlassEdge.BottomHairline) Spacer(Modifier.fillMaxWidth().windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Top)))
     }
-    if (!glass && edge == GlassEdge.TopHairline && floatingComposer) {
+    if (!effectiveGlass && edge == GlassEdge.TopHairline && floatingComposer) {
         Column(Modifier.fillMaxWidth().zIndex(1f).onSizeChanged { onHeight(it.height) }
             .pointerInput(Unit) { awaitPointerEventScope { while (true) awaitPointerEvent() } }, content = paneContent)
         return
     }
-    if (!glass) {
+    if (!effectiveGlass) {
         // The top stack is drawn above the message list, so a header shadow (Material 2) is not painted over by it.
         Column(Modifier.fillMaxWidth().zIndex(if (edge == GlassEdge.BottomHairline) 1f else 0f)) {
             statusBarSpacer()
@@ -129,10 +133,17 @@ internal fun ChatChromeHost(
  * reported bounds are not delivered to the list; those areas belong to the chrome drawn over them.
  */
 internal fun Modifier.underChatChrome(topPx: () -> Int, bottomPx: () -> Int): Modifier = layout { measurable, constraints ->
-    val top = topPx()
-    val bottom = bottomPx()
-    val width = constraints.maxWidth
-    val height = constraints.maxHeight
-    val placeable = measurable.measure(Constraints.fixed(width, height + top + bottom))
-    layout(width, height) { placeable.place(0, -top) }
+    com.beykus.beygram.perf.ProfDiagnostics.traceSection("BG:UnderChatChrome") {
+        if (com.beykus.beygram.perf.ProfDiagnostics.glassBypass) {
+            val placeable = measurable.measure(constraints)
+            layout(placeable.width, placeable.height) { placeable.place(0, 0) }
+        } else {
+            val top = topPx()
+            val bottom = bottomPx()
+            val width = constraints.maxWidth
+            val height = constraints.maxHeight
+            val placeable = measurable.measure(Constraints.fixed(width, height + top + bottom))
+            layout(width, height) { placeable.place(0, -top) }
+        }
+    }
 }

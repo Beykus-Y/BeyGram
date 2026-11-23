@@ -3,6 +3,7 @@ package com.beykus.beygram
 import android.content.Context
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.togetherWith
 import androidx.compose.animation.AnimatedContentTransitionScope
 import androidx.compose.animation.ContentTransform
 import androidx.compose.animation.Crossfade
@@ -2971,19 +2972,23 @@ GlobalSearchScreen(
                         val routeTransitionSpec: AnimatedContentTransitionScope<RouteTransitionFrame>.() -> ContentTransform =
                             remember {
                                 {
-                                    if (chatProfilePairFades(
-                                            initial = initialState.route,
-                                            target = targetState.route,
-                                            motionEnabled = pairMotionEnabled.value,
-                                            flightEngaged = chatProfileTransition.flightEngagedFor(pairChatId.value)
-                                        )
-                                    ) {
-                                        chatProfilePairContentTransform(
-                                            push = pairPushSpec.value,
-                                            pop = pairPopSpec.value,
-                                            pushwards = targetState.route == AppRoute.ChatInfo
-                                        )
-                                    } else baseRouteTransitionSpec()
+                                    com.beykus.beygram.perf.ProfDiagnostics.traceSection("BG:RouteTransition") {
+                                        if (com.beykus.beygram.perf.ProfDiagnostics.navInstant) {
+                                            androidx.compose.animation.EnterTransition.None togetherWith androidx.compose.animation.ExitTransition.None
+                                        } else if (chatProfilePairFades(
+                                                initial = initialState.route,
+                                                target = targetState.route,
+                                                motionEnabled = pairMotionEnabled.value,
+                                                flightEngaged = chatProfileTransition.flightEngagedFor(pairChatId.value)
+                                            )
+                                        ) {
+                                            chatProfilePairContentTransform(
+                                                push = pairPushSpec.value,
+                                                pop = pairPopSpec.value,
+                                                pushwards = targetState.route == AppRoute.ChatInfo
+                                            )
+                                        } else baseRouteTransitionSpec()
+                                    }
                                 }
                             }
                         Box(Modifier.fillMaxSize()) {
