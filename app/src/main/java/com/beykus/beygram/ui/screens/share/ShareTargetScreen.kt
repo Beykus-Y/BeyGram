@@ -17,6 +17,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -43,7 +44,9 @@ import com.beykus.beygram.domain.repository.TelegramRepository
 import com.beykus.beygram.share.IncomingShareParser
 import com.beykus.beygram.share.ShareDestination
 import com.beykus.beygram.share.ShareSession
+import com.beykus.beygram.share.directShareCandidate
 import com.beykus.beygram.share.isShareTopicValid
+import com.beykus.beygram.share.shareRecipientCatalog
 import com.beykus.beygram.ui.components.TextButton
 import com.beykus.beygram.ui.components.beyGramPalette
 import com.beykus.beygram.ui.design.styledShape
@@ -52,6 +55,7 @@ import com.beykus.beygram.ui.screens.chat.ForwardTarget
 import com.beykus.beygram.ui.screens.chat.LocalMediaImage
 import com.beykus.beygram.ui.text.resolve
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 
 /**
@@ -82,11 +86,20 @@ internal fun ShareTargetScreen(
     val appScope = remember(context) { (context.applicationContext as BeyGramApplication).applicationScope }
     val importer = remember(context, session.accountId) { OutgoingMediaImporter(context, session.accountId) }
     var shortcutApplied by rememberSaveable(requestId, session.accountId) { mutableStateOf(false) }
+    // Архив и папки - такие же получатели, как в пересылке, поэтому предвыбор ищет чат во всём каталоге.
+    // Без репозитория архива и папок нет: используем пустые потоки, чтобы вызов collectAsStateWithLifecycle оставался безусловным.
+    val emptyArchived = remember { MutableStateFlow<List<ChatPreview>>(emptyList()) }
+    val emptyFolders = remember { MutableStateFlow<Map<Int, List<ChatPreview>>>(emptyMap()) }
+    val archivedChats = (recipientRepository?.archivedChats ?: emptyArchived).collectAsStateWithLifecycle().value
+    val folderChats = (recipientRepository?.folderChats ?: emptyFolders).collectAsStateWithLifecycle().value
+    val recipientCatalog = remember(chats, archivedChats, folderChats) {
+        shareRecipientCatalog(chats, archivedChats, folderChats)
+    }
     // Direct Share предвыбирает только личный чат и не отправляет сам. Группы с темами выбираются вручную.
-    // Чаты приходят асинхронно при холодном старте, поэтому ждём, пока чат появится в списке.
-    LaunchedEffect(initialChatId, chats) {
-        if (!shortcutApplied && !session.deliveryStarted && session.selectedDestinations.isEmpty() && initialChatId != 0L) {
-            chats.firstOrNull { it.id == initialChatId && it.canPost && !it.isGroup }?.let { chat ->
+    // Чаты приходят асинхронно при холодном старте, поэтому ждём, пока чат появится в каталоге (список, архив, папки).
+    LaunchedEffect(initialChatId, recipientCatalog) {
+        if (!shortcutApplied && !session.deliveryStarted && session.selectedDestinations.isEmpty()) {
+            directShareCandidate(initialChatId, recipientCatalog)?.let { chat ->
                 session.addDestination(ShareDestination(chat.id, 0L, chat.title))
                 shortcutApplied = true
             }
