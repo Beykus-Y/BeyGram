@@ -63,7 +63,7 @@ internal fun ChatChromeHost(
     floatingComposer: Boolean = false
 ) {
     val profFlags by com.beykus.beygram.perf.ProfDiagnostics.flags.collectAsStateWithLifecycle()
-    val effectiveGlass = glass && !profFlags.glassBypass
+    val effectiveGlass = glass && !profFlags.glassChromeOnly
     val palette = beyGramPalette()
     // The top stack's background covers the status bar; its content starts below the top safe inset.
     val statusBarSpacer: @Composable ColumnScope.() -> Unit = {
@@ -134,7 +134,7 @@ internal fun ChatChromeHost(
  */
 internal fun Modifier.underChatChrome(topPx: () -> Int, bottomPx: () -> Int): Modifier = layout { measurable, constraints ->
     com.beykus.beygram.perf.ProfDiagnostics.traceSection("BG:UnderChatChrome") {
-        if (com.beykus.beygram.perf.ProfDiagnostics.glassBypass) {
+        if (com.beykus.beygram.perf.ProfDiagnostics.underChromeBypass) {
             val placeable = measurable.measure(constraints)
             layout(placeable.width, placeable.height) { placeable.place(0, 0) }
         } else {
