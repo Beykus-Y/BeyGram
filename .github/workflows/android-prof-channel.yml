@@ -223,7 +223,7 @@ jobs:
           BEYGRAM_OPENSSL_CACHE: ${{ runner.temp }}/beygram-openssl
         # The run number is strictly increasing for this workflow, so every PROF build has a newer versionCode.
         # It is the same in every job of a run, including re-runs of a failed job.
-        run: ./gradlew --no-daemon -PprofBuildNumber=${{ github.run_number }} -PprofR8=true :app:assembleProfRelease
+        run: ./gradlew --no-daemon -PprofBuildNumber=${{ github.run_number }} -PprofR8=true -Pandroid.r8.gradual.support=true :app:assembleProfRelease
 
       - name: Save OpenSSL for Android (BG Wave)
         if: github.event_name == 'push' && steps.openssl-cache.outputs.cache-hit != 'true'
@@ -231,6 +231,15 @@ jobs:
         with:
           path: ${{ runner.temp }}/beygram-openssl
           key: ${{ steps.openssl-cache.outputs.cache-primary-key }}
+
+      - name: Upload R8 mapping for PROF symbolication
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: prof-r8-mapping-${{ github.sha }}
+          path: app/build/outputs/mapping/profRelease/mapping.txt
+          retention-days: 30
+          if-no-files-found: error
 
       - name: Upload unsigned PROF beta
         uses: actions/upload-artifact@v4
@@ -270,6 +279,11 @@ jobs:
           set -euo pipefail
           build_tools=$(ls -d "$ANDROID_HOME"/build-tools/* | sort -V | tail -n 1)
           unsigned=$(ls "$RUNNER_TEMP"/prof-unsigned/*-unsigned.apk | head -n 1)
+          actual_package=$("$build_tools/aapt" dump badging "$unsigned" | sed -n "s/^package: name='\\([^']*\\)'.*/\\1/p" | head -n 1)
+          if [ "$actual_package" != "com.beykus.beygram.prof" ]; then
+            echo "::error::Refusing non-PROF APK: $actual_package" >&2
+            exit 1
+          fi
           IFS=. read -r a b c d <<< "$(sed -n 's/^versionName=//p' release-version.properties | head -n 1)"
           expected=$(( a * 100000000 + b * 1000000 + c * 10000 + d + ${{ github.run_number }} ))
           actual=$("$build_tools/aapt" dump badging "$unsigned" | sed -n "s/.*versionCode='\([0-9]*\)'.*/\1/p" | head -n 1)
