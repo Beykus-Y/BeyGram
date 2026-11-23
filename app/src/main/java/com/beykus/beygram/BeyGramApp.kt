@@ -16,8 +16,13 @@ import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.type
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.WindowInsetsSides
+import androidx.compose.foundation.layout.consumeWindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.navigationBars
+import androidx.compose.foundation.layout.only
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.runtime.Composable
@@ -2865,7 +2870,24 @@ GlobalSearchScreen(
     Box(Modifier.fillMaxSize()) {
         PlayerModalUnderlay {
             Column(Modifier.fillMaxSize()) {
-                BoxWithConstraints(Modifier.weight(1f).fillMaxWidth()) {
+                val externalPlayerBar = route !in playerBarHostRoutes
+                val externalPlayerBarVisible = externalPlayerBar &&
+                    com.beykus.beygram.ui.screens.playback.rememberBottomPlayerBarVisible(hideWhenImeVisible = true)
+                BoxWithConstraints(
+                    Modifier
+                        .weight(1f)
+                        .fillMaxWidth()
+                        .then(
+                            // When the external bottom mini-player owns the navigation-bar inset below the screen,
+                            // consume it here so inner Scaffolds (MyMusic, playlists, collections) never reserve
+                            // a duplicate empty strip directly above the mini-player.
+                            if (externalPlayerBarVisible) {
+                                Modifier.consumeWindowInsets(WindowInsets.navigationBars.only(WindowInsetsSides.Bottom))
+                            } else {
+                                Modifier
+                            }
+                        )
+                ) {
                     // One window class for the whole tree: the width and the height are read here once, so the list, the
                     // navigation and the chat chrome can never disagree about the layout they are in.
                     val windowLayout = WindowLayout(maxWidth.value, maxHeight.value)

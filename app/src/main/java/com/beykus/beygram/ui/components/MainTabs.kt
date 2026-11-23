@@ -814,8 +814,9 @@ private fun MainTabsChrome(
             // Nothing is recorded unless the dock really blurs it: Balanced, Lite and old Android pay nothing.
             val backdrop = if (design.recordsGlassBackdrop) rememberGlassBackdrop() else null
             val recordContent = if (backdrop != null) Modifier.glassBackdropSource(backdrop) else Modifier
-            // Only the glass dock blurs what is under it, so only there does the list run beneath the capsule.
-            val underDock = contentUnderDock && design.usesGlassPanels
+            // Every floating placement lets the scrollable list extend behind the floating mini-player and dock
+            // capsule (using contentInset for bottom clearance) so no empty dark strip shows in the gap between them.
+            val underDock = contentUnderDock
             var overlayHeight by remember(design) { mutableStateOf(0.dp) }
             // Until the overlay has measured itself the token is a safe approximation; afterwards the real height is
             // used, so a large font or a 3-button navigation inset cannot put a row under the dock. The measured

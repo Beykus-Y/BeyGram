@@ -169,6 +169,27 @@ val LocalOpenMyMusic = compositionLocalOf<(() -> Unit)?> { null }
  * [bottomInset] = true нужен на экранах без собственного нижнего меню или composer: тогда полоса сама держится
  * выше системной навигации и клавиатуры. В чате composer уже применяет IME inset, поэтому полоса не дублирует его.
  */
+/**
+ * Whether an external bottom [NowPlayingBar] is currently occupying the bottom inset (mini-player, undo bar or
+ * live wave listener). Isolated from the 250 ms position stream so hosts can consume the bottom navigation-bar
+ * inset without recomposing on playback ticks.
+ */
+@Composable
+internal fun rememberBottomPlayerBarVisible(hideWhenImeVisible: Boolean = true): Boolean {
+    val mini = rememberMiniPlayerUi()
+    val keyboardVisible = WindowInsets.ime.getBottom(LocalDensity.current) > 0
+    val undoAvailable by PlaybackEngine.undoClose.collectAsStateWithLifecycle()
+    val wave by BgWaveHub.controller.state.collectAsStateWithLifecycle()
+    val waveListening = wave?.role == BgWaveRole.Listener && wave?.phase == BgWavePhase.Live
+    return resolveNowPlayingBarSlot(
+        hasItem = mini != null,
+        undoAvailable = undoAvailable,
+        hideWhenImeVisible = hideWhenImeVisible,
+        keyboardVisible = keyboardVisible,
+        waveListening = waveListening
+    ) != NowPlayingBarSlot.Hidden
+}
+
 @Composable
 fun NowPlayingBar(
     bottomInset: Boolean = false,
