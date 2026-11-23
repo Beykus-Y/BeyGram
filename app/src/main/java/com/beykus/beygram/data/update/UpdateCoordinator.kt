@@ -27,6 +27,7 @@ private const val LOG_TAG = "BeyGramUpdates"
 class UpdateCoordinator private constructor(context: Context) {
     private val source: ApkUpdateSource = when (updateChannelFor(context.packageName)) {
         UpdateChannel.DevBeta -> DevUpdateRepository(context)
+        UpdateChannel.ProfBeta -> ProfUpdateRepository(context)
         UpdateChannel.Stable -> StableUpdateRepository(context)
     }
     private val store = UpdateStateStore(context)
@@ -235,7 +236,11 @@ class UpdateCoordinator private constructor(context: Context) {
                 UpdateCheckRecord(
                     packageName = appContext.packageName,
                     installedCode = source.installedCode(),
-                    channel = if (updateChannelFor(appContext.packageName) == UpdateChannel.DevBeta) "dev" else "stable",
+                    channel = when (updateChannelFor(appContext.packageName)) {
+                        UpdateChannel.DevBeta -> "dev"
+                        UpdateChannel.ProfBeta -> "prof"
+                        UpdateChannel.Stable -> "stable"
+                    },
                     checkedAt = now,
                     outcome = outcome,
                     availableLabel = release?.let { if (it.dev != null) it.tag else it.versionName },
