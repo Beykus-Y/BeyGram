@@ -27,16 +27,18 @@ data class StableRelease(
     val notesTruncated: Boolean = false,
 ) {
     /*
-     * Identity is the published release only. [dev] and [notesTruncated] are display details that the persisted state
-     * does not keep, so a release restored after a restart must still equal the same release from a fresh check.
+     * Identity is the published APK artifact (tag/version, file name, size, SHA-256). notes, publishedAt, dev and
+     * notesTruncated are display details that may be edited on GitHub without changing the APK, so a re-check with
+     * edited release notes must still match an already downloaded and verified APK (UpdateCoordinator.install and
+     * UpdateCardModel compare releases with ==).
      */
     override fun equals(other: Any?): Boolean =
         other is StableRelease && tag == other.tag && versionName == other.versionName &&
             versionCode == other.versionCode && apkName == other.apkName && size == other.size &&
-            sha256 == other.sha256 && notes == other.notes && publishedAt == other.publishedAt
+            sha256 == other.sha256
 
     override fun hashCode(): Int =
-        listOf(tag, versionName, versionCode, apkName, size, sha256, notes, publishedAt).hashCode()
+        listOf(tag, versionName, versionCode, apkName, size, sha256).hashCode()
 }
 
 object StableUpdatePolicy {

@@ -35,6 +35,8 @@ fun secretProperty(name: String, defaultValue: String): String =
         .orElse(providers.provider { secretsProperties.getProperty(name, defaultValue) })
         .get()
 
+val bgVideoNotePilot = providers.gradleProperty("beygramBgVideoNotePilot").orNull == "true"
+
 val telegramApiId = secretProperty("telegramApiId", "0").ifBlank { "0" }
 val telegramApiHash = secretProperty("telegramApiHash", "")
 
@@ -102,6 +104,7 @@ android {
             cmake {
                 arguments += listOf(
                     "-DANDROID_STL=c++_shared",
+                    "-DBEYGRAM_VIDEO_NOTE_PILOT=${if (bgVideoNotePilot) "ON" else "OFF"}",
                     "-DBGMEDIA_BUILD_DESKTOP=OFF",
                     "-DBGMEDIA_BUILD_TESTS=OFF",
                     "-DBGMEDIA_BUILD_TOOLS=OFF",
@@ -113,11 +116,13 @@ android {
         versionCode = stableVersionCode
         versionName = stableVersion
 
+        buildConfigField("boolean", "BG_VIDEO_NOTE_PILOT", bgVideoNotePilot.toString())
         buildConfigField("int", "TELEGRAM_API_ID", telegramApiId)
         buildConfigField("String", "TELEGRAM_API_HASH", telegramApiHash.asBuildConfigString())
         // Optional Yandex Music source in both release channels; blank values keep it unavailable.
         buildConfigField("String", "YANDEX_CLIENT_ID", secretProperty("yandexMusicClientId", "").asBuildConfigString())
         buildConfigField("String", "YANDEX_CLIENT_SECRET", secretProperty("yandexMusicClientSecret", "").asBuildConfigString())
+        buildConfigField("String", "YANDEX_LYRICS_SIGN_KEY", secretProperty("yandexMusicLyricsSignKey", "").asBuildConfigString())
 
         // Публичная конфигурация диагностики (не секреты): адрес сервера отчётов и
         // служебный бот. Пустой DIAGNOSTICS_API_BASE_URL отключает отправку отчётов.

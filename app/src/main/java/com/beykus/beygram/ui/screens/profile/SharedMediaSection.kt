@@ -4,6 +4,10 @@ import android.widget.Toast
 import com.beykus.beygram.ui.design.styledShape
 import com.beykus.beygram.ui.motion.MotionToken
 import com.beykus.beygram.ui.motion.rememberMotionInstant
+import com.beykus.beygram.ui.motion.rememberMotionSpec
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.snap
+import androidx.compose.ui.graphics.graphicsLayer
 import com.beykus.beygram.ui.motion.scrollToPageRespectingMotion
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -59,8 +63,10 @@ import com.beykus.beygram.deeplink.MessageEntityLink
 import com.beykus.beygram.deeplink.yandexMusicEntityLink
 import com.beykus.beygram.deeplink.yandexMusicNativeReady
 import com.beykus.beygram.domain.model.AutoDownloadRequest
+import com.beykus.beygram.domain.model.ChatHistory
 import com.beykus.beygram.domain.model.ChatMessage
 import com.beykus.beygram.domain.model.ChatPreview
+import kotlinx.coroutines.flow.MutableStateFlow
 import com.beykus.beygram.domain.repository.TelegramRepository
 import com.beykus.beygram.domain.model.ForumTopic
 import com.beykus.beygram.domain.model.MediaFileState
@@ -106,7 +112,14 @@ internal const val GRID_COLUMNS = 3
 private const val GRID_PREVIEW_PX = 256
 /** Сколько ячеек или строк остаётся до конца вкладки, когда следующая страница уже нужна. */
 private const val PREFETCH_CELLS = 12
+
+/** Сколько превью греем за каждым краем видимой части сетки, чтобы при прокрутке они уже были готовы. */
+private const val PREFETCH_NEIGHBOURS = 6
 internal const val PREFETCH_ROWS = 6
+
+/** Do not silently retry a failed page; preserve its cursor for explicit retry. */
+internal fun shouldAutoLoadSharedMediaPage(nearEnd: Boolean, hasOlder: Boolean, loading: Boolean, error: String?): Boolean =
+    nearEnd && hasOlder && !loading && error == null
 private const val PAGER_SCREEN_FRACTION = 0.7f
 private val PAGER_MIN_HEIGHT = 360.dp
 /** Personal/group chat profiles show the same media kinds; the tab bar scrolls on narrow screens. */
@@ -134,6 +147,18 @@ internal fun SharedMediaSection(
     val palette = beyGramPalette()
     val scope = rememberCoroutineScope()
     val tabs = rememberSharedMediaWindows(chatId, load)
+    // Удаления и новые сообщения приходят из репозитория событиями, без опроса: открытые вкладки обновляются по ним.
+    val deletedFlow = remember(chatId, recipientRepository) {
+        recipientRepository?.observeDeletedMessages(chatId) ?: MutableStateFlow(emptySet<Long>())
+    }
+    val deletedIds by deletedFlow.collectAsStateWithLifecycle()
+    LaunchedEffect(deletedIds) { tabs.values.forEach { it.removeDeleted(deletedIds) } }
+    val historyFlow = remember(chatId, recipientRepository) {
+        recipientRepository?.observeChatHistory(chatId) ?: MutableStateFlow(ChatHistory())
+    }
+    val history by historyFlow.collectAsStateWithLifecycle()
+    val latestMessageId = history.messages.maxOfOrNull { it.id } ?: 0L
+    LaunchedEffect(latestMessageId) { if (latestMessageId != 0L) tabs.values.forEach { it.refreshNewer() } }
     val openMessage: (Long) -> Unit = { id -> onOpenMessage(id, tabs.topicOf(id)) }
     val pagerState = rememberPagerState { chatSharedKinds.size }
     // Прокрутка каждой вкладки хранится в разделе: пейджер убирает далёкие страницы из композиции и терял бы позицию.
@@ -362,7 +387,33 @@ private fun SharedMediaGrid(
     onOpenMedia: (Long) -> Unit, onOpenMessage: (Long) -> Unit, gridState: LazyGridState
 ) {
     val nearEnd by remember(tab) { derivedStateOf { gridState.layoutInfo.visibleItemsInfo.lastOrNull()?.let { it.index >= tab.messages.size - PREFETCH_CELLS } ?: true } }
-    LaunchedEffect(nearEnd, tab.messages.size, tab.hasOlder) { if (nearEnd && tab.hasOlder) onMore() }
+    LaunchedEffect(nearEnd, tab.messages.size, tab.hasOlder, tab.loading, tab.error) {
+        if (shouldAutoLoadSharedMediaPage(nearEnd, tab.hasOlder, tab.loading, tab.error)) onMore()
+    }
+    val autoDownload = LocalAutoDownloadFile.current
+    val visibleRange by remember(tab) {
+        derivedStateOf { gridState.layoutInfo.visibleItemsInfo.let { v -> if (v.isEmpty()) -1 to -1 else v.first().index to v.last().index } }
+    }
+    // Соседние за краем экрана греем тем же путём, что и видимые ячейки: только по политике автозагрузки и без спойлеров.
+    LaunchedEffect(visibleRange, tab.messages.size) {
+        val (first, last) = visibleRange
+        if (first < 0 || autoDownload == null) return@LaunchedEffect
+        val reversed = tab.messages.asReversed()
+        val from = (first - PREFETCH_NEIGHBOURS).coerceAtLeast(0)
+        val to = (last + PREFETCH_NEIGHBOURS).coerceAtMost(reversed.lastIndex)
+        for (index in from..to) {
+            if (index in first..last) continue
+            val media = reversed.getOrNull(index)?.media ?: continue
+            if (!shouldLoadSharedPreview(media, revealed = !media.hasSpoiler)) continue
+            val thumbId = media.thumbnailFileId ?: media.fileId
+            autoDownload(
+                AutoDownloadRequest(
+                    fileId = thumbId, kind = MediaKind.Photo, sizeBytes = observeFile(thumbId).value.size,
+                    isSecret = media.isSecret, isSecretChat = media.isSecretChat, hasSpoiler = false
+                )
+            )
+        }
+    }
     LazyVerticalGrid(
         columns = GridCells.Fixed(GRID_COLUMNS), state = gridState, modifier = Modifier.fillMaxSize(),
         contentPadding = PaddingValues(2.dp), horizontalArrangement = Arrangement.spacedBy(2.dp), verticalArrangement = Arrangement.spacedBy(2.dp)
@@ -388,7 +439,9 @@ private fun SharedMediaList(
 ) {
     val shown = remember(kind, tab.messages) { tab.messages.asReversed().filter { kind == SharedMediaKind.Links || it.media != null } }
     val nearEnd by remember(tab, shown) { derivedStateOf { listState.layoutInfo.visibleItemsInfo.lastOrNull()?.let { it.index >= shown.size - PREFETCH_ROWS } ?: true } }
-    LaunchedEffect(nearEnd, tab.messages.size, tab.hasOlder) { if (nearEnd && tab.hasOlder) onMore() }
+    LaunchedEffect(nearEnd, tab.messages.size, tab.hasOlder, tab.loading, tab.error) {
+        if (shouldAutoLoadSharedMediaPage(nearEnd, tab.hasOlder, tab.loading, tab.error)) onMore()
+    }
     LazyColumn(Modifier.fillMaxSize(), state = listState, contentPadding = PaddingValues(vertical = 4.dp)) {
         items(shown, key = { it.id }) { message ->
             if (kind == SharedMediaKind.Music) {
@@ -700,13 +753,26 @@ internal fun SharedMediaCell(media: MessageMedia, observeFile: (Int) -> StateFlo
             if (autoDownload != null) autoDownload(request) else downloadFile(thumbId)
         }
     }
+    val path = thumb.localPath
+    // Превью мягко появляется один раз на вложение: повторный вход ячейки при скролле не анимируем заново.
+    val fadeSpec = rememberMotionSpec(MotionToken.MediaExpand)
+    var previewShown by remember(thumbId) { mutableStateOf(SharedPreviewFadeMemory.contains(thumbId)) }
+    LaunchedEffect(thumbId, loadPreview, path) {
+        if (loadPreview && path != null && !previewShown) {
+            previewShown = true
+            SharedPreviewFadeMemory.add(thumbId)
+        }
+    }
+    val previewAlpha by animateFloatAsState(
+        targetValue = if (previewShown) 1f else 0f,
+        animationSpec = if (fadeSpec.isInstant) snap() else fadeSpec.animationSpec()
+    )
     Box(
         modifier.aspectRatio(1f).clip(styledShape(4.dp)).background(palette.disabled)
             .clickable(onClick = { if (!revealed) revealed = true else onClick() }),
         contentAlignment = Alignment.Center
     ) {
-        val path = thumb.localPath
-        if (loadPreview && path != null) LocalMediaImage(path, Modifier.fillMaxSize(), maxDimension = GRID_PREVIEW_PX)
+        if (loadPreview && path != null) LocalMediaImage(path, Modifier.fillMaxSize().graphicsLayer { this.alpha = previewAlpha }, maxDimension = GRID_PREVIEW_PX)
         if (!revealed) Text(stringResource(R.string.profile_shared_spoiler), color = palette.textSecondary, fontSize = 11.sp,
             textAlign = TextAlign.Center, modifier = Modifier.padding(4.dp))
         if (media.isSecret) Icon(Icons.Rounded.Lock, null, tint = palette.textSecondary, modifier = Modifier.size(22.dp))
@@ -715,6 +781,21 @@ internal fun SharedMediaCell(media: MessageMedia, observeFile: (Int) -> StateFlo
             modifier = Modifier.align(Alignment.BottomStart).padding(4.dp).background(Color.Black.copy(alpha = 0.5f), styledShape(4.dp)).padding(horizontal = 4.dp)
         )
     }
+}
+
+/**
+ * Какие превью уже проявились в этом процессе, по id файла. Ограничено по размеру, чтобы не расти бесконечно.
+ * Синхронизировано: ячейки композируются на главном потоке, но доступ всё равно защищаем.
+ */
+internal object SharedPreviewFadeMemory {
+    private const val LIMIT = 512
+    private val faded = object : LinkedHashMap<Int, Unit>(LIMIT, 0.75f, true) {
+        override fun removeEldestEntry(eldest: MutableMap.MutableEntry<Int, Unit>?): Boolean = size > LIMIT
+    }
+
+    @Synchronized fun contains(fileId: Int): Boolean = faded.containsKey(fileId)
+
+    @Synchronized fun add(fileId: Int) { faded[fileId] = Unit }
 }
 
 /** Адрес для строки вкладки «Ссылки»: адрес, спрятанный под текстом, или сам текст ссылки. Без ссылки показываем текст сообщения. */

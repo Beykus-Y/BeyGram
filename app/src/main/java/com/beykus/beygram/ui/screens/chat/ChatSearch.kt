@@ -56,7 +56,9 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.beykus.beygram.R
 import com.beykus.beygram.domain.model.ChatMessage
+import com.beykus.beygram.domain.search.ChatSearchListState
 import com.beykus.beygram.domain.search.appendDistinctBy
+import com.beykus.beygram.domain.search.chatSearchListState
 import com.beykus.beygram.domain.search.shouldAutoLoadChatSearchPage
 import com.beykus.beygram.ui.accessibility.errorAnnouncement
 import com.beykus.beygram.domain.model.ChatSearchFilter
@@ -342,7 +344,8 @@ internal fun ChatSearchResults(
     error: String?,
     hasMore: Boolean,
     stale: Boolean,
-    onOpen: (ChatMessage) -> Unit,
+    restore: ChatSearchMatchSession,
+    onOpen: (ChatMessage, Int, Int) -> Unit,
     onMore: () -> Unit,
     onRetry: () -> Unit,
     onResetFilters: () -> Unit
@@ -351,18 +354,28 @@ internal fun ChatSearchResults(
     val needle = query.trim()
     val criteriaActive = needle.isNotEmpty() || filter.isActive
     val listState = rememberLazyListState()
+    var scrollRestored by remember { mutableStateOf(false) }
+    // Новый запрос или фильтр начинает список сверху; возврат из сообщения восстанавливает сохранённую позицию.
+    LaunchedEffect(query, filter) { listState.scrollToItem(0) }
+    LaunchedEffect(results.isNotEmpty()) {
+        if (!scrollRestored && results.isNotEmpty() && restore.canRestoreResults(query, filter)) {
+            scrollRestored = true
+            listState.scrollToItem(restore.scrollIndex, restore.scrollOffset)
+        }
+    }
     val lastVisible by remember { derivedStateOf { listState.layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: -1 } }
     // Автодогрузка: у конца списка, без ошибки, без устаревших результатов и без параллельного запроса.
     LaunchedEffect(lastVisible, results.size, hasMore, busy, error, stale) {
         if (shouldAutoLoadChatSearchPage(lastVisible, results.size, hasMore, busy, error != null, stale)) onMore()
     }
     Box(Modifier.fillMaxSize().background(palette.screen).imePadding()) {
-        when {
-            !criteriaActive -> SearchNote(stringResource(R.string.search_type_to_search), palette.textSecondary)
-            busy && results.isEmpty() -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+        when (chatSearchListState(criteriaActive, busy, results.size, error != null, hasMore, filter.isActive)) {
+            ChatSearchListState.Idle -> SearchNote(stringResource(R.string.search_type_to_search), palette.textSecondary)
+            ChatSearchListState.Loading -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                 CircularProgressIndicator(color = palette.accent)
             }
-            results.isEmpty() -> Column(Modifier.fillMaxSize()) {
+            ChatSearchListState.FirstPageError, ChatSearchListState.NoMatches,
+            ChatSearchListState.NoMatchesOnPage, ChatSearchListState.NoFilterMatches -> Column(Modifier.fillMaxSize()) {
                 Box(Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
                     Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.padding(24.dp)) {
                         if (error != null) {
@@ -396,7 +409,7 @@ internal fun ChatSearchResults(
                 // Пустая первая страница с курсором: дальше можно пройти кнопкой, иначе выдача обрывается.
                 if (hasMore) SearchMoreButton(busy, onMore)
             }
-            else -> LazyColumn(
+            ChatSearchListState.Results -> LazyColumn(
                 Modifier.fillMaxSize().alpha(if (stale) 0.5f else 1f),
                 state = listState,
                 contentPadding = PaddingValues(vertical = 8.dp)
@@ -411,7 +424,7 @@ internal fun ChatSearchResults(
                     )
                 }
                 // Устаревшие результаты (запрос или фильтр уже поменялся) видны, но открыть их нельзя.
-                items(results, key = { it.id }) { message -> SearchResultRow(message, needle, enabled = !stale) { onOpen(message) } }
+                items(results, key = { it.id }) { message -> SearchResultRow(message, needle, enabled = !stale) { if (!stale) onOpen(message, listState.firstVisibleItemIndex, listState.firstVisibleItemScrollOffset) } }
                 if (hasMore) item(key = "search_more") { SearchMoreButton(busy, onMore) }
                 error?.let { message ->
                     item(key = "search_error") { Text(message, color = palette.danger, fontSize = 14.sp, modifier = Modifier.padding(horizontal = 20.dp, vertical = 8.dp).errorAnnouncement()) }
@@ -521,7 +534,10 @@ internal data class ChatSearchMatchSession(
     val index: Int = -1,
     val totalCount: Int = 0,
     val nextFromMessageId: Long = 0L,
-    val busy: Boolean = false
+    val busy: Boolean = false,
+    /** Позиция списка результатов на момент открытия сообщения. */
+    val scrollIndex: Int = 0,
+    val scrollOffset: Int = 0
 ) {
     val isActive: Boolean get() = index in results.indices
     val currentMessageId: Long? get() = results.getOrNull(index)?.id
@@ -540,6 +556,10 @@ internal data class ChatSearchMatchSession(
         val nextIndex = if (index < merged.lastIndex) index + 1 else index
         return copy(results = merged, nextFromMessageId = nextId, index = nextIndex, busy = false)
     }
+
+    /** Возврат к результатам из найденного сообщения: прежняя выдача годится, пока запрос и фильтры те же. */
+    fun canRestoreResults(query: String, filter: ChatSearchFilter): Boolean =
+        results.isNotEmpty() && this.query == query && this.filter == filter
 }
 
 @Composable

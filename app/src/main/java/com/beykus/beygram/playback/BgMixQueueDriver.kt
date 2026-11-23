@@ -209,6 +209,16 @@ internal class BgMixQueueDriver(private val cacheDir: File) {
         return added
     }
 
+    /**
+     * Adds [added] after the queue of the running session. They join the native queue through [appendReady] as their
+     * files finish, so the order and the playing track stay as they are. False when no session runs or it plays one track.
+     */
+    fun extendQueue(added: List<PlaybackItem>): Boolean {
+        if (player == null || single || added.isEmpty()) return false
+        items = items + added
+        return true
+    }
+
     /** The audio session of the native output; null when no session runs. */
     val audioSessionId: Int? get() = player?.audioSessionId?.takeIf { it > 0 }
 

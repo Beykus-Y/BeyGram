@@ -75,7 +75,9 @@ internal fun ProviderTrackMenuItems(
     showPlayNext: Boolean,
     onOpenAlbum: ((String) -> Unit)?,
     showLike: Boolean = true,
-    showShare: Boolean = true
+    showShare: Boolean = true,
+    /** Hand off a snapshot to a screen-level share host before the popover is dismissed. */
+    onShare: ((ProviderTrack) -> Unit)? = null
 ) {
     val context = LocalContext.current
     val palette = beyGramPalette()
@@ -149,7 +151,8 @@ internal fun ProviderTrackMenuItems(
         leadingIcon = { Icon(Icons.Rounded.Share, null, tint = palette.textSecondary) },
         onClick = {
             onDismiss()
-            ProviderTracks.shareLink(context, track, chooser)
+            if (onShare != null) onShare(track)
+            else ProviderTracks.shareLink(context, track, chooser)
         }
     )
 }
