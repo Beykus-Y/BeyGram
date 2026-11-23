@@ -351,6 +351,16 @@ fun ChatsScreen(
     val swipeStore = remember(context) { ChatSwipeSettingsStore(context) }
     var swipePreferences by remember(accountId) { mutableStateOf(swipeStore.load(accountId)) }
     var showSwipeSettings by remember(accountId) { mutableStateOf(false) }
+    val coveredByOverlay = com.beykus.beygram.LocalMainTabsCovered.current
+    LaunchedEffect(coveredByOverlay) {
+        if (coveredByOverlay) {
+            openSwipeChatId = null
+            selectedActions = null
+            peekedChat = null
+            confirmReadAll = false
+            showSwipeSettings = false
+        }
+    }
     val snackbarState = remember(accountId) { SnackbarHostState() }
     val snackbarScope = rememberCoroutineScope()
     val changeSwipePreferences: (ChatSwipePreferences) -> Unit = { updated ->

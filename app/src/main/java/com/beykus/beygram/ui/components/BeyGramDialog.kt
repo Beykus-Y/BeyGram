@@ -72,6 +72,10 @@ fun BeyGramDialog(
     neutralText: String? = null,
     onNeutral: (() -> Unit)? = null
 ) {
+    if (com.beykus.beygram.LocalMainTabsCovered.current) {
+        androidx.compose.runtime.LaunchedEffect(Unit) { onDismissRequest() }
+        return
+    }
     val palette = beyGramPalette()
     val maxHeight = (LocalConfiguration.current.screenHeightDp * 0.8f).dp
     Dialog(

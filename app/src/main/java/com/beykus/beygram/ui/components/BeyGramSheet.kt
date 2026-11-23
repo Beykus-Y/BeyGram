@@ -56,6 +56,10 @@ fun BeyGramSheet(
     bottomPadding: Dp = 12.dp,
     content: @Composable ColumnScope.() -> Unit
 ) {
+    if (com.beykus.beygram.LocalMainTabsCovered.current) {
+        androidx.compose.runtime.LaunchedEffect(Unit) { onDismissRequest() }
+        return
+    }
     val palette = beyGramPalette()
     ModalBottomSheet(
         onDismissRequest = onDismissRequest,

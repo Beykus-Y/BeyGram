@@ -2912,6 +2912,10 @@ GlobalSearchScreen(
                     val pushSpec = rememberMotionSpec(MotionToken.NavigationPush)
                     val popSpec = rememberMotionSpec(MotionToken.NavigationPop)
                     val tabSpec = rememberMotionSpec(MotionToken.TabSelect)
+                    // Hoisted above key(selectedAccountId, routeTwoPane) so rotation / twoPane layout switches
+                    // preserve the visited root-tab state and active tab across single-pane <-> two-pane (#1117).
+                    var phoneTabsVisited by rememberSaveable(selectedAccountId) { mutableStateOf(false) }
+                    var lastMountedMainTabName by rememberSaveable(selectedAccountId) { mutableStateOf(MainTab.Chats.name) }
                     when {
                         !accountRegistryReady -> CircularProgressIndicator(Modifier.align(Alignment.Center))
                         accountRegistryError -> Text(
@@ -3013,12 +3017,11 @@ GlobalSearchScreen(
                                 }
                             }
                         val currentFrame = RouteTransitionFrame(route, routeTwoPane)
-                        var phoneTabsVisited by remember(selectedAccountId) { mutableStateOf(false) }
-                        var lastMountedMainTab by remember(selectedAccountId) { mutableStateOf(MainTab.Chats) }
                         if (usesSharedPhoneTabs(currentFrame)) {
                             phoneTabsVisited = true
-                            lastMountedMainTab = MainTab.entries.first { it.route == route }
+                            lastMountedMainTabName = MainTab.entries.first { it.route == route }.name
                         }
+                        val lastMountedMainTab = MainTab.entries.firstOrNull { it.name == lastMountedMainTabName } ?: MainTab.Chats
                         val keepPhoneTabsMounted = shouldKeepPhoneTabsMounted(currentFrame, phoneTabsVisited)
                         val phoneTabsCovered = keepPhoneTabsMounted && !usesSharedPhoneTabs(currentFrame)
                         Box(Modifier.fillMaxSize()) {
@@ -3958,10 +3961,13 @@ private val phoneAuthRoutes = setOf(
 internal fun shouldKeepPhoneTabsMounted(frame: RouteTransitionFrame, phoneTabsVisited: Boolean): Boolean =
     !frame.twoPane && (frame.route in tabRootRoutes || (phoneTabsVisited && frame.route !in phoneAuthRoutes))
 
+/** True when the persistent single-pane [MainTabsHost] is covered by an overlay route (Chat, Profile, etc.). */
+val LocalMainTabsCovered = androidx.compose.runtime.compositionLocalOf { false }
+
 /**
  * Hosts the persistent single-pane [MainTabsHost] beneath overlay routes and blocks TalkBack semantics,
- * hardware/keyboard focus, and pointer input at [PointerEventPass.Initial] whenever [covered] is true
- * (including during partial slide or predictive Back transitions).
+ * hardware/keyboard focus, modal windows ([LocalMainTabsCovered]), and pointer input at [PointerEventPass.Initial]
+ * whenever [covered] is true (including during partial slide or predictive Back transitions).
  */
 @Composable
 internal fun PersistentPhoneTabsBackdrop(
@@ -3969,27 +3975,29 @@ internal fun PersistentPhoneTabsBackdrop(
     modifier: Modifier = Modifier,
     content: @Composable () -> Unit
 ) {
-    Box(modifier.fillMaxSize()) {
-        Box(
-            Modifier
-                .fillMaxSize()
-                .focusProperties { canFocus = !covered }
-                .then(if (covered) Modifier.clearAndSetSemantics {} else Modifier)
-        ) {
-            content()
-        }
-        if (covered) {
+    CompositionLocalProvider(LocalMainTabsCovered provides covered) {
+        Box(modifier.fillMaxSize()) {
             Box(
                 Modifier
                     .fillMaxSize()
-                    .pointerInput(Unit) {
-                        awaitPointerEventScope {
-                            while (true) {
-                                awaitPointerEvent(PointerEventPass.Initial).changes.forEach { it.consume() }
+                    .focusProperties { canFocus = !covered }
+                    .then(if (covered) Modifier.clearAndSetSemantics {} else Modifier)
+            ) {
+                content()
+            }
+            if (covered) {
+                Box(
+                    Modifier
+                        .fillMaxSize()
+                        .pointerInput(Unit) {
+                            awaitPointerEventScope {
+                                while (true) {
+                                    awaitPointerEvent(PointerEventPass.Initial).changes.forEach { it.consume() }
+                                }
                             }
                         }
-                    }
-            )
+                )
+            }
         }
     }
 }
