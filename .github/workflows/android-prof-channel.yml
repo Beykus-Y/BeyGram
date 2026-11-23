@@ -232,6 +232,17 @@ jobs:
           path: ${{ runner.temp }}/beygram-openssl
           key: ${{ steps.openssl-cache.outputs.cache-primary-key }}
 
+      - name: Assert TDLib JNI classes survive R8
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          apks=(app/build/outputs/apk/prof/release/*-unsigned.apk)
+          if [ "${#apks[@]}" -ne 1 ]; then
+            echo "::error::Expected exactly one unsigned PROF APK, found ${#apks[@]}" >&2
+            exit 1
+          fi
+          python3 scripts/verify-tdlib-dex.py "${apks[0]}"
+
       - name: Upload R8 mapping for PROF symbolication
         if: success()
         uses: actions/upload-artifact@v4

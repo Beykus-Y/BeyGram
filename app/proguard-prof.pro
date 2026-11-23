@@ -6,3 +6,8 @@
 -dontwarn java.beans.IntrospectionException
 -dontwarn java.beans.Introspector
 -dontwarn java.beans.PropertyDescriptor
+
+# TDLib's libtdjni.so uses JNI FindClass/GetFieldID/GetMethodID with original
+# org.drinkless.tdlib names. R8 must preserve all Java types and members,
+# including generated TdApi nested classes. -keepnames alone is insufficient.
+-keep class org.drinkless.tdlib.** { *; }
