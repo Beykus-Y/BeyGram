@@ -162,11 +162,14 @@ internal fun MyMusicScreen(
             enabled = providerTab,
             refreshing = refreshing,
             onRefresh = { providerHost?.refresh() },
-            modifier = Modifier.fillMaxSize().padding(padding)
+            modifier = Modifier.fillMaxSize().padding(top = padding.calculateTopPadding())
         ) {
         BoxWithConstraints(Modifier.fillMaxSize()) {
             val gridColumns = coverColumns(maxWidth)
-            LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 24.dp)) {
+            LazyColumn(
+                Modifier.fillMaxSize(),
+                contentPadding = PaddingValues(bottom = 24.dp + padding.calculateBottomPadding())
+            ) {
                 item(key = "search") {
                     Box(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp)) {
                         SearchFieldButton(
