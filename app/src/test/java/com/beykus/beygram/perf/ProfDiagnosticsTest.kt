@@ -1,5 +1,10 @@
 package com.beykus.beygram.perf
 
+import com.beykus.beygram.RouteTransitionFrame
+import com.beykus.beygram.shouldKeepProfMainTabsMounted
+import com.beykus.beygram.navigation.AppRoute
+import com.beykus.beygram.navigation.MainTab
+import org.junit.Assert.assertTrue
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Test
@@ -43,4 +48,29 @@ class ProfDiagnosticsTest {
         assertFalse(ProfDiagnostics.underChromeBypass)
         assertFalse(ProfDiagnostics.keepTabsMounted)
     }
+
+    @Test
+    fun h4IsDefaultOnlyInProfBuildAndCanStillBeDisabled() {
+        assertTrue(defaultProfAbFlags(isProfBuild = true).keepTabsMounted)
+        assertFalse(defaultProfAbFlags(isProfBuild = false).keepTabsMounted)
+        assertFalse(defaultProfAbFlags(isProfBuild = true).copy(keepTabsMounted = false).keepTabsMounted)
+        assertFalse(defaultProfAbFlags(isProfBuild = true).glassChromeOnly)
+        assertFalse(defaultProfAbFlags(isProfBuild = true).bubbleNoIntrinsic)
+    }
+
+    @Test
+    fun h4RetainsOnlyPhoneChatsStackAndRootTabs() {
+        fun frame(route: AppRoute, twoPane: Boolean = false) = RouteTransitionFrame(route, twoPane)
+
+        assertTrue(shouldKeepProfMainTabsMounted(frame(AppRoute.Chats), true, MainTab.Chats))
+        assertTrue(shouldKeepProfMainTabsMounted(frame(AppRoute.Chat), true, MainTab.Chats))
+        assertTrue(shouldKeepProfMainTabsMounted(frame(AppRoute.MessageThread), true, MainTab.Chats))
+        assertTrue(shouldKeepProfMainTabsMounted(frame(AppRoute.ChatInfo), true, MainTab.Chats))
+
+        assertFalse(shouldKeepProfMainTabsMounted(frame(AppRoute.Chat), false, MainTab.Chats))
+        assertFalse(shouldKeepProfMainTabsMounted(frame(AppRoute.Chat, twoPane = true), true, MainTab.Chats))
+        assertFalse(shouldKeepProfMainTabsMounted(frame(AppRoute.Chat), true, MainTab.Contacts))
+        assertFalse(shouldKeepProfMainTabsMounted(frame(AppRoute.Proxy), true, MainTab.Chats))
+    }
+
 }
