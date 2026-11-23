@@ -194,8 +194,8 @@ internal fun isWaveCaptureEligible(item: PlaybackItem?): Boolean {
 
 /**
  * Whether the rest of a liked list may join the playing queue. Nothing joins a queue that was started, replaced or
- * stopped after [generation] was read, or a queue whose playing track is not legacy-account music. Nothing joins while
- * BG Mix plays its own session: an edit of the Exo queue would rebuild the timeline and stop BG Mix.
+ * stopped after [generation] was read, or a queue whose playing track is not legacy-account music. While BG Mix plays its
+ * own session this returns false for the Exo queue; the tracks go to the BG Mix queue through [extendBgMixQueue] instead.
  */
 internal fun yandexRestMayJoinQueue(
     generation: Long,
@@ -3512,7 +3512,8 @@ object PlaybackEngine {
                 val fresh = appendMusicPage(now.queue, page, currentAccount)
                 if (fresh.isEmpty()) return@launch
                 if (bgMixActive()) {
-                    // BG Mix plays its own queue: the page extends it instead of the Exo timeline.
+                    // BG Mix plays its own queue: the page extends it instead of the Exo timeline. Reached when a retry
+                    // was scheduled before BG Mix started.
                     if (extendBgMixQueue(fresh, source)) queuePageRetries = 0 else scheduleQueuePageRetry(generation)
                     return@launch
                 }
