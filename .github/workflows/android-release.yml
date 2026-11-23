@@ -165,12 +165,14 @@ jobs:
           # Optional Yandex Music sign-in in both flavors. Same pull-request rule as above.
           YANDEX_MUSIC_CLIENT_ID: ${{ github.event_name != 'pull_request' && secrets.YANDEX_MUSIC_CLIENT_ID || '' }}
           YANDEX_MUSIC_CLIENT_SECRET: ${{ github.event_name != 'pull_request' && secrets.YANDEX_MUSIC_CLIENT_SECRET || '' }}
+          YANDEX_LYRICS_SIGN_KEY: ${{ github.event_name != 'pull_request' && secrets.SIGN_KEY || '' }}
         run: |
           {
             echo "telegramApiId=${TELEGRAM_API_ID:-0}"
             echo "telegramApiHash=${TELEGRAM_API_HASH:-}"
             echo "yandexMusicClientId=${YANDEX_MUSIC_CLIENT_ID:-}"
             echo "yandexMusicClientSecret=${YANDEX_MUSIC_CLIENT_SECRET:-}"
+            echo "yandexMusicLyricsSignKey=${YANDEX_LYRICS_SIGN_KEY:-}"
           } > secrets.properties
 
       - name: Run unit tests

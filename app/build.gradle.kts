@@ -122,6 +122,7 @@ android {
         // Optional Yandex Music source in both release channels; blank values keep it unavailable.
         buildConfigField("String", "YANDEX_CLIENT_ID", secretProperty("yandexMusicClientId", "").asBuildConfigString())
         buildConfigField("String", "YANDEX_CLIENT_SECRET", secretProperty("yandexMusicClientSecret", "").asBuildConfigString())
+        buildConfigField("String", "YANDEX_LYRICS_SIGN_KEY", secretProperty("yandexMusicLyricsSignKey", "").asBuildConfigString())
 
         // Публичная конфигурация диагностики (не секреты): адрес сервера отчётов и
         // служебный бот. Пустой DIAGNOSTICS_API_BASE_URL отключает отправку отчётов.

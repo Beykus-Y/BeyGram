@@ -41,4 +41,12 @@ internal object YandexConfig {
     val clientSecret: String get() = BuildConfig.YANDEX_CLIENT_SECRET
 
     val isConfigured: Boolean get() = clientId.isNotBlank() && clientSecret.isNotBlank()
+
+    /**
+     * Key of the lyrics request signature, from the SIGN_KEY secret through BuildConfig. Never logged and never
+     * copied into a report. Blank disables Yandex lyrics.
+     */
+    val lyricsSignKey: String get() = BuildConfig.YANDEX_LYRICS_SIGN_KEY
+
+    val lyricsSigningAvailable: Boolean get() = lyricsSignKey.isNotBlank()
 }
