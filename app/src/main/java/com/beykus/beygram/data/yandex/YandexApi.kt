@@ -240,8 +240,10 @@ internal open class YandexApi(
         val synced = fetchLyrics(token, id, key, LYRICS_FORMAT_LRC)
         if (!synced.fallback) return synced.result to synced.report
         val text = fetchLyrics(token, id, key, LYRICS_FORMAT_TEXT)
-        // Plain text found: use it. Otherwise the original LRC outcome (for example NotFound) stands.
-        val result = if (text.result is ProviderResult.Success) text.result else synced.result
+        // Plain text found: use it. When the TEXT request only has no lyrics either (NotFound), the LRC outcome stands.
+        // Any other TEXT failure (auth, network, server) is the real answer and must not be hidden behind that NotFound.
+        val textFailure = (text.result as? ProviderResult.Failure)?.failure
+        val result = if (textFailure == MusicProviderFailure.NotFound) synced.result else text.result
         return result to "${synced.report}; fallback=TEXT; ${text.report}"
     }
 
