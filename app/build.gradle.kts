@@ -186,7 +186,8 @@ android {
         release {
             isDebuggable = false
             optimization {
-                enable = false
+                // Only PROF GitHub Actions opts into R8; DEV/Stable keep their current default.
+                enable = providers.gradleProperty("profR8").orNull == "true"
             }
         }
     }
@@ -234,6 +235,8 @@ dependencies {
     implementation(fileTree("libs") { include("*.jar") })
     implementation(files(mihomoAndroidAar).builtBy(downloadMihomoAndroid))
     implementation(platform(libs.androidx.compose.bom))
+    // Only PROF carries composition tracing. Other channels retain their existing dependencies.
+    add("profImplementation", "androidx.compose.runtime:runtime-tracing:1.12.1")
     implementation(libs.re2j)
     implementation(libs.androidx.activity.compose)
     implementation(libs.androidx.camera.camera2)
