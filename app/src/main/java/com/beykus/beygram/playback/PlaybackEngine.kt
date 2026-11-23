@@ -251,6 +251,14 @@ object PlaybackEngine {
     private val _state = MutableStateFlow(PlaybackState())
     val state: StateFlow<PlaybackState> = _state.asStateFlow()
 
+    private val _manualSkips = MutableStateFlow(0L)
+
+    /**
+     * Counts the manual Next and queue-row picks. It moves before the player state changes, so a listener who leaves a
+     * track on purpose can be told apart from a track that ended (the listening feedback reads it).
+     */
+    val manualSkips: StateFlow<Long> = _manualSkips.asStateFlow()
+
     /** The queue view shows a real TDLib page request rather than claiming the playlist ended prematurely. */
     private val _queuePageLoading = MutableStateFlow(false)
     val queuePageLoading: StateFlow<Boolean> = _queuePageLoading.asStateFlow()
@@ -2561,6 +2569,7 @@ object PlaybackEngine {
 
     fun next() {
         if (bgMixActive()) {
+            _manualSkips.update { it + 1 }
             val state = _state.value
             val last = state.queueIndex >= state.queue.lastIndex
             when {
@@ -2585,6 +2594,7 @@ object PlaybackEngine {
         val fallback = if (state.shuffleEnabled) null else (state.queueIndex + 1).takeIf { it in state.queue.indices }
         val wrapAll = state.repeatMode == PlaybackRepeatMode.All && target.mediaItemCount > 1
         if (!hasNext && !wrapAll && fallback == null) return
+        _manualSkips.update { it + 1 }
         val wasPlaying = state.playing || state.intentPlaying || state.ended
         transitionToken++
         clearDeferredSeek()
@@ -2623,6 +2633,7 @@ object PlaybackEngine {
     fun playQueueIndex(index: Int) {
         if (bgMixActive()) {
             val context = appContext
+            _manualSkips.update { it + 1 }
             val queue = PlaybackQueue(_state.value.queue, index)
             // The regular player starts the track at once; BG Mix takes it back as soon as it has prepared it.
             stopBgMix()
@@ -2635,6 +2646,7 @@ object PlaybackEngine {
         if (!canSelectQueueIndex(snapshot, index)) return
         val target = exo ?: return
         if (index >= target.mediaItemCount) return
+        _manualSkips.update { it + 1 }
         transitionToken++
         clearDeferredSeek()
         _state.update { it.copy(ended = false, failed = false, intentPlaying = true) }

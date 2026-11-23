@@ -13,7 +13,6 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
-import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.transformWhile
 import kotlinx.coroutines.launch
 
@@ -26,6 +25,10 @@ internal data class WaveSnapshot(
     val positionMs: Long,
     val durationMs: Long,
     val ended: Boolean,
+    /** The player failed on the current track (network or decoder): that is not a choice of the listener. */
+    val failed: Boolean = false,
+    /** How many manual Next or queue-row selections the player has seen; a change means the listener left a track. */
+    val manualSkips: Long = 0L,
 )
 
 /** A listening fact about a track of the radio, before it becomes a request. */
@@ -39,15 +42,35 @@ internal sealed interface WaveListenEvent {
 
 /**
  * Turns player states into listening facts for the tracks of one radio: a track counts as started once it plays,
- * and when another track replaces it, it counts as finished if it reached its end (or the last seconds, which a
- * crossfade or a gap skip cuts off), otherwise as skipped with the seconds heard.
+ * and when another track replaces it, it counts as finished only if the listener heard most of it and it reached its
+ * end (or the last seconds, which a crossfade or a gap skip cuts off). Otherwise it counts as skipped with the seconds
+ * really heard: a seek moves the position without time passing, so only playback that real time could have covered counts.
+ * A Next or a queue-row pick is a deliberate skip even near the end, and a track the player failed on is not reported.
  */
-internal class WaveListenTracker(private val isRadioTrack: (String) -> Boolean) {
+internal class WaveListenTracker(
+    private val clock: () -> Long = System::currentTimeMillis,
+    private val isRadioTrack: (String) -> Boolean,
+) {
     private var key: String? = null
     private var started = false
     private var positionMs = 0L
     private var durationMs = 0L
     private var ended = false
+
+    /** Milliseconds of the current track actually heard. */
+    private var listenedMs = 0L
+    private var lastPositionMs = 0L
+    private var lastWallMs = 0L
+    private var lastPlaying = false
+
+    /** The listener left the current track by Next or by picking another row. */
+    private var skippedByListener = false
+
+    /** The player failed on the current track. */
+    private var broken = false
+
+    /** The manual-skip count seen last; null until the first state. */
+    private var seenManualSkips: Long? = null
 
     /** The radio has been the player's queue at least once; before that, an inactive state is just a late start. */
     private var seenActive = false
@@ -61,6 +84,13 @@ internal class WaveListenTracker(private val isRadioTrack: (String) -> Boolean) 
         if (state.radioActive) seenActive = true
         if (!seenActive) return emptyList()
         val events = mutableListOf<WaveListenEvent>()
+        val wall = clock()
+        val manualBefore = seenManualSkips
+        seenManualSkips = state.manualSkips
+        // The count moves before the player moves on to the next track, so a change belongs to the track being left.
+        if (manualBefore != null && state.manualSkips != manualBefore && key != null && !state.ended) {
+            skippedByListener = true
+        }
         val current = key
         if (current != null && (!state.radioActive || state.key != current)) {
             close(current)?.let(events::add)
@@ -77,11 +107,20 @@ internal class WaveListenTracker(private val isRadioTrack: (String) -> Boolean) 
             positionMs = 0L
             durationMs = 0L
             ended = false
+            listenedMs = 0L
+            lastPlaying = false
+            skippedByListener = false
+            broken = false
         }
         if (now != null && key == now) {
+            if (lastPlaying && state.playing) listenedMs += heardStep(state.positionMs, wall)
+            lastPositionMs = state.positionMs
+            lastWallMs = wall
+            lastPlaying = state.playing
             positionMs = state.positionMs
             if (state.durationMs > 0L) durationMs = state.durationMs
             if (state.ended) ended = true
+            if (state.failed) broken = true
             if (state.playing && !started) {
                 started = true
                 events += WaveListenEvent.Started(now)
@@ -90,15 +129,27 @@ internal class WaveListenTracker(private val isRadioTrack: (String) -> Boolean) 
         return events
     }
 
+    /**
+     * The seconds of playback one step of the position adds. The position may only move as fast as real time passed
+     * (a little faster for a higher playback speed); a bigger move is a seek and adds only what the clock allows.
+     */
+    private fun heardStep(position: Long, wall: Long): Long {
+        val moved = position - lastPositionMs
+        val elapsed = wall - lastWallMs
+        if (moved <= 0L || elapsed <= 0L) return 0L
+        return minOf(moved, elapsed * MAX_SPEED + STEP_SLACK_MS)
+    }
+
     private fun close(current: String): WaveListenEvent? {
-        if (!started) return null
-        val seconds = positionMs / 1_000.0
+        if (!started || broken) return null
+        val heardEnough = durationMs <= 0L || listenedMs >= durationMs * HEARD_FRACTION
         val nearEnd = durationMs > 0L &&
             (durationMs - positionMs <= END_TOLERANCE_MS || positionMs >= durationMs * END_FRACTION)
-        return if (ended || nearEnd) {
+        val finished = !skippedByListener && heardEnough && (ended || nearEnd)
+        return if (finished) {
             WaveListenEvent.Finished(current, (if (durationMs > 0L) durationMs else positionMs) / 1_000.0)
         } else {
-            WaveListenEvent.Skipped(current, seconds)
+            WaveListenEvent.Skipped(current, listenedMs / 1_000.0)
         }
     }
 
@@ -106,6 +157,15 @@ internal class WaveListenTracker(private val isRadioTrack: (String) -> Boolean) 
         /** A crossfade or a trailing-silence skip leaves the track this early; it still counts as heard to the end. */
         const val END_TOLERANCE_MS = 15_000L
         const val END_FRACTION = 0.95
+
+        /** Share of the track that must really be heard to count as finished. */
+        const val HEARD_FRACTION = 0.8
+
+        /** Upper bound of the position step per real second: covers a playback speed up to 2x. */
+        const val MAX_SPEED = 2L
+
+        /** Slack for the clock between two progress reports. */
+        const val STEP_SLACK_MS = 500L
     }
 }
 
@@ -161,17 +221,18 @@ internal object YandexWaveFeedback {
         val follower = scope.launch {
             try {
                 var likes = ProviderTracks.liked.value
-                combine(PlaybackEngine.state, ProviderTracks.liked) { state, liked -> state to liked }
-                    .map { (state, liked) ->
-                        WaveSnapshot(
-                            radioActive = PlaybackEngine.activeRadio === radio,
-                            key = state.item?.key,
-                            playing = state.playing,
-                            positionMs = state.positionMs,
-                            durationMs = state.durationMs,
-                            ended = state.ended,
-                        ) to liked
-                    }
+                combine(PlaybackEngine.state, ProviderTracks.liked, PlaybackEngine.manualSkips) { state, liked, skips ->
+                    WaveSnapshot(
+                        radioActive = PlaybackEngine.activeRadio === radio,
+                        key = state.item?.key,
+                        playing = state.playing,
+                        positionMs = state.positionMs,
+                        durationMs = state.durationMs,
+                        ended = state.ended,
+                        failed = state.failed,
+                        manualSkips = skips,
+                    ) to liked
+                }
                     .distinctUntilChanged()
                     // The state that closes the tracker is still handled; nothing after it is.
                     .transformWhile { emit(it); !tracker.closed }
