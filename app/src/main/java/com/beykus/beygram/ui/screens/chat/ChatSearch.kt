@@ -3,6 +3,7 @@ package com.beykus.beygram.ui.screens.chat
 import android.app.DatePickerDialog
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -305,12 +306,12 @@ private fun SearchFilterSection(title: String) {
 }
 
 @Composable
-private fun ChatSearchFilterChip(label: String, selected: Boolean, onClick: () -> Unit) {
+internal fun ChatSearchFilterChip(label: String, selected: Boolean, onClick: () -> Unit) {
     val palette = beyGramPalette()
     Box(
         Modifier.clip(RoundedCornerShape(50))
             .background(if (selected) palette.accent else palette.surface2)
-            .clickable(onClick = onClick)
+            .selectable(selected = selected, role = Role.RadioButton, onClick = onClick)
             .padding(horizontal = 14.dp, vertical = 8.dp)
     ) {
         Text(label, color = if (selected) palette.onAccent else palette.textPrimary, fontSize = 13.sp, maxLines = 1)
@@ -423,7 +424,7 @@ internal fun ChatSearchResults(
                     )
                 }
                 // Устаревшие результаты (запрос или фильтр уже поменялся) видны, но открыть их нельзя.
-                items(results, key = { it.id }) { message -> SearchResultRow(message, needle) { if (!stale) onOpen(message, listState.firstVisibleItemIndex, listState.firstVisibleItemScrollOffset) } }
+                items(results, key = { it.id }) { message -> SearchResultRow(message, needle, enabled = !stale) { if (!stale) onOpen(message, listState.firstVisibleItemIndex, listState.firstVisibleItemScrollOffset) } }
                 if (hasMore) item(key = "search_more") { SearchMoreButton(busy, onMore) }
                 error?.let { message ->
                     item(key = "search_error") { Text(message, color = palette.danger, fontSize = 14.sp, modifier = Modifier.padding(horizontal = 20.dp, vertical = 8.dp).errorAnnouncement()) }
@@ -441,9 +442,9 @@ private fun SearchMoreButton(busy: Boolean, onMore: () -> Unit) {
 }
 
 @Composable
-private fun SearchResultRow(message: ChatMessage, query: String, onClick: () -> Unit) {
+private fun SearchResultRow(message: ChatMessage, query: String, enabled: Boolean, onClick: () -> Unit) {
     val palette = beyGramPalette()
-    Column(Modifier.fillMaxWidth().heightIn(min = 48.dp).clickable(role = Role.Button, onClick = onClick).padding(horizontal = 20.dp, vertical = 10.dp)) {
+    Column(Modifier.fillMaxWidth().heightIn(min = 48.dp).clickable(enabled = enabled, role = Role.Button, onClick = onClick).padding(horizontal = 20.dp, vertical = 10.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text(
                 if (message.isOutgoing) stringResource(R.string.search_you) else message.senderName, color = palette.accentInk, fontSize = 13.sp,
