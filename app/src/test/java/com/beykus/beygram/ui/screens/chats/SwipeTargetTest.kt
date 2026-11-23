@@ -28,6 +28,12 @@ class SwipeTargetTest {
         assertFalse(shouldAutoCloseSwipe(null, 42L, 0f, dismissalInProgress = false))
     }
 
+    @Test fun tappingRevealedRowClosesEitherSwipeDirection() {
+        assertTrue(shouldCloseSwipeOnRowTap(-84f))
+        assertTrue(shouldCloseSwipeOnRowTap(84f))
+        assertFalse(shouldCloseSwipeOnRowTap(0f))
+    }
+
     @Test fun farDragDismisses() {
         assertEquals(SwipeTarget.Dismissed, swipeTarget(offset = -240f, revealPx = revealPx, dismissPx = dismissPx, velocity = 0f))
     }
