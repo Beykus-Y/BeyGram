@@ -2,8 +2,9 @@ package com.beykus.beygram.playback
 
 /**
  * The logical music queue shared by the playback adapters (Media3 timeline, BG Mix native queue). It is the single
- * source of order, identity and the playing index; adapters only mirror it. This step adds no behavior by itself:
- * the engine keeps its current paths until adapters are moved onto it.
+ * source of order, identity and the playing index. The engine publishes this queue as its state queue: the Media3
+ * timeline edits it in place, and the BG Mix adapter mirrors each edit through BgMixQueueDriver.retarget while its
+ * session keeps the playing track. Page appends use the same rules as [appendPage].
  */
 internal data class PlaybackLogicalQueue(
     val items: List<PlaybackItem> = emptyList(),

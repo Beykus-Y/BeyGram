@@ -2770,9 +2770,9 @@ object PlaybackEngine {
                 items = original?.takeIf { queue -> queue.any { it.key == current.key } } ?: state.queue
             }
             val index = items.indexOfFirst { it.key == current.key }.coerceAtLeast(0)
-            // The native session has no shuffle, so it starts again at the same place with the new order.
+            // The session follows the new order in place when it can; otherwise it starts again at the same place.
             val keepOriginal = bgMixOriginalQueue
-            restartBgMix(items, index, state.positionMs, state.intentPlaying)
+            if (!retargetBgMix(items)) restartBgMix(items, index, state.positionMs, state.intentPlaying)
             if (enabled) bgMixOriginalQueue = keepOriginal
             return
         }
@@ -2842,6 +2842,15 @@ object PlaybackEngine {
         val shouldPlay = state.playing || state.intentPlaying
         val target = exo
         val base = state.queue.ifEmpty { listOf(current) }
+        if (bgMixActive()) {
+            // BG Mix follows the edit in its own session; the Exo timeline is not touched.
+            val queue = base.filterNot { it.key == item.key }.toMutableList()
+            val currentAt = queue.indexOfFirst { it.key == current.key }
+            if (currentAt >= 0) {
+                queue.add(currentAt + 1, item)
+                if (retargetBgMix(queue)) return
+            }
+        }
         val currentIndex = (target?.currentMediaItemIndex?.takeIf { it in base.indices }
             ?: state.queueIndex.takeIf { it in base.indices }
             ?: base.indexOfFirst { it.key == current.key })
@@ -2905,6 +2914,7 @@ object PlaybackEngine {
             return
         }
         val queue = base + item
+        if (bgMixActive() && retargetBgMix(queue)) return
         if (canEditInPlace(target, base.size) && target != null) {
             registerSource(item, queueSource)
             target.addMediaItem(mediaItemFor(item))
@@ -2977,6 +2987,31 @@ object PlaybackEngine {
         return true
     }
 
+    /**
+     * Mirrors an edited logical queue into the running BG Mix session; the playing track keeps playing. False when the session
+     * cannot follow the edit: the caller then takes its regular path, which stops the session and plays on ExoPlayer.
+     */
+    private fun retargetBgMix(queue: List<PlaybackItem>, source: PlaybackQueueSource? = queueSource): Boolean {
+        val driver = bgMix?.takeIf { it.isActive } ?: return false
+        val current = _state.value.item ?: return false
+        // Only new items get a source registration: re-registering a known one would replace its handle with a copy
+        // that may predate a resolved file.
+        val known = _state.value.queue.mapTo(HashSet()) { it.key }
+        if (!driver.retarget(queue, current.key)) return false
+        val items = driver.queueItems
+        val index = items.indexOfFirst { it.key == current.key }
+        items.filterNot { it.key in known }.forEach { registerSource(it, source) }
+        _state.update {
+            it.copy(
+                queue = items,
+                queueIndex = index,
+                timelineHasNext = bgMixHasNext(index, items.size) || driver.pendingIndex != null
+            )
+        }
+        startBgMixFeed()
+        return true
+    }
+
     /** Ends the page load of a queue that a new one replaces: its result is dropped when it arrives. */
     private fun dropQueuePages() {
         queuePageGeneration++
@@ -2994,6 +3029,10 @@ object PlaybackEngine {
         val queue = state.queue.toMutableList().apply { removeAt(index) }
         if (queue.isEmpty()) {
             stop()
+            return
+        }
+        if (index != state.queueIndex && bgMixActive() && retargetBgMix(queue)) {
+            PlaybackSources.remove(state.queue[index].systemMediaId)
             return
         }
         val target = exo
@@ -3030,6 +3069,10 @@ object PlaybackEngine {
         queueSource = queueSource?.let {
             PlaybackQueueSource(it.accountId, it.observeFile, it.download, it.autoDownload, loadMore = null)
         }
+        if (bgMixActive() && retargetBgMix(listOf(state.queue[keep]))) {
+            state.queue.forEachIndexed { index, item -> if (index != keep) PlaybackSources.remove(item.systemMediaId) }
+            return
+        }
         // From the end: removing a later row never moves an earlier one.
         for (index in state.queue.indices.reversed()) {
             if (index != keep) removeFromQueue(index)
@@ -3043,6 +3086,7 @@ object PlaybackEngine {
         val queue = state.queue.toMutableList()
         val moved = queue.removeAt(from)
         queue.add(to, moved)
+        if (bgMixActive() && retargetBgMix(queue)) return
         val target = exo
         if (canEditInPlace(target, state.queue.size) && target != null) {
             target.moveMediaItem(from, to)
