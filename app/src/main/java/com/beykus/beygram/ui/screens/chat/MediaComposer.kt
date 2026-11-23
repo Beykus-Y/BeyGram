@@ -53,6 +53,8 @@ import androidx.compose.material.icons.rounded.MusicNote
 import androidx.compose.material.icons.rounded.Person
 import androidx.compose.material.icons.rounded.Poll
 import androidx.compose.material.icons.rounded.Refresh
+import androidx.compose.material.icons.rounded.Timer
+import androidx.compose.material.icons.rounded.VisibilityOff
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
@@ -711,6 +713,20 @@ internal class AttachmentState(
                 } else {
                     item
                 }
+            }
+        )
+    }
+
+    /** Toggles Telegram's spoiler shimmer on a single visual media item. */
+    fun toggleSpoiler(item: OutgoingMedia) {
+        if (sending || importing) return
+        if (item.kind != MediaKind.Photo && item.kind != MediaKind.Video && item.kind != MediaKind.Animation) return
+        pendingState.value = ArrayList(
+            pending.map { existing ->
+                val matches = existing === item ||
+                    (item.stagingKey.isNotBlank() && existing.stagingKey == item.stagingKey) ||
+                    (item.stagingKey.isBlank() && existing.path == item.path)
+                if (matches) existing.copy(hasSpoiler = !existing.hasSpoiler) else existing
             }
         )
     }
@@ -1492,39 +1508,88 @@ private fun PreparedAttachmentsPanel(
     val visualPending = displayPending.filter {
         it.kind == MediaKind.Photo || it.kind == MediaKind.Video || it.kind == MediaKind.Animation
     }
-    if (visualPending.isNotEmpty() && !state.viewOnce && !closing) {
-        val spoilerOn = visualPending.all { it.hasSpoiler }
+    val showSpoilerChip = visualPending.isNotEmpty() && !state.viewOnce && !closing
+    val showViewOnceChip = viewOnceAvailable && !closing
+    if (showSpoilerChip || showViewOnceChip) {
         Row(
-            Modifier.fillMaxWidth().heightIn(min = 44.dp)
-                .toggleable(value = spoilerOn, enabled = !state.sending, role = Role.Checkbox) {
-                    state.setSpoilerForVisuals(it)
-                }
-                .padding(horizontal = 14.dp, vertical = 2.dp),
+            Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 12.dp, vertical = 4.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Checkbox(checked = spoilerOn, onCheckedChange = null, enabled = !state.sending)
+            if (showSpoilerChip) {
+                val spoilerCount = visualPending.count { it.hasSpoiler }
+                val allSpoiler = spoilerCount == visualPending.size
+                val anySpoiler = spoilerCount > 0
+                val spoilerLabel = if (visualPending.size > 1 && anySpoiler && !allSpoiler) {
+                    "${stringResource(R.string.attach_spoiler)} ($spoilerCount/${visualPending.size})"
+                } else {
+                    stringResource(R.string.attach_spoiler)
+                }
+                ComposerToggleChip(
+                    label = spoilerLabel,
+                    icon = Icons.Rounded.VisibilityOff,
+                    selected = anySpoiler,
+                    enabled = !state.sending,
+                    onClick = { state.setSpoilerForVisuals(!allSpoiler) }
+                )
+            }
+            if (showViewOnceChip) {
+                ComposerToggleChip(
+                    label = stringResource(R.string.composer_view_once),
+                    icon = Icons.Rounded.Timer,
+                    selected = state.viewOnce,
+                    enabled = !state.sending,
+                    onClick = { state.viewOnce = !state.viewOnce }
+                )
+            }
+        }
+        if (showViewOnceChip && state.viewOnce) {
             Text(
-                stringResource(R.string.attach_spoiler),
-                color = palette.textPrimary,
-                fontSize = 14.sp,
-                fontWeight = FontWeight.Medium,
-                modifier = Modifier.weight(1f)
+                stringResource(R.string.composer_view_once_hint),
+                color = palette.textSecondary,
+                fontSize = 11.sp,
+                modifier = Modifier.padding(horizontal = 14.dp, vertical = 2.dp)
             )
         }
     }
-    if (viewOnceAvailable && !closing) {
-        Row(
-            Modifier.fillMaxWidth().heightIn(min = 48.dp)
-                .toggleable(value = state.viewOnce, enabled = !state.sending, role = Role.Checkbox) { state.viewOnce = it }
-                .padding(horizontal = 14.dp, vertical = 2.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Checkbox(checked = state.viewOnce, onCheckedChange = null, enabled = !state.sending)
-            Column(Modifier.weight(1f)) {
-                Text(stringResource(R.string.composer_view_once), color = palette.textPrimary, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
-                Text(stringResource(R.string.composer_view_once_hint), color = palette.textSecondary, fontSize = 12.sp)
-            }
-        }
+}
+
+@Composable
+private fun ComposerToggleChip(
+    label: String,
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    selected: Boolean,
+    enabled: Boolean,
+    onClick: () -> Unit
+) {
+    val palette = beyGramPalette()
+    val shape = styledShape(14.dp)
+    Row(
+        Modifier
+            .clip(shape)
+            .background(if (selected) palette.accent.copy(alpha = 0.2f) else palette.surface2)
+            .then(
+                Modifier.background(Color.Transparent)
+            )
+            .clickable(enabled = enabled, role = Role.Checkbox, onClick = onClick)
+            .padding(horizontal = 12.dp, vertical = 7.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(6.dp)
+    ) {
+        Icon(
+            icon,
+            contentDescription = null,
+            tint = if (selected) palette.accent else palette.textSecondary,
+            modifier = Modifier.size(16.dp)
+        )
+        Text(
+            label,
+            color = if (selected) palette.accent else palette.textPrimary,
+            fontSize = 13.sp,
+            fontWeight = FontWeight.Medium
+        )
     }
 }
 
@@ -1726,7 +1791,60 @@ private fun CompactVisualAttachmentTray(
                             }
                         }
                     )
-                    if (item.kind == MediaKind.Video && !documentTile) {
+                    if (item.hasSpoiler && !documentTile) {
+                        Box(
+                            Modifier
+                                .fillMaxSize()
+                                .background(Color.Black.copy(alpha = 0.45f)),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(
+                                Icons.Rounded.VisibilityOff,
+                                contentDescription = stringResource(R.string.attach_spoiler),
+                                tint = Color.White.copy(alpha = 0.9f),
+                                modifier = Modifier.size(22.dp)
+                            )
+                        }
+                    }
+                    if (item.kind == MediaKind.Photo && !documentTile && !state.viewOnce) {
+                        Box(
+                            modifier = Modifier
+                                .align(Alignment.BottomStart)
+                                .padding(4.dp)
+                                .size(24.dp)
+                                .clip(CircleShape)
+                                .background(
+                                    if (item.hasSpoiler) palette.accent else Color.Black.copy(alpha = 0.58f)
+                                )
+                                .clickable(enabled = enabled, role = Role.Button) {
+                                    state.toggleSpoiler(item)
+                                },
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(
+                                Icons.Rounded.VisibilityOff,
+                                contentDescription = stringResource(R.string.attach_spoiler),
+                                tint = Color.White,
+                                modifier = Modifier.size(14.dp)
+                            )
+                        }
+                        Box(
+                            modifier = Modifier
+                                .align(Alignment.BottomEnd)
+                                .padding(4.dp)
+                                .size(22.dp)
+                                .clip(CircleShape)
+                                .background(Color.Black.copy(alpha = 0.58f)),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(
+                                Icons.Rounded.Edit,
+                                contentDescription = null,
+                                tint = Color.White,
+                                modifier = Modifier.size(12.dp)
+                            )
+                        }
+                    } else if (item.kind == MediaKind.Video && !documentTile) {
                         Row(
                             modifier = Modifier.align(Alignment.BottomStart)
                                 .padding(6.dp)
@@ -1757,6 +1875,19 @@ private fun CompactVisualAttachmentTray(
                         onDismissRequest = { menuItemKey = null },
                         alignEnd = false
                     ) {
+                        if ((item.kind == MediaKind.Photo || item.kind == MediaKind.Video || item.kind == MediaKind.Animation) && !state.viewOnce) {
+                            BeyGramPopoverItem(
+                                text = stringResource(R.string.attach_spoiler),
+                                leadingIcon = {
+                                    Icon(
+                                        Icons.Rounded.VisibilityOff,
+                                        contentDescription = null,
+                                        tint = if (item.hasSpoiler) palette.accent else palette.textSecondary
+                                    )
+                                },
+                                onClick = { menuItemKey = null; state.toggleSpoiler(item) }
+                            )
+                        }
                         BeyGramPopoverItem(
                             text = moveLeft,
                             enabled = index > 0,

@@ -34,6 +34,12 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.rounded.ArrowDownward
+import androidx.compose.material.icons.rounded.BarChart
+import androidx.compose.material.icons.rounded.CheckCircleOutline
+import androidx.compose.material.icons.rounded.Download
+import androidx.compose.material.icons.rounded.Forum
+import androidx.compose.material.icons.rounded.MarkChatUnread
+import androidx.compose.material.icons.rounded.Tune
 import androidx.compose.material.icons.rounded.Call
 import androidx.compose.material.icons.rounded.ChatBubbleOutline
 import androidx.compose.material.icons.rounded.ChevronRight
@@ -3707,6 +3713,7 @@ private fun ChatTopBar(
                 BeyGramPopover(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
                     BeyGramPopoverItem(
                         text = stringResource(R.string.chat_jump_to_unread),
+                        leadingIcon = { Icon(Icons.Rounded.ArrowDownward, contentDescription = null, tint = if (hasUnread) palette.textSecondary else palette.textSecondary.copy(alpha = 0.4f)) },
                         enabled = hasUnread,
                         onClick = { menuOpen = false; onJumpUnread() }
                     )
@@ -3717,6 +3724,7 @@ private fun ChatTopBar(
                     )
                     BeyGramPopoverItem(
                         text = stringResource(R.string.chat_mark_unread),
+                        leadingIcon = { Icon(Icons.Rounded.MarkChatUnread, contentDescription = null, tint = palette.textSecondary) },
                         onClick = { menuOpen = false; onMarkUnread() }
                     )
                     // The pinned list stays reachable even when the bar is hidden locally.
@@ -3727,22 +3735,27 @@ private fun ChatTopBar(
                     )
                     BeyGramPopoverItem(
                         text = stringResource(R.string.chat_export_title),
+                        leadingIcon = { Icon(Icons.Rounded.Download, contentDescription = null, tint = palette.textSecondary) },
                         onClick = { menuOpen = false; onExport() }
                     )
                     BeyGramPopoverItem(
                         text = stringResource(R.string.message_action_select),
+                        leadingIcon = { Icon(Icons.Rounded.CheckCircleOutline, contentDescription = null, tint = palette.textSecondary) },
                         onClick = { menuOpen = false; onSelectMessages() }
                     )
                     BeyGramPopoverItem(
                         text = stringResource(R.string.chat_settings_title),
+                        leadingIcon = { Icon(Icons.Rounded.Tune, contentDescription = null, tint = palette.textSecondary) },
                         onClick = { menuOpen = false; onChatSettings() }
                     )
                     if (forumNavigationMode != null && onForumNavigationMode != null) BeyGramPopoverItem(
                         text = stringResource(R.string.forum_navigation_title),
+                        leadingIcon = { Icon(Icons.Rounded.Forum, contentDescription = null, tint = palette.textSecondary) },
                         onClick = { menuOpen = false; modeSheetOpen = true }
                     )
                     if (onStatistics != null) BeyGramPopoverItem(
                         text = stringResource(R.string.channel_statistics_title),
+                        leadingIcon = { Icon(Icons.Rounded.BarChart, contentDescription = null, tint = palette.textSecondary) },
                         onClick = { menuOpen = false; onStatistics() }
                     )
                 }
@@ -3897,15 +3910,11 @@ internal fun MessageBubble(message: ChatMessage, observeFile: (Int) -> StateFlow
     val bubbleMax = chatBubbleMaxWidthDp(com.beykus.beygram.ui.screens.chats.LocalChatPaneWidthDp.current ?: chatPaneWidthDp(LocalWindowLayout.current)).dp
     val mediaFlightModifier = composerMediaLaunchModifier(composerMediaLaunch, onComposerMediaLaunchFinished)
     Column(Modifier.fillMaxWidth().then(if (circle) Modifier else Modifier.padding(horizontal = metrics.sideInset)), horizontalAlignment = if (message.isOutgoing) Alignment.End else Alignment.Start) {
-        val secondarySwipe = rememberSecondarySwipeAction()
+        val haptics = androidx.compose.ui.platform.LocalHapticFeedback.current
         SwipeToReply(
             enabled = onReply != null && message.sendState == MessageSendState.Sent,
             outgoing = message.isOutgoing,
-            onReply = { onReply?.invoke(message.id) },
-            onSecondaryAction = when (secondarySwipe) {
-                MessageSecondarySwipeAction.QuickReaction -> { { onReaction(message.id, ReactionOption("❤")) } }
-                MessageSecondarySwipeAction.SaveToSaved, MessageSecondarySwipeAction.Off -> null
-            }
+            onReply = { onReply?.invoke(message.id) }
         ) { swipe ->
             // Голосовое и кружок управляются своими элементами в пузыре и не открывают просмотрщик.
             Box(swipe) {
@@ -3945,6 +3954,12 @@ internal fun MessageBubble(message: ChatMessage, observeFile: (Int) -> StateFlow
                                     message.media != null && !message.media.kind.playsInline() -> onOpen()
                                 }
                             },
+                            onDoubleClick = if (!selectionMode && message.sendState == MessageSendState.Sent) {
+                                {
+                                    haptics.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.TextHandleMove)
+                                    onReaction(message.id, ReactionOption("❤"))
+                                }
+                            } else null,
                             onLongClick = if (selectionMode) onToggleSelection else onActions
                         ),
                     overlayMeta = overlayMeta,
