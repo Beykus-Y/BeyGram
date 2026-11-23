@@ -150,7 +150,9 @@ internal class WaveListenTracker(
             (durationMs - positionMs <= END_TOLERANCE_MS || positionMs >= durationMs * END_FRACTION)
         val finished = !skippedByListener && heardEnough && (ended || nearEnd)
         return if (finished) {
-            WaveListenEvent.Finished(current, (if (durationMs > 0L) durationMs else positionMs) / 1_000.0)
+            // The time really heard, at most the track's length: a replay of the same track (Repeat One) adds to it.
+            val heardMs = if (durationMs > 0L) minOf(listenedMs, durationMs) else listenedMs
+            WaveListenEvent.Finished(current, heardMs / 1_000.0)
         } else {
             WaveListenEvent.Skipped(current, listenedMs / 1_000.0)
         }
