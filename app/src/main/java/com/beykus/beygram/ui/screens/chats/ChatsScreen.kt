@@ -343,10 +343,11 @@ fun ChatsScreen(
     }
     // Статус сессии Telegram общий для телефона и двухпанельного списка: он не зависит от раскладки.
     val connectionStatus = rememberChatsConnectionStatus(accountId, connectionState)
-    var openSwipeChatId by remember { mutableStateOf<Long?>(null) }
-    var selectedActions by remember { mutableStateOf<ChatPreview?>(null) }
-    var peekedChat by remember { mutableStateOf<ChatPreview?>(null) }
-    var confirmReadAll by remember { mutableStateOf(false) }
+    // A revealed swipe belongs to the current account and folder only.
+    var openSwipeChatId by remember(accountId, activeFolderId) { mutableStateOf<Long?>(null) }
+    var selectedActions by remember(accountId, activeFolderId) { mutableStateOf<ChatPreview?>(null) }
+    var peekedChat by remember(accountId, activeFolderId) { mutableStateOf<ChatPreview?>(null) }
+    var confirmReadAll by remember(accountId, activeFolderId) { mutableStateOf(false) }
     val swipeStore = remember(context) { ChatSwipeSettingsStore(context) }
     var swipePreferences by remember(accountId) { mutableStateOf(swipeStore.load(accountId)) }
     var showSwipeSettings by remember(accountId) { mutableStateOf(false) }
