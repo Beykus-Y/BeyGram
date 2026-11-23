@@ -218,6 +218,7 @@ object PlaybackEngine {
     private const val BG_DUCK_VOLUME = 0.25f
     /** Maximum lookahead from the playing track, independent of native queue growth. */
     private const val BG_MIX_DOWNLOAD_AHEAD = 2
+    private const val QUEUE_PAGE_TIMEOUT_MS = 20_000L
     private const val BG_MIX_FEED_INTERVAL_MS = 1_000L
     private const val BG_HANDOVER_POLL_MS = 500L
     private const val BG_HANDOVER_IDLE_POLL_MS = 1_000L
@@ -2398,12 +2399,8 @@ object PlaybackEngine {
             }
             return
         }
-        // An endless queue (a radio) played out its known tracks while the next page loads: keep the play intent and wait,
-        // the page joins through extendBgMixQueue and the status is applied again from loadNextQueuePage.
-        if (finished && pending == null && queueSource?.loadMore != null && _state.value.repeatMode == PlaybackRepeatMode.Off) {
-            // Only while a retry is left: once they are used up the end is reported instead of asking again at once.
-            if (queuePageRetryJob?.isActive != true && queuePageRetryDelayMs(queuePageRetries) != null) loadNextQueuePage()
-        }
+        // An endless queue (a radio) played out its known tracks while the next page loads or waits for its retry: keep the
+        // play intent and wait. The page is requested on every track change, and its result applies this status again.
         val awaitingPage = bgMixAwaitsNextPage(
             finished = finished,
             pendingIndex = pending,
@@ -3566,7 +3563,8 @@ object PlaybackEngine {
         _queuePageLoading.value = true
         queuePageJob = scope.launch {
             try {
-                val page = loader()
+                // A request that never answers must not hold a waiting radio forever: it counts as a failed page.
+                val page = withTimeoutOrNull(QUEUE_PAGE_TIMEOUT_MS) { loader() } ?: throw java.io.IOException("Queue page timed out")
                 if (generation != queuePageGeneration || source !== queueSource ||
                     (!providerItem && activeAccountId != null && currentAccount != activeAccountId)) return@launch
                 val now = _state.value
