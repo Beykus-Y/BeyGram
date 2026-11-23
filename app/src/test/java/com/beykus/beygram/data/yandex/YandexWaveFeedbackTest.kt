@@ -32,11 +32,17 @@ class YandexWaveFeedbackTest {
     ) = WaveSnapshot(active, key, playing, position, duration, ended, failed, manualSkips)
 
     /** Plays [key] from [from] to [to] ms in one-second steps, as the player reports progress, and lets real time pass. */
-    private fun WaveListenTracker.play(key: String, from: Long, to: Long, duration: Long = 200_000L): List<WaveListenEvent> {
+    private fun WaveListenTracker.play(
+        key: String,
+        from: Long,
+        to: Long,
+        duration: Long = 200_000L,
+        manualSkips: Long = 0L,
+    ): List<WaveListenEvent> {
         val events = mutableListOf<WaveListenEvent>()
         var position = from
         while (position <= to) {
-            events += onState(state(key, position = position, duration = duration))
+            events += onState(state(key, position = position, duration = duration, manualSkips = manualSkips))
             clock.now += 1_000L
             position += 1_000L
         }
@@ -111,8 +117,9 @@ class YandexWaveFeedbackTest {
         // Repeat One: the same track starts again from zero after a manual Next.
         t.onState(state("ym:1", position = 0L, manualSkips = 1L))
         clock.now += 1_000L
-        t.play("ym:1", 1_000L, 199_000L)
-        assertEquals(WaveListenEvent.Finished("ym:1", 200.0), t.onState(state("ym:2"))[0])
+        // The counter only grows: the replay carries the count the restart already reached.
+        t.play("ym:1", 1_000L, 199_000L, manualSkips = 1L)
+        assertEquals(WaveListenEvent.Finished("ym:1", 200.0), t.onState(state("ym:2", manualSkips = 1L))[0])
     }
 
     @Test
