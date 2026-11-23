@@ -147,12 +147,19 @@ internal fun BubbleLayout(
 ) {
     // Каждая часть обёрнута в Box, чтобы пустая часть всё равно давала одно измеряемое место.
     Layout(content = { Box { body() }; Box { meta() }; Box { footer() }; Box { bottomBar() } }, modifier = modifier) { measurables, constraints ->
+        com.beykus.beygram.perf.ProfDiagnostics.traceSection("BG:BubbleLayout.measure") {
         val loose = constraints.copy(minWidth = 0, minHeight = 0)
         val bodyPlaceable = measurables[0].measure(loose)
         val metaPlaceable = measurables[1].measure(loose)
         val footerPlaceable = measurables[2].measure(loose)
         // Полоса сама не растягивает пузырь до максимума, но и не даёт ему стать уже своей подписи.
-        val barWidth = measurables[3].maxIntrinsicWidth(loose.maxHeight)
+        val barWidth = if (com.beykus.beygram.perf.ProfDiagnostics.bubbleNoIntrinsic) {
+            0
+        } else {
+            com.beykus.beygram.perf.ProfDiagnostics.traceSection("BG:BubbleLayout.intrinsic") {
+                measurables[3].maxIntrinsicWidth(loose.maxHeight)
+            }
+        }
         val placeInline = inlineMeta && !overlayMeta &&
             bubbleMetaFitsBesideBody(bodyPlaceable.width, metaPlaceable.width, loose.maxWidth)
         val contentWidth = if (placeInline) bodyPlaceable.width + metaPlaceable.width else maxOf(bodyPlaceable.width, metaPlaceable.width)
@@ -185,6 +192,7 @@ internal fun BubbleLayout(
             metaPlaceable.placeRelative(metaLeft, metaTop)
             barPlaceable.placeRelative(0, barTop)
             footerPlaceable.placeRelative(0, footerTop)
+        }
         }
     }
 }

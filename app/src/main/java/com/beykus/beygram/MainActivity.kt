@@ -95,6 +95,7 @@ class MainActivity : FragmentActivity() {
     private var lastDeepLinkIntentData: String? = null
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        com.beykus.beygram.perf.ProfDiagnostics.applyIntent(intent)
         acceptOpenPlayerIntent(intent)
         // Restore the window-privacy policy before the first frame. Rotation of a secret chat
         // must not produce an unprotected frame just because the new composition has not run yet.
@@ -388,6 +389,7 @@ class MainActivity : FragmentActivity() {
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         setIntent(intent)
+        com.beykus.beygram.perf.ProfDiagnostics.applyIntent(intent)
         acceptNotificationIntent(intent)
         acceptShareIntent(intent)
         acceptDeepLinkIntent(intent)
