@@ -164,6 +164,7 @@ android {
             dimension = "environment"
             applicationIdSuffix = ".prof"
             versionNameSuffix = "-prof"
+            proguardFile("proguard-prof.pro")
             // Separate package and loopback port, never replacing DEV or Stable.
             val profBuildNumber = (project.findProperty("profBuildNumber") as String?)?.toIntOrNull() ?: 0
             require(profBuildNumber in 0..10_000_000 && stableVersionCode <= 2_100_000_000 - profBuildNumber) {
