@@ -93,7 +93,8 @@ android {
             minorApiLevel = 1
         }
     }
-    ndkVersion = "30.0.15729638"
+    // PROF branch uses the official stable r30 toolchain; DEV/main remain pinned to r30 beta2.
+    ndkVersion = "30.0.16248370"
 
     defaultConfig {
         applicationId = "com.beykus.beygram"
