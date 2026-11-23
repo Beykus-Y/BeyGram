@@ -12,6 +12,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -71,6 +72,15 @@ internal fun bgBeatRerun(
     else -> BgBeatRerun.Start
 }
 
+/** Whether the next track should be analysed ahead now: nothing for the current track is running and it was not done already. */
+internal fun bgBeatLookaheadNeeded(
+    next: BgBeatAnalysisIdentity?,
+    currentAnalysing: Boolean,
+    running: BgBeatAnalysisIdentity?,
+    done: Set<BgBeatAnalysisIdentity>,
+    completedCurrent: BgBeatAnalysisIdentity?
+): Boolean = next != null && !currentAnalysing && next != running && next !in done && next != completedCurrent
+
 /**
  * Coordinates BG Beat music analysis with PlaybackEngine and account isolation.
  * - Single source of observation via Flow combine to prevent duplicate parallel triggers.
@@ -88,6 +98,9 @@ class BgBeatManager(
 ) {
     companion object {
         private const val TAG = "BgBeatManager"
+
+        /** Waits this long before a lookahead starts, so manual skips settle first. */
+        private const val LOOKAHEAD_DELAY_MS = 3_000L
 
         @Volatile
         private var instance: BgBeatManager? = null
@@ -122,6 +135,14 @@ class BgBeatManager(
     @Volatile
     private var failedAnalysis: Pair<BgBeatAnalysisIdentity, BgBeatUiState>? = null
 
+    /** Lookahead: the track that plays next in play order is analysed ahead of time, one at a time, at low priority. */
+    private var lookaheadJob: Job? = null
+    private var lookaheadToken: Long = 0L
+    private var lookaheadIdentity: BgBeatAnalysisIdentity? = null
+    private val lookaheadDone = LinkedHashSet<BgBeatAnalysisIdentity>()
+    private var lookaheadCheckedAt = 0L
+    private var lookaheadSignature: String? = null
+
     init {
         // Observe both playback and settings in a single unified flow to prevent duplicate runs
         scope.launch {
@@ -139,6 +160,7 @@ class BgBeatManager(
     private fun handleStateOrSettingsChange(state: PlaybackState, isEnabled: Boolean) {
         if (!isEnabled) {
             cancelCurrentAnalysis()
+            cancelLookahead()
             sequenceId.incrementAndGet()
             activeIdentity = null
             completedIdentity = null
@@ -147,6 +169,11 @@ class BgBeatManager(
             return
         }
 
+        handleCurrent(state)
+        scheduleLookahead(state)
+    }
+
+    private fun handleCurrent(state: PlaybackState) {
         val item = state.item
         if (item == null) {
             cancelCurrentAnalysis()
@@ -217,6 +244,9 @@ class BgBeatManager(
     fun onAccountChanged(newAccountId: String) {
         if (newAccountId.isBlank()) return
         cancelCurrentAnalysis()
+        cancelLookahead()
+        lookaheadDone.clear()
+        lookaheadSignature = null
         sequenceId.incrementAndGet()
         activeIdentity = null
         completedIdentity = null
@@ -235,6 +265,83 @@ class BgBeatManager(
         analysisLease?.release()
         analysisLease = null
         activeIdentity = null
+    }
+
+    /** Stops the lookahead. Its job releases its own token and lease when it ends. */
+    private fun cancelLookahead() {
+        if (lookaheadToken != 0L) {
+            BgBeatNative.nativeCancel(lookaheadToken)
+        }
+        lookaheadJob?.cancel()
+        lookaheadJob = null
+        lookaheadIdentity = null
+    }
+
+    /**
+     * Starts analysing the track that plays next in play order, when BG Beat is on and that track is an eligible local file.
+     * Nothing runs while the current track is being analysed; the native cache keeps the result for when the track plays.
+     */
+    private fun scheduleLookahead(state: PlaybackState) {
+        val signature = "${state.item?.key}|${state.queueIndex}|${state.queue.size}|${state.shuffleEnabled}|${state.repeatMode}"
+        val now = android.os.SystemClock.elapsedRealtime()
+        if (signature == lookaheadSignature && now - lookaheadCheckedAt < 2_000L) return
+        lookaheadSignature = signature
+        lookaheadCheckedAt = now
+
+        val currentAnalysing = currentJob?.isActive == true
+        if (currentAnalysing) return
+        if (!BgBeatNative.isLoaded) return
+
+        val next = PlaybackEngine.nextInPlayOrder()
+        if (next == null || BgMediaEligibility.reasonFor(next) != null) {
+            cancelLookahead()
+            return
+        }
+        val file = File(next.path)
+        val identity = BgBeatAnalysisIdentity(
+            accountId = next.accountId.ifBlank { PlaybackEngine.currentAccountId ?: "legacy" },
+            itemKey = next.key,
+            filePath = file.absolutePath,
+            fileLength = file.length(),
+            fileLastModified = file.lastModified()
+        )
+
+        // A lookahead for a track that is no longer next is stopped, whatever happens to the new one.
+        val running = lookaheadIdentity
+        if (running != null && running != identity) cancelLookahead()
+        if (!bgBeatLookaheadNeeded(identity, currentAnalysing, lookaheadIdentity, lookaheadDone, completedIdentity)) return
+
+        lookaheadIdentity = identity
+        lookaheadJob = scope.launch {
+            // Let manual skips settle and keep the start of the current track free for its own work.
+            delay(LOOKAHEAD_DELAY_MS)
+            val token = BgBeatNative.nativeCreateCancelToken()
+            lookaheadToken = token
+            val holder = java.util.concurrent.atomic.AtomicReference<BgAnalysisLease?>(null)
+            try {
+                val lease = withContext(Dispatchers.Default) {
+                    BgAnalysisRepository.acquire(context, identity, token, null, forceRefresh = false, out = holder)
+                }
+                // The native side keeps the result in the account's analysis cache; the lease itself is not needed now.
+                lease?.release()
+                if (lookaheadIdentity == identity) {
+                    lookaheadDone.add(identity)
+                    while (lookaheadDone.size > 16) lookaheadDone.remove(lookaheadDone.first())
+                }
+            } catch (ce: CancellationException) {
+                throw ce
+            } catch (e: Exception) {
+                Log.w(TAG, "Lookahead analysis failed for ${identity.itemKey}", e)
+            } finally {
+                holder.get()?.release()
+                BgBeatNative.nativeDestroyCancelToken(token)
+                if (lookaheadToken == token) lookaheadToken = 0L
+                if (lookaheadIdentity == identity) {
+                    lookaheadIdentity = null
+                    lookaheadJob = null
+                }
+            }
+        }
     }
 
     fun reanalyze() {
@@ -288,6 +395,8 @@ class BgBeatManager(
         identity: BgBeatAnalysisIdentity,
         force: Boolean
     ) {
+        // The current track has priority over a lookahead, unless the lookahead is already doing this very file.
+        if (lookaheadIdentity != identity) cancelLookahead()
         cancelCurrentAnalysis()
         val reqSeq = sequenceId.incrementAndGet()
         val itemKey = item.key
