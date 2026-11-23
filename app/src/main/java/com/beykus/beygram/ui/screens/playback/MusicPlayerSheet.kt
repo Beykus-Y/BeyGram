@@ -17,6 +17,7 @@ import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import com.beykus.beygram.ui.screens.music.WaveBackdrop
@@ -49,6 +50,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
+import androidx.compose.material.icons.automirrored.rounded.KeyboardArrowRight
 import androidx.compose.material.icons.rounded.ChatBubble
 import androidx.compose.material.icons.rounded.DragHandle
 import androidx.compose.material.icons.rounded.Equalizer
@@ -201,6 +203,7 @@ import com.beykus.beygram.ui.screens.music.reportMusicOutcome
 import com.beykus.beygram.ui.screens.profile.LocalAddProfileAudio
 import com.beykus.beygram.ui.screens.profile.PROFILE_AUDIO_KEY_PREFIX
 import com.beykus.beygram.ui.text.userMessage
+import com.beykus.beygram.ui.screens.music.LocalOpenProviderAlbum
 import com.beykus.beygram.ui.screens.music.PlayerProviderTrackMenuItems
 
 private const val SEEK_STEP_MS = 5_000L
@@ -347,12 +350,35 @@ internal fun MusicPlayerContent(
                         .graphicsLayer { alpha = (1f - ramp(queueMotion.value, 0f, 0.45f)) * playerOverlayAlpha }
                         .blockInputWhile(moving || lyricsVisible)
                 ) {
+                    val openProviderAlbum = LocalOpenProviderAlbum.current
+                    val providerAlbumId = remember(player.item.key) {
+                        ProviderTracks.byKey(player.item.key)
+                            ?.takeIf { ProviderTracks.isProviderKey(player.item.key) }
+                            ?.albumId
+                            ?.takeIf { it.isNotBlank() }
+                    }
+                    val openSourceAction: (() -> Unit)? = when {
+                        player.item.origin != null -> {
+                            val origin = player.item.origin
+                            { PlaybackEngine.requestShowInChat(origin); onLeave() }
+                        }
+                        providerAlbumId != null && openProviderAlbum != null -> {
+                            { onLeave(); openProviderAlbum(providerAlbumId) }
+                        }
+                        else -> null
+                    }
+                    val openSourceLabel = if (player.item.origin != null) {
+                        stringResource(R.string.media_show_in_chat)
+                    } else {
+                        stringResource(R.string.music_provider_open_album)
+                    }
                     PlayerHeader(
                         player = player,
                         source = source,
                         onCollapse = onCollapse,
                         onLeave = onLeave,
-                        onOpenSource = player.item.origin?.let { origin -> { PlaybackEngine.requestShowInChat(origin); onLeave() } },
+                        onOpenSource = openSourceAction,
+                        openSourceLabel = openSourceLabel,
                         onOpenMyMusic = onOpenMyMusic?.let { open -> { onLeave(); open() } }
                     )
                     PlayerBody(
@@ -460,13 +486,13 @@ private fun PlayerHeader(
     onCollapse: () -> Unit,
     onLeave: () -> Unit,
     onOpenSource: (() -> Unit)?,
+    openSourceLabel: String = stringResource(R.string.media_show_in_chat),
     onOpenMyMusic: (() -> Unit)?
 ) {
     val palette = beyGramPalette()
     val closeFocus = remember { FocusRequester() }
     LaunchedEffect(Unit) { runCatching { closeFocus.requestFocus() } }
     val sourceLabel = source.caption ?: stringResource(R.string.player_source_from)
-    val openSourceLabel = stringResource(R.string.media_show_in_chat)
     Row(
         Modifier.fillMaxWidth().heightIn(min = 56.dp).padding(horizontal = 4.dp),
         verticalAlignment = Alignment.CenterVertically
@@ -500,15 +526,26 @@ private fun PlayerHeader(
                     textAlign = TextAlign.Center
                 )
             }
-            Text(
-                source.text,
-                color = palette.textPrimary,
-                fontSize = 13.sp,
-                fontWeight = FontWeight.Medium,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-                textAlign = TextAlign.Center
-            )
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    source.text,
+                    color = palette.textPrimary,
+                    fontSize = 13.sp,
+                    fontWeight = FontWeight.Medium,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    textAlign = TextAlign.Center,
+                    modifier = Modifier.weight(1f, fill = false)
+                )
+                if (onOpenSource != null) {
+                    Icon(
+                        Icons.AutoMirrored.Rounded.KeyboardArrowRight,
+                        contentDescription = null,
+                        tint = palette.textSecondary.copy(alpha = 0.75f),
+                        modifier = Modifier.size(15.dp)
+                    )
+                }
+            }
         }
         PlayerTrackMenu(item = player.item, onCollapse = onLeave, onOpenMyMusic = onOpenMyMusic)
     }
@@ -738,8 +775,20 @@ private fun PlayerDetails(
     BgBeatSection(
         item = player.item,
         playbackFractionProvider = playedProvider,
+        onSeekFraction = { fraction ->
+            PlaybackEngine.seekTo(fraction.coerceIn(0f, 1f), fallbackDurationMs = fallbackDurationMs)
+        },
         modifier = Modifier.padding(horizontal = 4.dp)
     )
+}
+
+internal const val ARTWORK_DOUBLE_TAP_SEEK_MS = 10_000L
+
+/** Computes the clamped target seek fraction for a relative seek delta, or null when duration is unknown. */
+internal fun seekDeltaFraction(positionMs: Long, durationMs: Long, deltaMs: Long): Float? {
+    if (durationMs <= 0L) return null
+    val target = (positionMs + deltaMs).coerceIn(0L, durationMs)
+    return (target.toFloat() / durationMs.toFloat()).coerceIn(0f, 1f)
 }
 
 @Composable
@@ -781,9 +830,34 @@ private fun PlayerArtwork(player: MusicPlayerUi, size: Dp, mediaMotion: MotionSp
         animationSpec = mediaMotion.animationSpec(),
         label = "artworkSwipe"
     )
+    // Short visual feedback badge when double-tapping left/right half of the artwork (±10s).
+    var seekFlashDirection by remember(player.item.key) { mutableIntStateOf(0) }
+    var seekFlashNonce by remember(player.item.key) { mutableIntStateOf(0) }
+    LaunchedEffect(seekFlashNonce) {
+        if (seekFlashNonce > 0) {
+            delay(650L)
+            seekFlashDirection = 0
+        }
+    }
+    val fallbackDurationMs = player.item.durationSeconds.coerceAtLeast(0) * 1000L
     Box(
         Modifier
             .size(size)
+            .pointerInput(player.item.key, fallbackDurationMs) {
+                detectTapGestures(
+                    onDoubleTap = { offset ->
+                        val state = PlaybackEngine.state.value
+                        val duration = state.durationMs.takeIf { it > 0L } ?: fallbackDurationMs
+                        val forward = offset.x >= this.size.width / 2f
+                        val delta = if (forward) ARTWORK_DOUBLE_TAP_SEEK_MS else -ARTWORK_DOUBLE_TAP_SEEK_MS
+                        val fraction = seekDeltaFraction(state.positionMs, duration, delta) ?: return@detectTapGestures
+                        haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                        PlaybackEngine.seekTo(fraction, fallbackDurationMs = fallbackDurationMs)
+                        seekFlashDirection = if (forward) 1 else -1
+                        seekFlashNonce += 1
+                    }
+                )
+            }
             .pointerInput(player.item.key, player.canNext, player.canPrevious) {
                 var total = 0f
                 detectHorizontalDragGestures(
@@ -841,6 +915,27 @@ private fun PlayerArtwork(player: MusicPlayerUi, size: Dp, mediaMotion: MotionSp
                 .fillMaxSize()
                 .clip(styledShape(20.dp))
         )
+        AnimatedVisibility(
+            visible = seekFlashDirection != 0,
+            enter = mediaMotion.fadeEnter(),
+            exit = mediaMotion.fadeExit(),
+            modifier = Modifier
+                .align(if (seekFlashDirection < 0) Alignment.CenterStart else Alignment.CenterEnd)
+                .padding(horizontal = 18.dp)
+        ) {
+            Surface(
+                color = Color.Black.copy(alpha = 0.58f),
+                shape = RoundedCornerShape(50)
+            ) {
+                Text(
+                    text = if (seekFlashDirection < 0) "−10s" else "+10s",
+                    color = Color.White,
+                    fontSize = 14.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp)
+                )
+            }
+        }
         MascotToggleChip(
             modifier = Modifier
                 .align(Alignment.BottomEnd)

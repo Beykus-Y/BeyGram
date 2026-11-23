@@ -319,4 +319,12 @@ class MusicPlayerUiStateTest {
         assertEquals(LyricLinePhase.Active, lyricLinePhase(index = 2, activeIndex = 2))
         assertEquals(LyricLinePhase.Upcoming, lyricLinePhase(index = 3, activeIndex = 2))
     }
+
+    @Test
+    fun seekDeltaFractionClampsWithinTrackBoundsAndRejectsUnknownDuration() {
+        assertNull(seekDeltaFraction(positionMs = 10_000L, durationMs = 0L, deltaMs = 10_000L))
+        assertEquals(0.25f, seekDeltaFraction(positionMs = 15_000L, durationMs = 100_000L, deltaMs = 10_000L)!!, 0.001f)
+        assertEquals(0f, seekDeltaFraction(positionMs = 4_000L, durationMs = 100_000L, deltaMs = -10_000L)!!, 0.001f)
+        assertEquals(1f, seekDeltaFraction(positionMs = 95_000L, durationMs = 100_000L, deltaMs = 10_000L)!!, 0.001f)
+    }
 }

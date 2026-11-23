@@ -279,8 +279,10 @@ class LyricsPanelUiTest {
         }
         compose.waitForIdle()
 
-        // Interactive timeline is visible in lyrics mode.
+        // Interactive timeline and track transport controls are visible in lyrics mode.
         compose.onNodeWithContentDescription(context.getString(R.string.player_progress)).assertIsDisplayed()
+        compose.onNodeWithContentDescription(context.getString(R.string.player_previous)).assertIsDisplayed()
+        compose.onNodeWithContentDescription(context.getString(R.string.player_next)).assertIsDisplayed()
 
         // Long-pressing a line opens the style + copy sheet.
         compose.onNodeWithText("Hold me for style options").performTouchInput { longClick() }
