@@ -28,7 +28,6 @@ import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -371,12 +370,6 @@ fun ChatScreen(
     var searchRetry by remember(chat.id, forumTopicId) { mutableIntStateOf(0) }
     var searchMatchSession by remember(chat.id, forumTopicId) { mutableStateOf(ChatSearchMatchSession()) }
     var searchMatchGeneration by remember(chat.id, forumTopicId) { mutableIntStateOf(0) }
-    // Выдача, из которой открыли сообщение: при возврате показываем её без нового запроса.
-    var searchRestore by remember(chat.id, forumTopicId) { mutableStateOf<ChatSearchMatchSession?>(null) }
-    // Позиция списка живёт вне composable поиска, чтобы пережить переход к сообщению и возврат.
-    val searchListState = remember(chat.id, forumTopicId) { LazyListState() }
-    // Позиция списка на момент открытия результата: восстанавливается явно, а не через пустой первый замер.
-    var searchRestoreScroll by remember(chat.id, forumTopicId) { mutableStateOf(0 to 0) }
     fun closeSearch(clearMatchSession: Boolean = true) {
         searching = false; searchQuery = ""; searchFilter = ChatSearchFilter()
         searchResults = emptyList(); searchNextId = 0L; searchTotalCount = 0; searchGeneration++
@@ -384,8 +377,6 @@ fun ChatScreen(
         if (clearMatchSession) {
             searchMatchGeneration++
             searchMatchSession = ChatSearchMatchSession()
-            searchRestore = null
-            searchRestoreScroll = 0 to 0
             cancelActiveJump()
         }
     }
@@ -1593,19 +1584,13 @@ fun ChatScreen(
             searchResults = emptyList(); searchTotalCount = 0; searchRefreshing = false
             return@LaunchedEffect
         }
-        val restore = searchRestore
-        searchRestore = null
-        if (restore != null && restore.canRestoreResults(searchQuery, requestedFilter)) {
-            // Возврат из найденного сообщения: прежние результаты и позиция списка без повторного запроса.
-            val (scrollIndex, scrollOffset) = searchRestoreScroll
+        val restore = searchMatchSession
+        if (restore.canRestoreResults(searchQuery, requestedFilter)) {
+            // Возврат из найденного сообщения: прежние результаты без повторного запроса, позицию восстановит список.
             searchResults = restore.results; searchNextId = restore.nextFromMessageId
             searchTotalCount = restore.totalCount; searchBusy = false; searchRefreshing = false
-            searchListState.scrollToItem(scrollIndex, scrollOffset)
             return@LaunchedEffect
         }
-        // Новый запрос или фильтр начинается с верха списка.
-        searchRestoreScroll = 0 to 0
-        searchListState.scrollToItem(0)
         // Прежние результаты остаются на месте, но помечены устаревшими до ответа: без вспышки пустого экрана.
         searchRefreshing = searchResults.isNotEmpty()
         delay(300)
@@ -1687,14 +1672,13 @@ fun ChatScreen(
             }
         }
     }
-    fun openSearchResult(message: ChatMessage) {
+    fun openSearchResult(message: ChatMessage, scrollIndex: Int, scrollOffset: Int) {
         val snapshot = searchResults
         val index = snapshot.indexOfFirst { it.id == message.id }.coerceAtLeast(0)
         val total = searchTotalCount
         val nextId = searchNextId
         val querySnapshot = searchQuery
         val filterSnapshot = searchFilter
-        searchRestoreScroll = searchListState.firstVisibleItemIndex to searchListState.firstVisibleItemScrollOffset
         closeSearch(clearMatchSession = false)
         searchMatchGeneration++
         searchMatchSession = ChatSearchMatchSession(
@@ -1703,7 +1687,9 @@ fun ChatScreen(
             results = snapshot,
             index = index,
             totalCount = total,
-            nextFromMessageId = nextId
+            nextFromMessageId = nextId,
+            scrollIndex = scrollIndex,
+            scrollOffset = scrollOffset
         )
         jumpToMessage(message.id, R.string.err_chat_history_load_failed)
     }
@@ -1713,8 +1699,7 @@ fun ChatScreen(
         searchMatchGeneration++
         searchQuery = session.query
         searchFilter = session.filter
-        searchMatchSession = ChatSearchMatchSession()
-        searchRestore = session
+        // Сессия остаётся до закрытия поиска: по ней восстанавливается выдача и позиция списка.
         searching = true
     }
     fun stepNewerSearchMatch() {
@@ -2680,11 +2665,11 @@ fun ChatScreen(
             error = searchError,
             hasMore = searchNextId != 0L,
             stale = searchRefreshing,
+            restore = searchMatchSession,
             onOpen = ::openSearchResult,
             onMore = ::loadMoreResults,
             onRetry = { searchRetry++ },
-            onResetFilters = { searchFilter = ChatSearchFilter() },
-            listState = searchListState
+            onResetFilters = { searchFilter = ChatSearchFilter() }
         )
         if (videoNote.active) VideoNoteRecordingOverlay(videoNote)
         }
