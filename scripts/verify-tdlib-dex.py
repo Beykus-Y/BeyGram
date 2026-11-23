@@ -26,7 +26,7 @@ def skip_uleb128(data: bytes, offset: int) -> int:
 
 
 def classes_in_dex(data: bytes) -> set[str]:
-    if len(data) < 112 or data[:4] != b"dex\\n":
+    if len(data) < 112 or data[:4] != b"dex\n":
         raise ValueError("Invalid DEX header")
     string_count, string_off = uint32(data, 56), uint32(data, 60)
     type_count, type_off = uint32(data, 64), uint32(data, 68)
@@ -41,7 +41,7 @@ def classes_in_dex(data: bytes) -> set[str]:
             raise ValueError("Invalid DEX class descriptor index")
         value_offset = uint32(data, string_off + string_index * 4)
         start = skip_uleb128(data, value_offset)
-        end = data.index(b"\\0", start)
+        end = data.index(b"\0", start)
         descriptor = data[start:end].decode("utf-8", errors="replace")
         if descriptor in REQUIRED:
             found.add(descriptor)
@@ -53,7 +53,7 @@ def main(apk: str) -> None:
     with zipfile.ZipFile(apk) as archive:
         dex_files = [
             name for name in archive.namelist()
-            if re.fullmatch(r"classes(?:[2-9][0-9]*)?\\.dex", name)
+            if re.fullmatch(r"classes(?:[2-9][0-9]*)?\.dex", name)
         ]
         if not dex_files:
             raise ValueError("No classes*.dex in PROF APK")
