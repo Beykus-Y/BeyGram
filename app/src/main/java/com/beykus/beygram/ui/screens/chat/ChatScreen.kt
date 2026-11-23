@@ -375,6 +375,8 @@ fun ChatScreen(
     var searchRestore by remember(chat.id, forumTopicId) { mutableStateOf<ChatSearchMatchSession?>(null) }
     // Позиция списка живёт вне composable поиска, чтобы пережить переход к сообщению и возврат.
     val searchListState = remember(chat.id, forumTopicId) { LazyListState() }
+    // Позиция списка на момент открытия результата: восстанавливается явно, а не через пустой первый замер.
+    var searchRestoreScroll by remember(chat.id, forumTopicId) { mutableStateOf(0 to 0) }
     fun closeSearch(clearMatchSession: Boolean = true) {
         searching = false; searchQuery = ""; searchFilter = ChatSearchFilter()
         searchResults = emptyList(); searchNextId = 0L; searchTotalCount = 0; searchGeneration++
@@ -383,6 +385,7 @@ fun ChatScreen(
             searchMatchGeneration++
             searchMatchSession = ChatSearchMatchSession()
             searchRestore = null
+            searchRestoreScroll = 0 to 0
             cancelActiveJump()
         }
     }
@@ -1594,11 +1597,14 @@ fun ChatScreen(
         searchRestore = null
         if (restore != null && restore.canRestoreResults(searchQuery, requestedFilter)) {
             // Возврат из найденного сообщения: прежние результаты и позиция списка без повторного запроса.
+            val (scrollIndex, scrollOffset) = searchRestoreScroll
             searchResults = restore.results; searchNextId = restore.nextFromMessageId
             searchTotalCount = restore.totalCount; searchBusy = false; searchRefreshing = false
+            searchListState.scrollToItem(scrollIndex, scrollOffset)
             return@LaunchedEffect
         }
         // Новый запрос или фильтр начинается с верха списка.
+        searchRestoreScroll = 0 to 0
         searchListState.scrollToItem(0)
         // Прежние результаты остаются на месте, но помечены устаревшими до ответа: без вспышки пустого экрана.
         searchRefreshing = searchResults.isNotEmpty()
@@ -1688,6 +1694,7 @@ fun ChatScreen(
         val nextId = searchNextId
         val querySnapshot = searchQuery
         val filterSnapshot = searchFilter
+        searchRestoreScroll = searchListState.firstVisibleItemIndex to searchListState.firstVisibleItemScrollOffset
         closeSearch(clearMatchSession = false)
         searchMatchGeneration++
         searchMatchSession = ChatSearchMatchSession(
