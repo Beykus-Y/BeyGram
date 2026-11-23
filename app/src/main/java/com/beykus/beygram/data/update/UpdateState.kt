@@ -73,11 +73,14 @@ internal object StableUpdateActionPolicy {
     }
 }
 
-enum class UpdateChannel { Stable, DevBeta }
+enum class UpdateChannel { Stable, DevBeta, ProfBeta }
 
 // DEV beta updates come from its own prereleases; every other install uses the Stable channel.
-internal fun updateChannelFor(packageName: String): UpdateChannel =
-    if (packageName == DEV_PACKAGE) UpdateChannel.DevBeta else UpdateChannel.Stable
+internal fun updateChannelFor(packageName: String): UpdateChannel = when (packageName) {
+    DEV_PACKAGE -> UpdateChannel.DevBeta
+    PROF_PACKAGE -> UpdateChannel.ProfBeta
+    else -> UpdateChannel.Stable
+}
 
 /** The typed reason of a failed step, or null when the error is not one the user can act on. */
 fun updateErrorReason(error: Throwable): StableUpdateReason? = when (error) {
