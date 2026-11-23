@@ -312,6 +312,16 @@ internal class BgMixQueueDriver(private val cacheDir: File) {
         player?.next()
     }
 
+    /** Immediate native switch to the next track (no crossfade). False when the caller must play it on its own player. */
+    fun manualNext(): Boolean = player?.manualNext() == com.beykus.beygram.media.bgmix.BgMixNative.MANUAL_ACCEPTED
+
+    /** Immediate native switch to queue index [index]. False when that track is not in the native queue or not ready. */
+    fun manualSelect(index: Int): Boolean {
+        val p = player ?: return false
+        val id = nativeKeyById.entries.firstOrNull { indexByKey[it.value] == index }?.key ?: return false
+        return p.manualSelect(id) == com.beykus.beygram.media.bgmix.BgMixNative.MANUAL_ACCEPTED
+    }
+
     /** Detaches immediately; the release executor retains ownership through native destruction. */
     fun stop() {
         val old = player ?: return

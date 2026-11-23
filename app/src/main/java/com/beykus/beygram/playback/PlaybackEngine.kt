@@ -2601,7 +2601,13 @@ object PlaybackEngine {
                         // Like the regular Next, a paused queue stays paused on the new track.
                         continueBgMixQueueOnExo(state.queue, it, autoPlay = state.playing || state.intentPlaying || state.ended)
                     }
-                !last -> bgMix?.next()
+                // Manual Next is an explicit jump, not the native planned transition (session.next()), which adds a
+                // crossfade and could lift a pause. A prepared successor switches in the native session at once; any
+                // other one moves the queue to the regular player at the next track from 0, and startQueue schedules
+                // the automatic handover back to BG Mix.
+                !last -> if (bgMix?.manualNext() != true) {
+                    continueBgMixQueueOnExo(state.queue, state.queueIndex + 1, autoPlay = state.playing || state.intentPlaying || state.ended)
+                }
                 state.repeatMode == PlaybackRepeatMode.All -> restartBgMix(state.queue, 0, 0L, state.intentPlaying || state.ended)
             }
             return
@@ -2696,7 +2702,10 @@ object PlaybackEngine {
                     }
                 }
             } else {
-                restartBgMix(state.queue, state.queueIndex - 1, 0L, state.intentPlaying)
+                // A prepared previous track switches in the native session at once; otherwise the queue restarts on the regular player.
+                if (bgMix?.manualSelect(state.queueIndex - 1) != true) {
+                    restartBgMix(state.queue, state.queueIndex - 1, 0L, state.intentPlaying)
+                }
             }
             return
         }
