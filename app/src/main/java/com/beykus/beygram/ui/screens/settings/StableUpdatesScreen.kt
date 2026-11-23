@@ -71,6 +71,7 @@ import com.beykus.beygram.data.update.UpdateUiState
 import com.beykus.beygram.data.update.commitUrl
 import com.beykus.beygram.data.update.devBuildInfoText
 import com.beykus.beygram.data.update.devReleaseUrl
+import com.beykus.beygram.data.update.profReleaseUrl
 import com.beykus.beygram.data.update.installedBuild
 import com.beykus.beygram.data.update.knownSha
 import com.beykus.beygram.data.update.stableReleaseUrl
@@ -112,7 +113,7 @@ fun StableUpdatesScreen(onBack: () -> Unit, model: StableUpdatesViewModel = view
     val palette = beyGramPalette()
     val design = LocalDesignSystem.current
     val uiState by model.state.collectAsStateWithLifecycle()
-    val isDevBeta = updateChannelFor(BuildConfig.APPLICATION_ID) == UpdateChannel.DevBeta
+    val isDevBeta = updateChannelFor(BuildConfig.APPLICATION_ID) != UpdateChannel.Stable
     val lifecycleOwner = LocalLifecycleOwner.current
     // Returning from Android Settings or the installer re-reads the install permission and the installed version.
     DisposableEffect(lifecycleOwner, model) {
@@ -152,7 +153,11 @@ fun StableUpdatesScreen(onBack: () -> Unit, model: StableUpdatesViewModel = view
                             ReleaseNotesContent(
                                 current.notes,
                                 truncated = current.notesTruncated,
-                                releaseUrl = if (isDevBeta) devReleaseUrl(current.tag) else stableReleaseUrl(current.tag),
+                                releaseUrl = when (updateChannelFor(BuildConfig.APPLICATION_ID)) {
+                                    UpdateChannel.DevBeta -> devReleaseUrl(current.tag)
+                                    UpdateChannel.ProfBeta -> profReleaseUrl(current.tag)
+                                    UpdateChannel.Stable -> stableReleaseUrl(current.tag)
+                                },
                                 compact = true,
                             )
                         }
@@ -192,7 +197,14 @@ private fun UpdateCardBody(model: StableUpdatesViewModel, state: UpdateUiState, 
     val context = LocalContext.current
     val line = cardStatusContent(card, isDevBeta)
     val release = card.release
-    val installed = remember { installedBuild(BuildConfig.DEV_BUILD_NUMBER, BuildConfig.BUILD_GIT_SHA) }
+    val installed = remember {
+        val number = if (updateChannelFor(BuildConfig.APPLICATION_ID) == UpdateChannel.ProfBeta) {
+            BuildConfig.PROF_BUILD_NUMBER
+        } else {
+            BuildConfig.DEV_BUILD_NUMBER
+        }
+        installedBuild(number, BuildConfig.BUILD_GIT_SHA)
+    }
     Column(
         Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 14.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp)
@@ -596,9 +608,10 @@ private fun DevBuildActions(installed: InstalledBuild, release: StableRelease?) 
                 installed = installed,
                 availableBuild = release?.dev?.buildNumber,
                 availableCommit = release?.dev?.commit,
+                channelName = if (updateChannelFor(BuildConfig.APPLICATION_ID) == UpdateChannel.ProfBeta) "PROF" else "DEV",
             )
             context.getSystemService(ClipboardManager::class.java)
-                ?.setPrimaryClip(ClipData.newPlainText("BeyGram DEV", text))
+                ?.setPrimaryClip(ClipData.newPlainText(if (updateChannelFor(BuildConfig.APPLICATION_ID) == UpdateChannel.ProfBeta) "BeyGram PROF" else "BeyGram DEV", text))
             Toast.makeText(context, R.string.updates_build_info_copied, Toast.LENGTH_SHORT).show()
         },
         modifier = Modifier.fillMaxWidth()
