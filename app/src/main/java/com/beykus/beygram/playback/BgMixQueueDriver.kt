@@ -27,7 +27,7 @@ internal class BgMixQueueDriver(private val cacheDir: File) {
     /** Native queue id -> key of the queue item it plays. */
     private var nativeKeyById: Map<Long, String> = emptyMap()
     /** Queue key -> first index of that key in [items]; rebuilt by [setItems] so the status tick never scans the queue. */
-    private var indexByKey: Map<String, Int> = emptyMap()
+    @Volatile private var indexByKey: Map<String, Int> = emptyMap()
     @Volatile private var items: List<PlaybackItem> = emptyList()
     /** First queue index that is not in the native queue yet; equals the queue size once everything joined. */
     private var appendedUntil: Int = 0
@@ -86,12 +86,13 @@ internal class BgMixQueueDriver(private val cacheDir: File) {
 
     /** Replaces the queue snapshot and rebuilds [indexByKey]; every assignment of [items] goes through here. */
     private fun setItems(list: List<PlaybackItem>) {
-        items = list
         val map = HashMap<String, Int>(list.size)
         for ((index, item) in list.withIndex()) {
             if (!map.containsKey(item.key)) map[item.key] = index
         }
+        // The map goes first: a reader that already sees the new items never pairs them with the old index.
         indexByKey = map
+        items = list
     }
 
     /** Queue index of the item the native track [id] plays; null when that track is not mapped. */
@@ -278,6 +279,11 @@ internal class BgMixQueueDriver(private val cacheDir: File) {
         }
         setItems(resolved)
         appendedUntil = plan.appendedUntil
+        // A track that already played (or failed) and now comes again later must not stand for its new place.
+        session.status.value?.let { status ->
+            val finished = status.queue.filter { it.state == "played" || it.state == "failed" }.mapTo(HashSet()) { it.id }
+            nativeKeyById = nativeKeyById.filter { (id, key) -> id !in finished || (indexByKey[key] ?: -1) <= newCurrent }
+        }
         return true
     }
 
