@@ -2705,6 +2705,8 @@
     <string name="share_send_count">Отправить (%1$d)</string>
     <string name="share_add_recipient">Добавить получателя</string>
     <string name="share_delivery_progress">Отправлено получателям: %1$d из %2$d. Остались неотправленные части.</string>
+    <string name="share_preparing_progress">Подготовка файлов: %1$d из %2$d</string>
+    <string name="share_drop_pending_hint">Нажмите на получателя внизу, чтобы убрать его и не отправлять ему повторно.</string>
     <string name="diag_group_resources">Ресурсы</string>
     <string name="diag_group_report">Отчёт об ошибке</string>
     <string name="diag_group_tools">Дополнительные инструменты</string>
