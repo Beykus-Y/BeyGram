@@ -944,6 +944,10 @@
     <string name="lyrics_need_sign_in">Sign in to Yandex Music to see lyrics</string>
     <string name="lyrics_failed">Couldn’t load the lyrics. Try again later.</string>
     <string name="lyrics_copyright">Lyrics: %1$s</string>
+    <string name="player_lyrics">Lyrics</string>
+    <string name="lyrics_return_to_current">Jump to current line</string>
+    <string name="lyrics_seek_a11y">Seek to line: %1$s</string>
+    <string name="lyrics_instrumental_a11y">Instrumental</string>
     <string name="player_sound">Sound</string>
     <string name="player_share">Share</string>
     <string name="player_sleep_minutes_short">%1$d min</string>

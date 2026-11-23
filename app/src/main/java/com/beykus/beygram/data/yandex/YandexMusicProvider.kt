@@ -374,6 +374,11 @@ internal class YandexMusicProvider(
     /** Number of cached lyrics results. For tests. */
     internal fun lyricsCacheSize(): Int = synchronized(lyricsLock) { lyricsCache.size }
 
+    override fun invalidateLyrics(trackId: String) {
+        val key = "$generation:$trackId"
+        synchronized(lyricsLock) { lyricsCache.remove(key) }
+    }
+
     private fun lyricsTtl(result: ProviderResult<ProviderLyrics>): Long =
         if (result is ProviderResult.Success) YandexConfig.LYRICS_OK_TTL_MS else YandexConfig.LYRICS_FAILED_TTL_MS
 

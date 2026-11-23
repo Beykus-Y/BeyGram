@@ -68,6 +68,9 @@ interface MusicProvider {
 
     suspend fun lyrics(trackId: String): ProviderResult<ProviderLyrics>
 
+    /** Drops any cached lyrics entry for [trackId] so an explicit retry always queries the service again. */
+    fun invalidateLyrics(trackId: String) {}
+
     /**
      * A temporary direct link to the audio of a full track. Fails with [MusicProviderFailure.SubscriptionRequired]
      * when the account has no subscription, so the player never plays 30-second previews as full tracks.
