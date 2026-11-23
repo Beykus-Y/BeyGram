@@ -26,6 +26,8 @@ import androidx.compose.ui.unit.dp
 import com.beykus.beygram.navigation.AppRoute
 import com.beykus.beygram.navigation.MainTab
 import com.beykus.beygram.ui.components.BeyGramDialog
+import com.beykus.beygram.ui.components.BeyGramPopover
+import com.beykus.beygram.ui.components.BeyGramPopoverItem
 import com.beykus.beygram.ui.theme.BeyGramTheme
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -184,5 +186,104 @@ class PersistentPhoneTabsUiTest {
         rule.waitForIdle()
         assertFalse("New account in Chat must not mount tabs before visiting root", observedKeepMounted)
         assertEquals(MainTab.Chats, observedTab)
+    }
+
+    @Test
+    fun popoverInsideCoveredBackdropIsDismissedAndStaysClosedOnReturn() {
+        var covered by mutableStateOf(false)
+        var menuOpen by mutableStateOf(true)
+        var mounts = 0
+
+        rule.setContent {
+            BeyGramTheme {
+                PersistentPhoneTabsBackdrop(covered = covered) {
+                    DisposableEffect(Unit) {
+                        mounts++
+                        onDispose {}
+                    }
+                    Box(Modifier.size(120.dp)) {
+                        BeyGramPopover(
+                            expanded = menuOpen,
+                            onDismissRequest = { menuOpen = false }
+                        ) {
+                            BeyGramPopoverItem(
+                                text = "Overflow action",
+                                onClick = { menuOpen = false }
+                            )
+                        }
+                    }
+                }
+            }
+        }
+
+        rule.onNodeWithText("Overflow action").assertExists()
+        assertTrue(menuOpen)
+
+        // Deep link / push covers the root tab while its overflow or contact popup is open.
+        covered = true
+        rule.waitForIdle()
+        assertFalse("Popover inside covered tab must be dismissed", menuOpen)
+        rule.onNodeWithText("Overflow action").assertDoesNotExist()
+        assertEquals("Underlying tab must stay mounted", 1, mounts)
+
+        // Returning to root tab must keep the popup dismissed and avoid remounting.
+        covered = false
+        rule.waitForIdle()
+        assertFalse(menuOpen)
+        rule.onNodeWithText("Overflow action").assertDoesNotExist()
+        assertEquals(1, mounts)
+    }
+
+    @Test
+    fun coveredFolderManagerResetsAndDoesNotInterceptBack() {
+        var covered by mutableStateOf(false)
+        var managingFolders by mutableStateOf(true)
+        var backgroundBackCalls = 0
+        var foregroundBackCalls = 0
+        val dispatcher = androidx.activity.OnBackPressedDispatcher()
+
+        rule.setContent {
+            val owner = object : androidx.activity.OnBackPressedDispatcherOwner {
+                override val lifecycle = androidx.lifecycle.compose.LocalLifecycleOwner.current.lifecycle
+                override val onBackPressedDispatcher = dispatcher
+            }
+            androidx.compose.runtime.CompositionLocalProvider(
+                androidx.activity.compose.LocalOnBackPressedDispatcherOwner provides owner
+            ) {
+                PersistentPhoneTabsBackdrop(covered = covered) {
+                    val isCovered = LocalMainTabsCovered.current
+                    androidx.compose.runtime.LaunchedEffect(isCovered) {
+                        if (isCovered) managingFolders = false
+                    }
+                    if (managingFolders && !isCovered) {
+                        androidx.activity.compose.BackHandler(enabled = !isCovered) {
+                            backgroundBackCalls++
+                            managingFolders = false
+                        }
+                    }
+                }
+                if (covered) {
+                    androidx.activity.compose.BackHandler(enabled = true) {
+                        foregroundBackCalls++
+                        covered = false
+                    }
+                }
+            }
+        }
+
+        rule.waitForIdle()
+        assertTrue(managingFolders)
+
+        // External intent opens Chat on top while folder manager was active.
+        covered = true
+        rule.waitForIdle()
+        assertFalse("Folder manager must reset when covered", managingFolders)
+
+        // Pressing Back must hit the foreground Chat BackHandler, never the background folder manager.
+        rule.runOnIdle { dispatcher.onBackPressed() }
+        rule.waitForIdle()
+        assertEquals("Foreground BackHandler must receive Back", 1, foregroundBackCalls)
+        assertEquals("Covered background BackHandler must not intercept Back", 0, backgroundBackCalls)
+        assertFalse("Returning from Chat must land on Chats list, not stale folder manager", managingFolders)
     }
 }

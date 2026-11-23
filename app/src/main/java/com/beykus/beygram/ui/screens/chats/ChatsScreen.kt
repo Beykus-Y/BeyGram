@@ -359,6 +359,7 @@ fun ChatsScreen(
             peekedChat = null
             confirmReadAll = false
             showSwipeSettings = false
+            managingFolders = false
         }
     }
     val snackbarState = remember(accountId) { SnackbarHostState() }
@@ -643,7 +644,7 @@ fun ChatsScreen(
         if (listState.firstVisibleItemIndex != 0 || listState.firstVisibleItemScrollOffset != 0) listState.scrollToItem(0)
     }
 
-    if (managingFolders) {
+    if (managingFolders && !coveredByOverlay) {
         val manager: @Composable () -> Unit = {
             // Sorting every chat by title is only needed while the manager is open, and once per list change.
             val knownChats = remember(chats, archivedChats, folderChats) {

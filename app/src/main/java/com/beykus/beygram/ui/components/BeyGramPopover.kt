@@ -83,6 +83,10 @@ fun BeyGramPopover(
     offset: DpOffset = DpOffset.Zero,
     content: @Composable ColumnScope.() -> Unit
 ) {
+    if (com.beykus.beygram.LocalMainTabsCovered.current) {
+        if (expanded) androidx.compose.runtime.LaunchedEffect(Unit) { onDismissRequest() }
+        return
+    }
     val visibleState = remember { MutableTransitionState(false) }
     visibleState.targetState = expanded
     // Keep the popup while its exit animation runs, and leave composition once the exit has finished.
