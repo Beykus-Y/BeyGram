@@ -69,6 +69,7 @@ internal fun ChatJumpControls(
     conversation: ConversationRepository,
     onJumpToMessage: (Long) -> Unit,
     modifier: Modifier = Modifier,
+    onReadAllFailed: () -> Unit = {},
     jumpLatestButton: @Composable () -> Unit
 ) {
     val scope = rememberCoroutineScope()
@@ -127,7 +128,7 @@ internal fun ChatJumpControls(
             confirmText = stringResource(R.string.chat_read_all_confirm),
             onConfirm = {
                 readAllMentions = null
-                scope.launch { conversation.readAllMarks(chatId, forumTopicId, mentions) }
+                scope.launch { conversation.readAllMarks(chatId, forumTopicId, mentions).onFailure { onReadAllFailed() } }
             },
             dismissText = stringResource(R.string.common_cancel),
             onDismiss = { readAllMentions = null }

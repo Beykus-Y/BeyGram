@@ -2664,6 +2664,7 @@ fun ChatScreen(
             showJumpLatest = away || history.hasNewerMessages,
             conversation = conversation,
             onJumpToMessage = { id -> jumpToMessage(id, R.string.chat_message_unavailable) },
+            onReadAllFailed = { error = context.getString(R.string.chat_read_all_failed) },
             modifier = Modifier.align(Alignment.BottomEnd).padding(end = 12.dp, bottom = 12.dp)
         ) {
             JumpToLatestButton(unread = if (forumTopicId > 0L) topicUnreadCount else chat.unreadCount, onClick = {
