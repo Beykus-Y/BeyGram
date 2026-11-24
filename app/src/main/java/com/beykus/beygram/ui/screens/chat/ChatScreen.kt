@@ -200,6 +200,7 @@ fun ChatScreen(
     recordingSettings: VideoMessageSettingsStore, translationSettings: TranslationSettingsStore,
     chatOverrides: ChatOverridesStore, focusMessageId: Long = 0L, onFocusHandled: () -> Unit = {},
     forumTopicId: Long = 0L, forumTopicTitle: String? = null, topicCanPost: Boolean = true, topicUnreadCount: Int = 0,
+    topicUnreadMentionCount: Int = 0, topicUnreadReactionCount: Int = 0,
     /** The topic row the chat was opened from; its server icon and closed state identify the conversation. */
     forumTopic: ForumTopic? = null,
     onServiceUser: (Long) -> Unit = {},
@@ -355,6 +356,8 @@ fun ChatScreen(
     var highlighted by remember { mutableStateOf<Long?>(null) }
     // A message outside the loaded history is scrolled to once the window around it reaches the list.
     var pendingJumpId by remember(chat.id, forumTopicId) { mutableStateOf<Long?>(null) }
+    // The message the error shows when the loaded window does not contain pendingJumpId.
+    var pendingJumpFailure by remember(chat.id, forumTopicId) { mutableIntStateOf(R.string.chat_message_unavailable) }
     var jumpGeneration by remember(chat.id, forumTopicId) { mutableIntStateOf(0) }
     var jumpScrollJob by remember(chat.id, forumTopicId) { mutableStateOf<Job?>(null) }
     var jumpLoadJob by remember(chat.id, forumTopicId) { mutableStateOf<Job?>(null) }
@@ -1536,6 +1539,9 @@ fun ChatScreen(
             }
         }
     }
+    // The target lands above the bottom edge, where the jump badges and the composer do not cover it.
+    // Targets land above the bottom edge, where the jump badges and the composer do not cover them.
+    fun targetScrollOffset(): Int = -(listState.layoutInfo.viewportSize.height * UNREAD_SEPARATOR_VIEWPORT_FRACTION).roundToInt()
     // Read marks stay held while a focused message from outside the chat is being opened; its jump decides the position.
     fun settleFocusedOpening() { if (scrollPosition.focusClaimed) scrollPosition.readBoundaryChecked = true }
     LaunchedEffect(pendingJumpId, messageListItems) {
@@ -1543,12 +1549,16 @@ fun ChatScreen(
         val index = messageListItems.indexOfFirst { item -> item.messages.any { it.id == target } }
         if (index < 0) {
             // The window is in place but has no target (for example, a deleted message): release the opening instead of holding read marks.
-            if (!history.isLoading) { settleFocusedOpening(); pendingJumpId = null }
+            if (!history.isLoading) {
+                // The window was replaced around the target, so say why nothing is shown instead of leaving an unexplained position.
+                error = context.getString(pendingJumpFailure)
+                settleFocusedOpening(); pendingJumpId = null
+            }
             return@LaunchedEffect
         }
         // A scroll cancelled by the user's touch still settles the opening, or read marks would stay held for the visit.
         try {
-            listState.scrollToItemRespectingMotion(index, motionInstant = listScrollInstant)
+            listState.scrollToItemRespectingMotion(index, scrollOffset = targetScrollOffset(), motionInstant = listScrollInstant)
             highlighted = target
         } finally {
             settleFocusedOpening()
@@ -1559,8 +1569,9 @@ fun ChatScreen(
     LaunchedEffect(highlighted) { if (highlighted != null) { delay(2200); highlighted = null } }
     fun jump(reply: MessageReply) {
         if (reply.isUnavailable || reply.messageId <= 0) { error = context.getString(R.string.chat_reply_original_unavailable); return }
+        cancelActiveJump()
         val index = messageListItems.indexOfFirst { item -> item.messages.any { it.id == reply.messageId && it.chatId == reply.chatId } }
-        if (index >= 0) scope.launch { listState.scrollToItemRespectingMotion(index, motionInstant = listScrollInstant); highlighted = reply.messageId }
+        if (index >= 0) scope.launch { listState.scrollToItemRespectingMotion(index, scrollOffset = targetScrollOffset(), motionInstant = listScrollInstant); highlighted = reply.messageId }
         else { contextChatId = reply.chatId; contextMessageId = reply.messageId }
     }
     // The reply is checked on the server first: a channel, or a chat without reply rights, must not enter reply mode.
@@ -1656,7 +1667,7 @@ fun ChatScreen(
         if (index >= 0) {
             jumpScrollJob = scope.launch {
                 try {
-                    listState.scrollToItemRespectingMotion(index, motionInstant = listScrollInstant)
+                    listState.scrollToItemRespectingMotion(index, scrollOffset = targetScrollOffset(), motionInstant = listScrollInstant)
                     if (generation == jumpGeneration) highlighted = messageId
                 } finally {
                     settleFocusedOpening()
@@ -1670,7 +1681,7 @@ fun ChatScreen(
                 (if (forumTopicId > 0L) conversation.loadForumTopicMessagesAround(chat.id, forumTopicId, messageId) else conversation.loadMessagesAround(chat.id, messageId))
                     .onSuccess { applied ->
                         if (generation != jumpGeneration) return@onSuccess
-                        if (applied) pendingJumpId = messageId else settleFocusedOpening()
+                        if (applied) { pendingJumpFailure = failure; pendingJumpId = messageId } else settleFocusedOpening()
                     }
                     .onFailure {
                         if (generation != jumpGeneration) return@onFailure
@@ -2647,8 +2658,8 @@ fun ChatScreen(
         ChatJumpControls(
             chatId = chat.id,
             forumTopicId = forumTopicId,
-            unreadMentions = if (forumTopicId > 0L) 0 else chat.unreadMentionCount,
-            unreadReactions = if (forumTopicId > 0L) 0 else chat.unreadReactionCount,
+            unreadMentions = if (forumTopicId > 0L) topicUnreadMentionCount else chat.unreadMentionCount,
+            unreadReactions = if (forumTopicId > 0L) topicUnreadReactionCount else chat.unreadReactionCount,
             showJumpLatest = away || history.hasNewerMessages,
             conversation = conversation,
             onJumpToMessage = { id -> jumpToMessage(id, R.string.chat_message_unavailable) },

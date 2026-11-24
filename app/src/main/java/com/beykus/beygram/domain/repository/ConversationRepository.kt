@@ -122,6 +122,9 @@ interface ConversationRepository {
     suspend fun loadMessagesAround(chatId: Long, messageId: Long): Result<Boolean>
     /** Invalidates any in-flight [loadMessagesAround] or [loadForumTopicMessagesAround] window replacement for this chat or topic. */
     fun cancelMessageJump(chatId: Long, forumTopicId: Long = 0L) {}
+
+    /** Reports [messageId] as viewed again, so a jump to its unread reaction or mention clears it. */
+    fun viewMessageAgain(chatId: Long, messageId: Long) {}
     /** One page of messages newer than [afterMessageId], oldest first; used to walk toward the first unread target. */
     suspend fun newerMessages(chatId: Long, forumTopicId: Long, afterMessageId: Long): Result<List<ChatMessage>>
     /** Latest messages of a chat for the long-press preview. Reads history only: the chat is not opened and stays unread. */

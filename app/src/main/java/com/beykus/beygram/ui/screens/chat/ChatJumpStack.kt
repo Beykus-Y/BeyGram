@@ -81,7 +81,10 @@ internal fun ChatJumpControls(
                 label = stringResource(R.string.chat_jump_to_reaction),
                 onClick = {
                     scope.launch {
-                        conversation.nextUnreadReaction(chatId, forumTopicId).getOrNull()?.let(onJumpToMessage)
+                        conversation.nextUnreadReaction(chatId, forumTopicId).getOrNull()?.let { id ->
+                            conversation.viewMessageAgain(chatId, id)
+                            onJumpToMessage(id)
+                        }
                     }
                 }
             )
@@ -93,7 +96,10 @@ internal fun ChatJumpControls(
                 label = stringResource(R.string.chat_jump_to_mention),
                 onClick = {
                     scope.launch {
-                        conversation.nextUnreadMention(chatId, forumTopicId).getOrNull()?.let(onJumpToMessage)
+                        conversation.nextUnreadMention(chatId, forumTopicId).getOrNull()?.let { id ->
+                            conversation.viewMessageAgain(chatId, id)
+                            onJumpToMessage(id)
+                        }
                     }
                 }
             )

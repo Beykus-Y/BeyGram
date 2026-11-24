@@ -2684,6 +2684,8 @@ class TdLibTelegramRepository private constructor(
 
     override suspend fun peekMessages(chatId: Long): Result<List<ChatMessage>> = conversationActions.peekMessages(chatId)
 
+    override fun viewMessageAgain(chatId: Long, messageId: Long) = conversationEffects.viewAgain(chatId, messageId)
+
     override suspend fun loadMessagesAround(chatId: Long, messageId: Long): Result<Boolean> {
         // Taken before the wait, so a latest load or another jump that starts meanwhile supersedes this one.
         val request = nextHistoryRequest(chatId)
@@ -2856,6 +2858,17 @@ class TdLibTelegramRepository private constructor(
                 publishChat(update.chatId)
             }
             is TdApi.UpdateChatUnreadReactionCount -> {
+                chatCache[update.chatId]?.let { chatCache[update.chatId] = it.copy(unreadReactionCount = update.unreadReactionCount) }
+                publishChat(update.chatId)
+            }
+            // TDLib reports a single read mention or a reaction change per message through these, not through the chat totals.
+            is TdApi.UpdateMessageMentionRead -> {
+                chatCache[update.chatId]?.let { chatCache[update.chatId] = it.copy(unreadMentionCount = update.unreadMentionCount) }
+                publishChat(update.chatId)
+            }
+            is TdApi.UpdateMessageUnreadReactions -> {
+                // A message that gets an unread reaction after it was reported as viewed must be reported again when it is seen.
+                conversationEffects.forgetViewed(update.chatId, update.messageId)
                 chatCache[update.chatId]?.let { chatCache[update.chatId] = it.copy(unreadReactionCount = update.unreadReactionCount) }
                 publishChat(update.chatId)
             }
