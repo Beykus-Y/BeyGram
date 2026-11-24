@@ -998,6 +998,12 @@
     <string name="chat_quote_action">Citer</string>
     <string name="chat_jump_to_mention">Aller à la mention suivante</string>
     <string name="chat_jump_to_reaction">Aller à la nouvelle réaction</string>
+    <string name="chat_read_all_mentions_title">Marquer toutes les mentions comme lues ?</string>
+    <string name="chat_read_all_reactions_title">Marquer toutes les réactions comme lues ?</string>
+    <string name="chat_read_all_mentions_message">Toutes les mentions de ce chat seront marquées comme lues.</string>
+    <string name="chat_read_all_reactions_message">Toutes les réactions à vos messages de ce chat seront marquées comme lues.</string>
+    <string name="chat_read_all_confirm">Marquer comme lu</string>
+    <string name="chat_read_all_failed">Impossible de tout marquer comme lu</string>
     <string name="chat_swipe_secondary_title">Glissement inversé</string>
     <string name="chat_swipe_secondary_reaction">Réaction rapide</string>
     <string name="chat_swipe_secondary_saved">Enregistrer dans Favoris</string>
