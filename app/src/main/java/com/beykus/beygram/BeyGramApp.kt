@@ -2439,6 +2439,8 @@ private fun BeyGramAppContent(
                             forumTopic = selectedTopic,
                             topicCanPost = selectedTopic?.canWrite ?: true,
                             topicUnreadCount = selectedTopic?.unreadCount ?: 0,
+                            topicUnreadMentionCount = selectedTopic?.unreadMentionCount ?: 0,
+                            topicUnreadReactionCount = selectedTopic?.unreadReactionCount ?: 0,
                             onServiceUser = { userId -> openUserProfile(userId, AppRoute.Chat) },
                             isPremiumAccount = myAccount.info?.isPremium == true,
                             onPremium = { openPremium(AppRoute.Chat) },

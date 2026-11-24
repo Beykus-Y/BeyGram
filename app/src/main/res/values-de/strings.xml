@@ -972,6 +972,12 @@
     <string name="chat_quote_action">Zitieren</string>
     <string name="chat_jump_to_mention">Zur nächsten Erwähnung</string>
     <string name="chat_jump_to_reaction">Zur neuen Reaktion</string>
+    <string name="chat_read_all_mentions_title">Alle Erwähnungen als gelesen markieren?</string>
+    <string name="chat_read_all_reactions_title">Alle Reaktionen als gelesen markieren?</string>
+    <string name="chat_read_all_mentions_message">Alle Erwähnungen in diesem Chat werden als gelesen markiert.</string>
+    <string name="chat_read_all_reactions_message">Alle Reaktionen auf deine Nachrichten in diesem Chat werden als gelesen markiert.</string>
+    <string name="chat_read_all_confirm">Als gelesen markieren</string>
+    <string name="chat_read_all_failed">Alles konnte nicht als gelesen markiert werden</string>
     <string name="chat_swipe_secondary_title">Gegenwisch-Aktion</string>
     <string name="chat_swipe_secondary_reaction">Schnellreaktion</string>
     <string name="chat_swipe_secondary_saved">In Gespeichertes</string>
