@@ -1539,7 +1539,6 @@ fun ChatScreen(
             }
         }
     }
-    // The target lands above the bottom edge, where the jump badges and the composer do not cover it.
     // Targets land above the bottom edge, where the jump badges and the composer do not cover them.
     fun targetScrollOffset(): Int = -(listState.layoutInfo.viewportSize.height * UNREAD_SEPARATOR_VIEWPORT_FRACTION).roundToInt()
     // Read marks stay held while a focused message from outside the chat is being opened; its jump decides the position.
@@ -1567,13 +1566,6 @@ fun ChatScreen(
         pendingJumpId = null
     }
     LaunchedEffect(highlighted) { if (highlighted != null) { delay(2200); highlighted = null } }
-    fun jump(reply: MessageReply) {
-        if (reply.isUnavailable || reply.messageId <= 0) { error = context.getString(R.string.chat_reply_original_unavailable); return }
-        cancelActiveJump()
-        val index = messageListItems.indexOfFirst { item -> item.messages.any { it.id == reply.messageId && it.chatId == reply.chatId } }
-        if (index >= 0) scope.launch { listState.scrollToItemRespectingMotion(index, scrollOffset = targetScrollOffset(), motionInstant = listScrollInstant); highlighted = reply.messageId }
-        else { contextChatId = reply.chatId; contextMessageId = reply.messageId }
-    }
     // The reply is checked on the server first: a channel, or a chat without reply rights, must not enter reply mode.
     // Only the latest swipe may apply its answer, so a slower check cannot reopen the composer for an older message.
     fun swipeReply(messageId: Long) {
@@ -1692,6 +1684,15 @@ fun ChatScreen(
                 if (generation == jumpGeneration) jumpLoadJob = null
             }
         }
+    }
+    fun jump(reply: MessageReply) {
+        if (reply.isUnavailable || reply.messageId <= 0) { error = context.getString(R.string.chat_reply_original_unavailable); return }
+        cancelActiveJump()
+        val index = messageListItems.indexOfFirst { item -> item.messages.any { it.id == reply.messageId && it.chatId == reply.chatId } }
+        if (index >= 0) scope.launch { listState.scrollToItemRespectingMotion(index, scrollOffset = targetScrollOffset(), motionInstant = listScrollInstant); highlighted = reply.messageId }
+        // Same chat: load the window around the quoted message and jump there. Other chats keep the context dialog.
+        else if (reply.chatId == chat.id) jumpToMessage(reply.messageId, R.string.chat_reply_original_unavailable)
+        else { contextChatId = reply.chatId; contextMessageId = reply.messageId }
     }
     fun openSearchResult(message: ChatMessage, scrollIndex: Int, scrollOffset: Int) {
         val snapshot = searchResults

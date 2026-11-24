@@ -2686,6 +2686,9 @@ class TdLibTelegramRepository private constructor(
 
     override fun viewMessageAgain(chatId: Long, messageId: Long) = conversationEffects.viewAgain(chatId, messageId)
 
+    override suspend fun readAllMarks(chatId: Long, forumTopicId: Long, mentions: Boolean): Result<Unit> =
+        conversationActions.readAllMarks(chatId, forumTopicId, mentions)
+
     override suspend fun loadMessagesAround(chatId: Long, messageId: Long): Result<Boolean> {
         // Taken before the wait, so a latest load or another jump that starts meanwhile supersedes this one.
         val request = nextHistoryRequest(chatId)
