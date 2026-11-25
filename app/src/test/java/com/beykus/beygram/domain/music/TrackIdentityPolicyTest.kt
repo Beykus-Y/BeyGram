@@ -85,6 +85,14 @@ class TrackIdentityPolicyTest {
         )
         assertNull(ExternalMetadataPolicy.sanitizedExternalQuery(protectedId))
 
+        val unknownPrivacyId = TrackIdentity.fromPlaybackItem(telegramAudio(), protectedChat = null)
+        assertEquals(
+            MetadataLookupDecision.DeniedUnknownPrivacy,
+            ExternalMetadataPolicy.checkExternalLookup(unknownPrivacyId, isMusic = true, externalLookupOptIn = true),
+        )
+        assertNull(ExternalMetadataPolicy.sanitizedExternalQuery(unknownPrivacyId))
+        assertFalse(ExternalMetadataPolicy.allowsExternalLookup(telegramAudio(), protectedChat = null, externalLookupOptIn = true))
+
         val secretId = TrackIdentity.fromPlaybackItem(telegramAudio(secret = true))
         assertEquals(
             MetadataLookupDecision.DeniedPrivateMedia,
@@ -101,7 +109,7 @@ class TrackIdentityPolicyTest {
 
     @Test
     fun sanitizedExternalQueryNeverContainsTelegramOrAccountIds() {
-        val id = TrackIdentity.fromPlaybackItem(telegramAudio())
+        val id = TrackIdentity.fromPlaybackItem(telegramAudio(), protectedChat = false)
         val query = ExternalMetadataPolicy.sanitizedExternalQuery(id)!!
         assertEquals("Track Title", query.title)
         assertEquals("Artist", query.artist)
