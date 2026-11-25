@@ -194,9 +194,14 @@ fun GlassPanel(
             buildLensRenderEffect(it, lensSize, shape, lensThicknessPx, blurPx, darkSurface, density, layoutDirection, lensTuning, edge)
         }
     }
-    val lensActive = lensEffect != null && panelSize == lensSize
+    // Full-width chrome changes height while the list scrolls (the header collapses). Dropping the lens on every such
+    // step would flicker it, so that chrome keeps the last settled lens and rebuilds it once the size settles. Its
+    // effect is only rebuilt at settle (keyed on lensSize), so this costs no extra per-frame work.
+    val keepsLensThroughResize = lensOnFreeEdge && lensEffect != null
+    val lensActive = lensEffect != null && (panelSize == lensSize || keepsLensThroughResize)
     // The lens cross-fades in once a settled size is known, and drops out at once when the size changes: a fade-out
-    // would keep drawing the lens at the old size while the panel has already moved on.
+    // would keep drawing the lens at the old size while the panel has already moved on. Free-edge chrome is the exception
+    // above.
     val lensMix: Float by animateFloatAsState(
         targetValue = if (lensActive) 1f else 0f,
         animationSpec = if (lensActive) tween(lensTuning.crossfadeMillis) else snap(),
