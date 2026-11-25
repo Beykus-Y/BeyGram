@@ -156,6 +156,9 @@ import androidx.compose.ui.input.key.type
 import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.input.pointer.positionChanged
+import androidx.compose.ui.input.pointer.util.VelocityTracker
+import androidx.compose.ui.zIndex
+import kotlinx.coroutines.Job
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalHapticFeedback
@@ -917,12 +920,23 @@ private fun PlayerArtwork(
     }
     DisposableEffect(Unit) { onDispose { targets.artwork = null } }
     val reduced = mediaMotion.isInstant
+    val coroutineScope = rememberCoroutineScope()
+    val travelDistancePx = with(density) { (size * 0.78f).toPx().coerceAtLeast(180f) }
+    val offsetFraction = remember { Animatable(0f) }
+    var pendingCommit by remember { mutableStateOf<PendingSwipeCommit?>(null) }
+    var suppressEntryScaleKey by remember { mutableStateOf<String?>(null) }
+    var activeGestureJob by remember { mutableStateOf<Job?>(null) }
+    val skipEntryScale = reduced || suppressEntryScaleKey == player.item.key
     val entryScale = remember(player.item.key) {
-        Animatable(if (reduced) 1f else 1f - 0.06f * mediaMotion.intensity)
+        Animatable(if (skipEntryScale) 1f else 1f - 0.06f * mediaMotion.intensity)
     }
     LaunchedEffect(player.item.key, reduced) {
-        if (reduced) entryScale.snapTo(1f)
-        else entryScale.animateTo(1f, mediaMotion.animationSpec())
+        if (reduced || suppressEntryScaleKey == player.item.key) {
+            entryScale.snapTo(1f)
+            if (suppressEntryScaleKey == player.item.key) suppressEntryScaleKey = null
+        } else {
+            entryScale.animateTo(1f, mediaMotion.animationSpec())
+        }
     }
     val playing = player.playing || player.intentPlaying
     val breatheScale by animateFloatAsState(
@@ -935,14 +949,6 @@ private fun PlayerArtwork(
         animationSpec = mediaMotion.animationSpec(),
         label = "artworkElevation"
     )
-    val swipeThresholdPx = with(density) { 72.dp.toPx() }
-    val maxSwipeShiftPx = swipeThresholdPx * 0.65f
-    var dragOffsetX by remember(player.item.key) { mutableFloatStateOf(0f) }
-    val animatedDragX by animateFloatAsState(
-        targetValue = if (reduced) 0f else dragOffsetX,
-        animationSpec = mediaMotion.animationSpec(),
-        label = "artworkSwipe"
-    )
     val playbackState by PlaybackEngine.state.collectAsStateWithLifecycle()
     val nextAdjacent = remember(playbackState.queue, playbackState.queueIndex, player.canNext) {
         if (player.canNext) adjacentQueueItem(playbackState, -1) else null
@@ -953,6 +959,26 @@ private fun PlayerArtwork(
     // Preload adjacent provider covers so static artwork appears immediately during swipe.
     val nextProviderCover = rememberProviderCover(nextAdjacent?.let { ProviderTracks.byKey(it.key)?.coverUrl })
     val prevProviderCover = rememberProviderCover(prevAdjacent?.let { ProviderTracks.byKey(it.key)?.coverUrl })
+    LaunchedEffect(player.item.key, pendingCommit) {
+        val commit = pendingCommit ?: return@LaunchedEffect
+        if (player.item.key == commit.targetKey) {
+            offsetFraction.snapTo(0f)
+            pendingCommit = null
+        } else {
+            delay(350L)
+            if (pendingCommit == commit) {
+                pendingCommit = null
+                offsetFraction.animateTo(0f, mediaMotion.animationSpec())
+            }
+        }
+    }
+    LaunchedEffect(playbackState.queue) {
+        val commit = pendingCommit ?: return@LaunchedEffect
+        if (playbackState.queue.none { it.key == commit.targetKey }) {
+            pendingCommit = null
+            offsetFraction.animateTo(0f, mediaMotion.animationSpec())
+        }
+    }
     // Short visual feedback badge when double-tapping left/right half of the artwork (±10s).
     var seekFlashDirection by remember(player.item.key) { mutableIntStateOf(0) }
     var seekFlashNonce by remember(player.item.key) { mutableIntStateOf(0) }
@@ -981,86 +1007,154 @@ private fun PlayerArtwork(
                     }
                 )
             }
-            .pointerInput(player.item.key, player.canNext, player.canPrevious) {
-                var total = 0f
+            .pointerInput(player.item.key, player.canNext, player.canPrevious, nextAdjacent?.key, prevAdjacent?.key) {
+                var totalDrag = 0f
+                var startFraction = 0f
+                var velocityTracker = VelocityTracker()
                 detectHorizontalDragGestures(
-                    onDragStart = { total = 0f },
+                    onDragStart = {
+                        activeGestureJob?.cancel()
+                        if (pendingCommit != null) {
+                            pendingCommit = null
+                            activeGestureJob = coroutineScope.launch { offsetFraction.snapTo(0f) }
+                        }
+                        startFraction = offsetFraction.value
+                        totalDrag = 0f
+                        velocityTracker = VelocityTracker()
+                    },
                     onDragCancel = {
-                        total = 0f
-                        dragOffsetX = 0f
+                        totalDrag = 0f
+                        activeGestureJob?.cancel()
+                        activeGestureJob = coroutineScope.launch {
+                            offsetFraction.animateTo(0f, mediaMotion.animationSpec())
+                        }
                     },
                     onDragEnd = {
-                        val dx = total
-                        total = 0f
-                        dragOffsetX = 0f
-                        when {
-                            dx <= -swipeThresholdPx && player.canNext -> {
-                                haptic.performHapticFeedback(HapticFeedbackType.ContextClick)
-                                PlaybackEngine.next()
+                        val vx = velocityTracker.calculateVelocity().x
+                        val decision = resolveCarouselSwipeDecision(
+                            offsetFraction = offsetFraction.value,
+                            velocityPxPerSec = vx,
+                            canNext = player.canNext,
+                            canPrevious = player.canPrevious,
+                        )
+                        val incoming = when (decision) {
+                            -1 -> nextAdjacent
+                            1 -> prevAdjacent
+                            else -> null
+                        }
+                        activeGestureJob?.cancel()
+                        if (decision == 0 || incoming == null) {
+                            activeGestureJob = coroutineScope.launch {
+                                offsetFraction.animateTo(0f, mediaMotion.animationSpec())
                             }
-                            dx >= swipeThresholdPx && player.canPrevious -> {
+                        } else {
+                            suppressEntryScaleKey = incoming.key
+                            val incomingCover = if (decision < 0) nextProviderCover else prevProviderCover
+                            activeGestureJob = coroutineScope.launch {
+                                if (reduced) {
+                                    offsetFraction.snapTo(decision.toFloat())
+                                } else {
+                                    offsetFraction.animateTo(decision.toFloat(), mediaMotion.animationSpec())
+                                }
+                                pendingCommit = PendingSwipeCommit(
+                                    targetKey = incoming.key,
+                                    direction = decision,
+                                    incomingItem = incoming,
+                                    incomingProviderCover = incomingCover,
+                                )
                                 haptic.performHapticFeedback(HapticFeedbackType.ContextClick)
-                                PlaybackEngine.previous()
+                                if (decision < 0) PlaybackEngine.next() else PlaybackEngine.previous()
                             }
                         }
                     },
                     onHorizontalDrag = { change, dragAmount ->
                         change.consume()
-                        total += dragAmount
-                        dragOffsetX = (total * 0.45f).coerceIn(-maxSwipeShiftPx, maxSwipeShiftPx)
+                        velocityTracker.addPosition(change.uptimeMillis, change.position)
+                        totalDrag += dragAmount
+                        val raw = startFraction + totalDrag / travelDistancePx
+                        val nextFraction = applyCarouselEdgeResistance(raw, player.canNext, player.canPrevious)
+                        activeGestureJob = coroutineScope.launch { offsetFraction.snapTo(nextFraction) }
                     }
                 )
             }
             .onGloballyPositioned { targets.artwork = it }
     ) {
-        val peekDirection = when {
-            reduced -> 0
-            animatedDragX < -2f -> -1
-            animatedDragX > 2f -> 1
-            else -> 0
-        }
-        val peekItem = when (peekDirection) {
-            -1 -> nextAdjacent
-            1 -> prevAdjacent
-            else -> null
-        }
-        if (peekItem != null && !PlayerExpansion.fullSharedHidden(FlightRole.Artwork)) {
-            val progress = artworkSwipeProgress(animatedDragX, maxSwipeShiftPx)
-            val peekCover = if (peekDirection < 0) nextProviderCover else prevProviderCover
-            val peekScale = 0.90f + 0.08f * progress
-            val peekShift = with(density) { 26.dp.toPx() } * (1f - progress) * (if (peekDirection < 0) 1f else -1f)
-            TrackArtwork(
-                artworkPath = peekItem.artworkPath?.takeIf { it.isNotBlank() } ?: peekCover,
-                audioPath = peekItem.path.takeIf { it.isNotBlank() },
-                modifier = Modifier
+        val activeCommit = pendingCommit
+        if (activeCommit != null && player.item.key != activeCommit.targetKey) {
+            Box(
+                Modifier
                     .fillMaxSize()
                     .graphicsLayer {
-                        scaleX = peekScale
-                        scaleY = peekScale
-                        translationX = peekShift
-                        alpha = 0.35f + 0.65f * progress
+                        scaleX = breatheScale
+                        scaleY = breatheScale
+                        alpha = if (PlayerExpansion.fullSharedHidden(FlightRole.Artwork)) 0f else 1f
+                    }
+                    .shadow(elevation, styledShape(20.dp), clip = false)
+            ) {
+                TrackArtwork(
+                    artworkPath = activeCommit.incomingItem.artworkPath?.takeIf { it.isNotBlank() }
+                        ?: activeCommit.incomingProviderCover,
+                    audioPath = activeCommit.incomingItem.path.takeIf { it.isNotBlank() },
+                    modifier = Modifier.fillMaxSize(),
+                    background = palette.accentSoft,
+                    tint = palette.accentInk,
+                    symbolSize = size * 0.22f,
+                    cornerRadius = 20.dp,
+                    border = palette.divider.copy(alpha = 0.55f)
+                )
+            }
+            return@Box
+        }
+
+        val offset = if (reduced) 0f else offsetFraction.value
+        val adjacentItem = when {
+            offset < -0.001f -> nextAdjacent
+            offset > 0.001f -> prevAdjacent
+            else -> null
+        }
+        if (adjacentItem != null && !PlayerExpansion.fullSharedHidden(FlightRole.Artwork)) {
+            val adjCover = if (offset < 0f) nextProviderCover else prevProviderCover
+            val adjSlot = (if (offset < 0f) 1f else -1f) + offset
+            val adjTransform = carouselCardTransform(adjSlot, travelDistancePx, reduced)
+            TrackArtwork(
+                artworkPath = adjacentItem.artworkPath?.takeIf { it.isNotBlank() } ?: adjCover,
+                audioPath = adjacentItem.path.takeIf { it.isNotBlank() },
+                modifier = Modifier
+                    .fillMaxSize()
+                    .zIndex(adjTransform.zIndex)
+                    .graphicsLayer {
+                        translationX = adjTransform.translationX
+                        scaleX = adjTransform.scale
+                        scaleY = adjTransform.scale
+                        rotationY = adjTransform.rotationY
+                        cameraDistance = 12f * density.density
+                        alpha = adjTransform.alpha
                     },
                 background = palette.accentSoft,
                 tint = palette.accentInk,
                 symbolSize = size * 0.22f,
                 cornerRadius = 20.dp,
-                border = palette.divider.copy(alpha = 0.4f)
+                border = palette.divider.copy(alpha = 0.45f)
             )
         }
+        val currentTransform = carouselCardTransform(offset, travelDistancePx, reduced)
         Box(
             Modifier
                 .fillMaxSize()
+                .zIndex(currentTransform.zIndex)
                 .graphicsLayer {
                     val rhythmScale = if (rhythmSignal.isActive) {
                         1f + rhythmSignal.beatPulse * 0.025f + rhythmSignal.downbeatPulse * 0.015f
                     } else {
                         1f
                     }
-                    val combined = entryScale.value * breatheScale * rhythmScale
+                    val combined = entryScale.value * breatheScale * rhythmScale * currentTransform.scale
                     scaleX = combined
                     scaleY = combined
-                    translationX = animatedDragX
-                    alpha = if (PlayerExpansion.fullSharedHidden(FlightRole.Artwork)) 0f else 1f
+                    translationX = currentTransform.translationX
+                    rotationY = currentTransform.rotationY
+                    cameraDistance = 12f * density.density
+                    alpha = if (PlayerExpansion.fullSharedHidden(FlightRole.Artwork)) 0f else currentTransform.alpha
                 }
                 .shadow(elevation, styledShape(20.dp), clip = false)
         ) {
