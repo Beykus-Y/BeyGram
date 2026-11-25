@@ -7,16 +7,18 @@ import kotlinx.coroutines.flow.asStateFlow
 
 /**
  * Persistent mode selection for BG Rhythm visual reactivity in the music player.
- * Defaults to [BgRhythmMode.Off] so no extra frame loop runs unless enabled by the user.
+ * Defaults to [BgRhythmMode.Calm] so subtle rhythm reactivity is active out of the box while
+ * respecting battery saver, reduced motion, and explicit user opt-outs.
  */
 object BgRhythmSettingsStore {
-    private const val PREFS_NAME = "beygram_rhythm_settings"
+    const val PREFS_NAME = "beygram_rhythm_settings"
     private const val KEY_MODE = "mode"
+    val DEFAULT_MODE = BgRhythmMode.Calm
 
     private val lock = Any()
     @Volatile
     private var loaded = false
-    private val _mode = MutableStateFlow(BgRhythmMode.Off)
+    private val _mode = MutableStateFlow(DEFAULT_MODE)
 
     fun flow(context: Context): StateFlow<BgRhythmMode> {
         ensureLoaded(context)
@@ -47,9 +49,16 @@ object BgRhythmSettingsStore {
             val prefs = context.applicationContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
             val saved = prefs.getString(KEY_MODE, null)
                 ?.let { runCatching { BgRhythmMode.valueOf(it) }.getOrNull() }
-                ?: BgRhythmMode.Off
+                ?: DEFAULT_MODE
             _mode.value = saved
             loaded = true
+        }
+    }
+
+    internal fun resetForTests() {
+        synchronized(lock) {
+            loaded = false
+            _mode.value = DEFAULT_MODE
         }
     }
 }
