@@ -177,6 +177,8 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.zIndex
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.beykus.beygram.R
+import com.beykus.beygram.data.canvas.BgCanvasMode
+import com.beykus.beygram.data.canvas.CanvasLoadState
 import com.beykus.beygram.media.bgbeat.BgBeatSection
 import com.beykus.beygram.media.bgwave.BgWaveHub
 import androidx.compose.material.icons.rounded.GraphicEq
@@ -339,6 +341,11 @@ internal fun MusicPlayerContent(
             1.0f to Color.Transparent,
         )
     }
+    val (canvasMode, canvasState) = rememberBgCanvasState(
+        item = player.item,
+        active = panel == PlayerPanel.Player,
+    )
+    val cardCanvasState = if (canvasMode == BgCanvasMode.Card) canvasState else CanvasLoadState.Idle
     Box(
         modifier
             .fillMaxWidth()
@@ -353,6 +360,18 @@ internal fun MusicPlayerContent(
             }
             .onGloballyPositioned { contentCoords = it }
     ) {
+        if (canvasMode == BgCanvasMode.Fullscreen && canvasState is CanvasLoadState.Ready) {
+            BgCanvasOverlay(
+                state = canvasState,
+                playing = player.playing,
+                modifier = Modifier.matchParentSize(),
+            )
+            Box(
+                Modifier
+                    .matchParentSize()
+                    .background(Color.Black.copy(alpha = 0.48f))
+            )
+        }
         if (waveRibbons) {
             WaveBackdrop(
                 color = palette.accent,
@@ -409,6 +428,7 @@ internal fun MusicPlayerContent(
                         modifier = Modifier.weight(1f),
                         player = player,
                         rhythmSignal = rhythmSignal,
+                        cardCanvasState = cardCanvasState,
                         onOpenQueue = { onPanel(PlayerPanel.Queue) },
                         onOpenLyrics = { onPanel(PlayerPanel.Lyrics) },
                         onOpenEqualizer = onOpenEqualizer?.let { open ->
@@ -705,6 +725,7 @@ internal const val SLEEP_EXTEND_MINUTES = 15
 private fun PlayerBody(
     player: MusicPlayerUi,
     rhythmSignal: BgRhythmSignal,
+    cardCanvasState: CanvasLoadState,
     onOpenQueue: () -> Unit,
     onOpenLyrics: () -> Unit,
     onOpenEqualizer: (() -> Unit)?,
@@ -720,7 +741,7 @@ private fun PlayerBody(
                 Modifier.fillMaxSize().padding(horizontal = 20.dp, vertical = 4.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                PlayerArtwork(player, artwork, mediaMotion, rhythmSignal)
+                PlayerArtwork(player, artwork, mediaMotion, rhythmSignal, cardCanvasState)
                 Spacer(Modifier.width(28.dp))
                 Column(
                     Modifier
@@ -755,7 +776,7 @@ private fun PlayerBody(
                         .padding(top = 4.dp, bottom = 12.dp),
                     horizontalAlignment = Alignment.CenterHorizontally
                 ) {
-                    PlayerArtwork(player, artwork, mediaMotion, rhythmSignal)
+                    PlayerArtwork(player, artwork, mediaMotion, rhythmSignal, cardCanvasState)
                     Spacer(Modifier.height(18.dp))
                     PlayerDetails(
                         player = player,
@@ -823,6 +844,7 @@ private fun PlayerArtwork(
     size: Dp,
     mediaMotion: MotionSpec,
     rhythmSignal: BgRhythmSignal,
+    cardCanvasState: CanvasLoadState = CanvasLoadState.Idle,
 ) {
     val palette = beyGramPalette()
     val density = LocalDensity.current
@@ -944,6 +966,13 @@ private fun PlayerArtwork(
             symbolSize = size * 0.22f,
             cornerRadius = 20.dp,
             border = palette.divider.copy(alpha = 0.55f)
+        )
+        BgCanvasOverlay(
+            state = cardCanvasState,
+            playing = player.playing,
+            modifier = Modifier
+                .fillMaxSize()
+                .clip(styledShape(20.dp))
         )
         MascotOverlay(
             item = player.item,
