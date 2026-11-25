@@ -175,6 +175,17 @@ android {
                 enable = false
             }
         }
+        /**
+         * Release-like build for Macrobenchmark and Baseline Profile generation (#1119). Never published: it is
+         * signed with the debug key, keeps R8 and resource shrinking exactly as release (both off), and is only
+         * reachable through `:macrobenchmark` and `scripts/baseline-profile.ps1`.
+         */
+        create("benchmark") {
+            initWith(getByName("release"))
+            signingConfig = signingConfigs.getByName("debug")
+            isDebuggable = false
+            matchingFallbacks += listOf("release")
+        }
     }
     // libmihomo-android loads libclash.so from ApplicationInfo.nativeLibraryDir
     // by absolute path, so require PackageManager to extract JNI libs on install.

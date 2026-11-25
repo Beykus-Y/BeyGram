@@ -1,0 +1,3 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- The macrobenchmark APK only carries tests; it is never installed as BeyGram. -->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android" />
