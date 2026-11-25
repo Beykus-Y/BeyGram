@@ -223,6 +223,73 @@ class UserRangeCoordinatorTest {
         assertTrue("no window may be requested for a closed page", ranges.requests.isEmpty())
     }
 
+    /**
+     * The reader and the disposing screen really are different threads (Codex review of #1195): the page scope asks for
+     * bytes while `DisposableEffect.onDispose` calls [UserRangeCoordinator.reset]. The ownership check, the state update
+     * and `requestWindow` must therefore be one atomic step; otherwise `DownloadFile` can be sent for a page that has
+     * already been closed and already had its window cancelled.
+     *
+     * A fake that stamps every request with `System.nanoTime()` makes the ordering checkable: a request that started
+     * after `reset` returned belongs to nobody.
+     */
+    /**
+     * The reader and the disposing screen really are different threads (Codex review of #1195): the page scope asks for
+     * bytes while `DisposableEffect.onDispose` calls [UserRangeCoordinator.reset]. The ownership check, the state update
+     * and `requestWindow` must therefore be one atomic step; otherwise `DownloadFile` can be sent for a page that has
+     * already been closed and already had its window cancelled.
+     *
+     * A fake that stamps every request with `System.nanoTime()` makes the ordering checkable: the reader is released
+     * from its query at the same moment the closing thread resets, and a request that starts after `reset` returned
+     * belongs to nobody.
+     */
+    /**
+     * The reader and the disposing screen really are different threads (Codex review of #1195): the page scope asks for
+     * bytes while `DisposableEffect.onDispose` calls [UserRangeCoordinator.reset]. The ownership check, the state update
+     * and `requestWindow` must therefore be one atomic step; otherwise `DownloadFile` can be sent for a page that has
+     * already been closed and already had its window cancelled.
+     *
+     * A fake that stamps every request with `System.nanoTime()` makes the ordering checkable: the reader is released
+     * from its query at the same moment the closing thread resets, and a request that starts after `reset` returned
+     * belongs to nobody.
+     */
+    @Test
+    fun `a request cannot slip past a reset from another thread`() {
+        repeat(500) {
+            val requestTimes = java.util.Collections.synchronizedList(ArrayList<Long>())
+            val entered = java.util.concurrent.CountDownLatch(1)
+            val release = java.util.concurrent.CountDownLatch(1)
+            val ranges = object : PlaybackRanges {
+                override suspend fun readableFrom(fileId: Int, offset: Long): Long {
+                    entered.countDown()
+                    release.await()
+                    return 0L
+                }
+
+                override fun requestWindow(fileId: Int, offset: Long, limit: Long, urgent: Boolean) {
+                    requestTimes += System.nanoTime()
+                }
+
+                override fun cancelWindow(fileId: Int) = Unit
+            }
+            val subject = UserRangeCoordinator(ranges)
+
+            val reader = Thread {
+                kotlinx.coroutines.runBlocking { subject.ensureReadable(7, 0L, 1_024L, urgent = true) }
+            }
+            reader.start()
+            // The reader owns its state and is suspended inside the TDLib query when the page closes.
+            assertTrue(ranges.let { entered.await(10, java.util.concurrent.TimeUnit.SECONDS) })
+            release.countDown()
+            subject.reset(7)
+            val closedAt = System.nanoTime()
+            reader.join(10_000)
+
+            assertTrue("the reader thread must finish", !reader.isAlive)
+            val late = synchronized(requestTimes) { requestTimes.filter { it > closedAt } }
+            assertTrue("a window was requested after the page closed: $late", late.isEmpty())
+        }
+    }
+
     @Test
     fun `a cancelled query propagates instead of being treated as zero bytes`() = runTest {
         val ranges = object : PlaybackRanges {
