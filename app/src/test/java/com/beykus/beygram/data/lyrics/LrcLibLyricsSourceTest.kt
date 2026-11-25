@@ -12,10 +12,12 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import java.io.ByteArrayInputStream
+import java.io.IOException
 
 class LrcLibLyricsSourceTest {
 
-    private fun publicTelegramTrack() = TrackIdentity.fromPlaybackItem(
+    private fun publicTelegramTrack(protectedChat: Boolean? = false) = TrackIdentity.fromPlaybackItem(
         PlaybackItem(
             key = "tg|acc1|chat:10:message:20|Audio|30",
             kind = MediaKind.Audio,
@@ -26,7 +28,8 @@ class LrcLibLyricsSourceTest {
             album = "Hurry Up",
             durationSeconds = 243,
             origin = PlaybackOrigin(10L, 20L, "acc1"),
-        )
+        ),
+        protectedChat = protectedChat,
     )
 
     @Test
@@ -34,12 +37,13 @@ class LrcLibLyricsSourceTest {
         var seenUrl = ""
         var seenUa = ""
         val source = LrcLibLyricsSource(
+            isExternalLookupEnabled = { true },
             http = LrcLibHttpClient { url, ua ->
                 seenUrl = url
                 seenUa = ua
                 LrcLibHttpResponse(
                     200,
-                    """{"trackName":"Midnight City","artistName":"M83","duration":243.0,"instrumental":false,"syncedLyrics":"[00:10.00]Waiting in a car","plainLyrics":"Waiting in a car"}""",
+                    """{"trackName":"Midnight City","artistName":"M83","albumName":"Hurry Up","duration":243.0,"instrumental":false,"syncedLyrics":"[00:10.00]Waiting in a car","plainLyrics":"Waiting in a car"}""",
                 )
             }
         )
@@ -57,6 +61,7 @@ class LrcLibLyricsSourceTest {
     fun fallsBackToSearchOn404AndRejectsLiveRemix() = runBlocking {
         var calls = 0
         val source = LrcLibLyricsSource(
+            isExternalLookupEnabled = { true },
             http = LrcLibHttpClient { _, _ ->
                 calls += 1
                 if (calls == 1) {
@@ -79,19 +84,24 @@ class LrcLibLyricsSourceTest {
     }
 
     @Test
-    fun blocksProtectedChats() = runBlocking {
-        val protectedTrack = TrackIdentity.fromPlaybackItem(
-            PlaybackItem(
-                key = "tg|acc1|chat:10:message:20|Audio|30",
-                kind = MediaKind.Audio,
-                path = "",
-                title = "Secret Song",
-                durationSeconds = 180,
-            ),
-            protectedChat = true,
-        )
-        val source = LrcLibLyricsSource(http = LrcLibHttpClient { _, _ -> error("must not call network") })
-        assertFalse(source.supports(protectedTrack))
-        assertTrue(source.fetch(protectedTrack) is LyricsFetchResult.NotFound)
+    fun blocksProtectedUnknownPrivacyAndDisabledOptInBeforeNetwork() = runBlocking {
+        val guardedClient = LrcLibHttpClient { _, _ -> error("must not call network") }
+
+        val optOutSource = LrcLibLyricsSource(isExternalLookupEnabled = { false }, http = guardedClient)
+        assertFalse(optOutSource.supports(publicTelegramTrack(protectedChat = false)))
+        assertTrue(optOutSource.fetch(publicTelegramTrack(protectedChat = false)) is LyricsFetchResult.NotFound)
+
+        val optInSource = LrcLibLyricsSource(isExternalLookupEnabled = { true }, http = guardedClient)
+        assertFalse(optInSource.supports(publicTelegramTrack(protectedChat = true)))
+        assertTrue(optInSource.fetch(publicTelegramTrack(protectedChat = true)) is LyricsFetchResult.NotFound)
+
+        assertFalse(optInSource.supports(publicTelegramTrack(protectedChat = null)))
+        assertTrue(optInSource.fetch(publicTelegramTrack(protectedChat = null)) is LyricsFetchResult.NotFound)
+    }
+
+    @Test(expected = IOException::class)
+    fun boundedReaderRejectsOversizedHttpResponses() {
+        val oversized = ByteArray(LrcLibLyricsSource.MAX_RESPONSE_BYTES + 1) { 'a'.code.toByte() }
+        LrcLibLyricsSource.readBoundedUtf8(ByteArrayInputStream(oversized))
     }
 }

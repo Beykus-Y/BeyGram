@@ -10,7 +10,7 @@ import org.junit.Test
 class LyricsMatcherAndEnhancedLrcTest {
 
     @Test
-    fun matcherRejectsConflictingVersionsAndDurationMismatch() {
+    fun matcherRejectsConflictingVersionsDurationMismatchAndLooseSubstrings() {
         val query = ExternalQueryMetadata(
             title = "Midnight City",
             artist = "M83",
@@ -31,7 +31,17 @@ class LyricsMatcherAndEnhancedLrcTest {
                 query = query,
                 candidateTitle = "Midnight City",
                 candidateArtist = "M83",
-                candidateDurationMs = 260_000L,
+                candidateDurationMs = 250_000L, // > 2% / 2s tolerance
+                syncMode = LyricsSyncMode.LineSynced,
+            )
+        )
+        // Short substring must not match unrelated title when artist is blank
+        assertNull(
+            LyricsMatcher.scoreCandidate(
+                query = ExternalQueryMetadata(title = "One", artist = "", album = null, durationSeconds = 180),
+                candidateTitle = "One More Time",
+                candidateArtist = "Daft Punk",
+                candidateDurationMs = 180_000L,
                 syncMode = LyricsSyncMode.LineSynced,
             )
         )
@@ -41,6 +51,7 @@ class LyricsMatcherAndEnhancedLrcTest {
             candidateArtist = "M83",
             candidateDurationMs = 243_500L,
             syncMode = LyricsSyncMode.LineSynced,
+            candidateAlbum = "Hurry Up, We're Dreaming",
         )
         val wordScore = LyricsMatcher.scoreCandidate(
             query = query,
@@ -48,6 +59,7 @@ class LyricsMatcherAndEnhancedLrcTest {
             candidateArtist = "M83",
             candidateDurationMs = 243_500L,
             syncMode = LyricsSyncMode.WordSynced,
+            candidateAlbum = "Hurry Up",
         )
         assertNotNull(lineScore)
         assertNotNull(wordScore)

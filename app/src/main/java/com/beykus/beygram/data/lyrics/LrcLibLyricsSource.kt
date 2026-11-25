@@ -11,27 +11,35 @@ import com.beykus.beygram.domain.lyrics.LyricsSyncMode
 import com.beykus.beygram.domain.lyrics.RichLyricLine
 import com.beykus.beygram.domain.music.ExternalMetadataPolicy
 import com.beykus.beygram.domain.music.ExternalQueryMetadata
+import com.beykus.beygram.domain.music.MetadataLookupDecision
 import com.beykus.beygram.domain.music.TrackIdentity
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.job
 import kotlinx.coroutines.withContext
 import org.json.JSONArray
 import org.json.JSONObject
+import java.io.ByteArrayOutputStream
 import java.io.IOException
+import java.io.InputStream
 import java.net.HttpURLConnection
 import java.net.URL
 import java.net.URLEncoder
+import kotlin.coroutines.coroutineContext
 
 data class LrcLibHttpResponse(val code: Int, val body: String)
 
 fun interface LrcLibHttpClient {
-    fun get(url: String, userAgent: String): LrcLibHttpResponse
+    suspend fun get(url: String, userAgent: String): LrcLibHttpResponse
 }
 
 /**
  * Public LRCLIB lyrics source (`https://lrclib.net`).
- * External network lookup: only invoked when [TrackIdentity.privacy] allows it and the user opted in.
+ * Enforces both opt-in ([isExternalLookupEnabled]) and [ExternalMetadataPolicy] directly inside
+ * [supports] and [fetch] before any network request is made.
  */
 class LrcLibLyricsSource(
+    private val isExternalLookupEnabled: () -> Boolean,
     private val http: LrcLibHttpClient = DEFAULT_HTTP_CLIENT,
     private val userAgent: String = DEFAULT_USER_AGENT,
 ) : LyricsSource {
@@ -40,12 +48,18 @@ class LrcLibLyricsSource(
     override val isExternalNetwork: Boolean = true
 
     override fun supports(identity: TrackIdentity): Boolean =
-        ExternalMetadataPolicy.sanitizedExternalQuery(identity) != null
+        ExternalMetadataPolicy.checkExternalLookup(
+            identity = identity,
+            isMusic = true,
+            externalLookupOptIn = isExternalLookupEnabled(),
+        ) == MetadataLookupDecision.Allowed
 
     override suspend fun fetch(identity: TrackIdentity): LyricsFetchResult = withContext(Dispatchers.IO) {
+        if (!supports(identity)) return@withContext LyricsFetchResult.NotFound
         val query = ExternalMetadataPolicy.sanitizedExternalQuery(identity)
             ?: return@withContext LyricsFetchResult.NotFound
 
+        coroutineContext.ensureActive()
         val getUrl = buildGetUrl(query)
         val getResponse = try {
             http.get(getUrl, userAgent)
@@ -65,6 +79,7 @@ class LrcLibLyricsSource(
             return@withContext LyricsFetchResult.Unavailable(retryable = false)
         }
 
+        coroutineContext.ensureActive()
         val searchUrl = buildSearchUrl(query)
         val searchResponse = try {
             http.get(searchUrl, userAgent)
@@ -93,6 +108,7 @@ class LrcLibLyricsSource(
     private fun parseRecord(obj: JSONObject, query: ExternalQueryMetadata): Pair<LyricsDocument, Float>? {
         val title = obj.optString("trackName").ifBlank { obj.optString("name") }
         val artist = obj.optString("artistName")
+        val album = obj.optString("albumName").takeIf { it.isNotBlank() && it != "null" }
         val durationMs = (obj.optDouble("duration", 0.0) * 1_000.0).toLong().coerceAtLeast(0L)
         val instrumental = obj.optBoolean("instrumental", false)
         val syncedRaw = obj.optString("syncedLyrics").takeIf { it.isNotBlank() && it != "null" }
@@ -108,7 +124,7 @@ class LrcLibLyricsSource(
         if (syncedRaw != null) {
             val (mode, lines) = EnhancedLrcParser.parse(syncedRaw)
             if (mode != LyricsSyncMode.Plain && lines.isNotEmpty()) {
-                val score = LyricsMatcher.scoreCandidate(query, title, artist, durationMs, mode) ?: return null
+                val score = LyricsMatcher.scoreCandidate(query, title, artist, durationMs, mode, album) ?: return null
                 return LyricsDocument(
                     syncMode = mode,
                     lines = lines,
@@ -119,7 +135,7 @@ class LrcLibLyricsSource(
             }
         }
         if (plainRaw != null) {
-            val score = LyricsMatcher.scoreCandidate(query, title, artist, durationMs, LyricsSyncMode.Plain)
+            val score = LyricsMatcher.scoreCandidate(query, title, artist, durationMs, LyricsSyncMode.Plain, album)
                 ?: return null
             val plainLines = plainRaw.lineSequence()
                 .map { it.trim() }
@@ -135,7 +151,7 @@ class LrcLibLyricsSource(
             ) to score
         }
         if (instrumental) {
-            val score = LyricsMatcher.scoreCandidate(query, title, artist, durationMs, LyricsSyncMode.Plain)
+            val score = LyricsMatcher.scoreCandidate(query, title, artist, durationMs, LyricsSyncMode.Plain, album)
                 ?: return null
             return LyricsDocument(
                 syncMode = LyricsSyncMode.Plain,
@@ -168,6 +184,21 @@ class LrcLibLyricsSource(
         private const val DEFAULT_USER_AGENT = "BeyGram/Android (https://github.com/Beykus-Y/BeyGram)"
         private const val CONNECT_TIMEOUT_MS = 8_000
         private const val READ_TIMEOUT_MS = 10_000
+        internal const val MAX_RESPONSE_BYTES = 512 * 1024
+
+        internal fun readBoundedUtf8(stream: InputStream, maxBytes: Int = MAX_RESPONSE_BYTES): String {
+            val buffer = ByteArray(8 * 1024)
+            val out = ByteArrayOutputStream()
+            var total = 0
+            while (true) {
+                val read = stream.read(buffer)
+                if (read < 0) break
+                total += read
+                if (total > maxBytes) throw IOException("LRCLIB response exceeds $maxBytes bytes")
+                out.write(buffer, 0, read)
+            }
+            return out.toString(Charsets.UTF_8.name())
+        }
 
         val DEFAULT_HTTP_CLIENT = LrcLibHttpClient { url, userAgent ->
             val connection = (URL(url).openConnection() as HttpURLConnection).apply {
@@ -177,12 +208,16 @@ class LrcLibLyricsSource(
                 setRequestProperty("User-Agent", userAgent)
                 setRequestProperty("Accept", "application/json")
             }
+            val cancelHook = coroutineContext.job.invokeOnCompletion { cause ->
+                if (cause != null) runCatching { connection.disconnect() }
+            }
             try {
                 val code = connection.responseCode
                 val stream = if (code in 200..299) connection.inputStream else connection.errorStream
-                val body = stream?.bufferedReader(Charsets.UTF_8)?.use { it.readText() }.orEmpty()
+                val body = stream?.use { readBoundedUtf8(it, MAX_RESPONSE_BYTES) }.orEmpty()
                 LrcLibHttpResponse(code, body)
             } finally {
+                cancelHook.dispose()
                 connection.disconnect()
             }
         }
