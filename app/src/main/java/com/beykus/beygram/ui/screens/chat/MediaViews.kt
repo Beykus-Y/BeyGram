@@ -92,6 +92,8 @@ import com.beykus.beygram.ui.screens.bgmusic.isBgMusicDocument
 import com.beykus.beygram.diagnostics.StructuredEventLog
 import com.beykus.beygram.diagnostics.report.EventKind
 import com.beykus.beygram.playback.UserRangeCoordinator
+import com.beykus.beygram.playback.canPlayProgressively
+import com.beykus.beygram.playback.isPermanentProgressiveRejection
 import com.beykus.beygram.playback.readableBytesAt
 import com.beykus.beygram.playback.VideoPlaybackMetrics
 import com.beykus.beygram.playback.VideoStartBufferSettings
@@ -1530,20 +1532,16 @@ private fun MediaViewerPage(
         val reason = info?.reason
         diagnostics.probeFinished(reason?.name ?: "none", probe.second)
         when {
-            info?.streamable == true -> {
+            // A fast-start file starts from the prefix; a file with the index at the end is opened through the
+            // range-aware source, and Media3's own extractor fetches that index by seeking to the end.
+            canPlayProgressively(info, rangesAvailable = playbackCoordinator != null) -> {
                 progressivePath = partialPath
                 progressiveUnlocked = true
                 diagnostics.unlocked()
             }
-            reason != null && reason in setOf(
-                Mp4StreamingReason.NotMp4,
-                Mp4StreamingReason.MoovAfterMediaData,
-                Mp4StreamingReason.MoovTooLarge,
-                Mp4StreamingReason.NoVideoTrack,
-                Mp4StreamingReason.UnsupportedVideoCodec
-            ) -> {
+            isPermanentProgressiveRejection(info, rangesAvailable = playbackCoordinator != null) -> {
                 progressiveRejected = true
-                diagnostics.rejected(reason.name)
+                diagnostics.rejected(reason?.name.orEmpty())
             }
         }
     }
