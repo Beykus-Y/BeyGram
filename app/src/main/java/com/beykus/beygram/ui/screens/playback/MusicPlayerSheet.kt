@@ -178,7 +178,6 @@ import androidx.compose.ui.zIndex
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.beykus.beygram.R
 import com.beykus.beygram.media.bgbeat.BgBeatSection
-import com.beykus.beygram.media.bgrhythm.BgRhythmFrame
 import com.beykus.beygram.media.bgwave.BgWaveHub
 import androidx.compose.material.icons.rounded.GraphicEq
 import com.beykus.beygram.playback.PLAYBACK_SPEED_OPTIONS
@@ -326,28 +325,29 @@ internal fun MusicPlayerContent(
     val queueList = rememberSaveable(saver = LazyListState.Saver) { LazyListState() }
     var queuePlaced by rememberSaveable { mutableStateOf(false) }
     val fallbackDurationMs = player.item.durationSeconds.coerceAtLeast(0) * 1000L
-    val rhythmFrame = rememberBgRhythmFrame(
+    val rhythmSignal = rememberBgRhythmSignal(
         item = player.item,
         playing = player.playing,
         speed = player.speed,
         fallbackDurationMs = fallbackDurationMs,
+        active = panel == PlayerPanel.Player,
     )
+    val rhythmGlowBrush = remember(palette.accent) {
+        Brush.verticalGradient(
+            0.0f to palette.accent,
+            0.65f to palette.accent.copy(alpha = 0.2f),
+            1.0f to Color.Transparent,
+        )
+    }
     Box(
         modifier
             .fillMaxWidth()
             .then(if (ambientBrush != null) Modifier.drawBehind { drawRect(ambientBrush) } else Modifier)
             .drawBehind {
-                val frame = rhythmFrame.value
-                if (frame.isActive && frame.phraseEnergy > 0f) {
+                if (rhythmSignal.isActive && rhythmSignal.phraseEnergy > 0f) {
                     drawRect(
-                        brush = Brush.radialGradient(
-                            colors = listOf(
-                                palette.accent.copy(alpha = (frame.phraseEnergy * 0.16f).coerceIn(0f, 0.16f)),
-                                Color.Transparent,
-                            ),
-                            center = Offset(size.width * 0.5f, size.height * 0.34f),
-                            radius = size.maxDimension * 0.72f,
-                        )
+                        brush = rhythmGlowBrush,
+                        alpha = (rhythmSignal.phraseEnergy * 0.16f).coerceIn(0f, 0.16f),
                     )
                 }
             }
@@ -408,7 +408,7 @@ internal fun MusicPlayerContent(
                     PlayerBody(
                         modifier = Modifier.weight(1f),
                         player = player,
-                        rhythmFrame = rhythmFrame,
+                        rhythmSignal = rhythmSignal,
                         onOpenQueue = { onPanel(PlayerPanel.Queue) },
                         onOpenLyrics = { onPanel(PlayerPanel.Lyrics) },
                         onOpenEqualizer = onOpenEqualizer?.let { open ->
@@ -704,7 +704,7 @@ internal const val SLEEP_EXTEND_MINUTES = 15
 @Composable
 private fun PlayerBody(
     player: MusicPlayerUi,
-    rhythmFrame: State<BgRhythmFrame>,
+    rhythmSignal: BgRhythmSignal,
     onOpenQueue: () -> Unit,
     onOpenLyrics: () -> Unit,
     onOpenEqualizer: (() -> Unit)?,
@@ -720,7 +720,7 @@ private fun PlayerBody(
                 Modifier.fillMaxSize().padding(horizontal = 20.dp, vertical = 4.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                PlayerArtwork(player, artwork, mediaMotion, rhythmFrame)
+                PlayerArtwork(player, artwork, mediaMotion, rhythmSignal)
                 Spacer(Modifier.width(28.dp))
                 Column(
                     Modifier
@@ -755,7 +755,7 @@ private fun PlayerBody(
                         .padding(top = 4.dp, bottom = 12.dp),
                     horizontalAlignment = Alignment.CenterHorizontally
                 ) {
-                    PlayerArtwork(player, artwork, mediaMotion, rhythmFrame)
+                    PlayerArtwork(player, artwork, mediaMotion, rhythmSignal)
                     Spacer(Modifier.height(18.dp))
                     PlayerDetails(
                         player = player,
@@ -822,7 +822,7 @@ private fun PlayerArtwork(
     player: MusicPlayerUi,
     size: Dp,
     mediaMotion: MotionSpec,
-    rhythmFrame: State<BgRhythmFrame>,
+    rhythmSignal: BgRhythmSignal,
 ) {
     val palette = beyGramPalette()
     val density = LocalDensity.current
@@ -921,8 +921,11 @@ private fun PlayerArtwork(
                 )
             }
             .graphicsLayer {
-                val frame = rhythmFrame.value
-                val rhythmScale = if (frame.isActive) 1f + frame.beatPulse * 0.025f + frame.downbeatPulse * 0.015f else 1f
+                val rhythmScale = if (rhythmSignal.isActive) {
+                    1f + rhythmSignal.beatPulse * 0.025f + rhythmSignal.downbeatPulse * 0.015f
+                } else {
+                    1f
+                }
                 val combined = entryScale.value * breatheScale * rhythmScale
                 scaleX = combined
                 scaleY = combined

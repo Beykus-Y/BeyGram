@@ -41,6 +41,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.beykus.beygram.R
+import com.beykus.beygram.media.bgbeat.BgBeatSettingsStore
 import com.beykus.beygram.media.bgrhythm.BgRhythmMode
 import com.beykus.beygram.media.bgrhythm.BgRhythmSettingsStore
 import com.beykus.beygram.playback.PLAYBACK_SPEED_OPTIONS
@@ -72,6 +73,8 @@ internal fun PlayerSoundSheet(
     val sleepTimer by PlaybackEngine.sleepTimer.collectAsStateWithLifecycle()
     val rhythmModeFlow = remember(context) { BgRhythmSettingsStore.flow(context) }
     val rhythmMode by rhythmModeFlow.collectAsStateWithLifecycle()
+    val bgBeatStore = remember(context) { BgBeatSettingsStore.getInstance(context) }
+    val bgBeatEnabled by bgBeatStore.enabled.collectAsStateWithLifecycle()
     val minutesRemaining = rememberSleepMinutes(sleepTimer)
     var customOpen by remember { mutableStateOf(false) }
     // BG Mix has no playback speed, so the chips stay off while it plays instead of changing only the saved value.
@@ -164,6 +167,22 @@ internal fun PlayerSoundSheet(
                 }
                 SoundChip(stringResource(R.string.rhythm_mode_dynamic), rhythmMode == BgRhythmMode.Dynamic, true) {
                     BgRhythmSettingsStore.setMode(context, BgRhythmMode.Dynamic)
+                }
+            }
+            if (rhythmMode != BgRhythmMode.Off && !bgBeatEnabled) {
+                Text(
+                    stringResource(R.string.rhythm_needs_bgbeat_hint),
+                    color = palette.textSecondary,
+                    fontSize = 12.sp,
+                    modifier = Modifier.padding(top = 8.dp)
+                )
+                Row(
+                    Modifier.fillMaxWidth().padding(top = 6.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    SoundChip(stringResource(R.string.rhythm_enable_bgbeat), false, true) {
+                        bgBeatStore.setEnabled(true)
+                    }
                 }
             }
             if (onOpenEqualizer != null) {
