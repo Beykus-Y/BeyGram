@@ -76,9 +76,12 @@ internal fun GiftVisualImage(
     val policyNetwork by AutoDownloadNetworkStatus.network.collectAsStateWithLifecycle()
     LaunchedEffect(context) { AutoDownloadNetworkStatus.ensureStarted(context) }
     val autoDownload = LocalAutoDownloadFile.current
-    val file by remember(visual.fileId, access) { access.observeFile(visual.fileId) }.collectAsStateWithLifecycle()
-    // Without a thumbnail id the observed state is the sticker itself, which is never used as a thumbnail below.
     val thumbnailId = visual.thumbnailFileId
+    // A static cell never reads the sticker file, so it observes only its thumbnail (or nothing when there is none).
+    val file by remember(visual.fileId, access, staticOnly) {
+        access.observeFile(if (staticOnly) thumbnailId ?: visual.fileId else visual.fileId)
+    }.collectAsStateWithLifecycle()
+    // Without a thumbnail id the observed state is the sticker itself, which is never used as a thumbnail below.
     val thumbnail by remember(thumbnailId, visual.fileId, access) {
         access.observeFile(thumbnailId ?: visual.fileId)
     }.collectAsStateWithLifecycle()

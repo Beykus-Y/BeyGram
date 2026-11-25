@@ -58,6 +58,7 @@ import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.heading
+import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -881,8 +882,10 @@ private fun ReceivedGiftRow(gift: ReceivedGiftItem) {
                 GiftVisualImage(gift.visual, 36.dp) {
                     Text(gift.emoji.ifBlank { "🎁" }, fontSize = 36.sp)
                 }
-                gift.collectible?.symbol?.let { symbol ->
-                    Box(Modifier.align(Alignment.BottomEnd)) {
+                // The symbol only shows its thumbnail, so a symbol without one has nothing to draw. Its inset keeps it
+                // inside the rounded backdrop corner, and its semantics are cleared because the row already says the gift.
+                gift.collectible?.symbol?.takeIf { it.thumbnailFileId != null }?.let { symbol ->
+                    Box(Modifier.align(Alignment.BottomEnd).padding(4.dp).clearAndSetSemantics {}) {
                         GiftVisualImage(symbol, 18.dp, staticOnly = true) {}
                     }
                 }
