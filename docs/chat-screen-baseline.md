@@ -2,7 +2,7 @@
 
 Снимок Android DEV для раздела A [#1238](https://github.com/Beykus-Y/BeyGram/issues/1238) — коммит `b369bee1dfe5a79be518ddc559151f3cac994c84`. Номера строк ниже относятся к [ChatScreen.kt в этом коммите](https://github.com/Beykus-Y/BeyGram/blob/b369bee1dfe5a79be518ddc559151f3cac994c84/app/src/main/java/com/beykus/beygram/ui/screens/chat/ChatScreen.kt).
 
-В файле 4 223 строки. Объявление `ChatScreen` начинается на строке 194, следующее объявление функции — на строке 3450. Отдельные компоненты уже имеют собственные точки входа: `ChatComposerPanel` (3519), `ChatTopBar` (3586), `ChannelCommentsBar` (3837) и `MessageBubble` (3866). При переносе блоков из тела экрана сохранить границы `ChatScreenBox`, `ChatScreenColumn` и `ChatScreenOverlays`, и сверять размер методов до D8/R8. Число строк определяет объём исходника, а предел JVM относится к байткоду конкретного метода.
+В файле 4 223 строки. Объявление `ChatScreen` начинается на строке 194, следующее объявление функции — на строке 3450. Отдельные компоненты уже имеют собственные точки входа: `ChatComposerPanel` (3519), `ChatTopBar` (3586), `ChannelCommentsBar` (3837) и `MessageBubble` (3866). При переносе блоков из тела экрана сохранить границы `ChatScreenBox`, `ChatScreenColumn` и `ChatScreenOverlays` и сверять размер методов до D8/R8. Число строк определяет объём исходника, а предел JVM относится к байткоду конкретного метода.
 
 ## Состояние и эффекты
 
