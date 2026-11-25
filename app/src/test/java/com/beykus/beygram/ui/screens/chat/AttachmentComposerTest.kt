@@ -119,6 +119,38 @@ class AttachmentComposerTest {
     }
 
     @Test
+    fun `a converted AV1 document is sent as a video message`() {
+        // The importer keeps AV1/VP9 as a document; a successful transcode produces an H.264 video item, and that item
+        // must be the one handed to TDLib, not the original document (#1175).
+        val document = video().copy(kind = MediaKind.Document, mimeType = "video/mp4")
+        val converted = document.copy(
+            path = "/uploads/a/compressed.mp4",
+            kind = MediaKind.Video,
+            mimeType = "video/mp4",
+            size = 4_000_000L,
+        )
+
+        val outgoing = outgoingMediaFor(
+            document,
+            MediaPreparation(mode = MediaQualityMode.Balanced, prepared = converted),
+        )
+
+        assertEquals(MediaKind.Video, outgoing.kind)
+        assertEquals(converted.path, outgoing.path)
+    }
+
+    @Test
+    fun `original mode on an unconvertible document keeps it a document`() {
+        // The fallback: the user chose the original, the codec stays unconfirmed, so the file is sent as a document.
+        val document = video().copy(kind = MediaKind.Document, mimeType = "video/mp4")
+
+        val outgoing = outgoingMediaFor(document, MediaPreparation(mode = MediaQualityMode.Original))
+
+        assertEquals(MediaKind.Document, outgoing.kind)
+        assertEquals(document.path, outgoing.path)
+    }
+
+    @Test
     fun `estimates are approximate and only for known durations`() {
         val clip = video(size = 20_000_000L, duration = 60)
         val compact = qualityEstimateBytes(clip, MediaQualityMode.Compact)
