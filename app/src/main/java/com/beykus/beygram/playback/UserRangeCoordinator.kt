@@ -13,6 +13,12 @@ package com.beykus.beygram.playback
  *
  * Pure logic: everything about TDLib is behind [PlaybackRanges], so the rules are tested on the JVM.
  */
+/**
+ * Token of one viewer of one file. A request (or a dispose) that arrives with an epoch that is no longer current does
+ * nothing: it belongs to a screen that has already been closed.
+ */
+class RangeOwner internal constructor(val fileId: Int, internal val epoch: Long)
+
 class UserRangeCoordinator(
     private val ranges: PlaybackRanges,
     private val clock: () -> Long = System::currentTimeMillis,
@@ -75,6 +81,26 @@ class UserRangeCoordinator(
      */
     private val lock = Any()
 
+    /** Epoch of the page that currently owns each file; a request with an older epoch is ignored. */
+    private val epochs = HashMap<Int, Long>()
+    private var nextEpoch = 0L
+
+    /**
+     * Takes ownership of [fileId] for one viewer and returns its token.
+     *
+     * The token closes the last window between a closed page and a loader thread: Media3 may already be inside
+     * [ensureReadable] (or about to enter it) when the screen is disposed. A plain "does the state still exist" check
+     * cannot tell that late call from a newly opened page, so the call is tied to the page's epoch instead (#1195).
+     */
+    fun owner(fileId: Int): RangeOwner = synchronized(lock) {
+        val epoch = nextEpoch++
+        epochs[fileId] = epoch
+        RangeOwner(fileId, epoch)
+    }
+
+    /** True when the call belongs to the page that currently owns its file; a null owner keeps the plain behaviour. */
+    private fun ownsLocked(owner: RangeOwner?): Boolean = owner == null || epochs[owner.fileId] == owner.epoch
+
     /** Bytes readable from [offset], without asking TDLib for anything. */
     suspend fun readableFrom(fileId: Int, offset: Long): Long = ranges.readableFrom(fileId, offset)
 
@@ -82,13 +108,24 @@ class UserRangeCoordinator(
      * Makes sure [needed] bytes starting at [offset] are readable, requesting a window when they are not.
      * Returns the number of bytes readable at [offset] right now; the caller polls and calls this again.
      */
-    suspend fun ensureReadable(fileId: Int, offset: Long, needed: Long, urgent: Boolean): Long {
-        val state = synchronized(lock) { states.getOrPut(fileId) { FileState() } }
+    suspend fun ensureReadable(
+        fileId: Int,
+        offset: Long,
+        needed: Long,
+        urgent: Boolean,
+        owner: RangeOwner? = null
+    ): Long {
+        val state = synchronized(lock) {
+            // The page was closed before this call even started: no state is created for it.
+            if (!ownsLocked(owner)) return 0L
+            states.getOrPut(fileId) { FileState() }
+        }
         val now = clock()
         val available = ranges.readableFrom(fileId, offset)
         // Everything from here on runs under the same lock as `reset`: the page may have been closed while the query was
         // in flight, and neither a request nor a state update may follow the cancellation.
         return synchronized(lock) {
+            if (!ownsLocked(owner)) return 0L
             if (states[fileId] !== state) return 0L
             state.onAvailable(offset, available, now)
             if (available >= needed) return available
@@ -118,12 +155,22 @@ class UserRangeCoordinator(
      * Asks for a bounded tail window, used to read an index that sits at the end of the file. The window replaces the
      * playback one; the caller must request the playback position again afterwards.
      */
-    suspend fun ensureTail(fileId: Int, start: Long, length: Long, urgent: Boolean = true): Long {
+    suspend fun ensureTail(
+        fileId: Int,
+        start: Long,
+        length: Long,
+        urgent: Boolean = true,
+        owner: RangeOwner? = null
+    ): Long {
         if (start < 0L || length <= 0L) return 0L
-        val state = synchronized(lock) { states.getOrPut(fileId) { FileState() } }
+        val state = synchronized(lock) {
+            if (!ownsLocked(owner)) return 0L
+            states.getOrPut(fileId) { FileState() }
+        }
         val now = clock()
         val available = ranges.readableFrom(fileId, start)
         return synchronized(lock) {
+            if (!ownsLocked(owner)) return 0L
             if (states[fileId] !== state) return 0L
             state.onAvailable(start, available, now)
             if (available >= length) return available
@@ -168,9 +215,14 @@ class UserRangeCoordinator(
     private fun isAlive(window: RangeWindow, now: Long, state: FileState): Boolean =
         now - state.lastProgressAt <= windowDeadlineMs
 
-    /** The page was closed or TDLib moved the file: forget the window and cancel it. */
-    fun reset(fileId: Int) {
+    /**
+     * The page was closed or TDLib moved the file: forget the window and cancel it. [owner] makes the call a no-op when
+     * a newer page already owns the file, so a late dispose of the previous viewer cannot cancel the current playback.
+     */
+    fun reset(fileId: Int, owner: RangeOwner? = null) {
         synchronized(lock) {
+            if (!ownsLocked(owner)) return
+            epochs.remove(fileId)
             val state = states.remove(fileId) ?: return
             if (state.window != null) ranges.cancelWindow(fileId)
         }
@@ -181,6 +233,7 @@ class UserRangeCoordinator(
         synchronized(lock) {
             val ids = states.keys.toList()
             states.clear()
+            epochs.clear()
             ids.forEach(ranges::cancelWindow)
         }
     }

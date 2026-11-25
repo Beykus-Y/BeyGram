@@ -291,6 +291,54 @@ class UserRangeCoordinatorTest {
     }
 
     @Test
+    fun `a request from a page closed before it reached the coordinator is ignored`() = runTest {
+        // Codex review of #1195: reset() ran before the Media3 loader entered ensureReadable, so the late call created a
+        // fresh state and requested a window for a closed page. The page's token makes that call a no-op.
+        val ranges = FakeRanges()
+        val subject = coordinator(ranges)
+        val closed = subject.owner(7)
+
+        subject.reset(7, closed)
+        val available = subject.ensureReadable(7, 0L, 1_024L, urgent = true, owner = closed)
+
+        assertEquals(0L, available)
+        assertTrue("no window may be requested for a closed page", ranges.requests.isEmpty())
+        assertTrue(ranges.cancelled.isEmpty())
+    }
+
+    @Test
+    fun `a reopened page can request again`() = runTest {
+        val ranges = FakeRanges()
+        val subject = coordinator(ranges)
+        val first = subject.owner(7)
+        subject.reset(7, first)
+
+        val second = subject.owner(7)
+        subject.ensureReadable(7, 0L, 1_024L, urgent = true, owner = second)
+
+        assertEquals(1, ranges.requests.size)
+    }
+
+    @Test
+    fun `a late dispose of the previous page does not cancel the current one`() = runTest {
+        val ranges = FakeRanges()
+        val subject = coordinator(ranges)
+        val previous = subject.owner(7)
+        val current = subject.owner(7)
+
+        subject.ensureReadable(7, 0L, 1_024L, urgent = true, owner = current)
+        assertEquals(1, ranges.requests.size)
+
+        // The old viewer finishes disposing after the new one started: it must not take the window away.
+        subject.reset(7, previous)
+        assertTrue("the current page keeps its window", ranges.cancelled.isEmpty())
+        assertEquals(1, ranges.requests.size)
+
+        subject.reset(7, current)
+        assertEquals(listOf(7), ranges.cancelled)
+    }
+
+    @Test
     fun `a cancelled query propagates instead of being treated as zero bytes`() = runTest {
         val ranges = object : PlaybackRanges {
             override suspend fun readableFrom(fileId: Int, offset: Long): Long =
