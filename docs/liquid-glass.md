@@ -76,3 +76,29 @@ Compare each level against Default on the same build, same account, same chat li
 Target devices: Samsung M21 (or a comparable weak GPU), one Android 12+ flagship, API 29/30 for the fallback. Check
 High really blurs (text behind the dock is unreadable but coloured), then Balanced/Lite/Auto, dark/light/AMOLED and
 3-button/gesture navigation. Cold start, typing, navigation and scrolling must not crash (#623).
+
+## Liquid Glass V2 (experimental, #1120, #1125)
+
+- Off by default (`AppearanceConfig.liquidGlassV2`), API 33+, only the High level, and only the floating `GlassEdge.Rim` panels. Everything else keeps the plain blur, which is also the fallback when the shader does not compile or a panel has no size yet.
+- `LiquidGlassGeometry.kt`: corner radii come from the outline the panel is clipped to (per corner for rounded rectangles, half the shorter side for circles and pills); the band is capped at a third of the shorter side (`maxThicknessFraction`).
+- `LiquidGlassLens.kt`: the shader models a circular bevel with Snell refraction (index 1.5) over the blurred sample. Light surfaces get a soft shade, dark ones a highlight. The constants (`LensEdgeThickness`, `LensStrength`) are unverified on a device.
+- A shader is created only for panels that sample the backdrop. Only the compile check is cached per process; each panel still has its own RuntimeShader, because its size and radii are its own uniforms.
+- While a panel's size is animating, it draws the plain blur. The lens drops out at once on a size change and cross-fades in over 240 ms (`crossfadeMillis`) after the size settles. Observed on a device (reviewer note): the blur jumps from about 6 dp to 30 dp when the lens drops out; to check on a device.
+- `LiquidGlassMetrics.kt`: counts shaders, compile failures, lens effects and fallback frames (frames where a lens panel drew the plain blur). Compile failures are logged under the tag `LiquidGlassV2`.
+- The switch is kept by user presets and by the unsaved draft (draft version 5).
+- Not done: merging neighbouring glass panels into one shape (judged too costly for the engine at this stage).
+- Not verified on a device: the look over text, photos and avatars, light and dark themes, animation of size changes, and frame cost. These need a manual check on API 33+ hardware.
+
+### Liquid Glass V2: tuning (LensTuning, values are starting points, not measured)
+
+- `thicknessDp` 22 dp, capped at `maxThicknessFraction` 1/3 of the panel's shorter side (a 64 dp dock gets about 21 dp of lens).
+- `strength` 0.9 and `refractionIndex` 1.5: how far the refracted ray travels inside the bevel.
+- `blurScale` 0.2: the lens reads the sharp layer, then the output is blurred at a fifth of the style's blur.
+- `tintScale` 0.87: the tint is lightened only while the lens is on screen, for legibility of dock labels.
+- `crossfadeMillis` 240: the lens fades in once a settled size is known. It drops out at once when the size changes, so it never draws at a stale size.
+- Presets in `LensTuningPresets` (the values differ from the defaults only where listed):
+  - `Default` (Standard): the values above.
+  - `Clear`: `blurScale` 0.1 and `tintScale` 0.6, the least blur on the lens path and the lightest tint.
+  - `Bold`: `thicknessDp` 28, `maxThicknessFraction` 0.4, `strength` 1.2, `blurScale` 0.25 and `tintScale` 0.8, a wider band with a stronger bend.
+- The user picks one under «Оформление ▸ Liquid Glass» next to the V2 switch (API 33+, quality High or Auto). The choice is stored as `LiquidGlassLensPreset` (`liquid_glass_lens_preset`), kept in user presets and in drafts (draft version 6; older drafts restore as Standard). `DesignPresets.liquidGlassDesign` maps it through `LensTuningPresets.forPreset`.
+- Not verified on a device: legibility of labels over the lens, frame cost, and how the switch looks at the end of a size change.

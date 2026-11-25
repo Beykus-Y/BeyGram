@@ -22,7 +22,7 @@ jobs:
   record:
     name: Record goldens
     env:
-      BEYGRAM_ROBOLECTRIC_DIR: ${{ github.workspace }}/../robolectric-deps
+      BEYGRAM_ROBOLECTRIC_DIR: ${{ github.workspace }}-robolectric-deps
     if: >-
       github.event.label.name == 'record-screenshots' &&
       github.event.pull_request.head.repo.full_name == github.repository
@@ -75,7 +75,7 @@ jobs:
         # Read only: a record run on a pull request never saves it. It reads the jars saved by DEV or main.
         uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
         with:
-          path: ${{ github.workspace }}/../robolectric-deps
+          path: ${{ github.workspace }}-robolectric-deps
           key: ${{ steps.robolectric-key.outputs.key }}
 
       - name: Fill the Robolectric dependency directory

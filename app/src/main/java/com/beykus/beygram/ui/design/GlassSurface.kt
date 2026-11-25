@@ -5,6 +5,9 @@ import android.graphics.ColorMatrixColorFilter
 import android.graphics.RenderEffect
 import android.graphics.Shader
 import android.os.Build
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.snap
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Box
@@ -13,6 +16,7 @@ import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.padding
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.Stable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -33,6 +37,7 @@ import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.graphics.ColorMatrix as ComposeColorMatrix
 import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.asComposeRenderEffect
+import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.withTransform
 import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.graphics.graphicsLayer
@@ -43,9 +48,12 @@ import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.layout.positionInWindow
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalLayoutDirection
+import androidx.compose.ui.util.lerp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.toIntSize
 import com.beykus.beygram.data.appearance.DesignStyle
+import kotlinx.coroutines.delay
 
 /**
  * The content a glass panel can sample. Whatever is drawn inside [Modifier.glassBackdropSource] is recorded into an
@@ -154,12 +162,41 @@ fun GlassPanel(
     // Liquid Glass V2: the lens shader exists only where the style asks for it and the device has API 33+.
     // Only the floating pane gets the lens: full-width chrome meets the screen edges, where a bevel would show as a
     // border on the sides.
-    val lensShader = remember(glass?.lensRefraction, edge) {
-        if (glass?.lensRefraction == true && edge == GlassEdge.Rim) newLensShader() else null
-    }
+    // A shader is created only for a panel that really draws the sampled backdrop; Balanced, Lite and the frosted or
+    // unsampled frames never compile one.
+    val lensWanted = glass?.lensRefraction == true && edge == GlassEdge.Rim && samplesBackdrop
+    val lensShader = remember(lensWanted) { if (lensWanted) newLensShader() else null }
     var panelSize by remember { mutableStateOf(IntSize.Zero) }
-    val lensThicknessPx = with(density) { LensEdgeThickness.toPx() }
-    val lensMaxRadiusPx = with(density) { LensMaxCornerRadius.toPx() }
+    // The lens is built for the size the panel has settled at. While a size animation runs, the panel draws the plain
+    // blur instead of rebuilding the effect every frame; the lens returns once the size has stayed put for a moment.
+    var lensSize by remember { mutableStateOf(IntSize.Zero) }
+    LaunchedEffect(panelSize) {
+        delay(LensSettleMillis)
+        lensSize = panelSize
+    }
+    val lensTuning = glass?.lensTuning ?: DefaultLensTuning
+    val lensThicknessPx = with(density) { lensTuning.thicknessDp.toPx() }
+    val layoutDirection = LocalLayoutDirection.current
+    val blurPx = with(density) { (glass?.blurRadiusDp ?: 0.dp).toPx() }
+    val darkSurface = tint.luminance() < 0.5f
+    // The effect is rebuilt only when the size, the shape or the surface changes, not on every frame.
+    // The lens panel's base: the reduced blur without refraction, shown beneath the lens layer at all times.
+    val lensBaseEffect = remember(lensShader, blurPx, darkSurface, lensTuning) {
+        lensShader?.let { buildLensBaseRenderEffect(blurPx * lensTuning.blurScale, darkSurface) }
+    }
+    val lensEffect = remember(lensShader, lensSize, shape, lensThicknessPx, blurPx, darkSurface, density, layoutDirection, lensTuning) {
+        lensShader?.let {
+            buildLensRenderEffect(it, lensSize, shape, lensThicknessPx, blurPx, darkSurface, density, layoutDirection, lensTuning)
+        }
+    }
+    val lensActive = lensEffect != null && panelSize == lensSize
+    // The lens cross-fades in once a settled size is known, and drops out at once when the size changes: a fade-out
+    // would keep drawing the lens at the old size while the panel has already moved on.
+    val lensMix: Float by animateFloatAsState(
+        targetValue = if (lensActive) 1f else 0f,
+        animationSpec = if (lensActive) tween(lensTuning.crossfadeMillis) else snap(),
+        label = "liquidGlassLensMix"
+    )
     Box(
         modifier
             .onGloballyPositioned { originInWindow = it.positionInWindow() }
@@ -200,47 +237,50 @@ fun GlassPanel(
             )
         }
         if (samplesBackdrop) {
-            val blurPx = with(density) { glass!!.blurRadiusDp.toPx() }
             // The opaque floor of the sampled pane: a list without its own background records transparent gaps, and
             // those must show this colour, not the sharp content drawn underneath.
             val base = if (backdropBase != Color.Unspecified) backdropBase else tint.copy(alpha = 1f)
-            val lens = lensShader
-            val surfaceEffect = if (lens != null) {
-                Modifier.graphicsLayerWithLens(
-                    shader = lens,
-                    sizePx = panelSize,
-                    thicknessPx = lensThicknessPx,
-                    maxRadiusPx = lensMaxRadiusPx,
-                    blurPx = blurPx,
-                    shape = shape,
-                    darkSurface = tint.luminance() < 0.5f
-                )
-            } else {
-                Modifier.graphicsLayerWithBlur(blurPx, shape, darkSurface = tint.luminance() < 0.5f)
+            // The pane is two layers that cross-fade: the plain blur, and the lens on top. The lens fades out while the
+            // size animates and back in once it settles, so the switch is not a jump.
+            val effect = lensEffect
+            val sampleDraw: DrawScope.() -> Unit = {
+                drawRect(base)
+                if (lensWanted && !lensActive) LiquidGlassMetrics.recordFallbackFrame()
+                val sampled = backdrop
+                val source = sampled?.layer
+                // Sampling the layer that is being recorded right now would draw it into itself, which kills the render
+                // thread; a frame without a finished sample gets a dense mask instead, so the lighter tint of real glass
+                // never leaves sharp content showing through the panel.
+                if (sampled == null || source == null || !sampled.hasContent || sampled.recording) {
+                    drawRect(tint.copy(alpha = GlassUnsampledMaskAlpha))
+                } else {
+                    val delta = sampled.originInWindow - originInWindow
+                    withTransform({ translate(delta.x, delta.y) }) { drawLayer(source) }
+                }
             }
-            Box(
-                Modifier.matchParentSize()
-                    .then(surfaceEffect)
-                    .drawBehind {
-                        drawRect(base)
-                        val sampled = backdrop
-                        val source = sampled?.layer
-                        // Sampling the layer that is being recorded right now would draw it into itself, which kills
-                        // the render thread; a frame without a finished sample gets a dense mask instead, so the
-                        // lighter tint of real glass never leaves sharp content showing through the panel.
-                        if (sampled == null || source == null || !sampled.hasContent || sampled.recording) {
-                            drawRect(tint.copy(alpha = GlassUnsampledMaskAlpha))
-                            return@drawBehind
-                        }
-                        val delta = sampled.originInWindow - originInWindow
-                        withTransform({ translate(delta.x, delta.y) }) { drawLayer(source) }
-                    }
-            )
+            if (lensMix < 1f || effect == null) {
+                val baseModifier = lensBaseEffect?.let { Modifier.lensLayer(it, shape) }
+                    ?: Modifier.graphicsLayerWithBlur(blurPx, shape, darkSurface)
+                Box(Modifier.matchParentSize().then(baseModifier).drawBehind(sampleDraw))
+            }
+            if (effect != null && lensMix > 0f) {
+                Box(
+                    Modifier.matchParentSize()
+                        .then(Modifier.lensLayer(effect, shape))
+                        .graphicsLayer { alpha = lensMix }
+                        .drawBehind(sampleDraw)
+                )
+            }
         }
         // The tint is what makes glass readable: it is always drawn, blurred or not. Over a real blurred sample the
         // style's own tint is enough; without one the panel stays dense, so labels never fight sharp content below.
         val tintAlpha = glass?.tintAlpha?.coerceIn(0f, 1f) ?: 0f
-        val baseAlpha = if (samplesBackdrop || samplesFrosted) tintAlpha else maxOf(tintAlpha, 0.93f)
+        // With the lens on screen the tint is lighter, so the bent content shows through the glass.
+        val baseAlpha = if (samplesBackdrop || samplesFrosted) {
+            tintAlpha * lerp(1f, lensTuning.tintScale, lensMix)
+        } else {
+            maxOf(tintAlpha, 0.93f)
+        }
         Box(Modifier.matchParentSize().background(tint.copy(alpha = baseAlpha)))
         if (glass != null) {
             // One light edge, brightest where the light falls and fading towards the bottom. A uniform frame plus a
@@ -267,6 +307,16 @@ fun GlassPanel(
         Box(Modifier.padding(contentPadding)) { content() }
     }
 }
+
+/** Applies a prebuilt Liquid Glass V2 render effect to the panel's layer, clipped to the panel's shape. */
+internal fun Modifier.lensLayer(effect: RenderEffect, shape: Shape): Modifier = graphicsLayer {
+    clip = true
+    this.shape = shape
+    renderEffect = effect.asComposeRenderEffect()
+}
+
+/** How long a panel's size must stay unchanged before its Liquid Glass V2 effect is rebuilt. */
+private const val LensSettleMillis = 120L
 
 /** Render-effect wrapper, kept separate so an unsupported API level simply draws nothing instead of failing. */
 internal fun Modifier.graphicsLayerWithBlur(radiusPx: Float, shape: Shape, darkSurface: Boolean): Modifier =
