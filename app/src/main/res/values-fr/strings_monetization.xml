@@ -368,4 +368,16 @@
     <string name="gifts_attr_price">Valeur</string>
     <string name="gifts_attr_status">Statut</string>
     <string name="gifts_detail_toggle_animation">Basculer l’animation du cadeau</string>
+    <string name="gifts_filter_all">Tous</string>
+    <string name="gifts_filter_available">Disponibles</string>
+    <string name="gifts_filter_resale">Revente</string>
+    <string name="gifts_filter_auction">Enchères</string>
+    <string name="gifts_filter_limited">Limités</string>
+    <string name="gifts_search_hint">Rechercher des cadeaux</string>
+    <string name="gifts_showcase_title">Cadeaux</string>
+    <string name="gifts_showcase_all">Tous les cadeaux</string>
+    <string name="gifts_action_pin">Épingler au profil</string>
+    <string name="gifts_action_unpin">Désépingler</string>
+    <string name="gifts_action_show_profile">Afficher sur le profil</string>
+    <string name="gifts_action_hide_profile">Masquer du profil</string>
 </resources>

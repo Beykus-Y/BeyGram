@@ -9,6 +9,8 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -32,6 +34,7 @@ import androidx.compose.material.icons.rounded.CardGiftcard
 import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.material.icons.rounded.Star
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -68,6 +71,7 @@ import androidx.compose.ui.unit.sp
 import com.beykus.beygram.R
 import com.beykus.beygram.domain.model.GIFT_TEXT_MAX_LENGTH_DEFAULT
 import com.beykus.beygram.domain.model.GiftBlockReason
+import com.beykus.beygram.domain.model.GiftCatalogFilter
 import com.beykus.beygram.domain.model.GiftCatalogItem
 import com.beykus.beygram.domain.model.GiftAuctionQuote
 import com.beykus.beygram.domain.model.GiftAuctionWin
@@ -89,11 +93,13 @@ import com.beykus.beygram.domain.model.ResaleGiftsPage
 import com.beykus.beygram.domain.model.resaleCanBuy
 import androidx.compose.runtime.key
 import com.beykus.beygram.domain.model.StarBalance
+import com.beykus.beygram.domain.model.filterGiftCatalog
 import com.beykus.beygram.domain.model.formatStarAmount
 import com.beykus.beygram.domain.model.giftBlockReason
 import com.beykus.beygram.domain.model.mergeReceivedGifts
 import com.beykus.beygram.domain.model.next
 import com.beykus.beygram.domain.model.nextReceivedGiftsOffset
+import com.beykus.beygram.domain.model.togglePinnedGiftIds
 import com.beykus.beygram.domain.model.validateGiftText
 import com.beykus.beygram.ui.accessibility.errorAnnouncement
 import com.beykus.beygram.ui.components.BeyGramPalette
@@ -133,7 +139,9 @@ fun GiftsScreen(
     submitBid: suspend (GiftAuctionQuote, Long, Boolean, Long) -> GiftAuctionOutcome =
         { _, _, _, _ -> GiftAuctionOutcome.Changed },
     loadResale: suspend (Long, String) -> Result<ResaleGiftsPage> = { _, _ -> Result.failure(UnsupportedOperationException()) },
-    buyResale: suspend (Long, String, Long) -> GiftSendOutcome = { _, _, _ -> GiftSendOutcome.Blocked(com.beykus.beygram.domain.UiText.Res(R.string.err_gift_unavailable)) }
+    buyResale: suspend (Long, String, Long) -> GiftSendOutcome = { _, _, _ -> GiftSendOutcome.Blocked(com.beykus.beygram.domain.UiText.Res(R.string.err_gift_unavailable)) },
+    toggleGiftSaved: suspend (String, Boolean) -> Result<Unit> = { _, _ -> Result.failure(UnsupportedOperationException()) },
+    setPinnedGifts: suspend (List<String>) -> Result<Unit> = { Result.failure(UnsupportedOperationException()) }
 ) {
     val palette = beyGramPalette()
     val design = LocalDesignSystem.current
@@ -141,6 +149,10 @@ fun GiftsScreen(
     val context = LocalContext.current
     var listingGift by remember(accountId, profileId) { mutableStateOf<ReceivedGiftItem?>(null) }
     var detailTarget by remember(accountId, profileId) { mutableStateOf<GiftDetailTarget?>(null) }
+    var detailBusy by remember { mutableStateOf(false) }
+    var detailError by remember { mutableStateOf<String?>(null) }
+    var catalogFilter by rememberSaveable { mutableStateOf(GiftCatalogFilter.All) }
+    var catalogQuery by rememberSaveable { mutableStateOf("") }
     val listingState by GiftListingStore.state.collectAsState()
     val listingOperation = listingState[accountId]
     var info by remember { mutableStateOf<GiftsInfo?>(null) }
@@ -556,16 +568,36 @@ fun GiftsScreen(
                                 )
                             }
                         } else {
-                            items(gifts.catalog, key = { it.id }) { gift ->
-                                GiftCatalogRow(
-                                    gift = gift,
-                                    blockReason = null,
-                                    enabled = false,
-                                    showSend = false,
-                                    onSend = {},
-                                    onAuction = { if (!sending && pendingGiftId == 0L) auctionGift = gift },
-                                    onResale = { resaleCatalog = gift }
+                            item("catalog_filter_own") {
+                                GiftCatalogFilterBar(
+                                    filter = catalogFilter,
+                                    query = catalogQuery,
+                                    onFilter = { catalogFilter = it },
+                                    onQuery = { catalogQuery = it }
                                 )
+                            }
+                            val filteredCatalog = filterGiftCatalog(gifts.catalog, catalogFilter, catalogQuery)
+                            if (filteredCatalog.isEmpty()) {
+                                item("catalog_filtered_empty") {
+                                    Text(
+                                        stringResource(R.string.gifts_catalog_empty),
+                                        color = palette.textSecondary,
+                                        fontSize = 14.sp,
+                                        modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 6.dp)
+                                    )
+                                }
+                            } else {
+                                items(filteredCatalog, key = { it.id }) { gift ->
+                                    GiftCatalogRow(
+                                        gift = gift,
+                                        blockReason = null,
+                                        enabled = false,
+                                        showSend = false,
+                                        onSend = {},
+                                        onAuction = { if (!sending && pendingGiftId == 0L) auctionGift = gift },
+                                        onResale = { resaleCatalog = gift }
+                                    )
+                                }
                             }
                         }
                     } else {
@@ -582,22 +614,42 @@ fun GiftsScreen(
                                 )
                             }
                         } else {
-                            items(gifts.catalog, key = { it.id }) { gift ->
-                                val blockReason = giftBlockReason(
-                                    gift = gift,
-                                    isSelf = false,
-                                    isPremium = gifts.isPremium,
-                                    balanceStars = gifts.balance?.starCount,
-                                    busy = sending
+                            item("catalog_filter") {
+                                GiftCatalogFilterBar(
+                                    filter = catalogFilter,
+                                    query = catalogQuery,
+                                    onFilter = { catalogFilter = it },
+                                    onQuery = { catalogQuery = it }
                                 )
-                                GiftCatalogRow(
-                                    gift = gift,
-                                    blockReason = blockReason,
-                                    enabled = !sending && pendingGiftId == 0L,
-                                    onSend = { chooseGift(gift) },
-                                    onAuction = { if (!sending && pendingGiftId == 0L) auctionGift = gift },
-                                    onResale = { if (!sending && pendingGiftId == 0L) resaleCatalog = gift }
-                                )
+                            }
+                            val filteredCatalog = filterGiftCatalog(gifts.catalog, catalogFilter, catalogQuery)
+                            if (filteredCatalog.isEmpty()) {
+                                item("catalog_filtered_empty") {
+                                    Text(
+                                        stringResource(R.string.gifts_catalog_empty),
+                                        color = palette.textSecondary,
+                                        fontSize = 14.sp,
+                                        modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 6.dp)
+                                    )
+                                }
+                            } else {
+                                items(filteredCatalog, key = { it.id }) { gift ->
+                                    val blockReason = giftBlockReason(
+                                        gift = gift,
+                                        isSelf = false,
+                                        isPremium = gifts.isPremium,
+                                        balanceStars = gifts.balance?.starCount,
+                                        busy = sending
+                                    )
+                                    GiftCatalogRow(
+                                        gift = gift,
+                                        blockReason = blockReason,
+                                        enabled = !sending && pendingGiftId == 0L,
+                                        onSend = { chooseGift(gift) },
+                                        onAuction = { if (!sending && pendingGiftId == 0L) auctionGift = gift },
+                                        onResale = { if (!sending && pendingGiftId == 0L) resaleCatalog = gift }
+                                    )
+                                }
                             }
                         }
                     }
@@ -734,7 +786,54 @@ fun GiftsScreen(
         )
     }
     detailTarget?.let { target ->
-        GiftDetailSheet(target = target, onDismiss = { detailTarget = null })
+        val receivedTarget = (target as? GiftDetailTarget.Received)?.gift
+        val canManageOwn = isSelf && receivedTarget != null && receivedTarget.id.isNotBlank() && !receivedTarget.wasRefunded
+        GiftDetailSheet(
+            target = target,
+            actionBusy = detailBusy,
+            actionError = detailError,
+            onToggleSaved = if (canManageOwn) ({
+                val g = receivedTarget!!
+                if (!detailBusy) {
+                    detailBusy = true
+                    detailError = null
+                    scope.launch {
+                        toggleGiftSaved(g.id, !g.isSaved).fold(
+                            onSuccess = {
+                                detailTarget = null
+                                reload++
+                            },
+                            onFailure = { detailError = it.userMessage(context, R.string.feature_action_failed) }
+                        )
+                        detailBusy = false
+                    }
+                }
+            }) else null,
+            onTogglePinned = if (canManageOwn) ({
+                val g = receivedTarget!!
+                if (!detailBusy) {
+                    detailBusy = true
+                    detailError = null
+                    val nextPinned = togglePinnedGiftIds(info?.received.orEmpty(), g.id)
+                    scope.launch {
+                        setPinnedGifts(nextPinned).fold(
+                            onSuccess = {
+                                detailTarget = null
+                                reload++
+                            },
+                            onFailure = { detailError = it.userMessage(context, R.string.feature_action_failed) }
+                        )
+                        detailBusy = false
+                    }
+                }
+            }) else null,
+            onDismiss = {
+                if (!detailBusy) {
+                    detailError = null
+                    detailTarget = null
+                }
+            }
+        )
     }
     }
 }
@@ -797,6 +896,45 @@ private fun GiftPrivacyRow(checked: Boolean, enabled: Boolean, onCheckedChange: 
     }
 }
 
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun GiftCatalogFilterBar(
+    filter: GiftCatalogFilter,
+    query: String,
+    onFilter: (GiftCatalogFilter) -> Unit,
+    onQuery: (String) -> Unit
+) {
+    Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 6.dp)) {
+        OutlinedTextField(
+            value = query,
+            onValueChange = onQuery,
+            singleLine = true,
+            label = { Text(stringResource(R.string.gifts_search_hint)) },
+            modifier = Modifier.fillMaxWidth()
+        )
+        Spacer(Modifier.height(6.dp))
+        FlowRow(
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalArrangement = Arrangement.spacedBy(4.dp)
+        ) {
+            GiftCatalogFilter.entries.forEach { option ->
+                val labelRes = when (option) {
+                    GiftCatalogFilter.All -> R.string.gifts_filter_all
+                    GiftCatalogFilter.Available -> R.string.gifts_filter_available
+                    GiftCatalogFilter.Resale -> R.string.gifts_filter_resale
+                    GiftCatalogFilter.Auction -> R.string.gifts_filter_auction
+                    GiftCatalogFilter.Limited -> R.string.gifts_filter_limited
+                }
+                FilterChip(
+                    selected = filter == option,
+                    onClick = { onFilter(option) },
+                    label = { Text(stringResource(labelRes)) }
+                )
+            }
+        }
+    }
+}
+
 @Composable
 private fun GiftCatalogRow(
     gift: GiftCatalogItem,
@@ -815,9 +953,13 @@ private fun GiftCatalogRow(
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
             // The gift and its text read as one item; the buttons beside them stay separate controls for TalkBack.
             Row(Modifier.weight(1f).semantics(mergeDescendants = true) {}, verticalAlignment = Alignment.CenterVertically) {
-                GiftVisualImage(gift.visual, 32.dp) {
-                    Text(gift.emoji.ifBlank { "🎁" }, fontSize = 32.sp)
-                }
+                GiftArtworkFrame(
+                    visual = gift.visual,
+                    emoji = gift.emoji,
+                    frameSize = 52.dp,
+                    stickerSize = 36.dp,
+                    cornerRadius = 12.dp
+                )
                 Column(Modifier.weight(1f).padding(start = 12.dp)) {
                     Text(
                         if (gift.auctionId.isNullOrBlank()) stringResource(R.string.gifts_cost, formatStarAmount(gift.starCount)) else stringResource(R.string.gift_auction_title),

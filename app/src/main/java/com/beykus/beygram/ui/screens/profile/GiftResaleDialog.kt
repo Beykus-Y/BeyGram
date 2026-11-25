@@ -1,5 +1,6 @@
 package com.beykus.beygram.ui.screens.profile
 
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -21,6 +22,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -55,6 +57,7 @@ internal fun GiftResaleDialog(
     var loading by remember { mutableStateOf(true) }
     var failed by remember { mutableStateOf(false) }
     var selected by remember { mutableStateOf<ResaleGiftItem?>(null) }
+    var detailListing by remember { mutableStateOf<ResaleGiftItem?>(null) }
     LaunchedEffect(request) {
         val requested = offset
         loading = true
@@ -113,54 +116,87 @@ internal fun GiftResaleDialog(
             title = catalog.resaleTitle.ifBlank { stringResource(R.string.gifts_resale_market) },
             scrollableContent = false,
             content = {
-                LazyColumn(
-                    modifier = Modifier.fillMaxWidth().heightIn(max = 420.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    items(rows, key = { "listing:" + it.name }) { listing ->
-                        Row(Modifier.fillMaxWidth().padding(vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
-                            GiftVisualImage(listing.visual, 28.dp) {
-                                Text(listing.emoji.ifBlank { "🎁" }, fontSize = 28.sp)
-                            }
-                            Column(Modifier.weight(1f).padding(horizontal = 8.dp)) {
-                                Text(listing.title.ifBlank { listing.name } + " #" + listing.number, color = palette.textPrimary, fontWeight = FontWeight.SemiBold)
-                                listing.starCount?.let {
-                                    Text(stringResource(R.string.gifts_cost, formatStarAmount(it)), color = palette.textSecondary, fontSize = 13.sp)
-                                } ?: Text(stringResource(R.string.gifts_resale_ton_unavailable), color = palette.textSecondary, fontSize = 13.sp)
-                            }
-                            if (purchaseEnabled && !loading && !failed && resaleCanBuy(listing, balance)) {
-                                TextButton(onClick = { selected = listing }, modifier = Modifier.heightIn(min = 48.dp)) {
-                                    Text(stringResource(R.string.gifts_resale_buy, formatStarAmount(listing.starCount!!)))
+                ProvideGiftAnimationBudget(maxActive = 2) {
+                    LazyColumn(
+                        modifier = Modifier.fillMaxWidth().heightIn(max = 420.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        items(rows, key = { "listing:" + it.name }) { listing ->
+                            Row(
+                                Modifier.fillMaxWidth()
+                                    .clickable(role = Role.Button) { detailListing = listing }
+                                    .padding(vertical = 4.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                GiftArtworkFrame(
+                                    visual = listing.visual,
+                                    emoji = listing.emoji,
+                                    collectible = listing.collectible,
+                                    frameSize = 48.dp,
+                                    stickerSize = 34.dp,
+                                    symbolSize = 14.dp,
+                                    cornerRadius = 10.dp
+                                )
+                                Column(Modifier.weight(1f).padding(horizontal = 8.dp)) {
+                                    Text(listing.title.ifBlank { listing.name } + " #" + listing.number, color = palette.textPrimary, fontWeight = FontWeight.SemiBold)
+                                    listing.collectible?.let { details ->
+                                        val rarity = when {
+                                            details.modelRarityTier != null -> stringResource(giftRarityLabelRes(details.modelRarityTier))
+                                            details.modelRarityPerMille != null -> stringResource(
+                                                R.string.gifts_rarity_percent,
+                                                String.format(java.util.Locale.getDefault(), "%.1f", details.modelRarityPerMille / 10.0)
+                                            )
+                                            else -> null
+                                        }
+                                        val modelLine = listOfNotNull(
+                                            details.modelName.takeIf { it.isNotBlank() },
+                                            rarity
+                                        ).joinToString(" · ")
+                                        if (modelLine.isNotBlank()) {
+                                            Text(modelLine, color = giftRarityColor(details.modelRarityTier, palette), fontSize = 12.sp)
+                                        }
+                                    }
+                                    listing.starCount?.let {
+                                        Text(stringResource(R.string.gifts_cost, formatStarAmount(it)), color = palette.textSecondary, fontSize = 13.sp)
+                                    } ?: Text(stringResource(R.string.gifts_resale_ton_unavailable), color = palette.textSecondary, fontSize = 13.sp)
+                                }
+                                if (purchaseEnabled && !loading && !failed && resaleCanBuy(listing, balance)) {
+                                    TextButton(onClick = { selected = listing }, modifier = Modifier.heightIn(min = 48.dp)) {
+                                        Text(stringResource(R.string.gifts_resale_buy, formatStarAmount(listing.starCount!!)))
+                                    }
                                 }
                             }
+                            HorizontalDivider()
                         }
-                        HorizontalDivider()
-                    }
-                    if (loading) item("loading") { CircularProgressIndicator(color = palette.accent) }
-                    if (failed) item("error") {
-                        Column {
-                            Text(stringResource(R.string.gifts_load_error), color = palette.danger)
-                            TextButton(onClick = { if (!loading) { loading = true; request++ } }) {
-                                Text(stringResource(R.string.common_retry))
+                        if (loading) item("loading") { CircularProgressIndicator(color = palette.accent) }
+                        if (failed) item("error") {
+                            Column {
+                                Text(stringResource(R.string.gifts_load_error), color = palette.danger)
+                                TextButton(onClick = { if (!loading) { loading = true; request++ } }) {
+                                    Text(stringResource(R.string.common_retry))
+                                }
                             }
+                        } else if (!loading && rows.isEmpty() && nextOffset.isEmpty()) item("empty") {
+                            Text(stringResource(R.string.gifts_resale_empty), color = palette.textSecondary)
                         }
-                    } else if (!loading && rows.isEmpty() && nextOffset.isEmpty()) item("empty") {
-                        Text(stringResource(R.string.gifts_resale_empty), color = palette.textSecondary)
-                    }
-                    if (!loading && !failed && nextOffset.isNotEmpty()) item("more") {
-                        TextButton(onClick = {
-                            if (!loading && nextOffset.isNotEmpty()) {
-                                loading = true; offset = nextOffset; request++
-                            }
-                        }) { Text(stringResource(R.string.gifts_received_more)) }
-                    }
-                    if (!loading) item("refresh") {
-                        TextButton(onClick = ::refresh) { Text(stringResource(R.string.common_refresh)) }
+                        if (!loading && !failed && nextOffset.isNotEmpty()) item("more") {
+                            TextButton(onClick = {
+                                if (!loading && nextOffset.isNotEmpty()) {
+                                    loading = true; offset = nextOffset; request++
+                                }
+                            }) { Text(stringResource(R.string.gifts_received_more)) }
+                        }
+                        if (!loading) item("refresh") {
+                            TextButton(onClick = ::refresh) { Text(stringResource(R.string.common_refresh)) }
+                        }
                     }
                 }
             },
             confirmText = stringResource(R.string.common_close),
             onConfirm = onDismiss
         )
+        detailListing?.let { listing ->
+            GiftDetailSheet(target = GiftDetailTarget.Resale(listing), onDismiss = { detailListing = null })
+        }
     }
 }

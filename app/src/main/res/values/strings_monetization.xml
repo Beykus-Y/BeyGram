@@ -372,4 +372,16 @@
     <string name="gifts_attr_price">Цена</string>
     <string name="gifts_attr_status">Статус</string>
     <string name="gifts_detail_toggle_animation">Переключить анимацию подарка</string>
+    <string name="gifts_filter_all">Все</string>
+    <string name="gifts_filter_available">Доступные</string>
+    <string name="gifts_filter_resale">Перепродажа</string>
+    <string name="gifts_filter_auction">Аукцион</string>
+    <string name="gifts_filter_limited">Редкие</string>
+    <string name="gifts_search_hint">Поиск по подаркам</string>
+    <string name="gifts_showcase_title">Витрина подарков</string>
+    <string name="gifts_showcase_all">Все подарки</string>
+    <string name="gifts_action_pin">Закрепить в профиле</string>
+    <string name="gifts_action_unpin">Открепить</string>
+    <string name="gifts_action_show_profile">Показать в профиле</string>
+    <string name="gifts_action_hide_profile">Скрыть из профиля</string>
 </resources>

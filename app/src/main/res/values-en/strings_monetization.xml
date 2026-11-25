@@ -368,4 +368,16 @@
     <string name="gifts_attr_price">Value</string>
     <string name="gifts_attr_status">Status</string>
     <string name="gifts_detail_toggle_animation">Toggle gift animation</string>
+    <string name="gifts_filter_all">All</string>
+    <string name="gifts_filter_available">Available</string>
+    <string name="gifts_filter_resale">Resale</string>
+    <string name="gifts_filter_auction">Auction</string>
+    <string name="gifts_filter_limited">Limited</string>
+    <string name="gifts_search_hint">Search gifts</string>
+    <string name="gifts_showcase_title">Gifts</string>
+    <string name="gifts_showcase_all">All gifts</string>
+    <string name="gifts_action_pin">Pin to profile</string>
+    <string name="gifts_action_unpin">Unpin</string>
+    <string name="gifts_action_show_profile">Show on profile</string>
+    <string name="gifts_action_hide_profile">Hide from profile</string>
 </resources>
