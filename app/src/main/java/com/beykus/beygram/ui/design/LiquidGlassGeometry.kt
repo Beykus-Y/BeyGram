@@ -1,5 +1,7 @@
 package com.beykus.beygram.ui.design
 
+import androidx.compose.foundation.shape.CornerSize
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Outline
 import androidx.compose.ui.graphics.Shape
@@ -34,7 +36,17 @@ internal fun lensCornerRadii(
     layoutDirection: LayoutDirection
 ): LensCornerRadii {
     val maxRadius = minOf(size.width, size.height) / 2f
-    val radii = when (val outline = shape.createOutline(size, layoutDirection, density)) {
+    // A RoundedCornerShape with different radii builds a generic path, so its radii are read from the shape itself.
+    val radii = if (shape is RoundedCornerShape) {
+        val ltr = layoutDirection == LayoutDirection.Ltr
+        fun px(corner: CornerSize) = corner.toPx(size, density)
+        val start = px(shape.topStart)
+        val end = px(shape.topEnd)
+        val bottomEnd = px(shape.bottomEnd)
+        val bottomStart = px(shape.bottomStart)
+        if (ltr) LensCornerRadii(start, end, bottomEnd, bottomStart)
+        else LensCornerRadii(end, start, bottomStart, bottomEnd)
+    } else when (val outline = shape.createOutline(size, layoutDirection, density)) {
         is Outline.Rectangle -> LensCornerRadii.None
         is Outline.Rounded -> outline.roundRect.let {
             LensCornerRadii(
