@@ -196,8 +196,10 @@ internal fun AppearanceStylePage(
                         )
                     }
                 }
-                // The lens needs API 33+; below that the switch would do nothing, so it is not offered.
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                // The lens needs API 33+ and only refracts the High level (Auto resolves to High), so below
+                // those the switch would do nothing and is not offered.
+                val lensApplies = draft.glassQuality == GlassQuality.High || draft.glassQuality == GlassQuality.Auto
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU && lensApplies) {
                     LiquidGlassV2Row(
                         enabled = draft.liquidGlassV2,
                         onChange = { onDraftChange(draft.copy(liquidGlassV2 = it)) }

@@ -88,15 +88,18 @@ private val LensShaderSource = """
         float2 lightDir = normalize(float2(-0.6, -0.8));
         float facingLight = pow(max(dot(outDir, lightDir), 0.0), 3.0) * nCos * nCos;
         float facingShade = pow(max(dot(outDir, -lightDir), 0.0), 3.0) * nCos * nCos;
-        float highlight = facingLight * mix(0.35, 0.12, lightSurface);
-        float shade = facingShade * 0.18 * lightSurface;
+        float highlight = facingLight * mix(0.22, 0.10, lightSurface);
+        float shade = facingShade * 0.12 * lightSurface;
         half3 rgb = clamp(c.rgb + half3(half(highlight - shade)), half3(0.0), half3(c.a));
         return half4(rgb, c.a);
     }
 """.trimIndent()
 
-/** Compile result cached for the process: a driver that rejects the source is asked only once. */
-private val lensSupport: Boolean by lazy {
+/**
+ * Whether the driver accepts the shader source, checked once per process. Only this check is shared: every panel still
+ * creates its own RuntimeShader, because its uniforms (size, radii) belong to that panel.
+ */
+private val lensShaderCompiles: Boolean by lazy {
     if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) return@lazy false
     try {
         RuntimeShader(LensShaderSource)
@@ -113,7 +116,7 @@ private val lensSupport: Boolean by lazy {
  * backdrop, so a style that never draws the lens never creates one.
  */
 internal fun newLensShader(): RuntimeShader? {
-    if (!lensSupport) return null
+    if (!lensShaderCompiles) return null
     return try {
         LiquidGlassMetrics.recordShaderCreated()
         RuntimeShader(LensShaderSource)
@@ -138,10 +141,7 @@ internal fun buildLensRenderEffect(
     density: Density,
     layoutDirection: LayoutDirection
 ): RenderEffect? {
-    if (sizePx.width <= 0 || sizePx.height <= 0) {
-        LiquidGlassMetrics.recordFallback()
-        return null
-    }
+    if (sizePx.width <= 0 || sizePx.height <= 0) return null
     val size = Size(sizePx.width.toFloat(), sizePx.height.toFloat())
     val radii = lensCornerRadii(shape, size, density, layoutDirection)
     val thickness = lensThicknessPx(thicknessPx, size)

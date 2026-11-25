@@ -12,7 +12,7 @@ internal object LiquidGlassMetrics {
     private val shadersCreated = AtomicInteger()
     private val compileFailures = AtomicInteger()
     private val lensEffectsBuilt = AtomicInteger()
-    private val fallbacks = AtomicInteger()
+    private val fallbackFrames = AtomicInteger()
 
     fun recordShaderCreated() {
         shadersCreated.incrementAndGet()
@@ -26,25 +26,29 @@ internal object LiquidGlassMetrics {
         lensEffectsBuilt.incrementAndGet()
     }
 
-    /** A panel asked for the lens but drew the plain blur (no size yet, or the effect could not be built). */
-    fun recordFallback() {
-        fallbacks.incrementAndGet()
+    /**
+     * A frame in which a panel that asked for the lens drew the plain blur instead: no shader, no size yet, the panel is
+     * still animating its size, or the effect could not be built. Counted per frame, so it shows how often the lens is
+     * actually not on screen.
+     */
+    fun recordFallbackFrame() {
+        fallbackFrames.incrementAndGet()
     }
 
     fun snapshot(): Snapshot = Snapshot(
         shadersCreated = shadersCreated.get(),
         compileFailures = compileFailures.get(),
         lensEffectsBuilt = lensEffectsBuilt.get(),
-        fallbacks = fallbacks.get()
+        fallbackFrames = fallbackFrames.get()
     )
 
     data class Snapshot(
         val shadersCreated: Int,
         val compileFailures: Int,
         val lensEffectsBuilt: Int,
-        val fallbacks: Int
+        val fallbackFrames: Int
     ) {
         override fun toString(): String =
-            "shaders=$shadersCreated compileFailures=$compileFailures lensEffects=$lensEffectsBuilt fallbacks=$fallbacks"
+            "shaders=$shadersCreated compileFailures=$compileFailures lensEffects=$lensEffectsBuilt fallbackFrames=$fallbackFrames"
     }
 }

@@ -52,10 +52,10 @@ class LiquidGlassGeometryTest {
     fun metricsCountEveryEventOnce() {
         val before = LiquidGlassMetrics.snapshot()
         LiquidGlassMetrics.recordShaderCreated()
-        LiquidGlassMetrics.recordFallback()
+        LiquidGlassMetrics.recordFallbackFrame()
         val after = LiquidGlassMetrics.snapshot()
         assertEquals(before.shadersCreated + 1, after.shadersCreated)
-        assertEquals(before.fallbacks + 1, after.fallbacks)
+        assertEquals(before.fallbackFrames + 1, after.fallbackFrames)
         assertEquals(before.lensEffectsBuilt, after.lensEffectsBuilt)
     }
 }

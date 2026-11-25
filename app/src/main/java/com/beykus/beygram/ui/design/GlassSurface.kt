@@ -13,6 +13,7 @@ import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.padding
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.Stable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -47,6 +48,7 @@ import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.toIntSize
 import com.beykus.beygram.data.appearance.DesignStyle
+import kotlinx.coroutines.delay
 
 /**
  * The content a glass panel can sample. Whatever is drawn inside [Modifier.glassBackdropSource] is recorded into an
@@ -160,16 +162,24 @@ fun GlassPanel(
     val lensWanted = glass?.lensRefraction == true && edge == GlassEdge.Rim && samplesBackdrop
     val lensShader = remember(lensWanted) { if (lensWanted) newLensShader() else null }
     var panelSize by remember { mutableStateOf(IntSize.Zero) }
+    // The lens is built for the size the panel has settled at. While a size animation runs, the panel draws the plain
+    // blur instead of rebuilding the effect every frame; the lens returns once the size has stayed put for a moment.
+    var lensSize by remember { mutableStateOf(IntSize.Zero) }
+    LaunchedEffect(panelSize) {
+        delay(LensSettleMillis)
+        lensSize = panelSize
+    }
     val lensThicknessPx = with(density) { LensEdgeThickness.toPx() }
     val layoutDirection = LocalLayoutDirection.current
     val blurPx = with(density) { (glass?.blurRadiusDp ?: 0.dp).toPx() }
     val darkSurface = tint.luminance() < 0.5f
     // The effect is rebuilt only when the size, the shape or the surface changes, not on every frame.
-    val lensEffect = remember(lensShader, panelSize, shape, lensThicknessPx, blurPx, darkSurface, density, layoutDirection) {
+    val lensEffect = remember(lensShader, lensSize, shape, lensThicknessPx, blurPx, darkSurface, density, layoutDirection) {
         lensShader?.let {
-            buildLensRenderEffect(it, panelSize, shape, lensThicknessPx, blurPx, darkSurface, density, layoutDirection)
+            buildLensRenderEffect(it, lensSize, shape, lensThicknessPx, blurPx, darkSurface, density, layoutDirection)
         }
     }
+    val lensActive = lensEffect != null && panelSize == lensSize
     Box(
         modifier
             .onGloballyPositioned { originInWindow = it.positionInWindow() }
@@ -214,13 +224,17 @@ fun GlassPanel(
             // those must show this colour, not the sharp content drawn underneath.
             val base = if (backdropBase != Color.Unspecified) backdropBase else tint.copy(alpha = 1f)
             // With no lens effect (no size yet, or a device that cannot build it) the panel keeps the plain blur.
-            val surfaceEffect = lensEffect?.let { Modifier.lensLayer(it, shape) }
-                ?: Modifier.graphicsLayerWithBlur(blurPx, shape, darkSurface)
+            val surfaceEffect = if (lensActive) {
+                Modifier.lensLayer(lensEffect!!, shape)
+            } else {
+                Modifier.graphicsLayerWithBlur(blurPx, shape, darkSurface)
+            }
             Box(
                 Modifier.matchParentSize()
                     .then(surfaceEffect)
                     .drawBehind {
                         drawRect(base)
+                        if (lensWanted && !lensActive) LiquidGlassMetrics.recordFallbackFrame()
                         val sampled = backdrop
                         val source = sampled?.layer
                         // Sampling the layer that is being recorded right now would draw it into itself, which kills
@@ -272,6 +286,9 @@ internal fun Modifier.lensLayer(effect: RenderEffect, shape: Shape): Modifier = 
     this.shape = shape
     renderEffect = effect.asComposeRenderEffect()
 }
+
+/** How long a panel's size must stay unchanged before its Liquid Glass V2 effect is rebuilt. */
+private const val LensSettleMillis = 120L
 
 /** Render-effect wrapper, kept separate so an unsupported API level simply draws nothing instead of failing. */
 internal fun Modifier.graphicsLayerWithBlur(radiusPx: Float, shape: Shape, darkSurface: Boolean): Modifier =
