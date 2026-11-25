@@ -100,6 +100,10 @@ internal data class ProfileSceneFrame(
     val avatarRect: SceneRect,
     /** Scale of the photo layer, applied uniformly (cover, no distortion). */
     val layerScale: Float,
+    /** Side of the square photo layer: the larger of the photo sides and the avatar, so the crop is symmetric and never distorted. */
+    val layerSidePx: Float,
+    /** Upper bound of the visible photo clip: the toolbar bottom, released to 0 between collapse 0.8 and 1 (see [clipTopFor]). */
+    val clipTopPx: Float,
     /** Parallax shift in px, already limited to the slack and scaled by the reveal. */
     val parallaxPx: Float,
     /** Lowest bottom edge among the avatar, name and status. */
@@ -139,9 +143,11 @@ internal fun profileSceneFrame(inputs: ProfileSceneInputs): ProfileSceneFrame {
     val titleRect = lerpSceneRect(titleZero, i.compactTitle, collapse)
     val statusRect = lerpSceneRect(statusZero, i.compactStatus, collapse)
 
-    // The layer is the photo when reveal is possible, otherwise the avatar itself (so cover is 1 at rest).
-    val layerW = if (revealEnabled) photoW else i.avatarPx
-    val layerH = if (revealEnabled) photoH else i.avatarPx
+    // The layer is a square of the larger side (P1.2): the photo is never distorted and its crop is symmetric.
+    // Without a photo it is the avatar itself, so cover is 1 at rest.
+    val layerSide = if (revealEnabled) max(i.avatarPx, max(photoW, photoH)) else i.avatarPx
+    val layerW = layerSide
+    val layerH = layerSide
     val overscaleNow = 1f + (i.overscale - 1f) * reveal
     val cover = if (layerW <= 0f || layerH <= 0f) 1f
     else max(avatarRect.width / layerW, avatarRect.height / layerH)
@@ -164,6 +170,8 @@ internal fun profileSceneFrame(inputs: ProfileSceneInputs): ProfileSceneFrame {
         canToggleReveal = scroll <= 0f,
         avatarRect = avatarRect,
         layerScale = layerScale,
+        layerSidePx = layerSide,
+        clipTopPx = clipTopFor(collapse, i.toolbarBottomPx),
         parallaxPx = parallax,
         displayedBottomPx = max(avatarRect.bottom, max(titleRect.bottom, statusRect.bottom)),
     )
@@ -172,12 +180,33 @@ internal fun profileSceneFrame(inputs: ProfileSceneInputs): ProfileSceneFrame {
 /** The gap above an element, or none when the element has no height. */
 private fun gapBefore(elementHeightPx: Float, gapPx: Float): Float = if (elementHeightPx > 0f) gapPx else 0f
 
+/** Collapse at which the photo clip starts to release toward the window top. */
+private const val CLIP_RELEASE_START = 0.8f
+
+/**
+ * Upper bound of the photo clip. It is the toolbar bottom while the photo is wide (so it does not cover the toolbar's
+ * back button), and it is released continuously to 0 between collapse [CLIP_RELEASE_START] and 1. The continuous
+ * release avoids a jump of the clip edge, and at collapse 1 the compact avatar inside the toolbar is never cut.
+ */
+internal fun clipTopFor(collapse: Float, toolbarBottomPx: Float): Float {
+    val release = ((collapse - CLIP_RELEASE_START) / (1f - CLIP_RELEASE_START)).coerceIn(0f, 1f)
+    return max(0f, toolbarBottomPx) * (1f - release)
+}
+
 /** Avatar block, then each element with its own gap (none for a zero-height element). */
 private fun stageHeightFor(i: ProfileSceneInputs, avatarBlock: Float): Float =
     avatarBlock +
         gapBefore(i.titleHeightPx, i.gapAvatarTitlePx) + i.titleHeightPx +
         gapBefore(i.statusHeightPx, i.gapTitleStatusPx) + i.statusHeightPx +
         gapBefore(i.badgesHeightPx, i.gapStatusBadgesPx) + i.badgesHeightPx
+
+/**
+ * Minimum height of the scroll content. The content must exceed the viewport by at least the stage travel, or a short
+ * profile can never scroll far enough to reach full collapse (the invariant that broke before P2b-2). Scrollable
+ * range is `result - viewportHeightPx`, which is therefore always at least [travelPx].
+ */
+internal fun profileSceneMinContentHeightPx(viewportHeightPx: Float, travelPx: Float): Float =
+    max(0f, viewportHeightPx) + max(0f, travelPx)
 
 /** Parallax shift per px of scroll: the photo moves slower than the page. */
 internal const val PARALLAX_FACTOR = 0.2f

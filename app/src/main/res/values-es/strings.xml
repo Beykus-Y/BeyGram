@@ -439,7 +439,6 @@
     <string name="a11y_chat_muted">Silenciado</string>
     <string name="a11y_chat_info">Información del chat</string>
     <string name="a11y_profile_photo_open">Abrir foto de perfil</string>
-    <string name="a11y_profile_photo_expand">Ampliar la foto de perfil</string>
     <string name="a11y_profile_photo_expanded_state">Foto ampliada</string>
     <string name="a11y_media_open">Abrir: %1$s</string>
     <string name="a11y_media_download">Descargar: %1$s</string>
