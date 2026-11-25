@@ -14,9 +14,14 @@ import kotlinx.coroutines.withTimeout
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
+import org.junit.Rule
 import org.junit.Test
+import org.junit.rules.TemporaryFolder
 
 class VideoNoteDeliveryStateTest {
+    @get:Rule
+    val folder = TemporaryFolder()
+
     private fun media(id: String) = OutgoingMedia(
         path = "/tmp/video-note-" + id + ".mp4",
         fileName = "video-note-" + id + ".mp4",
@@ -203,5 +208,61 @@ class VideoNoteDeliveryStateTest {
         val generic = videoNoteExportFailure(IllegalStateException("No space left on device"))
         assertEquals(UiText.Res(R.string.recorder_save_failed), generic.message)
         assertEquals("IllegalStateException: No space left on device", generic.detail)
+    }
+
+    @Test fun theRawRecordingSurvivesAFailedSendAndGoesWithTheDraft() = runBlocking {
+        // A failed delivery must never cost the recording: the raw file stays until the note is accepted or deleted.
+        val session = folder.newFolder("session")
+        val raw = folder.newFile("session/video-note.mp4")
+        raw.writeBytes(ByteArray(16))
+        val item = VideoNoteExportResult(
+            chatId = 1_117L,
+            media = listOf(media("raw")),
+            previewFirst = false,
+            sessionName = "test-raw-retention",
+            rawPath = raw.absolutePath
+        )
+        VideoNoteExportCenter.publish(item)
+        assertEquals(VideoNoteSendStart.Started, VideoNoteExportCenter.send(item.chatId, item.sessionName, null) { _, _ ->
+            Result.failure(IllegalStateException("offline"))
+        })
+        withTimeout(3000) {
+            VideoNoteExportCenter.results.first { list ->
+                list.any { it.sessionName == item.sessionName && it.requiresPreview && !it.sending }
+            }
+        }
+        assertTrue("the recording must survive a failed send", raw.isFile)
+
+        // Accepting the draft is what releases the recording, and the empty session folder goes with it.
+        assertEquals(VideoNoteSendStart.Started, VideoNoteExportCenter.send(item.chatId, item.sessionName, null) { _, _ ->
+            Result.success(Unit)
+        })
+        withTimeout(3000) {
+            VideoNoteExportCenter.results.first { list -> list.none { it.sessionName == item.sessionName } }
+        }
+        withTimeout(3000) {
+            kotlinx.coroutines.delay(10)
+            assertTrue("the recording is deleted only after acceptance", !raw.exists())
+        }
+        Unit
+    }
+
+    @Test fun deletingADraftDeletesItsRecording() = runBlocking {
+        val session = folder.newFolder("discard-session")
+        val raw = folder.newFile("discard-session/video-note.mp4")
+        val item = VideoNoteExportResult(
+            chatId = 1_218L,
+            media = listOf(media("discard")),
+            previewFirst = true,
+            sessionName = "test-raw-discard",
+            rawPath = raw.absolutePath
+        )
+        VideoNoteExportCenter.publish(item)
+        VideoNoteExportCenter.discard(item.chatId, item.sessionName)
+        withTimeout(3000) {
+            kotlinx.coroutines.delay(10)
+            assertTrue("an explicitly deleted draft takes its recording with it", !raw.exists())
+        }
+        Unit
     }
 }

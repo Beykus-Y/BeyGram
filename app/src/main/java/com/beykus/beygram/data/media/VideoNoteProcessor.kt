@@ -40,7 +40,9 @@ class VideoNoteProcessor(private val context: Context) {
     /**
      * Перекодирует RAW в замаскированные сегменты. RAW может лежать в no_backup, поэтому готовые файлы
      * складываются в [outputDirectory] (filesDir/uploads, рядом с другими вложениями на отправку).
-     * При сбое сегмента уже готовые сегменты и RAW сохраняются: долгую запись нельзя терять из-за одной ошибки.
+     * Сбой сегмента не удаляет ни готовые сегменты, ни RAW: долгую запись нельзя терять из-за одной ошибки.
+     * Готовый RAW остаётся на диске до приёма кружка TDLib или явного удаления — владелец решает это в
+     * [VideoNoteExportCenter].
      */
     suspend fun process(source: File, settings: VideoMessageSettings, outputDirectory: File, diagnosticId: String? = null): List<OutgoingMedia> {
         if (diagnosticId != null) VideoNoteDiagnostics.inspect(diagnosticId, VideoNoteDiagnostics.text(R.string.vn_stage_raw), source)
@@ -95,7 +97,8 @@ class VideoNoteProcessor(private val context: Context) {
                 throw failure
             }
         }
-        source.delete()
+        // The raw recording is kept until the note is accepted or explicitly deleted: a failed delivery must never cost
+        // the user the recording, and a broken export can be redone from it (#1228). The export center deletes it.
         return result
     }
 

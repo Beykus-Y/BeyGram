@@ -102,7 +102,9 @@ internal data class VideoNoteExportResult(
     /** Recorded in the all-messages feed: any screen that sends it uses [replyToMessageId], see [sendReplyId]. */
     val recordedInFeed: Boolean = false,
     /** Why the last attempt did not deliver this note; null while it is being processed or has not been tried yet. */
-    val failure: VideoNoteFailure? = null
+    val failure: VideoNoteFailure? = null,
+    /** The untouched recording this draft was exported from; kept until acceptance or explicit deletion. */
+    val rawPath: String? = null
 )
 
 /** Pure transitions shared by the app-level sender and regression tests. */
@@ -206,7 +208,7 @@ internal object VideoNoteExportCenter {
                 Log.i(TAG, "video_processing_completed session=" + sessionName + " segments=" + media.size)
                 recordAppEvent(EventKind.OTHER, "video_note_processed", "Кружок: обработка завершена", attrs = mapOf("segments" to media.size.toString()))
                 VideoNoteDiagnostics.append(sessionName, VideoNoteDiagnostics.text(R.string.vn_entry_export_succeeded, media.size), if (previewFirst) VideoNoteStatus.PREVIEW else VideoNoteStatus.READY)
-                publish(VideoNoteExportResult(chatId, media, previewFirst, sessionName, topicId = topicId, accountId = accountId, replyToMessageId = replyToMessageId, recordedInFeed = recordedInFeed))
+                publish(VideoNoteExportResult(chatId, media, previewFirst, sessionName, topicId = topicId, accountId = accountId, replyToMessageId = replyToMessageId, recordedInFeed = recordedInFeed, rawPath = source.absolutePath))
             } catch (failure: CancellationException) {
                 throw failure
             } catch (failure: Exception) {
@@ -266,6 +268,8 @@ internal object VideoNoteExportCenter {
                     reply = null
                 }
                 updateResult(sessionName, accountId) { null } // ACK only after all segments were accepted.
+                // Nothing needs the raw recording any more: the note is stored and its files were handed to TDLib.
+                deleteRaw(initial.rawPath)
                 VideoNoteDiagnostics.append(sessionName, VideoNoteDiagnostics.text(R.string.vn_entry_send_all_accepted), VideoNoteStatus.SENT)
             } catch (cancelled: CancellationException) {
                 VideoNoteDiagnostics.append(sessionName, VideoNoteDiagnostics.text(R.string.vn_entry_send_cancelled), VideoNoteStatus.CANCELLED)
@@ -287,6 +291,15 @@ internal object VideoNoteExportCenter {
         return VideoNoteSendStart.Started
     }
 
+    /** The raw recording goes away only with the draft it belongs to; its empty session folder goes with it. */
+    private fun deleteRaw(path: String?) {
+        val file = path?.let(::File) ?: return
+        runCatching {
+            file.delete()
+            file.parentFile?.takeIf { it.listFiles().isNullOrEmpty() }?.delete()
+        }
+    }
+
     /** Explicit dismissal of an unsent draft; never delete a job while it is sending. */
     fun discard(chatId: Long, sessionName: String, accountId: String = com.beykus.beygram.data.tdlib.TdAccountStorageLayout.LEGACY_ACCOUNT_ID) {
         val discarded = synchronized(this) {
@@ -297,6 +310,7 @@ internal object VideoNoteExportCenter {
             current
         }
         scope.launch(Dispatchers.IO) {
+            deleteRaw(discarded.rawPath)
             // Previously accepted parts may still be in TDLib's upload queue; delete only unsent.
             discarded.media.drop(discarded.nextIndex).forEach { media ->
                 runCatching { File(media.path).delete() }
