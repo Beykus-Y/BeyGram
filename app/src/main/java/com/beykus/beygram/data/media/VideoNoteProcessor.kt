@@ -7,6 +7,8 @@ import android.graphics.Color
 import android.graphics.Paint
 import android.graphics.PorterDuff
 import android.graphics.PorterDuffXfermode
+import android.media.MediaExtractor
+import android.media.MediaFormat
 import android.media.MediaMetadataRetriever
 import android.net.Uri
 import androidx.media3.common.MediaItem
@@ -74,6 +76,19 @@ class VideoNoteProcessor(private val context: Context) {
                 val info = withContext(Dispatchers.IO) { metadata(output) }
                 require(info.width == target.side && info.height == target.side) { "Кодировщик изменил размер видеокружка" }
                 require(isAcceptedVideoNoteDuration(info.durationMs)) { "Длительность кружка превышает 60 секунд" }
+                // A file that TDLib would upload but nobody could watch is not a successful export. The checks run on the
+                // real output, so a broken encoder, a missing video track or a black/empty clip fails here with a reason
+                // instead of surfacing as a black preview and a dead Send button (#1228).
+                val facts = withContext(Dispatchers.IO) { outputFacts(output, target.side, info) }
+                val issue = videoNoteOutputIssue(facts)
+                if (diagnosticId != null) {
+                    VideoNoteDiagnostics.append(diagnosticId, VideoNoteDiagnostics.text(R.string.vn_entry_output_check, facts.decodedFrames, facts.videoMime ?: "?"))
+                }
+                if (issue != null) {
+                    VideoNoteDiagnostics.append(diagnosticId ?: "", VideoNoteDiagnostics.text(R.string.vn_entry_output_rejected, issue.name))
+                    output.delete()
+                    throw VideoNoteExportException(issue)
+                }
                 result += outgoingMedia(output, info, index + 1, extractThumbnail(output, File(outputDirectory, "video-note-${index + 1}-thumb.jpg")))
             } catch (failure: Exception) {
                 output.delete()
@@ -195,6 +210,51 @@ class VideoNoteProcessor(private val context: Context) {
         } finally { release() }
     }
 
+    /**
+     * Reads what the checks need from the real output file: the container's video mime type and a few frames that the
+     * platform decoder must be able to produce.
+     */
+    private fun outputFacts(file: File, expectedSide: Int, info: VideoMetadata): VideoNoteOutputFacts {
+        val mime = runCatching {
+            MediaExtractor().let { extractor ->
+                try {
+                    extractor.setDataSource(file.absolutePath)
+                    (0 until extractor.trackCount)
+                        .map { extractor.getTrackFormat(it) }
+                        .firstOrNull { (it.getString(MediaFormat.KEY_MIME) ?: "").startsWith("video/") }
+                        ?.getString(MediaFormat.KEY_MIME)
+                } finally {
+                    extractor.release()
+                }
+            }
+        }.getOrNull()
+        // Three positions, not one: the first frames of a broken export can still decode, while a clip that only has a
+        // correct first frame is exactly the "preview is black, send does nothing" case.
+        val frames = runCatching {
+            MediaMetadataRetriever().let { retriever ->
+                try {
+                    retriever.setDataSource(file.absolutePath)
+                    val duration = info.durationMs.coerceAtLeast(1L)
+                    listOf(0L, duration / 2, (duration * 9 / 10).coerceAtLeast(1L))
+                        .count { positionMs ->
+                            retriever.getFrameAtTime(positionMs * 1_000L, MediaMetadataRetriever.OPTION_CLOSEST_SYNC) != null
+                        }
+                } finally {
+                    retriever.release()
+                }
+            }
+        }.getOrDefault(0)
+        return VideoNoteOutputFacts(
+            sizeBytes = file.length(),
+            width = info.width,
+            height = info.height,
+            durationMs = info.durationMs,
+            videoMime = mime,
+            decodedFrames = frames,
+            expectedSide = expectedSide
+        )
+    }
+
     private data class VideoMetadata(val width: Int, val height: Int, val durationMs: Long)
     private data class TargetProfile(val side: Int, val videoBitrate: Int, val audioBitrate: Int)
 
@@ -206,6 +266,43 @@ class VideoNoteProcessor(private val context: Context) {
     }
 
 }
+
+/**
+ * What makes an exported clip unusable as a Telegram video note (#1228). [NoDecodableFrame] is the reported symptom: a
+ * file that looks fine to the exporter but has nothing the platform can decode — a black preview and a recipient that
+ * sees nothing.
+ */
+internal enum class VideoNoteOutputIssue { EmptyFile, NoDecodableFrame, NotH264, NotSquare, BadDuration }
+
+/** Everything the export check reads from the output file; a plain data holder so the rules are tested without a codec. */
+internal data class VideoNoteOutputFacts(
+    val sizeBytes: Long,
+    val width: Int,
+    val height: Int,
+    val durationMs: Long,
+    /** Container video mime type, or null when the extractor could not answer (then the codec check is skipped). */
+    val videoMime: String?,
+    val decodedFrames: Int,
+    val expectedSide: Int
+)
+
+/**
+ * The export is accepted only when the file really is a square H.264 video note with decodable frames inside the
+ * duration limit. The checks are ordered from "nothing was written" to "the container is wrong", so the reported reason
+ * names the first real problem.
+ */
+internal fun videoNoteOutputIssue(facts: VideoNoteOutputFacts): VideoNoteOutputIssue? = when {
+    facts.sizeBytes <= 0L -> VideoNoteOutputIssue.EmptyFile
+    facts.decodedFrames <= 0 -> VideoNoteOutputIssue.NoDecodableFrame
+    facts.videoMime != null && facts.videoMime != "video/avc" -> VideoNoteOutputIssue.NotH264
+    facts.width != facts.expectedSide || facts.height != facts.expectedSide -> VideoNoteOutputIssue.NotSquare
+    facts.durationMs !in 1L..VIDEO_NOTE_MAX_MS -> VideoNoteOutputIssue.BadDuration
+    else -> null
+}
+
+/** An export that failed the checks above; the raw recording is kept, so the note can be exported again. */
+internal class VideoNoteExportException(val issue: VideoNoteOutputIssue) :
+    IllegalStateException("Видеокружок не прошёл проверку: " + issue.name)
 
 /** Never upscale CameraX SD source after its square crop: the short side limits detail. */
 internal fun videoNoteOutputSide(requested: Int, width: Int, height: Int): Int {

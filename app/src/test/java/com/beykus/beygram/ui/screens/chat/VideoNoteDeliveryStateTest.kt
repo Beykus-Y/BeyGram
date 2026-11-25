@@ -1,5 +1,10 @@
 package com.beykus.beygram.ui.screens.chat
 
+import com.beykus.beygram.R
+import com.beykus.beygram.data.media.VideoNoteExportException
+import com.beykus.beygram.data.media.VideoNoteOutputIssue
+import com.beykus.beygram.domain.UiText
+import com.beykus.beygram.domain.UserMessageException
 import com.beykus.beygram.domain.model.MediaKind
 import com.beykus.beygram.domain.model.OutgoingMedia
 import kotlinx.coroutines.CompletableDeferred
@@ -28,7 +33,7 @@ class VideoNoteDeliveryStateTest {
         val second = VideoNoteExportResult(123L, listOf(media("b")), false, "test-b")
         VideoNoteExportCenter.publish(first)
         VideoNoteExportCenter.publish(second)
-        assertTrue(VideoNoteExportCenter.send(first.chatId, first.sessionName, null) { _, _ ->
+        assertEquals(VideoNoteSendStart.Started, VideoNoteExportCenter.send(first.chatId, first.sessionName, null) { _, _ ->
             Result.failure(IllegalStateException("offline"))
         })
         withTimeout(3000) {
@@ -47,7 +52,7 @@ class VideoNoteDeliveryStateTest {
         val item = VideoNoteExportResult(234L, listOf(media("one"), media("two")), true, "test-segments")
         VideoNoteExportCenter.publish(item)
         val attempt = mutableListOf<String>()
-        assertTrue(VideoNoteExportCenter.send(item.chatId, item.sessionName, null) { media, _ ->
+        assertEquals(VideoNoteSendStart.Started, VideoNoteExportCenter.send(item.chatId, item.sessionName, null) { media, _ ->
             attempt += media.fileName
             if (attempt.size == 2) Result.failure(IllegalStateException("network"))
             else Result.success(Unit)
@@ -58,7 +63,7 @@ class VideoNoteDeliveryStateTest {
             }
         }
         val retry = mutableListOf<String>()
-        assertTrue(VideoNoteExportCenter.send(item.chatId, item.sessionName, null) { media, _ ->
+        assertEquals(VideoNoteSendStart.Started, VideoNoteExportCenter.send(item.chatId, item.sessionName, null) { media, _ ->
             retry += media.fileName
             Result.success(Unit)
         })
@@ -87,7 +92,7 @@ class VideoNoteDeliveryStateTest {
         VideoNoteExportCenter.publish(item)
         val entered = CompletableDeferred<Unit>()
         val finish = CompletableDeferred<Unit>()
-        assertTrue(VideoNoteExportCenter.send(item.chatId, item.sessionName, null) { _, _ ->
+        assertEquals(VideoNoteSendStart.Started, VideoNoteExportCenter.send(item.chatId, item.sessionName, null) { _, _ ->
             entered.complete(Unit)
             finish.await()
             Result.success(Unit)
@@ -98,6 +103,7 @@ class VideoNoteDeliveryStateTest {
         withTimeout(3000) {
             VideoNoteExportCenter.results.first { list -> list.none { it.sessionName == item.sessionName } }
         }
+        Unit
     }
     @Test fun differentAccountCannotClaimOrDiscardQueuedVideoNote() = runBlocking {
         val sameNumericChat = 711L
@@ -106,7 +112,7 @@ class VideoNoteDeliveryStateTest {
             session, accountId = "account-owner")
         VideoNoteExportCenter.publish(source)
         var foreignSendInvoked = false
-        assertFalse(VideoNoteExportCenter.send(sameNumericChat, session, null, "account-foreign") { _, _ ->
+        assertEquals(VideoNoteSendStart.NotFound, VideoNoteExportCenter.send(sameNumericChat, session, null, "account-foreign") { _, _ ->
             foreignSendInvoked = true
             Result.success(Unit)
         })
@@ -119,5 +125,83 @@ class VideoNoteDeliveryStateTest {
         assertFalse(VideoNoteExportCenter.results.value.any {
             it.accountId == "account-owner" && it.sessionName == session
         })
+    }
+
+    @Test fun failedSendKeepsTheReasonAndARetryClearsIt() = runBlocking {
+        val item = VideoNoteExportResult(812L, listOf(media("reason")), false, "test-failure-reason")
+        VideoNoteExportCenter.publish(item)
+        val reason = UserMessageException(UiText.Raw("Файл недоступен"))
+        assertEquals(VideoNoteSendStart.Started, VideoNoteExportCenter.send(item.chatId, item.sessionName, null) { _, _ ->
+            Result.failure(reason)
+        })
+        val failed = withTimeout(3000) {
+            VideoNoteExportCenter.results.first { list ->
+                list.any { it.sessionName == item.sessionName && it.requiresPreview && !it.sending }
+            }.first { it.sessionName == item.sessionName }
+        }
+        // The dialog needs the reason, not just "the draft is back in preview" (P0 #1228).
+        assertEquals(VideoNoteFailureStage.Send, failed.failure?.stage)
+        assertEquals(UiText.Raw("Файл недоступен"), failed.failure?.message)
+        assertTrue(failed.failure?.detail.orEmpty().contains("UserMessageException"))
+
+        // A retry clears the visible reason while it runs and removes the draft once accepted.
+        assertEquals(VideoNoteSendStart.Started, VideoNoteExportCenter.send(item.chatId, item.sessionName, null) { _, _ ->
+            Result.success(Unit)
+        })
+        withTimeout(3000) {
+            VideoNoteExportCenter.results.first { list -> list.none { it.sessionName == item.sessionName } }
+        }
+        Unit
+    }
+
+    @Test fun aSecondSendWhileSendingIsRejectedInsteadOfDuplicatingTheNote() = runBlocking {
+        val item = VideoNoteExportResult(913L, listOf(media("single-flight")), false, "test-single-flight")
+        VideoNoteExportCenter.publish(item)
+        val entered = CompletableDeferred<Unit>()
+        val finish = CompletableDeferred<Unit>()
+        assertEquals(VideoNoteSendStart.Started, VideoNoteExportCenter.send(item.chatId, item.sessionName, null) { _, _ ->
+            entered.complete(Unit)
+            finish.await()
+            Result.success(Unit)
+        })
+        entered.await()
+        assertEquals(
+            VideoNoteSendStart.AlreadySending,
+            VideoNoteExportCenter.send(item.chatId, item.sessionName, null) { _, _ -> Result.success(Unit) }
+        )
+        finish.complete(Unit)
+        withTimeout(3000) {
+            VideoNoteExportCenter.results.first { list -> list.none { it.sessionName == item.sessionName } }
+        }
+        Unit
+    }
+
+    @Test fun aTapOnAMissingDraftIsReportedNotIgnored() {
+        // ChatScreen used to swallow `false` and the Send button looked dead.
+        assertEquals(
+            VideoNoteSendStart.NotFound,
+            VideoNoteExportCenter.send(1_014L, "missing-session", null) { _, _ -> Result.success(Unit) }
+        )
+    }
+
+    @Test fun aPlainFailureGetsTheGenericLineAndAnExceptionDetail() {
+        val failure = videoNoteSendFailure(IllegalStateException("network down"))
+        assertEquals(UiText.Res(com.beykus.beygram.R.string.chat_video_note_send_failed), failure.message)
+        assertEquals("IllegalStateException: network down", failure.detail)
+    }
+
+    @Test fun anUnreadableExportIsExplainedToTheUser() {
+        val unreadable = videoNoteExportFailure(VideoNoteExportException(VideoNoteOutputIssue.NoDecodableFrame))
+        assertEquals(VideoNoteFailureStage.Processing, unreadable.stage)
+        assertEquals(UiText.Res(R.string.recorder_unreadable_video), unreadable.message)
+        assertTrue(unreadable.detail.contains("NoDecodableFrame"))
+
+        val codec = videoNoteExportFailure(VideoNoteExportException(VideoNoteOutputIssue.NotH264))
+        assertEquals(UiText.Res(R.string.recorder_unsupported_codec), codec.message)
+
+        // Anything that is not a typed export rejection keeps the generic line but never loses the technical detail.
+        val generic = videoNoteExportFailure(IllegalStateException("No space left on device"))
+        assertEquals(UiText.Res(R.string.recorder_save_failed), generic.message)
+        assertEquals("IllegalStateException: No space left on device", generic.detail)
     }
 }

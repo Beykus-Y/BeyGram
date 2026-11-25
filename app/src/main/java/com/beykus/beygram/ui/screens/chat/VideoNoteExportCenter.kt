@@ -10,10 +10,14 @@ import com.beykus.beygram.data.media.VideoMessageSettings
 import com.beykus.beygram.data.media.VideoNoteProcessor
 import com.beykus.beygram.data.media.VideoNoteDiagnostics
 import com.beykus.beygram.data.media.VideoNoteSendTracking
+import com.beykus.beygram.data.media.VideoNoteExportException
+import com.beykus.beygram.data.media.VideoNoteOutputIssue
 import com.beykus.beygram.data.media.VideoNoteStatus
 import com.beykus.beygram.diagnostics.recordAppEvent
 import com.beykus.beygram.diagnostics.report.EventKind
 import com.beykus.beygram.diagnostics.report.Severity
+import com.beykus.beygram.domain.UiText
+import com.beykus.beygram.domain.UserMessageException
 import com.beykus.beygram.domain.model.OutgoingMedia
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
@@ -31,6 +35,55 @@ import java.io.File
 
 private const val TAG = "BeyGramRecorder"
 
+/**
+ * Why a video note is still owned by the export center instead of being delivered (#1228).
+ *
+ * A failed send used to only flip the draft back into the preview, so the user saw a dialog that did nothing on every
+ * "Send" and had no idea why. The reason is kept with the draft until the next attempt: [message] is what the dialog
+ * shows, [detail] is the exception class/message for the diagnostics report and a bug report.
+ */
+internal enum class VideoNoteFailureStage { Processing, Send }
+
+internal data class VideoNoteFailure(
+    val stage: VideoNoteFailureStage,
+    val message: UiText,
+    val detail: String = ""
+)
+
+/** Technical detail of a failure without a localized message: exception class plus its own message. */
+internal fun failureDetail(error: Throwable?): String =
+    error?.let { it.javaClass.simpleName + ": " + (it.message ?: "") }.orEmpty()
+
+/** A send failure keeps the user-facing text TDLib already produced; anything else gets the generic line. */
+internal fun videoNoteSendFailure(error: Throwable?): VideoNoteFailure = VideoNoteFailure(
+    stage = VideoNoteFailureStage.Send,
+    message = (error as? UserMessageException)?.text ?: UiText.Res(R.string.chat_video_note_send_failed),
+    detail = failureDetail(error)
+)
+
+/** Outcome of asking the center to deliver a draft; never a silent no-op on the caller's side. */
+internal enum class VideoNoteSendStart { Started, AlreadySending, NotFound }
+
+/** A failed export: the raw recording is kept, the user only needs the reason the note is not in the chat. */
+internal data class VideoNoteProcessingFailure(
+    val accountId: String,
+    val chatId: Long,
+    val topicId: Long,
+    val failure: VideoNoteFailure
+)
+
+/** Maps the typed export rejection to a line the user can act on; unknown failures keep the generic text. */
+internal fun videoNoteExportFailure(error: Throwable): VideoNoteFailure {
+    val issue = (error as? VideoNoteExportException)?.issue
+    val message = when (issue) {
+        VideoNoteOutputIssue.EmptyFile, VideoNoteOutputIssue.NoDecodableFrame ->
+            UiText.Res(R.string.recorder_unreadable_video)
+        VideoNoteOutputIssue.NotH264 -> UiText.Res(R.string.recorder_unsupported_codec)
+        else -> UiText.Res(R.string.recorder_save_failed)
+    }
+    return VideoNoteFailure(VideoNoteFailureStage.Processing, message, failureDetail(error))
+}
+
 internal data class VideoNoteExportResult(
     val chatId: Long,
     val media: List<OutgoingMedia>,
@@ -47,15 +100,18 @@ internal data class VideoNoteExportResult(
     /** The reply the note was recorded with. The all-messages feed sends with it, not with the composer's current reply. */
     val replyToMessageId: Long? = null,
     /** Recorded in the all-messages feed: any screen that sends it uses [replyToMessageId], see [sendReplyId]. */
-    val recordedInFeed: Boolean = false
+    val recordedInFeed: Boolean = false,
+    /** Why the last attempt did not deliver this note; null while it is being processed or has not been tried yet. */
+    val failure: VideoNoteFailure? = null
 )
 
 /** Pure transitions shared by the app-level sender and regression tests. */
 internal fun VideoNoteExportResult.markSegmentSent(): VideoNoteExportResult =
-    copy(nextIndex = (nextIndex + 1).coerceAtMost(media.size))
+    copy(nextIndex = (nextIndex + 1).coerceAtMost(media.size), failure = null)
 
-internal fun VideoNoteExportResult.markSendFailed(): VideoNoteExportResult =
-    copy(sending = false, requiresPreview = true)
+/** Keeps the draft and its reason: the dialog shows the reason and offers another attempt. */
+internal fun VideoNoteExportResult.markSendFailed(failure: VideoNoteFailure): VideoNoteExportResult =
+    copy(sending = false, requiresPreview = true, failure = failure)
 
 /** Автоматический кружок до приёма TDLib: [processing] — идёт обработка, иначе кружок ждёт отправки. */
 internal data class PendingVideoNote(val chatId: Long, val sessionName: String, val processing: Boolean, val previewPath: String? = null, val topicId: Long = 0L, val accountId: String = com.beykus.beygram.data.tdlib.TdAccountStorageLayout.LEGACY_ACCOUNT_ID)
@@ -119,9 +175,9 @@ internal object VideoNoteExportCenter {
     private val _results = MutableStateFlow<List<VideoNoteExportResult>>(emptyList())
     val results: StateFlow<List<VideoNoteExportResult>> = _results.asStateFlow()
 
-    /** Failed exports as (chatId, topicId): only the topic the note was recorded in reports it. */
-    private val _failures = MutableStateFlow<List<Triple<String, Long, Long>>>(emptyList())
-    val failures: StateFlow<List<Triple<String, Long, Long>>> = _failures.asStateFlow()
+    /** Failed exports with their reason: only the topic the note was recorded in reports it. */
+    private val _failures = MutableStateFlow<List<VideoNoteProcessingFailure>>(emptyList())
+    val failures: StateFlow<List<VideoNoteProcessingFailure>> = _failures.asStateFlow()
 
     private val _pendingNotes = MutableStateFlow<List<PendingVideoNote>>(emptyList())
     /** Автоматические кружки, которые TDLib ещё не принял: лента показывает их сразу, с индикатором. */
@@ -157,7 +213,7 @@ internal object VideoNoteExportCenter {
                 Log.e(TAG, "video_processing_failed session=" + sessionName, failure)
                 VideoNoteDiagnostics.append(sessionName, VideoNoteDiagnostics.text(R.string.vn_entry_export_failed, failure.javaClass.simpleName), VideoNoteStatus.PROCESSING_FAILED)
                 recordAppEvent(EventKind.OTHER, "video_note_processing_failed", "Кружок: обработка не удалась", Severity.ERROR, mapOf("cause" to failure.javaClass.simpleName))
-                _failures.update { it + Triple(accountId, chatId, topicId) }
+                _failures.update { it + VideoNoteProcessingFailure(accountId, chatId, topicId, videoNoteExportFailure(failure)) }
             } finally {
                 _pendingNotes.update { current -> current.filterNot { it.sessionName == sessionName && it.accountId == accountId } }
             }
@@ -183,12 +239,12 @@ internal object VideoNoteExportCenter {
         replyId: Long?,
         accountId: String = com.beykus.beygram.data.tdlib.TdAccountStorageLayout.LEGACY_ACCOUNT_ID,
         sender: suspend (OutgoingMedia, Long?) -> Result<Unit>
-    ): Boolean {
+    ): VideoNoteSendStart {
         val initial: VideoNoteExportResult = synchronized(this) {
             val current = _results.value.firstOrNull { it.chatId == chatId && it.sessionName == sessionName && it.accountId == accountId }
-                ?: return false
-            if (current.sending) return false
-            updateResult(sessionName, accountId) { it.copy(sending = true) }
+                ?: return VideoNoteSendStart.NotFound
+            if (current.sending) return VideoNoteSendStart.AlreadySending
+            updateResult(sessionName, accountId) { it.copy(sending = true, failure = null) }
             current
         }
         VideoNoteDiagnostics.append(sessionName, VideoNoteDiagnostics.text(R.string.vn_entry_send_requested, initial.media.size - initial.nextIndex), VideoNoteStatus.SENDING)
@@ -200,8 +256,9 @@ internal object VideoNoteExportCenter {
                     val sent = sender(initial.media[index], reply)
                     if (sent.isFailure) {
                         VideoNoteSendTracking.tracker.forget(sessionName)
-                        VideoNoteDiagnostics.append(sessionName, VideoNoteDiagnostics.text(R.string.vn_entry_send_failed, sent.exceptionOrNull()?.javaClass?.simpleName ?: "?"), VideoNoteStatus.SEND_FAILED)
-                        updateResult(sessionName, accountId) { it.markSendFailed() }
+                        val reason = videoNoteSendFailure(sent.exceptionOrNull())
+                        VideoNoteDiagnostics.append(sessionName, VideoNoteDiagnostics.text(R.string.vn_entry_send_failed, reason.detail.ifBlank { "?" }), VideoNoteStatus.SEND_FAILED)
+                        updateResult(sessionName, accountId) { it.markSendFailed(reason) }
                         return@launch
                     }
                     updateResult(sessionName, accountId) { it.markSegmentSent() }
@@ -212,17 +269,22 @@ internal object VideoNoteExportCenter {
                 VideoNoteDiagnostics.append(sessionName, VideoNoteDiagnostics.text(R.string.vn_entry_send_all_accepted), VideoNoteStatus.SENT)
             } catch (cancelled: CancellationException) {
                 VideoNoteDiagnostics.append(sessionName, VideoNoteDiagnostics.text(R.string.vn_entry_send_cancelled), VideoNoteStatus.CANCELLED)
-                updateResult(sessionName, accountId) { it.markSendFailed() }
+                updateResult(sessionName, accountId) { it.markSendFailed(videoNoteSendFailure(cancelled)) }
                 throw cancelled
             } catch (failure: Exception) {
                 Log.e(TAG, "video_note_send_failed session=" + sessionName, failure)
                 VideoNoteSendTracking.tracker.forget(sessionName)
-                VideoNoteDiagnostics.append(sessionName, VideoNoteDiagnostics.text(R.string.vn_entry_send_failed, failure.javaClass.simpleName), VideoNoteStatus.SEND_FAILED)
+                val reason = videoNoteSendFailure(failure)
+                VideoNoteDiagnostics.append(sessionName, VideoNoteDiagnostics.text(R.string.vn_entry_send_failed, reason.detail.ifBlank { "?" }), VideoNoteStatus.SEND_FAILED)
                 recordAppEvent(EventKind.OTHER, "video_note_send_failed", "Кружок: отправка прервалась", Severity.ERROR, mapOf("cause" to failure.javaClass.simpleName))
-                updateResult(sessionName, accountId) { it.markSendFailed() }
+                updateResult(sessionName, accountId) { it.markSendFailed(reason) }
+            } finally {
+                // Never leave a draft marked as sending if the job ends through an unexpected path: the dialog would stay
+                // disabled and the user could neither retry nor delete it.
+                updateResult(sessionName, accountId) { it.copy(sending = false) }
             }
         }
-        return true
+        return VideoNoteSendStart.Started
     }
 
     /** Explicit dismissal of an unsent draft; never delete a job while it is sending. */
@@ -246,17 +308,18 @@ internal object VideoNoteExportCenter {
         }
     }
 
-    fun consumeFailure(chatId: Long, topicId: Long = 0L, accountId: String = com.beykus.beygram.data.tdlib.TdAccountStorageLayout.LEGACY_ACCOUNT_ID): Boolean {
-        val key = Triple(accountId, chatId, topicId)
-        val had = key in _failures.value
-        if (had) _failures.update { current -> current - key }
-        return had
+    fun consumeFailure(chatId: Long, topicId: Long = 0L, accountId: String = com.beykus.beygram.data.tdlib.TdAccountStorageLayout.LEGACY_ACCOUNT_ID): VideoNoteFailure? {
+        val match = _failures.value.firstOrNull {
+            it.accountId == accountId && it.chatId == chatId && it.topicId == topicId
+        } ?: return null
+        _failures.update { current -> current - match }
+        return match.failure
     }
 
-    /** Feed variant: consumes failures of every topic of the chat for this account. */
-    fun consumeFailureForChat(chatId: Long, accountId: String = com.beykus.beygram.data.tdlib.TdAccountStorageLayout.LEGACY_ACCOUNT_ID): Boolean {
-        val had = _failures.value.any { it.first == accountId && it.second == chatId }
-        if (had) _failures.update { current -> current.filterNot { it.first == accountId && it.second == chatId } }
-        return had
+    /** Feed variant: consumes the oldest failure of any topic of the chat for this account. */
+    fun consumeFailureForChat(chatId: Long, accountId: String = com.beykus.beygram.data.tdlib.TdAccountStorageLayout.LEGACY_ACCOUNT_ID): VideoNoteFailure? {
+        val match = _failures.value.firstOrNull { it.accountId == accountId && it.chatId == chatId } ?: return null
+        _failures.update { current -> current - match }
+        return match.failure
     }
 }
