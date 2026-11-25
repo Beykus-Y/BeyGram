@@ -1549,6 +1549,11 @@ private fun MediaViewerPage(
     // The player may keep an earlier source instance, so the lambda reads the latest page state.
     val activeNow by rememberUpdatedState(active)
     val ranges = playbackCoordinator
+    // Leaving the page (or switching to another video) releases the single TDLib window; a stale request must not keep
+    // a download alive for a screen nobody looks at.
+    DisposableEffect(media.fileId, ranges) {
+        onDispose { ranges?.reset(media.fileId) }
+    }
     val progressive = if (progressiveUnlocked && unlockedPath != null) {
         ProgressiveVideoSource(
             fileId = media.fileId,
@@ -1561,7 +1566,12 @@ private fun MediaViewerPage(
             // stays only as a fallback for repositories that cannot answer the question.
             readableAt = { position ->
                 if (ranges != null) {
-                    runCatching { runBlocking { ranges.readableFrom(media.fileId, position) } }.getOrDefault(0L)
+                    // The read must never outlive the data source's own stall deadline: a single TDLib request may take
+                    // much longer than a frame budget, so it is bounded here and a timeout is reported as "no bytes
+                    // yet", which keeps the existing wait/abort logic in charge.
+                    runCatching {
+                        runBlocking { withTimeoutOrNull(RANGE_QUERY_TIMEOUT_MS) { ranges.readableFrom(media.fileId, position) } }
+                    }.getOrNull() ?: 0L
                 } else {
                     (observeFile(media.fileId).value.downloadedPrefixBytes - position).coerceAtLeast(0L)
                 }
@@ -1917,6 +1927,9 @@ private const val VIDEO_PROGRESS_INTERVAL_MS = 250L
 
 /** How far ahead of the read position a playback window is requested. */
 private const val RANGE_READ_AHEAD_BYTES = 2L * 1024 * 1024
+
+/** Upper bound for one availability query; the data source's own stall deadline stays authoritative. */
+private const val RANGE_QUERY_TIMEOUT_MS = 2_000L
 
 /** A partially downloaded fast-start video: [path] grows while TDLib downloads the rest. */
 private data class ProgressiveVideoSource(
