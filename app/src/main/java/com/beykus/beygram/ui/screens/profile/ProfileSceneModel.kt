@@ -87,11 +87,10 @@ internal data class ProfileSceneFrame(
     val stageHeightPx: Float,
     /** Window y of the identity block bottom at the current scroll. */
     val stageBottomPx: Float,
-    /** Window y of the name and the status at rest (reveal and scroll 0 state). */
-    val titleTopPx: Float,
-    val statusTopPx: Float,
-    /** Window y where the badges row starts at rest (below the status, at the current reveal). */
-    val badgesTopPx: Float,
+    /** Rest rects (reveal and scroll 0 state) of the name, the status and the badges row. A zero-height element has an empty rect. */
+    val titleRect: SceneRect,
+    val statusRect: SceneRect,
+    val badgesRect: SceneRect,
     val photoWidthPx: Float,
     val photoHeightPx: Float,
     val revealEnabled: Boolean,
@@ -156,9 +155,9 @@ internal fun profileSceneFrame(inputs: ProfileSceneInputs): ProfileSceneFrame {
         travelPx = travel,
         stageHeightPx = stageHeight,
         stageBottomPx = i.stageTopPx + stageHeight - scroll,
-        titleTopPx = titleZero.top,
-        statusTopPx = statusZero.top,
-        badgesTopPx = badgesTop,
+        titleRect = titleZero,
+        statusRect = statusZero,
+        badgesRect = SceneRect(titleZero.left, badgesTop, titleZero.right, badgesTop + i.badgesHeightPx),
         photoWidthPx = photoW,
         photoHeightPx = photoH,
         revealEnabled = revealEnabled,
