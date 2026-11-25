@@ -17,6 +17,7 @@ import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
@@ -53,6 +54,9 @@ import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.nestedscroll.nestedScroll
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalLayoutDirection
+import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.layout.boundsInWindow
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.onSizeChanged
@@ -209,6 +213,11 @@ fun ProfileScreen(
         }
     }
     val groupInfo = state.info?.takeIf { it.kind == ProfileKind.Group }
+    val photo = state.info?.photo
+    var photoExpanded by rememberSaveable(state.info?.id, photo?.photoId, sceneC) { mutableStateOf(false) }
+    val inlineHistory = if (sceneC && groupInfo == null && photo != null && pendingPhoto == null) {
+        rememberProfilePhotoHistory(state.info.id, photo, active = photoExpanded || showPhoto, loadProfilePhotos)
+    } else null
     if (pendingPhoto == null && groupInfo != null) GroupProfileScreen(
         info = groupInfo, state = state, lastSeenStyle = lastSeenStyle, observeFile = observeFile, downloadFile = downloadFile,
         onBack = { if (!saving && !preparing) profileTransition?.back() ?: onBack() }, onRefresh = onRefresh, onAvatarClick = { showPhoto = true },
@@ -230,10 +239,10 @@ fun ProfileScreen(
         val sceneDensity = LocalDensity.current.density
         val sceneWindow = LocalWindowInfo.current.containerSize
         val sceneReduceMotion = rememberSystemReducedMotion()
-        val scenePhoto = state.info?.photo
+        val scenePhoto = photo
         val stretch = remember(state.info?.id, sceneC) { ProfilePhotoStretchState() }
-        var photoExpanded by rememberSaveable(state.info?.id, sceneC) { mutableStateOf(false) }
-        val reveal = remember(state.info?.id, sceneC) { Animatable(if (photoExpanded) 1f else 0f) }
+
+        val reveal = remember(state.info?.id, photo?.photoId, sceneC) { Animatable(if (photoExpanded) 1f else 0f) }
         val sceneFrame by remember(sceneC, sceneDensity, sceneWindow, scenePhoto, state.info?.id, sceneReduceMotion) {
             derivedStateOf {
                 val compactAvatar = collapseGeometry.compactAvatar
@@ -301,6 +310,7 @@ fun ProfileScreen(
                     }
                     animateReveal(0f)
                     photoExpanded = false
+                    inlineHistory?.let { it.select(it.currentId) }
                 } finally {
                     foldingPhoto = false
                 }
@@ -346,6 +356,12 @@ fun ProfileScreen(
                     Rect(rect.left, rect.top, rect.right, rect.bottom), transitionFingerprint
                 )
             }
+        }
+        val pagingReady by remember(reveal, inlineHistory) {
+            derivedStateOf { inlineHistory != null && revealAvailable && reveal.value == 1f && !foldingPhoto }
+        }
+        val photoPosition = inlineHistory?.takeIf { it.totalCount > 1 }?.let {
+            stringResource(R.string.profile_gallery_position, it.selectedIndex + 1, it.totalCount)
         }
         val compactTitle = state.info?.profileTitleText()
         val compactStatus = state.info?.let { info -> info.profileSubtitleLine(lastSeenStyle) }
@@ -397,9 +413,29 @@ fun ProfileScreen(
                     if (sceneC) {
                         val expandedLabel = stringResource(R.string.a11y_profile_photo_expanded_state)
                         val closeLabel = stringResource(R.string.a11y_profile_photo_collapse)
+                        val nextLabel = stringResource(R.string.profile_gallery_next)
+                        val previousLabel = stringResource(R.string.profile_gallery_previous)
+                        val direction = LocalLayoutDirection.current
+                        val history = inlineHistory
+                        val pagingGesture = if (pagingReady && history != null && history.window.photos.size > 1) {
+                            Modifier.pointerInput(history, direction) {
+                                val minimumSwipe = (size.width * 0.17f).coerceIn(32.dp.toPx(), 64.dp.toPx())
+                                var distance = 0f
+                                detectHorizontalDragGestures(
+                                    onDragStart = { distance = 0f },
+                                    onDragEnd = {
+                                        val logical = if (direction == LayoutDirection.Ltr) -distance else distance
+                                        when {
+                                            logical >= minimumSwipe -> history.move(1)
+                                            logical <= -minimumSwipe -> history.move(-1)
+                                        }
+                                    }
+                                ) { _, change -> distance += change }
+                            }
+                        } else Modifier
                         Box(
                             (if (info.photo != null && avatarAtRest && profileTransition?.flightActive() != true) {
-                                Modifier.clickable(role = Role.Button) {
+                                pagingGesture.clickable(role = Role.Button) {
                                     if (!reveal.isRunning && !foldingPhoto) {
                                         if (revealAvailable && !photoExpanded && scrollState.value == 0) {
                                             photoExpanded = true
@@ -411,11 +447,21 @@ fun ProfileScreen(
                                 }.semantics {
                                     contentDescription = context.getString(R.string.a11y_profile_photo_open)
                                     if (photoExpanded) {
-                                        stateDescription = expandedLabel
-                                        customActions = listOf(CustomAccessibilityAction(closeLabel) {
-                                            closeProfilePhoto()
-                                            true
-                                        })
+                                        stateDescription = photoPosition?.let { "$expandedLabel. $it" } ?: expandedLabel
+                                        customActions = buildList {
+                                            if (pagingReady && history != null) {
+                                                if (history.selectedIndex > 0) {
+                                                    add(CustomAccessibilityAction(previousLabel) { history.move(-1) })
+                                                }
+                                                if (history.selectedIndex < history.window.photos.lastIndex) {
+                                                    add(CustomAccessibilityAction(nextLabel) { history.move(1) })
+                                                }
+                                            }
+                                            add(CustomAccessibilityAction(closeLabel) {
+                                                closeProfilePhoto()
+                                                true
+                                            })
+                                        }
                                     }
                                 }
                             } else Modifier).onGloballyPositioned { coordinates ->
@@ -699,7 +745,10 @@ fun ProfileScreen(
                 ProfileSceneAvatarLayer(
                     initials = info.initials,
                     color = palette.accent,
-                    photo = info.photo,
+                    photo = inlineHistory?.selected?.takeIf { revealActive }?.let {
+                        AvatarPhoto(it.smallFileId, it.bigFileId, it.photoId)
+                    } ?: info.photo,
+                    pageLabel = photoPosition.takeIf { pagingReady },
                     frame = { sceneFrame },
                     reveal = { if (revealAvailable) reveal.value else 0f },
                     visibility = {
@@ -731,7 +780,6 @@ fun ProfileScreen(
         }
         }
     }
-    val photo = state.info?.photo
     // Profile photo ids are distinct from message ids. History loads only after the avatar is tapped.
     if (showPhoto && photo != null) key(state.info?.id, photo.photoId, photo.bigFileId) {
         ProfilePhotoGallery(
@@ -739,7 +787,8 @@ fun ProfileScreen(
             observeFile = observeFile, downloadFile = downloadFile, loadPhotos = loadProfilePhotos,
             deletePhoto = deleteMyProfilePhoto, setAsMain = setPreviousProfilePhoto,
             onChanged = onRefresh, onClose = { showPhoto = false },
-            autoDownloadFile = autoDownloadFile
+            autoDownloadFile = autoDownloadFile,
+            sharedHistory = inlineHistory
         )
     }
     pendingPhoto?.let { selected ->

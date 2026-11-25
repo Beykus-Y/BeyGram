@@ -1632,6 +1632,8 @@
     <string name="updates_error_network">Нет связи с GitHub. Проверьте подключение к интернету и повторите.</string>
     <string name="updates_error_verify">Файл не прошёл проверку перед установкой, установка отменена. Скачайте обновление заново.</string>
     <string name="profile_gallery_position">%1$d из %2$d</string>
+    <string name="profile_gallery_next">Следующая фотография</string>
+    <string name="profile_gallery_previous">Предыдущая фотография</string>
     <string name="profile_gallery_retry">Не удалось загрузить историю аватарок · Повторить</string>
     <string name="profile_gallery_set_main">Сделать основной фотографией</string>
     <string name="profile_gallery_delete_title">Удалить фотографию профиля?</string>

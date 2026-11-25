@@ -7,6 +7,10 @@ import android.graphics.Paint
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.semantics.SemanticsActions
+import androidx.compose.ui.semantics.SemanticsProperties
+import androidx.compose.ui.test.SemanticsMatcher
+import androidx.compose.ui.test.assert
+import androidx.compose.ui.test.swipeLeft
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.click
 import androidx.compose.ui.test.getUnclippedBoundsInRoot
@@ -28,11 +32,14 @@ import com.beykus.beygram.domain.model.AvatarPhoto
 import com.beykus.beygram.domain.model.MediaFileState
 import com.beykus.beygram.domain.model.ProfileInfo
 import com.beykus.beygram.domain.model.ProfilePresence
+import com.beykus.beygram.domain.model.ProfilePhotoMedia
+import com.beykus.beygram.domain.model.ProfilePhotosPage
 import com.beykus.beygram.domain.model.ProfileState
 import com.beykus.beygram.ui.design.designFor
 import com.beykus.beygram.ui.theme.BeyGramTheme
 import com.github.takahirom.roborazzi.captureRoboImage
 import java.io.File
+import javax.imageio.ImageIO
 import kotlinx.coroutines.flow.MutableStateFlow
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
@@ -193,17 +200,89 @@ class ProfileSceneUiCapture {
         }
     }
 
-    private fun capture(destination: File, frame: String) {
+    @Test
+    fun swipeHistoryAndOpenGalleryOnSamePhoto() {
+        val destination = System.getenv("BEYGRAM_PROFILE_CAPTURE_DIR")
+        assumeNotNull(destination)
+        val output = File(checkNotNull(destination)).apply { mkdirs() }
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
+        val files = (1..2).associateWith { id ->
+            val path = File(context.cacheDir, "profile-scene-history-$id.png")
+            writeFixture(path, if (id == 1) 0xFF263B61.toInt() else 0xFF6C3B5F.toInt())
+            MutableStateFlow(MediaFileState(id, localPath = path.absolutePath))
+        }
+        val profile = ProfileState(ProfileInfo(
+            id = 44L,
+            title = "Александра Синицына",
+            photo = AvatarPhoto(smallFileId = 1, bigFileId = 1, photoId = 101L)
+        ))
+        var requests = 0
+        ProfileSceneSettings.load(context)
+        ProfileSceneSettings.setEnabled(context, true)
+        try {
+            compose.setContent {
+                BeyGramTheme(darkTheme = true) {
+                    ProfileScreen(
+                        state = profile,
+                        isOwnProfile = false,
+                        observeFile = { files.getValue(it) },
+                        downloadFile = {},
+                        loadProfilePhotos = { profileId, offset, _ ->
+                            assertEquals(44L, profileId)
+                            assertEquals(0, offset)
+                            requests++
+                            Result.success(ProfilePhotosPage(
+                                photos = listOf(ProfilePhotoMedia(101L, 1, 1), ProfilePhotoMedia(102L, 2, 2)),
+                                totalCount = 2,
+                                nextOffset = 2,
+                                hasMore = false
+                            ))
+                        },
+                        onBack = {},
+                        onRefresh = {},
+                        onEdit = {},
+                        setPhoto = { Result.success(Unit) },
+                        lastSeenStyle = LastSeenStyle.Relative
+                    )
+                }
+            }
+            val avatar = compose.onNodeWithContentDescription(context.getString(R.string.a11y_profile_photo_open))
+            val first = context.getString(R.string.profile_gallery_position, 1, 2)
+            val second = context.getString(R.string.profile_gallery_position, 2, 2)
+            val expanded = context.getString(R.string.a11y_profile_photo_expanded_state)
+            compose.runOnIdle { assertEquals(0, requests) }
+            avatar.performTouchInput { click() }
+            compose.mainClock.advanceTimeBy(400)
+            avatar.assert(SemanticsMatcher.expectValue(SemanticsProperties.StateDescription, "$expanded. $first"))
+            avatar.performTouchInput { swipeLeft() }
+            avatar.assert(SemanticsMatcher.expectValue(SemanticsProperties.StateDescription, "$expanded. $second"))
+            compose.waitUntil(timeoutMillis = 5_000) {
+                val screenshot = ImageIO.read(capture(output, "10-c-inline-second-photo"))
+                screenshot.getRGB(screenshot.width * 12 / 100, screenshot.height * 13 / 100) == 0xFF6C3B5F.toInt()
+            }
+            avatar.performTouchInput { click() }
+            compose.onNodeWithText("2 / 2").assertIsDisplayed()
+            capture(output, "11-c-gallery-second-photo")
+            pressBack()
+            avatar.assert(SemanticsMatcher.expectValue(SemanticsProperties.StateDescription, "$expanded. $second"))
+            compose.runOnIdle { assertEquals(1, requests) }
+        } finally {
+            ProfileSceneSettings.setEnabled(context, false)
+        }
+    }
+
+    private fun capture(destination: File, frame: String): File {
         val image = File(destination, "profile-$frame.png")
         compose.onRoot().captureRoboImage(image.absolutePath)
         check(image.length() > 0) { "Missing screenshot $image" }
+        return image
     }
 
-    private fun writeFixture(file: File) {
+    private fun writeFixture(file: File, background: Int = 0xFF263B61.toInt()) {
         val bitmap = Bitmap.createBitmap(640, 640, Bitmap.Config.ARGB_8888)
         val canvas = Canvas(bitmap)
         val paint = Paint(Paint.ANTI_ALIAS_FLAG)
-        canvas.drawColor(0xFF263B61.toInt())
+        canvas.drawColor(background)
         paint.color = 0xFFF4B86B.toInt()
         canvas.drawCircle(450f, 185f, 72f, paint)
         paint.color = 0xFFE08365.toInt()
