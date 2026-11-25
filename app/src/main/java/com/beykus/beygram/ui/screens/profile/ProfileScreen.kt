@@ -164,6 +164,7 @@ fun ProfileScreen(
     remember(context) { ProfileSceneSettings.load(context) }
     val sceneEnabled by ProfileSceneSettings.enabled.collectAsState()
     val sceneC = ProfileSceneSettings.variantFor(sceneEnabled) == ProfileVariant.C
+    val expressiveCover = sceneC && ProfileSceneSettings.expressiveCover.collectAsState().value
     var pendingPhoto by rememberSaveable { mutableStateOf<OutgoingMedia?>(null) }
     var preparing by remember { mutableStateOf(false) }
     var saving by remember { mutableStateOf(false) }
@@ -382,7 +383,15 @@ fun ProfileScreen(
         state.error?.let { ProfileLoadError(it.resolve(), state.isLoading, onRefresh) }
         val scrollBody: @Composable () -> Unit = {
             state.info?.let { info ->
-                Column(Modifier.fillMaxWidth().padding(start = 20.dp, end = 20.dp, top = 12.dp, bottom = 16.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                val identityModifier = if (sceneC) {
+                    Modifier.fillMaxWidth().wrapContentWidth().widthIn(max = 560.dp).fillMaxWidth()
+                        .clip(styledShape(24.dp))
+                        .profileSceneCover(palette, expressiveCover)
+                } else Modifier.fillMaxWidth()
+                Column(
+                    identityModifier.padding(start = 20.dp, end = 20.dp, top = 12.dp, bottom = 16.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally
+                ) {
                     val avatarAtRest by remember { derivedStateOf { collapse.value <= 0f } }
                     val avatarSlot: @Composable () -> Unit = {
                     if (sceneC) {

@@ -4,6 +4,7 @@ import android.app.Application
 import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.Paint
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.semantics.SemanticsActions
 import androidx.compose.ui.test.assertIsDisplayed
@@ -13,18 +14,22 @@ import androidx.compose.ui.test.hasScrollAction
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onRoot
+import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performSemanticsAction
 import androidx.compose.ui.test.performTouchInput
 import androidx.compose.ui.unit.dp
 import androidx.test.espresso.Espresso.pressBack
 import androidx.test.platform.app.InstrumentationRegistry
 import com.beykus.beygram.R
+import com.beykus.beygram.data.appearance.DesignStyle
+import com.beykus.beygram.data.appearance.GlassQuality
 import com.beykus.beygram.data.presence.LastSeenStyle
 import com.beykus.beygram.domain.model.AvatarPhoto
 import com.beykus.beygram.domain.model.MediaFileState
 import com.beykus.beygram.domain.model.ProfileInfo
 import com.beykus.beygram.domain.model.ProfilePresence
 import com.beykus.beygram.domain.model.ProfileState
+import com.beykus.beygram.ui.design.designFor
 import com.beykus.beygram.ui.theme.BeyGramTheme
 import com.github.takahirom.roborazzi.captureRoboImage
 import java.io.File
@@ -135,6 +140,55 @@ class ProfileSceneUiCapture {
             avatar.assertIsDisplayed()
             capture(output, "07-a-stable")
         } finally {
+            ProfileSceneSettings.setEnabled(context, false)
+        }
+    }
+
+    @Test
+    @Config(qualifiers = "ru-rRU-w780dp-h360dp-land-xhdpi")
+    fun captureCoverOnWideProfileWithoutPhoto() {
+        val destination = System.getenv("BEYGRAM_PROFILE_CAPTURE_DIR")
+        assumeNotNull(destination)
+        val output = File(checkNotNull(destination)).apply { mkdirs() }
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
+        val name = "Александра Синицына"
+        val profile = ProfileState(ProfileInfo(id = 43L, title = name, status = ProfilePresence.Online))
+        val style = mutableStateOf(DesignStyle.Default)
+        val dark = mutableStateOf(false)
+        ProfileSceneSettings.load(context)
+        ProfileSceneSettings.setEnabled(context, true)
+        try {
+            compose.setContent {
+                BeyGramTheme(
+                    darkTheme = dark.value,
+                    design = designFor(style.value, GlassQuality.High, liquidGlassV2 = true)
+                ) {
+                    ProfileScreen(
+                        state = profile,
+                        isOwnProfile = true,
+                        observeFile = { error("A profile without photos should not request files") },
+                        downloadFile = {},
+                        onBack = {},
+                        onRefresh = {},
+                        onEdit = {},
+                        setPhoto = { Result.success(Unit) },
+                        lastSeenStyle = LastSeenStyle.Relative
+                    )
+                }
+            }
+            compose.onNodeWithText(name).assertIsDisplayed()
+            capture(output, "08-c-wide-light-calm")
+            compose.runOnIdle { ProfileSceneSettings.setExpressiveCover(context, true) }
+            for (designStyle in DesignStyle.entries) {
+                compose.runOnIdle {
+                    style.value = designStyle
+                    dark.value = designStyle in listOf(DesignStyle.LiquidGlass, DesignStyle.Signature)
+                }
+                compose.onNodeWithText(name).assertIsDisplayed()
+                capture(output, "09-c-wide-expressive-${designStyle.name}")
+            }
+        } finally {
+            ProfileSceneSettings.setExpressiveCover(context, false)
             ProfileSceneSettings.setEnabled(context, false)
         }
     }
