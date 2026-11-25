@@ -155,7 +155,8 @@ fun ProfileScreen(
     forwardToTopic: (suspend (Long, Long, Long) -> Result<Unit>)? = null,
     recipientRepository: TelegramRepository? = null,
     /** The shared-element transition back to the chat (#999); null keeps the plain navigation. */
-    profileTransition: com.beykus.beygram.ui.motion.ChatProfileHeaderTarget? = null
+    profileTransition: com.beykus.beygram.ui.motion.ChatProfileHeaderTarget? = null,
+    profileGifts: List<com.beykus.beygram.domain.model.ReceivedGiftItem> = emptyList()
 ) {
     val palette = beyGramPalette()
     val design = LocalDesignSystem.current
@@ -680,6 +681,14 @@ fun ProfileScreen(
                     onStars = onStars,
                     onGifts = { onGifts(info.id, true, info.title) }
                 )
+                if (profileGifts.isNotEmpty() && info.kind != ProfileKind.Group) {
+                    ProvideGiftFileAccess(GiftFileAccess(observeFile, downloadFile)) {
+                        ProfileGiftsShowcase(
+                            gifts = profileGifts,
+                            onOpenAllGifts = { onGifts(info.id, isOwnProfile, info.title) }
+                        )
+                    }
+                }
                 ProfileRowsCard(profileRows(context, info, withSharedCounts = sharedMessages == null))
                 if (onManage != null && info.groupAdmin?.canManageAnything == true) {
                     GroupManagementEntry(info.kind, onManage)

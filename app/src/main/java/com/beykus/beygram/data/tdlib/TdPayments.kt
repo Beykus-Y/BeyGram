@@ -540,6 +540,23 @@ internal class TdPayments(
         receivedGiftsPage(myUserId(), offset)
     }
 
+    suspend fun receivedGiftsForUser(userId: Long, offset: String): Result<ReceivedGiftsPage> = monetizationResult {
+        if (userId <= 0L) return@monetizationResult ReceivedGiftsPage(emptyList(), "")
+        receivedGiftsPage(userId, offset)
+    }
+
+    suspend fun toggleGiftSaved(receivedGiftId: String, isSaved: Boolean): Result<Unit> = monetizationResult {
+        if (receivedGiftId.isBlank()) throw IllegalArgumentException("Missing gift id")
+        requests(TdApi.ToggleGiftIsSaved(receivedGiftId, isSaved))
+        Unit
+    }
+
+    suspend fun setPinnedGifts(receivedGiftIds: List<String>): Result<Unit> = monetizationResult {
+        val me = myUserId()
+        requests(TdApi.SetPinnedGifts(TdApi.MessageSenderUser(me), receivedGiftIds.toTypedArray()))
+        Unit
+    }
+
     /**
      * Sends exactly one gift. Only one request can be in flight; a timeout is
      * reported as [GiftSendOutcome.Uncertain] so the screen never retries blindly.

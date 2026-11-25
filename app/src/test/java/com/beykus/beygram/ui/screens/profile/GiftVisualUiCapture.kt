@@ -123,6 +123,30 @@ class GiftVisualUiCapture {
         compose.runOnIdle { dark.value = false }
         compose.onNodeWithText("Midnight Blue").assertIsDisplayed()
         captureDialog(output, "04-detail-light")
+
+        compose.runOnIdle { showDetail.value = false }
+    }
+
+    @Test
+    fun captureProfileShowcaseLightAndDark() {
+        val destination = System.getenv("BEYGRAM_GIFT_CAPTURE_DIR")
+        assumeNotNull(destination)
+        val output = File(checkNotNull(destination)).apply { mkdirs() }
+        val dark = mutableStateOf(false)
+        compose.setContent {
+            BeyGramTheme(darkTheme = dark.value) {
+                ProfileGiftsShowcase(
+                    gifts = listOf(collectibleGift, regularGift),
+                    onOpenAllGifts = {},
+                    modifier = Modifier.padding(12.dp)
+                )
+            }
+        }
+        compose.onNodeWithText("#42").assertIsDisplayed()
+        capture(output, "05-showcase-light")
+        compose.runOnIdle { dark.value = true }
+        compose.onNodeWithText("#42").assertIsDisplayed()
+        capture(output, "06-showcase-dark")
     }
 
     private fun capture(destination: File, frame: String) {
