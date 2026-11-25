@@ -1,11 +1,13 @@
 package com.beykus.beygram.ui.screens.profile
 
 import android.app.Application
+import androidx.compose.ui.semantics.SemanticsProperties
+import androidx.compose.ui.test.SemanticsMatcher
+import androidx.compose.ui.test.assert
 import androidx.compose.ui.test.assertCountEquals
-import androidx.compose.ui.test.assertHasClickAction
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onAllNodesWithContentDescription
-import androidx.compose.ui.test.onNodeWithContentDescription
+import androidx.compose.ui.test.onNodeWithTag
 import com.beykus.beygram.R
 import com.beykus.beygram.domain.model.MediaFileState
 import com.beykus.beygram.domain.model.ProfileAudio
@@ -56,9 +58,12 @@ class ProfileMusicBarSemanticsTest {
             )
         }
         val playLabel = RuntimeEnvironment.getApplication().getString(R.string.profile_music_play)
-        // Unmerged tree: the disc's own node is checked, not the row's merged summary.
-        compose.onAllNodesWithContentDescription(playLabel, useUnmergedTree = true)
-            .assertCountEquals(1)
-        compose.onNodeWithContentDescription(playLabel, useUnmergedTree = true).assertHasClickAction()
+        // One play/pause form: the row's custom action. No node may also carry the play label as its own description.
+        compose.onNodeWithTag(ProfileMusicRowTag, useUnmergedTree = true).assert(
+            SemanticsMatcher("has play custom action") { node ->
+                node.config.getOrNull(SemanticsProperties.CustomActions)?.any { it.label == playLabel } == true
+            }
+        )
+        compose.onAllNodesWithContentDescription(playLabel, useUnmergedTree = true).assertCountEquals(0)
     }
 }

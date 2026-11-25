@@ -21,10 +21,11 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.CustomAccessibilityAction
-import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.customActions
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
@@ -60,6 +61,8 @@ val LocalAddProfileAudio = compositionLocalOf<(suspend (PlaybackItem) -> Result<
  * плеера работают одинаково. У своего профиля список открывается с перестановкой и удалением, у чужого только
  * прослушивание.
  */
+internal const val ProfileMusicRowTag = "profile_music_row"
+
 @Composable
 internal fun ProfileMusicBar(
     ownerId: Long,
@@ -104,6 +107,7 @@ internal fun ProfileMusicBar(
     Row(
         Modifier
             .fillMaxWidth()
+            .testTag(ProfileMusicRowTag)
             // Same glass-card fill, corner and depth tokens as the neighbouring profile cards, without their 16 dp side
             // inset, so the bar keeps its place under the header.
             .then(if (cardElevation > 0.dp) Modifier.shadow(cardElevation, cardShape, clip = false) else Modifier)
@@ -114,17 +118,17 @@ internal fun ProfileMusicBar(
             .padding(horizontal = 8.dp, vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        // A named child of the row: it has its own label and click action in the unmerged semantics tree. The row merges
-        // its descendants for TalkBack, so TalkBack reaches play/pause through the row's custom action instead.
         Box(
             Modifier
+                // Touch only. The row's custom action is the one play/pause form for accessibility services, so the disc's
+                // own click is cleared from semantics and no second play/pause target is announced.
+                .clearAndSetSemantics {}
                 // The drawn disc stays 44 dp; the touch target grows to the 48 dp minimum (Material accessibility).
                 .minimumInteractiveComponentSize()
                 .size(44.dp)
                 .clip(CircleShape)
                 .background(palette.accent)
-                .clickable(role = Role.Button) { togglePlayback() }
-                .semantics { contentDescription = if (isPlaying) pauseLabel else playLabel },
+                .clickable(role = Role.Button) { togglePlayback() },
             contentAlignment = Alignment.Center
         ) {
             Icon(
