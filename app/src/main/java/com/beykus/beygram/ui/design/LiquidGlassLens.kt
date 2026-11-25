@@ -5,116 +5,218 @@ import android.graphics.RenderEffect
 import android.graphics.RuntimeShader
 import android.graphics.Shader
 import android.os.Build
-import androidx.compose.ui.Modifier
+import android.util.Log
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Shape
-import androidx.compose.ui.graphics.asComposeRenderEffect
-import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.unit.Density
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.IntSize
+import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
+import com.beykus.beygram.data.appearance.LiquidGlassLensPreset
 
 /*
- * Liquid Glass V2 (experimental): a refracting lens for one glass panel, written for this app from scratch. It is not
- * a port of any other client's glass code. The model is a rounded-box signed distance field: near the edge the panel
- * pulls the sample inward along the surface normal, so content just behind the rim bends, and a thin light is added
- * where the normal faces the light. It runs only on API 33+, only when the style asks for it, and the existing
- * GlassPanel tint, rim and highlight stay on top, so the fallback is the unchanged material.
+ * Liquid Glass V2 (experimental): a refracting lens for one floating glass panel, written for this app from scratch.
+ * It is not a port of any other client's glass code; only the optics are modelled (a circular bevel and Snell
+ * refraction with an index of 1.5), the constants are this app's own and need tuning on a device.
+ *
+ * Per pixel near the rim the shader takes the distance to the panel outline (per-corner radii from the real shape),
+ * derives the bevel surface normal, refracts the view ray through it and samples the blurred backdrop along the
+ * refracted direction. A thin highlight (on dark surfaces) or a soft shade (on light ones) marks the bevel.
+ * The panel's tint, rim and highlight stay on top, and every failure falls back to the plain blur.
  */
 
-/** Width of the refracting band along the panel edge. */
-internal val LensEdgeThickness = 14.dp
+/**
+ * The tunable constants of the lens, in one place. The defaults are starting values chosen from the optics, not
+ * measured on a device: they are meant to be adjusted on hardware (see the manual check in the PR).
+ */
+data class LensTuning(
+    /** Width of the refracting band along the edge, capped by [maxThicknessFraction] of the panel's shorter side. */
+    val thicknessDp: Dp = 22.dp,
+    /** The largest band, as a share of the panel's shorter side. A fifth left a dock only ~12 dp of lens. */
+    val maxThicknessFraction: Float = 1f / 3f,
+    /** How far the refracted ray travels inside the glass, as a multiple of the band width. Higher bends content more. */
+    val strength: Float = 0.9f,
+    /** Refraction index of the glass; the ray enters air-to-glass with eta = 1 / index. */
+    val refractionIndex: Float = 1.5f,
+    /**
+     * Blur of the lens path as a fraction of the style's blur. The refraction bends structure, so the lens reads the
+     * sharp layer and only the output is softened; a full blur first would leave nothing to bend.
+     */
+    val blurScale: Float = 0.2f,
+    /**
+     * Multiplier on the style's tint alpha while the lens is on screen. The lighter tint lets the bent content show
+     * through; a dense tint over a blurred sample reads as a matt plastic surface.
+     */
+    val tintScale: Float = 0.87f,
+    /** Time for the lens to fade in or out, so the switch at a size change is a cross-fade and not a jump. */
+    val crossfadeMillis: Int = 240
+)
 
-/** Corner radius of the lens; capped at half the shorter side so pill shapes stay round. */
-internal val LensMaxCornerRadius = 24.dp
+internal val DefaultLensTuning = LensTuning()
 
-/** How far the edge band pulls the sample inward, in multiples of the band's thickness. */
-private const val LensStrength = 0.6f
+/**
+ * Named variants for comparing on a device. The panel uses [DefaultLensTuning]; to try a variant, point the
+ * `lensTuning` of the Liquid Glass design in DesignPresets.kt at one of these and rebuild. Values are starting points.
+ */
+object LensTuningPresets {
+    /** The starting point. */
+    val Default = LensTuning()
 
-/** Shader that refracts the already blurred backdrop sample ("img") at the panel edge. */
+    /** The tuning behind a variant the user picked in the Appearance screen. */
+    fun forPreset(preset: LiquidGlassLensPreset): LensTuning = when (preset) {
+        LiquidGlassLensPreset.Standard -> Default
+        LiquidGlassLensPreset.Clear -> Clear
+        LiquidGlassLensPreset.Bold -> Bold
+    }
+
+    /** Clearer glass: the least blur on the lens path and the lightest tint. */
+    val Clear = LensTuning(blurScale = 0.1f, tintScale = 0.6f)
+
+    /** A stronger bend at the rim, with a wider band. */
+    val Bold = LensTuning(thicknessDp = 28.dp, maxThicknessFraction = 0.4f, strength = 1.2f, blurScale = 0.25f, tintScale = 0.8f)
+}
+
+/**
+ * Shader that refracts the already blurred backdrop sample ("img") at the panel edge.
+ * Uniforms: size (px), radii (tl, tr, br, bl in px), thickness (px), strength, lightSurface (1 on light surfaces).
+ */
 private val LensShaderSource = """
     uniform shader img;
     uniform float2 size;
-    uniform float radius;
+    uniform float4 radii;
     uniform float thickness;
     uniform float strength;
+    uniform float eta;
+    uniform float lightSurface;
 
-    float sdRoundedBox(float2 p, float2 halfSize, float r) {
-        float2 q = abs(p) - halfSize + float2(r, r);
-        return min(max(q.x, q.y), 0.0) + length(max(q, float2(0.0, 0.0))) - r;
+    float sdRoundedBox(float2 p, float2 halfSize, float4 r) {
+        // Per-corner radius picked by the quadrant of p: top-left, top-right, bottom-right, bottom-left.
+        float rr = p.y < 0.0 ? (p.x < 0.0 ? r.x : r.y) : (p.x < 0.0 ? r.w : r.z);
+        float2 q = abs(p) - halfSize + float2(rr, rr);
+        return min(max(q.x, q.y), 0.0) + length(max(q, float2(0.0, 0.0))) - rr;
     }
 
     half4 main(float2 coord) {
         float2 halfSize = size * 0.5;
         float2 p = coord - halfSize;
-        float d = sdRoundedBox(p, halfSize, radius);
-        // Deep inside the panel the lens does nothing: return the sample without the extra distance taps.
-        if (d < -thickness) {
+        float sd = min(sdRoundedBox(p, halfSize, radii), 0.0);
+        // 0 at the rim, 1 where the bevel ends, deeper inside the panel the lens does nothing.
+        float depth = clamp(-sd / thickness, 0.0, 1.0);
+        if (depth >= 1.0) {
             return img.eval(coord);
         }
-        // Outward normal from the gradient of the distance field (negative inside, positive outside).
-        float e = 0.75;
-        float dx = sdRoundedBox(p + float2(e, 0.0), halfSize, radius) - sdRoundedBox(p - float2(e, 0.0), halfSize, radius);
-        float dy = sdRoundedBox(p + float2(0.0, e), halfSize, radius) - sdRoundedBox(p - float2(0.0, e), halfSize, radius);
-        float2 n = normalize(float2(dx, dy) + float2(1e-5, 1e-5));
-        // 1 at the edge, 0 once the band ends inside the panel.
-        float depth = clamp(-d / thickness, 0.0, 1.0);
-        float bevel = 1.0 - depth;
-        bevel = bevel * bevel * bevel;
-        // Sample from deeper inside the panel: the content at the rim bends towards the middle.
-        float2 offset = -n * bevel * strength * thickness;
-        half4 c = img.eval(coord + offset);
-        // A thin light on the faces that look up-left.
-        float facing = max(dot(n, normalize(float2(-0.6, -0.8))), 0.0);
-        float light = pow(facing, 3.0) * bevel * 0.35;
-        return half4(c.rgb + half3(light), c.a);
+        // Outward direction of the outline from central differences of the distance field.
+        float e = 0.5;
+        float gx = sdRoundedBox(p + float2(e, 0.0), halfSize, radii) - sdRoundedBox(p - float2(e, 0.0), halfSize, radii);
+        float gy = sdRoundedBox(p + float2(0.0, e), halfSize, radii) - sdRoundedBox(p - float2(0.0, e), halfSize, radii);
+        float2 outDir = normalize(float2(gx, gy) + float2(1e-5, 1e-5));
+
+        // Circular bevel: the in-plane part of the surface normal fades from 1 at the rim to 0 at the bevel end.
+        float nCos = 1.0 - depth;
+        float nSin = sqrt(max(1.0 - nCos * nCos, 0.0));
+        float3 normal = float3(outDir * nCos, nSin);
+        // Height of the bevel above the flat glass, used for the path length through it.
+        float height = thickness * sqrt(max(depth * (2.0 - depth), 0.0));
+
+        // Snell refraction of the view ray (0, 0, -1) through the bevel normal.
+        float3 incident = float3(0.0, 0.0, -1.0);
+        float cosI = dot(normal, incident);
+        float k = 1.0 - eta * eta * (1.0 - cosI * cosI);
+        float3 refracted = eta * incident - (eta * cosI + sqrt(max(k, 0.0))) * normal;
+        float travel = (height + thickness) / max(-refracted.z, 0.2);
+        float2 sampleAt = clamp(coord + refracted.xy * travel * strength, float2(0.5, 0.5), size - float2(0.5, 0.5));
+        half4 c = img.eval(sampleAt);
+
+        // Light on the faces that look up-left: a highlight on dark glass, a soft shade on light glass.
+        float2 lightDir = normalize(float2(-0.6, -0.8));
+        float facingLight = pow(max(dot(outDir, lightDir), 0.0), 3.0) * nCos * nCos;
+        float facingShade = pow(max(dot(outDir, -lightDir), 0.0), 3.0) * nCos * nCos;
+        float highlight = facingLight * mix(0.22, 0.10, lightSurface);
+        float shade = facingShade * 0.12 * lightSurface;
+        half3 rgb = clamp(c.rgb + half3(half(highlight - shade)), half3(0.0), half3(c.a));
+        return half4(rgb, c.a);
     }
 """.trimIndent()
 
 /**
- * The lens shader, or null below API 33 where RuntimeShader does not exist. A driver that refuses to compile the
- * source gets null too, so the panel falls back to the plain blur instead of crashing on every glass surface.
+ * Whether the driver accepts the shader source, checked once per process. Only this check is shared: every panel still
+ * creates its own RuntimeShader, because its uniforms (size, radii) belong to that panel.
+ */
+private val lensShaderCompiles: Boolean by lazy {
+    if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) return@lazy false
+    try {
+        RuntimeShader(LensShaderSource)
+        true
+    } catch (error: RuntimeException) {
+        Log.w(LiquidGlassMetrics.LogTag, "Lens shader does not compile on this driver; plain blur is used", error)
+        LiquidGlassMetrics.recordCompileFailure()
+        false
+    }
+}
+
+/**
+ * A lens shader for one panel, or null when the device cannot run it. Called only for panels that really sample the
+ * backdrop, so a style that never draws the lens never creates one.
  */
 internal fun newLensShader(): RuntimeShader? {
-    if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) return null
+    if (!lensShaderCompiles) return null
     return try {
+        LiquidGlassMetrics.recordShaderCreated()
         RuntimeShader(LensShaderSource)
-    } catch (error: IllegalArgumentException) {
+    } catch (error: RuntimeException) {
+        LiquidGlassMetrics.recordCompileFailure()
         null
     }
 }
 
 /**
- * The blurred backdrop of a panel run through the lens. The blur runs first, then the saturation lift, then the
- * refraction, so the lens bends the same sample that the plain High material shows. A panel with no size yet falls back
- * to the plain blur.
+ * The lens path without the refraction: the same reduced blur and saturation as the lens, drawn under the lens layer.
+ * A lens panel shows this while its size animates, so the glass keeps the same softness as the refracted state and
+ * the size change does not jump from the reduced blur to the full one.
  */
-internal fun Modifier.graphicsLayerWithLens(
+internal fun buildLensBaseRenderEffect(blurPx: Float, darkSurface: Boolean): RenderEffect {
+    val blur = RenderEffect.createBlurEffect(blurPx, blurPx, Shader.TileMode.CLAMP)
+    val vibrancy = RenderEffect.createColorFilterEffect(ColorMatrixColorFilter(vibrancyMatrix(darkSurface)))
+    return RenderEffect.createChainEffect(vibrancy, blur)
+}
+
+/**
+ * The render effect of one lens panel: the blur runs first, then the saturation and brightness clamp, then the
+ * refraction, so the lens bends the same sample the plain High material shows. Returns null (plain blur) for a panel
+ * with no size yet or when the effect cannot be built; the caller keeps the blur then.
+ */
+internal fun buildLensRenderEffect(
     shader: RuntimeShader,
     sizePx: IntSize,
-    thicknessPx: Float,
-    maxRadiusPx: Float,
-    blurPx: Float,
     shape: Shape,
-    darkSurface: Boolean
-): Modifier {
-    if (sizePx.width <= 0 || sizePx.height <= 0 || Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) {
-        return graphicsLayerWithBlur(blurPx, shape, darkSurface)
-    }
-    val width = sizePx.width.toFloat()
-    val height = sizePx.height.toFloat()
-    val radius = minOf(maxRadiusPx, minOf(width, height) / 2f)
-    return graphicsLayer {
-        clip = true
-        this.shape = shape
-        shader.setFloatUniform("size", width, height)
-        shader.setFloatUniform("radius", radius)
-        shader.setFloatUniform("thickness", thicknessPx)
-        shader.setFloatUniform("strength", LensStrength)
-        val blur = RenderEffect.createBlurEffect(blurPx, blurPx, Shader.TileMode.CLAMP)
+    thicknessPx: Float,
+    blurPx: Float,
+    darkSurface: Boolean,
+    density: Density,
+    layoutDirection: LayoutDirection,
+    tuning: LensTuning
+): RenderEffect? {
+    if (sizePx.width <= 0 || sizePx.height <= 0) return null
+    val size = Size(sizePx.width.toFloat(), sizePx.height.toFloat())
+    val radii = lensCornerRadii(shape, size, density, layoutDirection)
+    val thickness = lensThicknessPx(thicknessPx, size, tuning.maxThicknessFraction)
+    return try {
+        shader.setFloatUniform("size", size.width, size.height)
+        shader.setFloatUniform("radii", radii.topLeft, radii.topRight, radii.bottomRight, radii.bottomLeft)
+        shader.setFloatUniform("thickness", thickness)
+        shader.setFloatUniform("strength", tuning.strength)
+        shader.setFloatUniform("eta", 1f / tuning.refractionIndex)
+        shader.setFloatUniform("lightSurface", if (darkSurface) 0f else 1f)
+        // Order: the lens reads the sharp layer first, then the output is blurred and lifted in saturation, so the
+        // bent edges stay visible under the softened glass.
+        val blur = RenderEffect.createBlurEffect(blurPx * tuning.blurScale, blurPx * tuning.blurScale, Shader.TileMode.CLAMP)
         val vibrancy = RenderEffect.createColorFilterEffect(ColorMatrixColorFilter(vibrancyMatrix(darkSurface)))
         val lens = RenderEffect.createRuntimeShaderEffect(shader, "img")
-        renderEffect = RenderEffect.createChainEffect(
-            lens,
-            RenderEffect.createChainEffect(vibrancy, blur)
-        ).asComposeRenderEffect()
+        LiquidGlassMetrics.recordLensBuilt()
+        RenderEffect.createChainEffect(RenderEffect.createChainEffect(vibrancy, blur), lens)
+    } catch (error: RuntimeException) {
+        LiquidGlassMetrics.recordCompileFailure()
+        null
     }
 }

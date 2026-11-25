@@ -35,6 +35,7 @@ private val MessageAnimationsKey = stringPreferencesKey("message_animations")
 private val DesignStyleKey = stringPreferencesKey("design_style")
 private val GlassQualityKey = stringPreferencesKey("glass_quality")
 private val LiquidGlassV2Key = booleanPreferencesKey("liquid_glass_v2")
+private val LiquidGlassLensPresetKey = stringPreferencesKey("liquid_glass_lens_preset")
 private val NavigationPlacementKey = stringPreferencesKey("navigation_placement")
 
 private val Context.appearanceDataStore by preferencesDataStore(
@@ -67,6 +68,7 @@ class AppearanceSettingsStore(context: Context) {
                 designStyle = designStyleFromStored(preferences[DesignStyleKey]),
                 glassQuality = glassQualityFromStored(preferences[GlassQualityKey]),
                 liquidGlassV2 = preferences[LiquidGlassV2Key] ?: false,
+                liquidGlassPreset = liquidGlassLensPresetFromStored(preferences[LiquidGlassLensPresetKey]),
                 navigationPlacement = navigationPlacementFromStored(preferences[NavigationPlacementKey])
             )
         }
@@ -94,6 +96,7 @@ class AppearanceSettingsStore(context: Context) {
             preferences[DesignStyleKey] = config.designStyle.name
             preferences[GlassQualityKey] = config.glassQuality.name
             preferences[LiquidGlassV2Key] = config.liquidGlassV2
+            preferences[LiquidGlassLensPresetKey] = config.liquidGlassPreset.name
             preferences[NavigationPlacementKey] = config.navigationPlacement.name
         }
     }
