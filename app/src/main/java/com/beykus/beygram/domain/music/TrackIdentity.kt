@@ -20,12 +20,13 @@ enum class TrackAudioSource {
  */
 data class TrackPrivacyFlags(
     val systemPrivate: Boolean,
-    val protectedChat: Boolean,
+    /** Null means chat privacy state is unknown; external lookup is denied unless explicitly false. */
+    val protectedChat: Boolean?,
     val isRestrictedCatalog: Boolean,
 ) {
-    /** External network lookups by track metadata are strictly forbidden for private or protected media. */
+    /** External network lookups by track metadata are strictly forbidden for private, protected, or unknown-privacy media. */
     val allowsExternalMetadataLookup: Boolean
-        get() = !systemPrivate && !protectedChat
+        get() = !systemPrivate && protectedChat == false
 
     /** On-device tag reads are permitted only for non-private media. */
     val allowsOnDeviceTagRead: Boolean
@@ -52,7 +53,7 @@ data class TrackIdentity(
     companion object {
         fun fromPlaybackItem(
             item: PlaybackItem,
-            protectedChat: Boolean = false,
+            protectedChat: Boolean? = null,
             durationOverrideMs: Long = 0L,
             isrc: String? = null,
         ): TrackIdentity {
@@ -61,6 +62,11 @@ data class TrackIdentity(
                 item.key.startsWith("tg|") -> TrackAudioSource.Telegram
                 item.key.startsWith("local|") -> TrackAudioSource.LocalFile
                 else -> TrackAudioSource.Unknown
+            }
+            val resolvedProtectedChat: Boolean? = when {
+                protectedChat != null -> protectedChat
+                item.origin != null || audioSource == TrackAudioSource.Telegram -> null
+                else -> false
             }
             val providerTrackId = if (audioSource == TrackAudioSource.YandexMusic) {
                 item.key.removePrefix(YANDEX_TRACK_KEY_PREFIX).takeIf { it.isNotBlank() }
@@ -85,7 +91,7 @@ data class TrackIdentity(
                 isrc = isrc?.trim()?.takeIf { it.isNotEmpty() },
                 privacy = TrackPrivacyFlags(
                     systemPrivate = item.systemPrivate,
-                    protectedChat = protectedChat,
+                    protectedChat = resolvedProtectedChat,
                     isRestrictedCatalog = item.isRestrictedCatalog,
                 ),
             )
@@ -108,6 +114,7 @@ enum class MetadataLookupDecision {
     DeniedNotMusic,
     DeniedPrivateMedia,
     DeniedProtectedChat,
+    DeniedUnknownPrivacy,
     DeniedOptInRequired,
     DeniedMissingMetadata,
 }
@@ -124,7 +131,8 @@ object ExternalMetadataPolicy {
     ): MetadataLookupDecision = when {
         !isMusic -> MetadataLookupDecision.DeniedNotMusic
         identity.privacy.systemPrivate -> MetadataLookupDecision.DeniedPrivateMedia
-        identity.privacy.protectedChat -> MetadataLookupDecision.DeniedProtectedChat
+        identity.privacy.protectedChat == null -> MetadataLookupDecision.DeniedUnknownPrivacy
+        identity.privacy.protectedChat == true -> MetadataLookupDecision.DeniedProtectedChat
         !externalLookupOptIn -> MetadataLookupDecision.DeniedOptInRequired
         identity.title.isBlank() -> MetadataLookupDecision.DeniedMissingMetadata
         else -> MetadataLookupDecision.Allowed
@@ -145,7 +153,7 @@ object ExternalMetadataPolicy {
      */
     fun allowsExternalLookup(
         item: PlaybackItem,
-        protectedChat: Boolean,
+        protectedChat: Boolean?,
         externalLookupOptIn: Boolean,
     ): Boolean {
         if (item.kind != MediaKind.Audio) return false
