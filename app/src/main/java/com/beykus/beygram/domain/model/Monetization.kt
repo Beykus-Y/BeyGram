@@ -544,7 +544,18 @@ data class GiftCollectibleDetails(
     val backdropSymbolColor: Int?,
     val backdropTextColor: Int?,
     val modelRarityPerMille: Int?,
-    val modelRarityTier: GiftRarityTier?
+    val modelRarityTier: GiftRarityTier?,
+    val slug: String = "",
+    val title: String = "",
+    val totalUpgradedCount: Int = 0,
+    val maxUpgradedCount: Int = 0,
+    val modelName: String = "",
+    val symbolName: String = "",
+    val symbolRarityPerMille: Int? = null,
+    val symbolRarityTier: GiftRarityTier? = null,
+    val backdropName: String = "",
+    val backdropRarityPerMille: Int? = null,
+    val backdropRarityTier: GiftRarityTier? = null
 )
 
 data class GiftCatalogItem(
@@ -577,7 +588,10 @@ data class ReceivedGiftItem(
     val isUpgraded: Boolean,
     val wasRefunded: Boolean,
     val visual: GiftVisual? = null,
-    val collectible: GiftCollectibleDetails? = null
+    val collectible: GiftCollectibleDetails? = null,
+    val isPinned: Boolean = false,
+    val canBeUpgraded: Boolean = false,
+    val canBeTransferred: Boolean = false
 )
 
 data class GiftCollectionItem(
