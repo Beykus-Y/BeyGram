@@ -4,7 +4,7 @@
     <string name="stealth_status_on">On</string>
     <string name="stealth_status_off">Off</string>
     <string name="stealth_unavailable">Not available for this account right now</string>
-    <string name="stealth_fail_closed">The saved settings could not be read. Until you save the settings again, all signals are blocked. Any change saves them.</string>
+    <string name="stealth_fail_closed">The settings could not be read. Until you save them successfully, BeyGram restricts the signals this mode controls.</string>
     <string name="stealth_save_failed">Couldn\'t save the setting</string>
 
     <string name="stealth_group_presets">Protection level</string>
@@ -15,15 +15,15 @@
 
     <string name="stealth_group_switches">What to hide</string>
     <string name="stealth_hide_typing_title">Do not show that I am typing</string>
-    <string name="stealth_hide_typing_detail">Also hides recording voice and video messages and uploading files.</string>
+    <string name="stealth_hide_typing_detail">BeyGram uses the chat settings to limit typing, recording and upload indicators.</string>
     <string name="stealth_no_read_receipts_title">Do not mark messages as read</string>
-    <string name="stealth_no_read_receipts_detail">Chats stay unread for the other person. Opening and scrolling a chat do not send a read mark. The “%1$s” button asks first.</string>
+    <string name="stealth_no_read_receipts_detail">BeyGram checks the chat settings before reporting reads. “%1$s” asks for consent when receipts are restricted.</string>
     <string name="stealth_no_content_open_title">Do not report opening media</string>
-    <string name="stealth_no_content_open_detail">Voice and video messages are not marked as listened or viewed. One-time media asks before it opens.</string>
+    <string name="stealth_no_content_open_detail">BeyGram checks the chat settings before reporting media opens. One-time media may require consent.</string>
     <string name="stealth_no_story_views_title">View stories unnoticed</string>
-    <string name="stealth_no_story_views_detail">Stories open without adding you to the viewers list and stay unread.</string>
+    <string name="stealth_no_story_views_detail">BeyGram checks the settings before reporting story views.</string>
     <string name="stealth_hide_online_title">Hide the online status</string>
-    <string name="stealth_hide_online_detail">The app does not report that you are online. Telegram still shows you online for about 30 seconds when you send a message, read a private message or type.</string>
+    <string name="stealth_hide_online_detail">BeyGram applies the presence setting for this account. Telegram may show you online after you send a message, read a private message or type.</string>
     <string name="stealth_warn_risky_title">Warn before actions that can show activity</string>
     <string name="stealth_warn_risky_detail">Asks before sending a message, reacting, voting in a poll or pressing a bot button. Telegram may show you online for about 30 seconds.</string>
 

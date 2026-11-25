@@ -3,7 +3,7 @@
     <string name="stealth_schedule_group_title">Envoi invisible</string>
     <string name="stealth_schedule_title">Envoyer comme messages programmés Telegram</string>
     <string name="stealth_schedule_detail">Le message part tout de suite vers le serveur Telegram comme message programmé, et le serveur le publie après le délai choisi. L’application peut alors être fermée.</string>
-    <string name="stealth_schedule_footnote">Tant que le message attend, vous pouvez l’annuler, le déplacer ou l’envoyer tout de suite depuis les messages programmés du chat. Pour les fichiers, le délai est allongé pour laisser le temps à l’envoi.</string>
+    <string name="stealth_schedule_footnote">Consultez l&#8217;état et l&#8217;heure dans les messages programmés de la discussion. Vous pouvez y modifier la programmation, annuler ou envoyer immédiatement. Le délai choisi ne détermine pas qui peut vous voir en ligne.</string>
     <string name="stealth_schedule_limits">Cela réduit le risque d’apparaître en ligne sans le garantir : l’application ne contrôle ni vos autres appareils ni les règles de Telegram. Les chats secrets, les chats à messages payants, les médias à vue unique et la position en direct ne peuvent pas être programmés ; l’application demande alors s’il faut envoyer tout de suite.</string>
     <plurals name="stealth_schedule_minutes">
         <item quantity="one">%1$d min</item>
@@ -28,4 +28,8 @@
     <string name="stealth_schedule_short_warning">Le délai enregistré est inférieur à 15 secondes. Choisissez au moins 15 secondes. Sans consentement explicite, l’envoi normal reste bloqué.</string>
     <string name="stealth_schedule_music_bot_blocked">Le bot musical envoie immédiatement un message aux Messages enregistrés. Cette action est indisponible tant que l’envoi invisible est activé.</string>
     <string name="stealth_diagnostic_send_blocked">Cette vérification est indisponible en mode invisible, car elle envoie un message immédiatement. Désactivez l’envoi invisible et réessayez.</string>
+
+    <string name="stealth_schedule_status_pending">En attente de confirmation de Telegram</string>
+    <string name="stealth_schedule_status_queued">Dans la file selon TDLib</string>
+    <string name="stealth_schedule_status_unknown">Statut actuel inconnu</string>
 </resources>
