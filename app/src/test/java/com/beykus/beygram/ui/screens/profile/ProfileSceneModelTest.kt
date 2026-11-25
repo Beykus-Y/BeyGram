@@ -200,8 +200,10 @@ class ProfileSceneModelTest {
     fun parallaxScalesWithRevealAndStaysWithinSlack() {
         val open = profileSceneFrame(inputs(scroll = 50f, reveal = 1f))
         assertClose(10f, open.parallaxPx)
-        val halfOpen = profileSceneFrame(inputs(scroll = 50f, reveal = 0.5f))
-        assertClose(5f, halfOpen.parallaxPx)
+        // Half reveal at scroll 20: raw shift 4 px is under the slack (about 10 px), then scaled by 0.5 gives 2 px.
+        // (At scroll 50 the slack is about 9.3 px, so the shift is clamped to about 4.65 px.)
+        val halfOpen = profileSceneFrame(inputs(scroll = 20f, reveal = 0.5f))
+        assertClose(2f, halfOpen.parallaxPx)
         // At full collapse the clip is 40 px: layer 320 * 0.125 * 1.2 = 48 px, slack (48 - 40) / 2 = 4 px.
         val far = profileSceneFrame(inputs(scroll = 10_000f, reveal = 1f))
         assertClose(4f, far.parallaxPx)
