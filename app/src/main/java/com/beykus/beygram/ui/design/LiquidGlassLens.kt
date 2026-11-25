@@ -163,6 +163,17 @@ internal fun newLensShader(): RuntimeShader? {
 }
 
 /**
+ * The lens path without the refraction: the same reduced blur and saturation as the lens, drawn under the lens layer.
+ * A lens panel shows this while its size animates, so the glass keeps the same softness as the refracted state and
+ * the size change does not jump from the reduced blur to the full one.
+ */
+internal fun buildLensBaseRenderEffect(blurPx: Float, darkSurface: Boolean): RenderEffect {
+    val blur = RenderEffect.createBlurEffect(blurPx, blurPx, Shader.TileMode.CLAMP)
+    val vibrancy = RenderEffect.createColorFilterEffect(ColorMatrixColorFilter(vibrancyMatrix(darkSurface)))
+    return RenderEffect.createChainEffect(vibrancy, blur)
+}
+
+/**
  * The render effect of one lens panel: the blur runs first, then the saturation and brightness clamp, then the
  * refraction, so the lens bends the same sample the plain High material shows. Returns null (plain blur) for a panel
  * with no size yet or when the effect cannot be built; the caller keeps the blur then.

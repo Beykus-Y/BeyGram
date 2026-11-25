@@ -180,6 +180,10 @@ fun GlassPanel(
     val blurPx = with(density) { (glass?.blurRadiusDp ?: 0.dp).toPx() }
     val darkSurface = tint.luminance() < 0.5f
     // The effect is rebuilt only when the size, the shape or the surface changes, not on every frame.
+    // The lens panel's base: the reduced blur without refraction, shown beneath the lens layer at all times.
+    val lensBaseEffect = remember(lensShader, blurPx, darkSurface, lensTuning) {
+        lensShader?.let { buildLensBaseRenderEffect(blurPx * lensTuning.blurScale, darkSurface) }
+    }
     val lensEffect = remember(lensShader, lensSize, shape, lensThicknessPx, blurPx, darkSurface, density, layoutDirection, lensTuning) {
         lensShader?.let {
             buildLensRenderEffect(it, lensSize, shape, lensThicknessPx, blurPx, darkSurface, density, layoutDirection, lensTuning)
@@ -255,11 +259,9 @@ fun GlassPanel(
                 }
             }
             if (lensMix < 1f || effect == null) {
-                Box(
-                    Modifier.matchParentSize()
-                        .then(Modifier.graphicsLayerWithBlur(blurPx, shape, darkSurface))
-                        .drawBehind(sampleDraw)
-                )
+                val baseModifier = lensBaseEffect?.let { Modifier.lensLayer(it, shape) }
+                    ?: Modifier.graphicsLayerWithBlur(blurPx, shape, darkSurface)
+                Box(Modifier.matchParentSize().then(baseModifier).drawBehind(sampleDraw))
             }
             if (effect != null && lensMix > 0f) {
                 Box(
