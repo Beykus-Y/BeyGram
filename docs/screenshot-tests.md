@@ -76,3 +76,38 @@ Robolectric запускается на SDK 34: для SDK 35+ он требуе
   (`ChatListItem`);
 - подпись «Contacts» в нижней панели не помещалась: подписи вкладок растут с системным размером текста до 1.5×, дальше
   остаются на этом размере и при нехватке места получают многоточие (`tabLabelSize` в `MainTabs.kt`).
+
+## Локальный запуск в PowerShell
+
+Из корня отдельного клона запустите существующую матрицу BeyGram или выберите отдельный тест. Gradle использует Android SDK и JDK этой среды.
+
+```powershell
+.\scripts\visual-tests.ps1
+.\scripts\visual-tests.ps1 -Mode compare -TestPattern '*StyleMatrixScreenshotTest'
+.\scripts\visual-tests.ps1 -Mode record -TestPattern '*MusicHomeScreenshotTest'
+```
+
+`verify` сравнивает с эталонами в `app/src/test/screenshots`. `compare` сохраняет результаты сравнения в `app/build/outputs/roborazzi`. `record` записывает эталоны выбранного теста. Проверьте diff PNG перед коммитом.
+
+Для нового экрана добавьте JVM-тест в `ui/screenshots` по образцу `StylePreviewScreenshotTest`. Передайте в публичную composable тестовые данные, используйте простой `Application`, зафиксируйте SDK 34, размер окна, язык, тему и состояние, затем вызывайте `compose.onRoot().captureRoboImage(...)`. Для загрузки и ошибок задайте воспроизводимые fake-состояния. Для стилей используйте `designFor` и `GlassQuality.Balanced`.
+
+### Независимые PNG Stealth
+
+```powershell
+.\scripts\visual-tests.ps1 -StealthCaptureDir 'F:\BeyGram-Agents\Codex\reports\stealth-2-screens' -Stage after
+```
+
+Сценарий `StealthUiCapture` отрисовывает настоящий `StealthSettingsScreen` на синтетическом состоянии Maximum с двумя исключениями и 30-секундной задержкой. Размер 360 × 780 dp, xhdpi, русский язык, тёмная тема. `before` снимает Default, `after` — пять стилей и Liquid Glass V2. PNG сохраняются в указанной папке и лежат отдельно от эталонов Git. Имена файлов имеют вид `before-Default.png`, `after-Default.png`, `after-LiquidGlassV2.png`.
+
+Первоначальные снимки получены на DEV `754dd219638962865c632bcffe4625730665b6dd` и ветке исключений `e27440fcfcff6070491ce1192b44b673135c559c`. Компактный вариант снят на `11b508023e23d60efdb031095b2695d47d62faa8`, его PNG лежат в подкаталоге `compact`. Для повторения на произвольном коммите используйте временный клон, перенесите туда `StealthUiCapture.kt` в `app/src/test/java/com/beykus/beygram/ui/screens/settings` и запустите:
+
+```powershell
+$env:JAVA_HOME = 'C:\Program Files\Android\Android Studio\jbr'
+$env:ANDROID_HOME = 'C:\Users\Beykus\AppData\Local\Android\Sdk'
+$env:GRADLE_USER_HOME = 'F:\BeyGram-Agents\Codex\tmp\gradle'
+$env:BEYGRAM_STEALTH_CAPTURE_DIR = 'F:\BeyGram-Agents\Codex\reports\stealth-2-screens'
+$env:BEYGRAM_STEALTH_CAPTURE_STAGE = 'before'
+.\gradlew.bat --no-daemon :app:testDevDebugUnitTest -Pscreenshots=record --tests '*StealthUiCapture'
+```
+
+Для второго коммита установите `BEYGRAM_STEALTH_CAPTURE_STAGE=after` и повторите команду Gradle. Robolectric подтверждает компоновку Compose по теме и токенам. Оптический эффект Liquid Glass V2 с реальным backdrop, TalkBack и производительность требуют проверки на Android.
