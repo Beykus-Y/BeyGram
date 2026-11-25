@@ -17,13 +17,14 @@ class YandexCanvasDiagnosticsTest {
     }
 
     @Test
-    fun reportsBackgroundVideoUriAndExtraVideoKeysWithoutLeakingSecrets() {
+    fun reportsAllowlistedTypesAndAggregatedCountsWithoutArbitraryKeysOrValues() {
         val secretUrl = "https://video-preview.s3.yandex.net/secret-path/clip.mp4?token=abc123"
         val track1 = JSONObject()
             .put("id", "99887766")
             .put("title", "Track 1")
             .put("backgroundVideoUri", secretUrl)
-            .put("canvasAvailable", true)
+            .put("canvas", true)
+            .put("customVideoSecretField", 42)
         val track2 = JSONObject()
             .put("id", "11223344")
             .put("title", "Track 2")
@@ -33,12 +34,16 @@ class YandexCanvasDiagnosticsTest {
         assertNotNull(summary)
         assertTrue(summary!!.contains("canvas.checked=2"))
         assertTrue(summary.contains("backgroundVideoUri=1"))
-        assertTrue(summary.contains("scheme=https"))
-        assertTrue(summary.contains("ext=mp4"))
-        assertTrue(summary.contains("canvasAvailable=true"))
+        assertTrue(summary.contains("scheme.https=1"))
+        assertTrue(summary.contains("ext.mp4=1"))
+        assertTrue(summary.contains("canvas=boolean"))
         assertTrue(summary.contains("motionCover=object"))
+        assertTrue(summary.contains("otherVideoKeys=1"))
 
-        // Strict redaction: no URLs, hosts, tokens, or track IDs
+        // Strict redaction: no arbitrary key names, scalar values, URLs, hosts, tokens, or track IDs
+        assertFalse(summary.contains("customVideoSecretField"))
+        assertFalse(summary.contains("true"))
+        assertFalse(summary.contains("42"))
         assertFalse(summary.contains("video-preview.s3.yandex.net"))
         assertFalse(summary.contains("secret-path"))
         assertFalse(summary.contains("abc123"))
@@ -73,6 +78,6 @@ class YandexCanvasDiagnosticsTest {
         val api = YandexApi(http, onCanvasDiagnostics = { captured = it })
         api.search("token", "Demo", 5)
 
-        assertEquals("canvas.checked=1; backgroundVideoUri=1; scheme=https; ext=mp4", captured)
+        assertEquals("canvas.checked=1; backgroundVideoUri=1; scheme.https=1; ext.mp4=1", captured)
     }
 }

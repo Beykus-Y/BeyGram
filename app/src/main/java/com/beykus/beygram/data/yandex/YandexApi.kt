@@ -535,17 +535,28 @@ internal fun plusSummary(result: JSONObject): String {
     return parts.joinToString(", ")
 }
 
+private val ALLOWED_CANVAS_DIAG_KEYS = setOf(
+    "backgroundVideoUri",
+    "backgroundVideoId",
+    "videoUri",
+    "videoUrl",
+    "coverVideoUri",
+    "motionCover",
+    "canvas",
+)
+
 /**
  * Redacted summary of video/canvas/motion fields seen on track objects in a Yandex API response.
- * Reports only counts, key names, value types, scheme ("https" vs "other"), and container suffix ("mp4" vs "other").
- * Never includes URLs, hostnames, paths, tokens, or track ids.
+ * Reports only aggregated counts and allowlisted key value types (never scalar values, arbitrary key names,
+ * URLs, hostnames, paths, tokens, or track ids).
  */
 internal fun trackCanvasShapeSummary(tracks: JSONArray): String? {
     var checked = 0
     var withBackgroundVideoUri = 0
     var httpsCount = 0
     var mp4Count = 0
-    val extraKeys = sortedMapOf<String, String>()
+    var otherVideoKeys = 0
+    val allowlistedTypes = sortedMapOf<String, String>()
     for (index in 0 until tracks.length()) {
         val track = tracks.optJSONObject(index) ?: continue
         checked += 1
@@ -560,16 +571,21 @@ internal fun trackCanvasShapeSummary(tracks: JSONArray): String? {
             if (key == "backgroundVideoUri") continue
             val lower = key.lowercase()
             if ("video" !in lower && "canvas" !in lower && "motion" !in lower) continue
+            if (key !in ALLOWED_CANVAS_DIAG_KEYS) {
+                otherVideoKeys += 1
+                continue
+            }
             val value = track.opt(key)
             val type = when (value) {
-                is Boolean, is Number -> value.toString()
+                is Boolean -> "boolean"
+                is Number -> "number"
                 is JSONObject -> "object"
-                is JSONArray -> "array(${value.length()})"
+                is JSONArray -> "array"
                 null, JSONObject.NULL -> "null"
                 is String -> if (value.isBlank()) "blank" else "string"
                 else -> "other"
             }
-            extraKeys.putIfAbsent(key, type)
+            allowlistedTypes.putIfAbsent(key, type)
         }
     }
     if (checked == 0) return null
@@ -578,11 +594,14 @@ internal fun trackCanvasShapeSummary(tracks: JSONArray): String? {
         "backgroundVideoUri=$withBackgroundVideoUri",
     )
     if (withBackgroundVideoUri > 0) {
-        parts += "scheme=${if (httpsCount == withBackgroundVideoUri) "https" else "mixed"}"
-        parts += "ext=${if (mp4Count == withBackgroundVideoUri) "mp4" else "other"}"
+        parts += "scheme.https=$httpsCount"
+        parts += "ext.mp4=$mp4Count"
     }
-    if (extraKeys.isNotEmpty()) {
-        parts += "keys=[${extraKeys.entries.joinToString(", ") { "${it.key}=${it.value}" }}]"
+    if (allowlistedTypes.isNotEmpty()) {
+        parts += "keys=[${allowlistedTypes.entries.joinToString(", ") { "${it.key}=${it.value}" }}]"
+    }
+    if (otherVideoKeys > 0) {
+        parts += "otherVideoKeys=$otherVideoKeys"
     }
     return parts.joinToString("; ")
 }
