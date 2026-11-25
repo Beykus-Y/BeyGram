@@ -6,6 +6,8 @@ import com.beykus.beygram.domain.UserMessageException
 import com.beykus.beygram.domain.model.ExternalPaymentMethod
 import com.beykus.beygram.domain.model.GIFT_TEXT_MAX_LENGTH_DEFAULT
 import com.beykus.beygram.domain.model.GiftCatalogItem
+import com.beykus.beygram.domain.model.GiftVisual
+import com.beykus.beygram.domain.model.StickerFileFormat
 import com.beykus.beygram.domain.model.GiftAuctionQuote
 import com.beykus.beygram.domain.model.GiftAuctionOwnBid
 import com.beykus.beygram.domain.model.GiftAuctionRank
@@ -70,7 +72,10 @@ import java.util.concurrent.atomic.AtomicBoolean
  * details, or retries a mutation on its own. SendPaymentForm is called only for a Telegram Stars
  * form whose price was read again and matches the price the user confirmed.
  */
-internal class TdPayments(private val requests: TdRequests) {
+internal class TdPayments(
+    private val requests: TdRequests,
+    private val files: MediaFileStore
+) {
     @Volatile private var cachedUserId = 0L
     private val userNames = ConcurrentHashMap<Long, String>()
     private val sendInFlight = AtomicBoolean(false)
@@ -347,7 +352,7 @@ internal class TdPayments(private val requests: TdRequests) {
         cachedUserId = me.id
         val owner = if (isSelf) TdApi.MessageSenderUser(me.id) else giftOwner(profileId)
         val catalog = requests(TdApi.GetAvailableGifts()).gifts.orEmpty()
-            .mapNotNull { it.toCatalogItem() }
+            .mapNotNull { it.toCatalogItem(this::giftVisual) }
             .sortedBy { it.starCount }
         val balance = try {
             currentBalanceOrNull()
@@ -405,6 +410,25 @@ internal class TdPayments(private val requests: TdRequests) {
         )
     }
 
+    /**
+     * Maps a TDLib sticker to the gift's visual and registers its file (and thumbnail) so the visible cell can fetch
+     * its own preview. A sticker in a format the app cannot draw yields null, and the emoji is shown instead.
+     */
+    private fun giftVisual(sticker: TdApi.Sticker?): GiftVisual? {
+        val value = sticker ?: return null
+        val file = value.sticker ?: return null
+        val format = value.format?.toStickerFileFormat() ?: return null
+        files.register(file.toMediaFileState())
+        val thumbnail = value.thumbnail?.file?.also { files.register(it.toMediaFileState()) }
+        return GiftVisual(
+            fileId = file.id,
+            format = format,
+            thumbnailFileId = thumbnail?.id,
+            width = value.width,
+            height = value.height
+        )
+    }
+
     /** Read-only market request. The listed price is specific to the collectible name and currency. */
     suspend fun resaleGifts(giftId: Long, offset: String): Result<ResaleGiftsPage> = monetizationResult {
         val page = requests(TdApi.SearchGiftsForResale().apply {
@@ -427,7 +451,8 @@ internal class TdPayments(private val requests: TdRequests) {
                     number = gift.number,
                     emoji = gift.symbol?.sticker?.emoji.orEmpty(),
                     starCount = price.starCount.takeIf { it > 0L && !price.toncoinOnly },
-                    isOwned = listing.receivedGiftId.orEmpty().isNotBlank()
+                    isOwned = listing.receivedGiftId.orEmpty().isNotBlank(),
+                    visual = giftVisual(gift.model?.sticker)
                 )
             }.distinctBy { it.name },
             nextOffset = page.nextOffset.orEmpty()
@@ -865,7 +890,12 @@ internal class TdPayments(private val requests: TdRequests) {
                 }
             }
         }.awaitAll().toMap()
-        gifts.map { gift -> gift.toReceivedGift(gift.senderId?.let { sender -> sender.senderKey() }?.let { key -> names[key] }) }
+        gifts.map { gift ->
+            gift.toReceivedGift(
+                senderName = gift.senderId?.let { sender -> sender.senderKey() }?.let { key -> names[key] },
+                visualOf = this::giftVisual
+            )
+        }
     }
 
     private suspend fun receivedGiftsPage(ownerId: Long, offset: String): ReceivedGiftsPage {
@@ -997,7 +1027,14 @@ private fun isBlockingPaymentError(error: Exception): Boolean {
 private fun TdApi.StarAmount?.toBalance(): StarBalance =
     StarBalance(starCount = this?.starCount ?: 0L, nanostarCount = this?.nanostarCount ?: 0)
 
-private fun TdApi.AvailableGift.toCatalogItem(): GiftCatalogItem? {
+internal fun TdApi.StickerFormat.toStickerFileFormat(): StickerFileFormat? = when (this) {
+    is TdApi.StickerFormatTgs -> StickerFileFormat.Tgs
+    is TdApi.StickerFormatWebm -> StickerFileFormat.Webm
+    is TdApi.StickerFormatWebp -> StickerFileFormat.Webp
+    else -> null
+}
+
+private fun TdApi.AvailableGift.toCatalogItem(visualOf: (TdApi.Sticker?) -> GiftVisual?): GiftCatalogItem? {
     val value = gift ?: return null
     val remaining = listOfNotNull(
         value.userLimits?.remainingCount,
@@ -1014,11 +1051,15 @@ private fun TdApi.AvailableGift.toCatalogItem(): GiftCatalogItem? {
         auctionId = value.auctionInfo?.id?.takeIf { it.isNotBlank() },
         resaleCount = resaleCount.coerceAtLeast(0),
         minResaleStarCount = minResaleStarCount.coerceAtLeast(0L),
-        resaleTitle = title.orEmpty()
+        resaleTitle = title.orEmpty(),
+        visual = visualOf(value.sticker)
     )
 }
 
-private fun TdApi.ReceivedGift.toReceivedGift(senderName: String?): ReceivedGiftItem {
+private fun TdApi.ReceivedGift.toReceivedGift(
+    senderName: String?,
+    visualOf: (TdApi.Sticker?) -> GiftVisual?
+): ReceivedGiftItem {
     val sent = gift
     val regular = (sent as? TdApi.SentGiftRegular)?.gift
     val upgraded = (sent as? TdApi.SentGiftUpgraded)?.gift
@@ -1035,7 +1076,9 @@ private fun TdApi.ReceivedGift.toReceivedGift(senderName: String?): ReceivedGift
         isPrivate = isPrivate,
         isSaved = isSaved,
         isUpgraded = upgraded != null,
-        wasRefunded = wasRefunded
+        wasRefunded = wasRefunded,
+        // An upgraded gift is drawn by its model; a regular gift by its own sticker.
+        visual = visualOf(regular?.sticker ?: upgraded?.model?.sticker)
     )
 }
 
