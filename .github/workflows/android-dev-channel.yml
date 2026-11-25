@@ -100,6 +100,16 @@ jobs:
         # An incomplete directory stops this step, so the tests do not fall back to downloads and nothing partial is saved.
         run: scripts/robolectric-prefetch.sh "$BEYGRAM_ROBOLECTRIC_DIR"
 
+      - name: Save Robolectric artifact cache
+        # Right after the prefetch, not after the tests: the prefetch checks every jar's SHA-1 and fails without leaving a
+        # partial directory, so a finished directory is safe to cache even if a later test fails. Saving only after green
+        # tests meant a Maven 429 on a cache miss was never seeded, so every later run downloaded again.
+        if: success() && steps.robolectric-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: ${{ github.workspace }}/../robolectric-deps
+          key: ${{ steps.robolectric-cache.outputs.cache-primary-key }}
+
       - name: Write empty Telegram API credentials
         # Unit tests need no keys, so this job never sees the secrets (same as the pull request check).
         run: |
@@ -114,14 +124,6 @@ jobs:
       - name: Run unit tests
         # A rerun happens only when every failure is a Robolectric download failure (scripts/gradle-test-retry.sh).
         run: scripts/gradle-test-retry.sh app/build/test-results/testDevDebugUnitTest :app:testDevDebugUnitTest
-
-      - name: Save Robolectric artifact cache
-        # Only after the tests passed, so a partial download is never cached.
-        if: success() && steps.robolectric-cache.outputs.cache-hit != 'true'
-        uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
-        with:
-          path: ${{ github.workspace }}/../robolectric-deps
-          key: ${{ steps.robolectric-cache.outputs.cache-primary-key }}
 
       - name: Upload unit test reports
         # A failed run keeps the report, so the exact failing assertion can be read after the job ends.
