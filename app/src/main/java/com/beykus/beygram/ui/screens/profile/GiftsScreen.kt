@@ -20,6 +20,8 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.sizeIn
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.ui.draw.clip
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -871,9 +873,18 @@ private fun ReceivedGiftRow(gift: ReceivedGiftItem) {
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             // The gift itself is the main visual, so the emoji gets a larger slot than the text around it.
-            Box(Modifier.sizeIn(minWidth = 48.dp, minHeight = 48.dp), contentAlignment = Alignment.Center) {
+            // An upgraded gift shows its backdrop behind the model and its symbol in the corner; a regular gift has neither.
+            GiftCollectibleBackdrop(
+                gift.collectible,
+                Modifier.sizeIn(minWidth = 48.dp, minHeight = 48.dp).clip(RoundedCornerShape(12.dp))
+            ) {
                 GiftVisualImage(gift.visual, 36.dp) {
                     Text(gift.emoji.ifBlank { "🎁" }, fontSize = 36.sp)
+                }
+                gift.collectible?.symbol?.let { symbol ->
+                    Box(Modifier.align(Alignment.BottomEnd)) {
+                        GiftVisualImage(symbol, 18.dp, staticOnly = true) {}
+                    }
                 }
             }
             Column(Modifier.weight(1f).padding(start = 12.dp)) {

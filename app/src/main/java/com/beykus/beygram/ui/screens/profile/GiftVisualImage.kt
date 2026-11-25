@@ -56,7 +56,13 @@ internal fun ProvideGiftFileAccess(access: GiftFileAccess, content: @Composable 
  * thumbnail downloads straight away because it is small.
  */
 @Composable
-internal fun GiftVisualImage(visual: GiftVisual?, size: Dp, fallback: @Composable () -> Unit) {
+internal fun GiftVisualImage(
+    visual: GiftVisual?,
+    size: Dp,
+    /** A static cell never plays or downloads the sticker itself; it shows the thumbnail, used for small symbols. */
+    staticOnly: Boolean = false,
+    fallback: @Composable () -> Unit
+) {
     val access = LocalGiftFileAccess.current
     if (visual == null || access == null) {
         Box(Modifier.size(size), contentAlignment = Alignment.Center) { fallback() }
@@ -76,9 +82,9 @@ internal fun GiftVisualImage(visual: GiftVisual?, size: Dp, fallback: @Composabl
     val thumbnail by remember(thumbnailId, visual.fileId, access) {
         access.observeFile(thumbnailId ?: visual.fileId)
     }.collectAsStateWithLifecycle()
-    val isWebm = visual.format == StickerFileFormat.Webm
-    LaunchedEffect(visual.fileId, file.size, file.localPath, isWebm, policySettings, policyNetwork) {
-        if (!isWebm && !file.isDownloading && file.localPath == null) {
+    val skipSticker = staticOnly || visual.format == StickerFileFormat.Webm
+    LaunchedEffect(visual.fileId, file.size, file.localPath, skipSticker, policySettings, policyNetwork) {
+        if (!skipSticker && !file.isDownloading && file.localPath == null) {
             val request = AutoDownloadRequest(fileId = visual.fileId, kind = MediaKind.Sticker, sizeBytes = file.size)
             if (autoDownload != null) autoDownload(request) else access.downloadFile(visual.fileId)
         }
@@ -87,7 +93,7 @@ internal fun GiftVisualImage(visual: GiftVisual?, size: Dp, fallback: @Composabl
         val id = thumbnailId ?: return@LaunchedEffect
         if (!thumbnail.isDownloading && thumbnail.localPath == null) access.downloadFile(id)
     }
-    val animated = visual.format == StickerFileFormat.Tgs || visual.format == StickerFileFormat.Webp
+    val animated = !staticOnly && (visual.format == StickerFileFormat.Tgs || visual.format == StickerFileFormat.Webp)
     val autoplay = rememberAutoplayEligible(enabled = animated)
     val description = stringResource(R.string.gifts_gift_generic)
     val path = file.localPath
@@ -106,9 +112,9 @@ internal fun GiftVisualImage(visual: GiftVisual?, size: Dp, fallback: @Composabl
     ) {
         when {
             // With animation off, TgsSticker shows the poster and never parses the file.
-            path != null && visual.format == StickerFileFormat.Tgs ->
+            path != null && !staticOnly && visual.format == StickerFileFormat.Tgs ->
                 TgsSticker(path, Modifier.fillMaxSize(), playing = autoplay.eligible.value, poster = preview, fallback = preview)
-            path != null && visual.format == StickerFileFormat.Webp ->
+            path != null && !staticOnly && visual.format == StickerFileFormat.Webp ->
                 LocalMediaImage(path, Modifier.fillMaxSize(), fit = true, animate = autoplay.eligible.value)
             else -> preview()
         }
