@@ -87,7 +87,9 @@ class VideoNoteProcessor(private val context: Context) {
                     VideoNoteDiagnostics.append(diagnosticId, VideoNoteDiagnostics.text(R.string.vn_entry_output_check, facts.decodedFrames, facts.videoMime ?: "?"))
                 }
                 if (issue != null) {
-                    VideoNoteDiagnostics.append(diagnosticId ?: "", VideoNoteDiagnostics.text(R.string.vn_entry_output_rejected, issue.name))
+                    if (diagnosticId != null) {
+                        VideoNoteDiagnostics.append(diagnosticId, VideoNoteDiagnostics.text(R.string.vn_entry_output_rejected, issue.name))
+                    }
                     output.delete()
                     throw VideoNoteExportException(issue)
                 }

@@ -11,6 +11,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -69,12 +70,18 @@ internal fun VideoNotePreview(
     DisposableEffect(player) { onDispose { player.release() } }
     Box(modifier.background(Color.Black), contentAlignment = Alignment.Center) {
         if (playbackError == null) {
-            AndroidView(
-                factory = { context ->
-                    TextureView(context).also { view -> player.setVideoTextureView(view) }
-                },
-                modifier = Modifier.fillMaxSize()
-            )
+            // `key(path)` rebuilds the view for another segment, and `update` re-attaches the surface when the player
+            // itself is recreated: an AndroidView keeps its view across recompositions, so without both a second
+            // segment would play with sound and a black picture (Codex review of #1231).
+            key(path) {
+                AndroidView(
+                    factory = { context ->
+                        TextureView(context).also { view -> player.setVideoTextureView(view) }
+                    },
+                    update = { view -> player.setVideoTextureView(view) },
+                    modifier = Modifier.fillMaxSize()
+                )
+            }
         }
         // Until the first decoded frame (and forever, if the file is unreadable) the poster stands in for the video.
         if (playbackError != null || !ready) {

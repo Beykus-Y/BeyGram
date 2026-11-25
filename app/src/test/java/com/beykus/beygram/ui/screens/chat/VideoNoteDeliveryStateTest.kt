@@ -329,4 +329,35 @@ class VideoNoteDeliveryStateTest {
         // A session still writing (fresh file) and one without files are kept; only the stale recording is deleted.
         assertEquals(listOf("old"), candidates)
     }
+
+    @Test fun bindingAnAccountDeliversDraftsPublishedWhileItWasInactive() = runBlocking {
+        // A draft can be published before the app binds the account (startup, account switch). The bind itself must
+        // deliver it, not wait for the next change of the results list (Codex review of #1231).
+        val item = VideoNoteExportResult(
+            chatId = 1_521L,
+            media = listOf(media("late-bind")),
+            previewFirst = false,
+            sessionName = "test-late-bind",
+            accountId = "late-account"
+        )
+        VideoNoteExportCenter.publish(item)
+        kotlinx.coroutines.delay(50)
+        assertTrue(VideoNoteExportCenter.results.value.any { it.sessionName == item.sessionName })
+
+        val delivered = CompletableDeferred<Unit>()
+        VideoNoteExportCenter.bindDelivery(VideoNoteDelivery("late-account") { _, _, _, _ ->
+            delivered.complete(Unit)
+            Result.success(Unit)
+        })
+        try {
+            withTimeout(3_000) { delivered.await() }
+            withTimeout(3_000) {
+                VideoNoteExportCenter.results.first { list -> list.none { it.sessionName == item.sessionName } }
+            }
+        } finally {
+            VideoNoteExportCenter.unbindDelivery("late-account")
+            VideoNoteExportCenter.discard(item.chatId, item.sessionName)
+        }
+        Unit
+    }
 }

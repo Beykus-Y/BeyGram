@@ -24,6 +24,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.collect
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -211,9 +212,12 @@ internal object VideoNoteExportCenter {
     /** Автоматические кружки, которые TDLib ещё не принял: лента показывает их сразу, с индикатором. */
     val pendingNotes: StateFlow<List<PendingVideoNote>> = _pendingNotes.asStateFlow()
 
-    /** The app-bound sender for automatic delivery; null until the app binds the active account. */
-    @Volatile
-    private var delivery: VideoNoteDelivery? = null
+    /**
+     * The app-bound sender for automatic delivery; null until the app binds the active account. A flow, not a plain
+     * field: binding another account must deliver the drafts that were already published while it was inactive, and a
+     * collector over `_results` alone would only notice them on the next change (#1231 review).
+     */
+    private val delivery = MutableStateFlow<VideoNoteDelivery?>(null)
     private var deliveryJob: Job? = null
 
     /**
@@ -221,13 +225,14 @@ internal object VideoNoteExportCenter {
      * without waiting for a screen; a draft that failed stays in the preview until the user retries or deletes it.
      */
     fun bindDelivery(next: VideoNoteDelivery) {
+        delivery.value = next
         synchronized(this) {
-            delivery = next
-            if (deliveryJob == null) {
-                deliveryJob = scope.launch {
-                    _results.collect { list ->
-                        val current = delivery ?: return@collect
-                        list.filter { it.accountId == current.accountId && !it.requiresPreview && !it.sending }
+            if (deliveryJob != null) return
+            deliveryJob = scope.launch {
+                combine(_results, delivery) { results, delivery -> results to delivery }
+                    .collect { (results, current) ->
+                        if (current == null) return@collect
+                        results.filter { it.accountId == current.accountId && !it.requiresPreview && !it.sending }
                             .forEach { item ->
                                 // Without a composer there is only the reply stored with the note; a reply typed after
                                 // recording belongs to whatever the user writes next.
@@ -237,16 +242,13 @@ internal object VideoNoteExportCenter {
                                 }
                             }
                     }
-                }
             }
         }
     }
 
     /** Stops delivering for an account that is no longer active; its drafts stay queued. */
     fun unbindDelivery(accountId: String) {
-        synchronized(this) {
-            if (delivery?.accountId == accountId) delivery = null
-        }
+        if (delivery.value?.accountId == accountId) delivery.value = null
     }
 
     /** Used both by the real exporter and deterministic queue tests. */
