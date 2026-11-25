@@ -41,6 +41,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.beykus.beygram.R
+import com.beykus.beygram.data.canvas.BgCanvasMode
+import com.beykus.beygram.data.canvas.CanvasSettingsStore
 import com.beykus.beygram.media.bgbeat.BgBeatSettingsStore
 import com.beykus.beygram.media.bgrhythm.BgRhythmMode
 import com.beykus.beygram.media.bgrhythm.BgRhythmSettingsStore
@@ -75,6 +77,8 @@ internal fun PlayerSoundSheet(
     val rhythmMode by rhythmModeFlow.collectAsStateWithLifecycle()
     val bgBeatStore = remember(context) { BgBeatSettingsStore.getInstance(context) }
     val bgBeatEnabled by bgBeatStore.enabled.collectAsStateWithLifecycle()
+    val canvasSettingsFlow = remember(context) { CanvasSettingsStore.flow(context) }
+    val canvasSettings by canvasSettingsFlow.collectAsStateWithLifecycle()
     val minutesRemaining = rememberSleepMinutes(sleepTimer)
     var customOpen by remember { mutableStateOf(false) }
     // BG Mix has no playback speed, so the chips stay off while it plays instead of changing only the saved value.
@@ -183,6 +187,21 @@ internal fun PlayerSoundSheet(
                     SoundChip(stringResource(R.string.rhythm_enable_bgbeat), false, true) {
                         bgBeatStore.setEnabled(true)
                     }
+                }
+            }
+            SoundSectionTitle(stringResource(R.string.canvas_section_title))
+            Row(
+                Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                SoundChip(stringResource(R.string.canvas_mode_off), canvasSettings.mode == BgCanvasMode.Off, true) {
+                    CanvasSettingsStore.setMode(context, BgCanvasMode.Off)
+                }
+                SoundChip(stringResource(R.string.canvas_mode_card), canvasSettings.mode == BgCanvasMode.Card, true) {
+                    CanvasSettingsStore.setMode(context, BgCanvasMode.Card)
+                }
+                SoundChip(stringResource(R.string.canvas_mode_fullscreen), canvasSettings.mode == BgCanvasMode.Fullscreen, true) {
+                    CanvasSettingsStore.setMode(context, BgCanvasMode.Fullscreen)
                 }
             }
             if (onOpenEqualizer != null) {
