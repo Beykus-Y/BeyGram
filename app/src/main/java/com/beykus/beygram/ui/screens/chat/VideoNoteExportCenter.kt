@@ -196,6 +196,7 @@ internal object VideoNoteExportCenter {
     val pendingNotes: StateFlow<List<PendingVideoNote>> = _pendingNotes.asStateFlow()
 
     /** The app-bound sender for automatic delivery; null until the app binds the active account. */
+    @Volatile
     private var delivery: VideoNoteDelivery? = null
     private var deliveryJob: Job? = null
 
