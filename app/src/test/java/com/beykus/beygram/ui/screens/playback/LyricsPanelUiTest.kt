@@ -241,7 +241,7 @@ class LyricsPanelUiTest {
     }
 
     @Test
-    fun telegramTrackInLyricsPanel_gracefullyShowsNoText() {
+    fun telegramTrackInLyricsPanel_showsExternalOptInPromptWhenDisabled() {
         val pos = mutableLongStateOf(0L)
         compose.setContent {
             BeyGramTheme {
@@ -254,7 +254,8 @@ class LyricsPanelUiTest {
         }
         compose.waitForIdle()
 
-        compose.onNodeWithText(context.getString(R.string.lyrics_none_for_track)).assertIsDisplayed()
+        compose.onNodeWithText(context.getString(R.string.lyrics_external_disabled)).assertIsDisplayed()
+        compose.onNodeWithText(context.getString(R.string.lyrics_enable_external)).assertIsDisplayed()
     }
 
     @Test
