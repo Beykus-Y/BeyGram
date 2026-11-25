@@ -4,6 +4,7 @@ import com.beykus.beygram.data.update.DownloadProgress
 import com.beykus.beygram.data.update.InstallNotice
 import com.beykus.beygram.data.update.ReadyApk
 import com.beykus.beygram.data.update.StableRelease
+import com.beykus.beygram.data.update.StableUpdateActionPolicy
 import com.beykus.beygram.data.update.StableUpdateReason
 import com.beykus.beygram.data.update.UpdateStatus
 import com.beykus.beygram.data.update.UpdateStep
@@ -184,12 +185,20 @@ class UpdateCardModelTest {
         assertNull(offered.installNotice)
     }
 
-    @Test fun installedShowsNoOfferAndNoAction() {
+    @Test fun installedOffersARecheckWithoutARestart() {
         val model = updateCardModel(state(UpdateStatus.Installed(7L), known = other))
         assertEquals(UpdatePhase.Installed, model.phase)
         assertNull(model.release)
-        assertNull(model.primary)
+        assertEquals(UpdateAction.Check, model.primary)
+        // The card button is the check, so the compact top-bar check is not shown as a second copy.
         assertFalse(model.showTopCheck)
+    }
+
+    @Test fun installedCheckMatchesTheActionPolicy() {
+        val status = UpdateStatus.Installed(7L)
+        val model = updateCardModel(state(status, known = other))
+        assertTrue(StableUpdateActionPolicy.canCheck(status))
+        assertEquals(UpdateAction.Check, model.primary)
     }
 
     @Test fun checkFailureWithoutOfferAsksForRetry() {
