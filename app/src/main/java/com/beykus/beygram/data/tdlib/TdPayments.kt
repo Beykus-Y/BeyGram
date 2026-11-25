@@ -354,7 +354,7 @@ internal class TdPayments(
         cachedUserId = me.id
         val owner = if (isSelf) TdApi.MessageSenderUser(me.id) else giftOwner(profileId)
         val catalog = requests(TdApi.GetAvailableGifts()).gifts.orEmpty()
-            .mapNotNull { it.toCatalogItem(this::giftVisual) }
+            .mapNotNull { it.toCatalogItem { sticker -> giftVisual(sticker) } }
             .sortedBy { it.starCount }
         val balance = try {
             currentBalanceOrNull()
@@ -916,8 +916,8 @@ internal class TdPayments(
         gifts.map { gift ->
             gift.toReceivedGift(
                 senderName = gift.senderId?.let { sender -> sender.senderKey() }?.let { key -> names[key] },
-                visualOf = this::giftVisual,
-                collectibleOf = this::giftCollectible
+                visualOf = { sticker -> giftVisual(sticker) },
+                collectibleOf = { upgraded -> giftCollectible(upgraded) }
             )
         }
     }
