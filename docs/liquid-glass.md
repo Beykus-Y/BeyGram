@@ -76,3 +76,14 @@ Compare each level against Default on the same build, same account, same chat li
 Target devices: Samsung M21 (or a comparable weak GPU), one Android 12+ flagship, API 29/30 for the fallback. Check
 High really blurs (text behind the dock is unreadable but coloured), then Balanced/Lite/Auto, dark/light/AMOLED and
 3-button/gesture navigation. Cold start, typing, navigation and scrolling must not crash (#623).
+
+## Liquid Glass V2 (experimental, #1120, #1125)
+
+- Off by default (`AppearanceConfig.liquidGlassV2`), API 33+, only the High level, and only the floating `GlassEdge.Rim` panels. Everything else keeps the plain blur, which is also the fallback when the shader does not compile or a panel has no size yet.
+- `LiquidGlassGeometry.kt`: corner radii come from the outline the panel is clipped to (per corner for rounded rectangles, half the shorter side for circles and pills); the band is capped at a fifth of the shorter side.
+- `LiquidGlassLens.kt`: the shader models a circular bevel with Snell refraction (index 1.5) over the blurred sample. Light surfaces get a soft shade, dark ones a highlight. The constants (`LensEdgeThickness`, `LensStrength`) are unverified on a device.
+- A shader is created only for panels that sample the backdrop; the compile result is cached per process.
+- `LiquidGlassMetrics.kt`: counts shaders, compile failures, lens effects and fallbacks. Compile failures are logged under the tag `LiquidGlassV2`.
+- The switch is kept by user presets and by the unsaved draft (draft version 5).
+- Not done: merging neighbouring glass panels into one shape (judged too costly for the engine at this stage).
+- Not verified on a device: the look over text, photos and avatars, light and dark themes, animation of size changes, and frame cost. These need a manual check on API 33+ hardware.

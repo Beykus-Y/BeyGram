@@ -94,6 +94,7 @@ internal object AppearanceUserPresetStore {
         put("messageAnimations", config.messageAnimations.encode())
         put("designStyle", config.designStyle.name)
         put("glassQuality", config.glassQuality.name)
+        put("liquidGlassV2", config.liquidGlassV2)
         put("navigationPlacement", config.navigationPlacement.name)
     }.toString()
 
@@ -115,6 +116,7 @@ internal object AppearanceUserPresetStore {
             messageAnimations = messageAnimationConfigFromStored(o.optString("messageAnimations")),
             designStyle = designStyleFromStored(o.optString("designStyle")),
             glassQuality = glassQualityFromStored(o.optString("glassQuality")),
+            liquidGlassV2 = o.optBoolean("liquidGlassV2", false),
             navigationPlacement = navigationPlacementFromStored(o.optString("navigationPlacement"))
         )
     }.getOrNull()

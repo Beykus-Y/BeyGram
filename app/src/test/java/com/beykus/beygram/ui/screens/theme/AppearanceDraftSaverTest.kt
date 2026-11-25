@@ -68,7 +68,28 @@ class AppearanceDraftSaverTest {
         val draft = completeDraft()
         val restored = decodeAppearanceDraft(encodeAppearanceDraft(draft))
         assertEquals(draft, restored)
-        assertEquals(17, encodeAppearanceDraft(draft).size)
+        assertEquals(18, encodeAppearanceDraft(draft).size)
+    }
+
+    @Test fun liquidGlassV2SwitchSurvivesActivityRecreation() {
+        val on = decodeAppearanceDraft(
+            encodeAppearanceDraft(completeDraft().copy(liquidGlassV2 = true))
+        )
+        assertEquals(true, on?.liquidGlassV2)
+
+        val off = decodeAppearanceDraft(
+            encodeAppearanceDraft(completeDraft().copy(liquidGlassV2 = false))
+        )
+        assertEquals(false, off?.liquidGlassV2)
+    }
+
+    @Test fun draftSavedBeforeTheLiquidGlassV2SwitchRestoresWithItOff() {
+        // A version-4 draft: the sixteen values of that build, then its version "4". The switch did not exist yet.
+        val legacy = encodeAppearanceDraft(completeDraft().copy(liquidGlassV2 = true)).take(16) + "4"
+        assertEquals(17, legacy.size)
+        val restored = decodeAppearanceDraft(legacy)
+        assertEquals(false, restored?.liquidGlassV2)
+        assertEquals(completeDraft(), restored)
     }
 
     @Test fun designStyleAndGlassQualitySurviveActivityRecreation() {
@@ -94,11 +115,12 @@ class AppearanceDraftSaverTest {
     }
 
     @Test fun draftSavedBeforeThePlacementExistedKeepsTheStylePlacement() {
-        // A version-3 draft: the design style and the glass quality, but no bar placement.
+        // A version-3 draft: the design style and the glass quality, but no bar placement and no V2 switch.
         val legacy = encodeAppearanceDraft(
             completeDraft().copy(designStyle = DesignStyle.Signature, glassQuality = GlassQuality.High)
         ).toMutableList()
-        legacy.removeAt(15)
+        legacy.removeAt(15) // bar placement
+        legacy.removeAt(15) // Liquid Glass V2 switch, which now sits where the placement was
         val restored = decodeAppearanceDraft(legacy)
         assertEquals(DesignStyle.Signature, restored?.designStyle)
         assertEquals(GlassQuality.High, restored?.glassQuality)

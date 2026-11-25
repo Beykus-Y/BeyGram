@@ -43,6 +43,7 @@ import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.layout.positionInWindow
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.toIntSize
 import com.beykus.beygram.data.appearance.DesignStyle
@@ -154,12 +155,21 @@ fun GlassPanel(
     // Liquid Glass V2: the lens shader exists only where the style asks for it and the device has API 33+.
     // Only the floating pane gets the lens: full-width chrome meets the screen edges, where a bevel would show as a
     // border on the sides.
-    val lensShader = remember(glass?.lensRefraction, edge) {
-        if (glass?.lensRefraction == true && edge == GlassEdge.Rim) newLensShader() else null
-    }
+    // A shader is created only for a panel that really draws the sampled backdrop; Balanced, Lite and the frosted or
+    // unsampled frames never compile one.
+    val lensWanted = glass?.lensRefraction == true && edge == GlassEdge.Rim && samplesBackdrop
+    val lensShader = remember(lensWanted) { if (lensWanted) newLensShader() else null }
     var panelSize by remember { mutableStateOf(IntSize.Zero) }
     val lensThicknessPx = with(density) { LensEdgeThickness.toPx() }
-    val lensMaxRadiusPx = with(density) { LensMaxCornerRadius.toPx() }
+    val layoutDirection = LocalLayoutDirection.current
+    val blurPx = with(density) { (glass?.blurRadiusDp ?: 0.dp).toPx() }
+    val darkSurface = tint.luminance() < 0.5f
+    // The effect is rebuilt only when the size, the shape or the surface changes, not on every frame.
+    val lensEffect = remember(lensShader, panelSize, shape, lensThicknessPx, blurPx, darkSurface, density, layoutDirection) {
+        lensShader?.let {
+            buildLensRenderEffect(it, panelSize, shape, lensThicknessPx, blurPx, darkSurface, density, layoutDirection)
+        }
+    }
     Box(
         modifier
             .onGloballyPositioned { originInWindow = it.positionInWindow() }
@@ -200,24 +210,12 @@ fun GlassPanel(
             )
         }
         if (samplesBackdrop) {
-            val blurPx = with(density) { glass!!.blurRadiusDp.toPx() }
             // The opaque floor of the sampled pane: a list without its own background records transparent gaps, and
             // those must show this colour, not the sharp content drawn underneath.
             val base = if (backdropBase != Color.Unspecified) backdropBase else tint.copy(alpha = 1f)
-            val lens = lensShader
-            val surfaceEffect = if (lens != null) {
-                Modifier.graphicsLayerWithLens(
-                    shader = lens,
-                    sizePx = panelSize,
-                    thicknessPx = lensThicknessPx,
-                    maxRadiusPx = lensMaxRadiusPx,
-                    blurPx = blurPx,
-                    shape = shape,
-                    darkSurface = tint.luminance() < 0.5f
-                )
-            } else {
-                Modifier.graphicsLayerWithBlur(blurPx, shape, darkSurface = tint.luminance() < 0.5f)
-            }
+            // With no lens effect (no size yet, or a device that cannot build it) the panel keeps the plain blur.
+            val surfaceEffect = lensEffect?.let { Modifier.lensLayer(it, shape) }
+                ?: Modifier.graphicsLayerWithBlur(blurPx, shape, darkSurface)
             Box(
                 Modifier.matchParentSize()
                     .then(surfaceEffect)
@@ -266,6 +264,13 @@ fun GlassPanel(
         // Content sizes the panel; the decorative layers above match whatever height it ends up with.
         Box(Modifier.padding(contentPadding)) { content() }
     }
+}
+
+/** Applies a prebuilt Liquid Glass V2 render effect to the panel's layer, clipped to the panel's shape. */
+internal fun Modifier.lensLayer(effect: RenderEffect, shape: Shape): Modifier = graphicsLayer {
+    clip = true
+    this.shape = shape
+    renderEffect = effect.asComposeRenderEffect()
 }
 
 /** Render-effect wrapper, kept separate so an unsupported API level simply draws nothing instead of failing. */
