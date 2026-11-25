@@ -100,6 +100,29 @@ class VideoPlaybackMetrics(
         if (ready && bufferingSince == null) completeSeekIfPending(now())
     }
 
+    /**
+     * Повтор после ошибки: TTFF отсчитывается заново от этого повтора, а не от первого запроса play.
+     * Сводка описывает последний запуск воспроизведения.
+     */
+    fun onRetry() {
+        playRequestedAt = now()
+        started = false
+        ttffMs = null
+        heapAtStartKb = null
+    }
+
+    /**
+     * Изменение `playWhenReady` (пауза или возобновление) из `onPlayWhenReadyChanged`. Пауза посреди
+     * ребуферизации обрывает счёт времени на паузе, а не в момент следующего READY.
+     */
+    fun onPlayWhenReadyChanged(playWhenReady: Boolean) {
+        val since = bufferingSince ?: return
+        if (bufferingCounted && !playWhenReady) {
+            rebufferTotalMs += now() - since
+            bufferingCounted = false
+        }
+    }
+
     /** Ошибка плеера: открытая перемотка больше не завершится, поэтому её время в сводку не попадает. */
     fun onFailed() {
         seekPending = false

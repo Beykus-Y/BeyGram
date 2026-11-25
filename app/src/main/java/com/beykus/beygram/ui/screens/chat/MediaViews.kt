@@ -2006,6 +2006,9 @@ private fun LocalVideo(
                 metrics.onPlaybackState(playbackState, player.playWhenReady)
                 video = video.afterPlaybackState(playbackState)
             }
+            override fun onPlayWhenReadyChanged(playWhenReady: Boolean, reason: Int) {
+                metrics.onPlayWhenReadyChanged(playWhenReady)
+            }
             override fun onPositionDiscontinuity(oldPosition: Player.PositionInfo, newPosition: Player.PositionInfo, reason: Int) {
                 if (reason == Player.DISCONTINUITY_REASON_SEEK) metrics.onSeekApplied(player.playbackState == Player.STATE_READY)
             }
@@ -2105,7 +2108,7 @@ private fun LocalVideo(
                 onManualDownload()
                 video = VideoPlayerState()
                 startRequested = true
-                metrics.onPlayRequested()
+                metrics.onRetry()
                 player.prepare()
                 player.play()
             }) { Text(stringResource(R.string.common_retry)) }

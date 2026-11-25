@@ -194,6 +194,36 @@ class VideoPlaybackMetricsTest {
         assertEquals("120", s["rebuffer_total_ms"])
     }
 
+    @Test fun pauseWithPlayWhenReadyEventStopsRebufferAtPause() {
+        // Тот же путь, что в плеере: onPlayWhenReadyChanged(false) приходит отдельно от смены состояния.
+        val clock = FakeClock()
+        val m = metrics(clock)
+        m.onPlayRequested()
+        m.onPlayingChanged(true)
+        m.onPlaybackState(READY, playWhenReady = true)
+        m.onPlaybackState(BUFFERING, playWhenReady = true)
+        clock.advance(120)
+        m.onPlayWhenReadyChanged(false)
+        clock.advance(900)
+        m.onPlaybackState(BUFFERING, playWhenReady = false)
+        m.onPlaybackState(READY, playWhenReady = false)
+        val s = summary(m)
+        assertEquals("1", s["rebuffer_count"])
+        assertEquals("120", s["rebuffer_total_ms"])
+    }
+
+    @Test fun retryRestartsTtffFromRetryNotFromFirstRequest() {
+        val clock = FakeClock()
+        val m = metrics(clock)
+        m.onPlayRequested()
+        clock.advance(500)
+        m.onFailed()
+        m.onRetry()
+        clock.advance(200)
+        m.onPlayingChanged(true)
+        assertEquals("200", summary(m)["ttff_ms"])
+    }
+
     @Test fun failureClearsPendingSeekSoItDoesNotCompleteLater() {
         val clock = FakeClock()
         val m = metrics(clock)
