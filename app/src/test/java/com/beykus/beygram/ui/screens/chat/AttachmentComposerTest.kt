@@ -57,11 +57,18 @@ class AttachmentComposerTest {
     }
 
     @Test
-    fun `quality only applies to video messages and plain audio documents`() {
+    fun `quality applies to videos, video documents awaiting conversion, and plain audio`() {
         assertEquals(MediaQualityKind.Video, video().qualityKind())
         assertEquals(MediaQualityKind.Audio, audio().qualityKind())
         assertNull(video().copy(kind = MediaKind.Photo).qualityKind())
-        assertNull(video().copy(kind = MediaKind.Document, mimeType = "video/mp4").qualityKind())
+        // An MP4 whose codec is not confirmed (AV1/VP9) is imported as a document; the composer still offers a
+        // transcode, and a successful one turns it into a video message (#1175).
+        assertEquals(
+            MediaQualityKind.Video,
+            video().copy(kind = MediaKind.Document, mimeType = "video/mp4").qualityKind(),
+        )
+        // Other video containers stay documents with no quality pass.
+        assertNull(video().copy(kind = MediaKind.Document, mimeType = "video/x-matroska").qualityKind())
         assertNull(video().copy(kind = MediaKind.Document, mimeType = "application/pdf").qualityKind())
     }
 
