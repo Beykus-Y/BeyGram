@@ -65,6 +65,7 @@ internal class VideoCompressor(private val context: Context) {
                 sizeBytes = file.length(),
                 mimeType = mimeType,
                 videoCodecH264 = videoIsAlreadyTargetCodec(videoCodecs),
+                videoCodecClass = videoCodecClass(videoCodecs),
                 hasAudio = hasAudio
             )
         } finally {

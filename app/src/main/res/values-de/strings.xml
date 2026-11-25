@@ -1043,4 +1043,5 @@
     <string name="diag_video_buffer_title">Video-Startpuffer</string>
     <string name="diag_video_buffer_value_default">Media3-Standard</string>
     <string name="diag_video_buffer_value_ms">%1$d ms</string>
+    <string name="composer_quality_hint_codec">Telegram kann den Codec dieses Videos nicht wiedergeben. Komprimiere es, um es als Video zu senden, oder sende es als Datei.</string>
 </resources>
