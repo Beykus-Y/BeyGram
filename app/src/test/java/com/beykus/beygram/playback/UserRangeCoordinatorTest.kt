@@ -128,6 +128,70 @@ class UserRangeCoordinatorTest {
     }
 
     @Test
+    fun `a stalled window is requested again after the deadline`() = runTest {
+        val ranges = FakeRanges()
+        val subject = coordinator(ranges)
+
+        subject.ensureReadable(7, 0L, 1024L, urgent = true)
+        assertEquals(1, ranges.requests.size)
+
+        // Nothing arrived for longer than the window deadline: the same offset must be asked for again instead of
+        // being treated as "already pending" forever (Codex blocker on #1188).
+        now = 6_000L
+        subject.ensureReadable(7, 0L, 1024L, urgent = true)
+        assertEquals(2, ranges.requests.size)
+        assertEquals(Triple(0L, 0L, true), ranges.requests.last())
+    }
+
+    @Test
+    fun `a rejected tail window is requested again after the deadline`() = runTest {
+        val ranges = FakeRanges()
+        val subject = coordinator(ranges)
+
+        subject.ensureTail(9, 1_000_000L, 65_536L)
+        assertEquals(1, ranges.requests.size)
+
+        now = 6_000L
+        subject.ensureTail(9, 1_000_000L, 65_536L)
+        assertEquals(2, ranges.requests.size)
+        assertEquals(Triple(1_000_000L, 65_536L, true), ranges.requests.last())
+    }
+
+    @Test
+    fun `a window that keeps delivering is not restarted`() = runTest {
+        val ranges = FakeRanges()
+        val subject = coordinator(ranges)
+
+        subject.ensureReadable(7, 0L, 1024L, urgent = true)
+        // Bytes arrive inside the deadline, then the next read is requested: same window, no new request.
+        ranges.readable[0L] = 512L
+        now = 3_000L
+        subject.ensureReadable(7, 0L, 1024L, urgent = true)
+        ranges.readable[0L] = 900L
+        now = 5_000L
+        subject.ensureReadable(7, 0L, 1024L, urgent = true)
+
+        assertEquals(1, ranges.requests.size)
+    }
+
+    @Test
+    fun `a stalled user window still keeps its priority`() = runTest {
+        val ranges = FakeRanges()
+        val subject = coordinator(ranges)
+
+        subject.ensureReadable(7, 0L, 1024L, urgent = true)
+        now = 6_000L
+        // A background preload must not steal the window even while it is stalled.
+        subject.ensureReadable(7, 0L, 1024L, urgent = false)
+        assertEquals(1, ranges.requests.size)
+
+        // The user's own retry is allowed and keeps the watching priority.
+        subject.ensureReadable(7, 0L, 1024L, urgent = true)
+        assertEquals(2, ranges.requests.size)
+        assertTrue(ranges.requests.last().third)
+    }
+
+    @Test
     fun `progress restores the retry budget`() = runTest {
         val ranges = FakeRanges()
         val subject = coordinator(ranges)

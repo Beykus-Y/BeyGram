@@ -19,6 +19,8 @@ class UserRangeCoordinator(
     /** How long to wait after [maxAttemptsWithoutProgress] fruitless requests before trying again. */
     private val retryBackoffMs: Long = 2_000,
     private val maxAttemptsWithoutProgress: Int = 4,
+    /** How long a window may deliver nothing and still count as pending. */
+    private val windowDeadlineMs: Long = 5_000,
 ) {
     private class FileState {
         var window: RangeWindow? = null
@@ -27,11 +29,15 @@ class UserRangeCoordinator(
         var userOwned = false
         var attemptsWithoutProgress = 0
         var lastRequestAt = 0L
+        var lastProgressAt = 0L
         var lastAvailable = -1L
 
-        fun onAvailable(available: Long) {
-            // Any growth is progress, so the retry budget is restored.
-            if (available > lastAvailable) attemptsWithoutProgress = 0
+        fun onAvailable(available: Long, now: Long) {
+            // Any growth is progress: the retry budget is restored and the window is proven alive.
+            if (available > lastAvailable) {
+                attemptsWithoutProgress = 0
+                lastProgressAt = now
+            }
             lastAvailable = available
         }
 
@@ -42,6 +48,7 @@ class UserRangeCoordinator(
             this.window = window
             this.userOwned = userOwned
             this.lastRequestAt = now
+            this.lastProgressAt = now
             this.attemptsWithoutProgress += 1
         }
     }
@@ -57,13 +64,14 @@ class UserRangeCoordinator(
      */
     suspend fun ensureReadable(fileId: Int, offset: Long, needed: Long, urgent: Boolean): Long {
         val state = states.getOrPut(fileId) { FileState() }
+        val now = clock()
         val available = ranges.readableFrom(fileId, offset)
-        state.onAvailable(available)
+        state.onAvailable(available, now)
         if (available >= needed) return available
 
         val wanted = RangeWindow(offset, 0L, urgent)
         val pending = state.window
-        if (pending != null && pending.urgent == urgent && pendingServes(pending, offset, needed)) {
+        if (pending != null && pending.urgent == urgent && pendingServes(pending, offset, needed, now, state)) {
             // The pending window is expected to deliver these bytes; re-sending would only restart it.
             return available
         }
@@ -71,7 +79,6 @@ class UserRangeCoordinator(
             // A background preload must not steal the user's window.
             return available
         }
-        val now = clock()
         if (state.waitingForBackoff(now, maxAttemptsWithoutProgress, retryBackoffMs)) return available
         if (state.attemptsWithoutProgress >= maxAttemptsWithoutProgress) {
             // Backoff elapsed: allow a fresh series of attempts.
@@ -89,15 +96,18 @@ class UserRangeCoordinator(
     suspend fun ensureTail(fileId: Int, start: Long, length: Long, urgent: Boolean = true): Long {
         if (start < 0L || length <= 0L) return 0L
         val state = states.getOrPut(fileId) { FileState() }
+        val now = clock()
         val available = ranges.readableFrom(fileId, start)
-        state.onAvailable(available)
+        state.onAvailable(available, now)
         if (available >= length) return available
 
         val pending = state.window
-        if (pending != null && pending.offset == start && pending.limit == length && pending.urgent == urgent) {
+        // A tail window is reused only while it is still alive; a stalled or rejected one gets a new request.
+        if (pending != null && pending.offset == start && pending.limit == length &&
+            pending.urgent == urgent && isAlive(pending, now, state)
+        ) {
             return available
         }
-        val now = clock()
         if (state.waitingForBackoff(now, maxAttemptsWithoutProgress, retryBackoffMs)) return available
         if (state.attemptsWithoutProgress >= maxAttemptsWithoutProgress) state.attemptsWithoutProgress = 0
         state.startWindow(RangeWindow(start, length, urgent), now, urgent)
@@ -115,11 +125,20 @@ class UserRangeCoordinator(
      * forward, so sequential reads are covered; a jump much further ahead is a seek that deserves its own window,
      * because waiting for the download to walk there would stall playback for minutes.
      */
-    private fun pendingServes(window: RangeWindow, offset: Long, needed: Long): Boolean {
+    private fun pendingServes(window: RangeWindow, offset: Long, needed: Long, now: Long, state: FileState): Boolean {
+        if (!isAlive(window, now, state)) return false
         if (window.limit > 0L) return window.covers(offset, needed)
         if (offset < window.offset) return false
         return offset - window.offset <= SEEK_TOLERANCE_BYTES
     }
+
+    /**
+     * A window is alive while it keeps delivering bytes. If nothing arrived within [windowDeadlineMs] it may have been
+     * rejected, paused by the system or silently dropped, so the same offset must be asked for again instead of being
+     * treated as "already requested" forever.
+     */
+    private fun isAlive(window: RangeWindow, now: Long, state: FileState): Boolean =
+        now - state.lastProgressAt <= windowDeadlineMs
 
     /** The page was closed or TDLib moved the file: forget the window and cancel it. */
     fun reset(fileId: Int) {
