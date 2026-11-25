@@ -534,13 +534,18 @@ fun ProfileScreen(
             photoError?.let { Text(it, color = palette.danger, modifier = Modifier.padding(20.dp).errorAnnouncement()) }
                 }
         if (sceneC) {
+            // Fixed viewport: this node does not scroll, so its window top is the toolbar bottom at every scroll offset.
             Column(
-                Modifier.fillMaxWidth().verticalScroll(scrollState).padding(bottom = 28.dp)
-                    .onGloballyPositioned { sceneHeights.toolbarBottomPx = it.boundsInWindow().top.toInt() }
+                Modifier.fillMaxSize().onGloballyPositioned {
+                    sceneHeights.toolbarBottomPx = it.boundsInWindow().top.toInt()
+                    sceneHeights.viewportHeightPx = it.size.height
+                }
             ) {
-                // The content is at least the viewport plus the stage, so short profiles can still reach full collapse.
-                Column(Modifier.fillMaxWidth().heightIn(min = with(LocalDensity.current) { (sceneWindow.height + sceneHeights.stageHeightPx).toDp() })) {
-                    scrollBody()
+                Column(Modifier.fillMaxWidth().verticalScroll(scrollState).padding(bottom = 28.dp)) {
+                    // The content is at least the viewport plus the stage travel, so short profiles can still reach full collapse.
+                    Column(Modifier.fillMaxWidth().heightIn(min = with(LocalDensity.current) { (sceneHeights.viewportHeightPx + sceneHeights.stageHeightPx).toDp() })) {
+                        scrollBody()
+                    }
                 }
             }
         } else {

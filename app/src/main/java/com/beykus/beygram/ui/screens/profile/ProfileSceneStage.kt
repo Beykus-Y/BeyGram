@@ -31,8 +31,10 @@ internal class ProfileSceneHeights {
     var titleHeightPx by mutableIntStateOf(0)
     var statusHeightPx by mutableIntStateOf(0)
     var badgesHeightPx by mutableIntStateOf(0)
-    /** Window y of the bottom of the toolbar: the top of the scroll column, which does not scroll itself. */
+    /** Window y of the bottom of the toolbar: the top of the fixed viewport that wraps the scroll column. */
     var toolbarBottomPx by mutableIntStateOf(0)
+    /** Height of that fixed viewport; the scroll content is at least this tall plus the stage travel. */
+    var viewportHeightPx by mutableIntStateOf(0)
 
     /** True once the stage has been laid out at least once; until then the screen must not report or collapse. */
     val measured: Boolean get() = stageHeightPx > 0
