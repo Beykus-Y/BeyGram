@@ -52,6 +52,10 @@ internal sealed interface GiftDetailTarget {
 @Composable
 internal fun GiftDetailSheet(
     target: GiftDetailTarget,
+    actionBusy: Boolean = false,
+    actionError: String? = null,
+    onToggleSaved: (() -> Unit)? = null,
+    onTogglePinned: (() -> Unit)? = null,
     onDismiss: () -> Unit
 ) {
     val palette = beyGramPalette()
@@ -214,6 +218,46 @@ internal fun GiftDetailSheet(
                             valueColor = if (hasDanger) palette.danger else palette.textPrimary
                         )
                     }
+                }
+
+                if (target is GiftDetailTarget.Received && !target.gift.wasRefunded && (onTogglePinned != null || onToggleSaved != null)) {
+                    Spacer(Modifier.height(10.dp))
+                    HorizontalDivider(color = palette.divider)
+                    Spacer(Modifier.height(6.dp))
+                    Column(Modifier.fillMaxWidth()) {
+                        onTogglePinned?.let { togglePin ->
+                            TextButton(
+                                onClick = togglePin,
+                                enabled = !actionBusy,
+                                modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)
+                            ) {
+                                Text(
+                                    stringResource(
+                                        if (target.gift.isPinned) R.string.gifts_action_unpin
+                                        else R.string.gifts_action_pin
+                                    )
+                                )
+                            }
+                        }
+                        onToggleSaved?.let { toggleSave ->
+                            TextButton(
+                                onClick = toggleSave,
+                                enabled = !actionBusy,
+                                modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)
+                            ) {
+                                Text(
+                                    stringResource(
+                                        if (target.gift.isSaved) R.string.gifts_action_hide_profile
+                                        else R.string.gifts_action_show_profile
+                                    )
+                                )
+                            }
+                        }
+                    }
+                }
+                if (!actionError.isNullOrBlank()) {
+                    Spacer(Modifier.height(6.dp))
+                    Text(actionError, color = palette.danger, fontSize = 12.sp, modifier = Modifier.fillMaxWidth())
                 }
             }
         },

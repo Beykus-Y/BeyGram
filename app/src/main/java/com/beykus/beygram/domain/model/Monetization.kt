@@ -809,6 +809,52 @@ fun formatStarAmount(starCount: Long, nanostarCount: Int = 0): String =
 
 private const val PREMIUM_GIFT_CODE_MAX_LENGTH = 128
 private const val GIFT_TEXT_MAX_LENGTH_CEILING = 4096L
+
+enum class GiftCatalogFilter { All, Available, Resale, Auction, Limited }
+
+fun filterGiftCatalog(
+    items: List<GiftCatalogItem>,
+    filter: GiftCatalogFilter,
+    query: String
+): List<GiftCatalogItem> {
+    val needle = query.trim().lowercase(Locale.ROOT)
+    return items.filter { item ->
+        val matchesFilter = when (filter) {
+            GiftCatalogFilter.All -> true
+            GiftCatalogFilter.Available -> !item.isSoldOut && !item.isAuctionOnly
+            GiftCatalogFilter.Resale -> item.resaleCount > 0
+            GiftCatalogFilter.Auction -> item.isAuctionOnly || !item.auctionId.isNullOrBlank()
+            GiftCatalogFilter.Limited -> item.remainingCount != null || item.isSoldOut
+        }
+        val matchesQuery = needle.isEmpty() ||
+            item.resaleTitle.lowercase(Locale.ROOT).contains(needle) ||
+            item.emoji.contains(needle) ||
+            item.starCount.toString().contains(needle)
+        matchesFilter && matchesQuery
+    }
+}
+
+fun sortProfileShowcaseGifts(gifts: List<ReceivedGiftItem>, limit: Int = 6): List<ReceivedGiftItem> {
+    if (limit <= 0) return emptyList()
+    val visible = gifts.filterNot { it.wasRefunded }
+    val pinned = visible.filter { it.isPinned }
+    val unpinned = visible.filterNot { it.isPinned }
+    return (pinned + unpinned).take(limit)
+}
+
+fun togglePinnedGiftIds(
+    gifts: List<ReceivedGiftItem>,
+    targetId: String,
+    maxPinned: Int = 6
+): List<String> {
+    if (targetId.isBlank() || maxPinned <= 0) return gifts.filter { it.isPinned && it.id.isNotBlank() }.map { it.id }
+    val currentPinned = gifts.filter { it.isPinned && it.id.isNotBlank() }.map { it.id }
+    return if (targetId in currentPinned) {
+        currentPinned.filterNot { it == targetId }
+    } else {
+        (listOf(targetId) + currentPinned).distinct().take(maxPinned)
+    }
+}
 private const val PAYMENT_URL_MAX_LENGTH = 4096
 private const val PAYMENT_HOST_MAX_LENGTH = 253
 private const val PAYMENT_HOST_LABEL_MAX_LENGTH = 63
