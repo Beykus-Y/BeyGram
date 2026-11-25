@@ -11,6 +11,7 @@ import com.beykus.beygram.domain.lyrics.LyricsSyncMode
 import com.beykus.beygram.domain.lyrics.LyricsUnavailableReasonV2
 import com.beykus.beygram.domain.music.TrackAudioSource
 import com.beykus.beygram.domain.music.TrackIdentity
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
@@ -18,6 +19,7 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.channelFlow
 import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withPermit
+import kotlinx.coroutines.withContext
 import java.io.File
 
 /**
@@ -48,6 +50,10 @@ class LyricsRepository(
     }
 
     private val cacheLock = Any()
+
+    @Volatile
+    private var cacheGeneration = 0L
+
     private val memoryCache = object : LinkedHashMap<String, MemoryEntry>(32, 0.75f, true) {
         override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, MemoryEntry>?): Boolean =
             size > MEMORY_CACHE_LIMIT
@@ -60,9 +66,13 @@ class LyricsRepository(
     ): Flow<LyricsLoadState> = channelFlow {
         send(LyricsLoadState.Loading)
         val key = cacheKey(identity)
+        val negKey = negativeCacheKey(identity, settings)
         if (forceRefresh) {
-            invalidate(identity)
+            invalidateOffMain(identity)
         }
+
+        val startedMemGen = synchronized(cacheLock) { cacheGeneration }
+        val startedDiskGen = diskCache?.currentGeneration() ?: 0
 
         val currentMs = now()
         val cachedHit = readMemoryHit(key, currentMs)?.takeIf { isAllowedBySettingsAndPrivacy(it.document, identity, settings) }
@@ -71,14 +81,27 @@ class LyricsRepository(
             return@channelFlow
         }
 
-        val diskHit = diskCache?.get(key, currentMs)?.takeIf { isAllowedBySettingsAndPrivacy(it, identity, settings) }
+        val diskHit = if (diskCache != null) {
+            withContext(Dispatchers.IO) { diskCache.get(key, currentMs) }
+        } else {
+            null
+        }?.takeIf { isAllowedBySettingsAndPrivacy(it.document, identity, settings) }
         if (diskHit != null) {
-            writeMemory(key, MemoryEntry.Hit(diskHit, score = 1f, storedAtMs = currentMs, ttlMs = positiveTtl(diskHit.attribution.sourceId)))
-            send(LyricsLoadState.Ready(diskHit, isUpgrading = false))
+            writeMemory(
+                key = key,
+                entry = MemoryEntry.Hit(
+                    document = diskHit.document,
+                    score = 1f,
+                    storedAtMs = diskHit.storedAtMs,
+                    ttlMs = diskHit.ttlMs,
+                ),
+                expectedGen = startedMemGen,
+            )
+            send(LyricsLoadState.Ready(diskHit.document, isUpgrading = false))
             return@channelFlow
         }
 
-        if (!forceRefresh && hasValidNegativeCache(key, currentMs)) {
+        if (!forceRefresh && hasValidNegativeCache(negKey, currentMs)) {
             send(LyricsLoadState.Unavailable(fallbackUnavailableReason(identity, settings, sawAuth = false, sawRetryable = false)))
             return@channelFlow
         }
@@ -149,28 +172,65 @@ class LyricsRepository(
         if (finalBest != null) {
             val storedAt = now()
             val ttl = positiveTtl(finalBest.document.attribution.sourceId)
-            writeMemory(key, MemoryEntry.Hit(finalBest.document, finalBest.score, storedAt, ttl))
-            diskCache?.put(key, finalBest.document, ttl, storedAt)
+            writeMemory(key, MemoryEntry.Hit(finalBest.document, finalBest.score, storedAt, ttl), startedMemGen)
+            if (diskCache != null) {
+                withContext(Dispatchers.IO) {
+                    diskCache.put(key, finalBest.document, ttl, storedAt, expectedGeneration = startedDiskGen)
+                }
+            }
             send(LyricsLoadState.Ready(finalBest.document, isUpgrading = false))
         } else {
             val reason = fallbackUnavailableReason(identity, settings, sawAuth, sawRetryable)
             if (!sawAuth && !sawRetryable && !sawNonRetryableFailure) {
                 val negTtl = if (identity.audioSource == TrackAudioSource.YandexMusic) YANDEX_NEGATIVE_TTL_MS else EXTERNAL_NEGATIVE_TTL_MS
-                writeMemory(key, MemoryEntry.Miss(now(), negTtl))
+                writeMemory(negKey, MemoryEntry.Miss(now(), negTtl), startedMemGen)
             }
             send(LyricsLoadState.Unavailable(reason))
         }
     }
 
+    suspend fun invalidateOffMain(identity: TrackIdentity) {
+        invalidateMemory(identity)
+        if (diskCache != null) {
+            val key = cacheKey(identity)
+            withContext(Dispatchers.IO) { diskCache.remove(key) }
+        }
+    }
+
+    suspend fun clearCacheOffMain() {
+        clearMemoryCache()
+        if (diskCache != null) {
+            withContext(Dispatchers.IO) { diskCache.clear() }
+        }
+    }
+
     fun invalidate(identity: TrackIdentity) {
-        val key = cacheKey(identity)
-        synchronized(cacheLock) { memoryCache.remove(key) }
-        diskCache?.remove(key)
+        invalidateMemory(identity)
+        diskCache?.remove(cacheKey(identity))
     }
 
     fun clearCache() {
-        synchronized(cacheLock) { memoryCache.clear() }
+        clearMemoryCache()
         diskCache?.clear()
+    }
+
+    private fun invalidateMemory(identity: TrackIdentity) {
+        val key = cacheKey(identity)
+        val negPrefix = "$key|neg|"
+        synchronized(cacheLock) {
+            memoryCache.remove(key)
+            val iter = memoryCache.keys.iterator()
+            while (iter.hasNext()) {
+                if (iter.next().startsWith(negPrefix)) iter.remove()
+            }
+        }
+    }
+
+    private fun clearMemoryCache() {
+        synchronized(cacheLock) {
+            cacheGeneration += 1
+            memoryCache.clear()
+        }
     }
 
     private fun readMemoryHit(key: String, atMs: Long): MemoryEntry.Hit? = synchronized(cacheLock) {
@@ -182,17 +242,19 @@ class LyricsRepository(
         entry as? MemoryEntry.Hit
     }
 
-    private fun hasValidNegativeCache(key: String, atMs: Long): Boolean = synchronized(cacheLock) {
-        val entry = memoryCache[key] ?: return false
+    private fun hasValidNegativeCache(negKey: String, atMs: Long): Boolean = synchronized(cacheLock) {
+        val entry = memoryCache[negKey] ?: return false
         if (atMs - entry.storedAtMs >= entry.ttlMs) {
-            memoryCache.remove(key)
+            memoryCache.remove(negKey)
             return false
         }
         entry is MemoryEntry.Miss
     }
 
-    private fun writeMemory(key: String, entry: MemoryEntry) = synchronized(cacheLock) {
-        memoryCache[key] = entry
+    private fun writeMemory(key: String, entry: MemoryEntry, expectedGen: Long) = synchronized(cacheLock) {
+        if (cacheGeneration == expectedGen) {
+            memoryCache[key] = entry
+        }
     }
 
     private fun isSourceEnabled(id: LyricsSourceId, settings: LyricsSourceSettings): Boolean = when (id) {
@@ -255,6 +317,11 @@ class LyricsRepository(
         }
         return "${identity.accountId}|$trackPart|v${LyricsDocument.CURRENT_FORMAT_VERSION}"
     }
+
+    private fun negativeCacheKey(identity: TrackIdentity, settings: LyricsSourceSettings): String =
+        "${cacheKey(identity)}|neg|ext=${settings.externalLookupEnabled}" +
+            "|emb=${settings.embeddedTagsEnabled}|ym=${settings.yandexEnabled}|lrc=${settings.lrcLibEnabled}" +
+            "|file=${!identity.localFilePath.isNullOrBlank()}|priv=${identity.privacy.allowsExternalMetadataLookup}"
 
     private data class RankedDoc(val document: LyricsDocument, val score: Float)
 

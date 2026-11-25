@@ -68,6 +68,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -118,6 +119,7 @@ import com.beykus.beygram.domain.lyrics.RichLyricLine
 import com.beykus.beygram.domain.lyrics.SyncedLyrics
 import com.beykus.beygram.domain.music.TrackIdentity
 import com.beykus.beygram.playback.PlaybackEngine
+import kotlinx.coroutines.launch
 import com.beykus.beygram.ui.components.BeyGramSheet
 import com.beykus.beygram.ui.components.TextButton
 import com.beykus.beygram.ui.components.beyGramPalette
@@ -270,6 +272,7 @@ internal fun LyricsPanel(
     }
 
     val backFocus = remember { FocusRequester() }
+    val ioScope = rememberCoroutineScope()
     LaunchedEffect(Unit) { runCatching { backFocus.requestFocus() } }
 
     Column(modifier.fillMaxSize()) {
@@ -318,7 +321,6 @@ internal fun LyricsPanel(
                         LyricsSettingsStore.setExternalLookupEnabled(context, true)
                     },
                     onRetry = {
-                        AppLyricsRepository.get(context).invalidate(trackIdentity)
                         if (isYandexTrack) {
                             MusicProviders.yandex(context)?.invalidateLyrics(trackId)
                         }
@@ -346,8 +348,10 @@ internal fun LyricsPanel(
                 LyricsSettingsStore.setExternalLookupEnabled(context, !sourceSettings.externalLookupEnabled)
             },
             onClearCache = {
-                AppLyricsRepository.get(context).clearCache()
-                Toast.makeText(context, R.string.lyrics_cache_cleared, Toast.LENGTH_SHORT).show()
+                ioScope.launch {
+                    AppLyricsRepository.get(context).clearCacheOffMain()
+                    Toast.makeText(context, R.string.lyrics_cache_cleared, Toast.LENGTH_SHORT).show()
+                }
             },
             onCopyLine = { text ->
                 val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager
@@ -716,12 +720,17 @@ private fun ReadyLyricsV2(
     val bottomFade = remember(palette.surface) {
         Brush.verticalGradient(listOf(Color.Transparent, palette.surface))
     }
-    val plainParagraphs = remember(document.plainText, isTimed) {
-        if (isTimed) emptyList()
-        else document.plainText.orEmpty()
-            .split(Regex("""\n{2,}"""))
-            .map { it.trim() }
-            .filter { it.isNotEmpty() }
+    val plainParagraphs = remember(document.plainText, document.lines, isTimed) {
+        if (isTimed) {
+            emptyList()
+        } else {
+            val raw = document.plainText?.takeIf { it.isNotBlank() }
+            if (raw != null) {
+                raw.split(Regex("""\n{2,}""")).map { it.trim() }.filter { it.isNotEmpty() }
+            } else {
+                document.lines.map { it.text.trim() }.filter { it.isNotEmpty() }
+            }
+        }
     }
     val itemSpacing = when (style.visual) {
         LyricsVisualStyle.Reading -> 10.dp
@@ -749,7 +758,16 @@ private fun ReadyLyricsV2(
             contentPadding = PaddingValues(start = 24.dp, end = 24.dp, top = 32.dp, bottom = 64.dp),
             verticalArrangement = Arrangement.spacedBy(itemSpacing)
         ) {
-            if (!isTimed) {
+            if (!isTimed && plainParagraphs.isEmpty() && document.isInstrumentalTrack) {
+                item(key = "instrumental-track") {
+                    InstrumentalDotsRow(
+                        active = playing,
+                        playing = playing,
+                        centered = style.alignment == LyricsAlignment.Center,
+                        reducedMotion = microMotion.isInstant || style.motion == LyricsMotionStyle.Calm
+                    )
+                }
+            } else if (!isTimed) {
                 itemsIndexed(plainParagraphs) { _, block ->
                     @OptIn(ExperimentalFoundationApi::class)
                     Text(

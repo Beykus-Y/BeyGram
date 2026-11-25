@@ -12,6 +12,12 @@ import java.io.File
 import java.nio.charset.StandardCharsets
 import java.security.MessageDigest
 
+data class DiskCacheEntry(
+    val document: LyricsDocument,
+    val storedAtMs: Long,
+    val ttlMs: Long,
+)
+
 /**
  * Bounded, versioned JSON disk cache for [LyricsDocument] entries.
  * Isolated by account-scoped cache keys and guarded by a generation counter on [clear].
@@ -25,7 +31,9 @@ class LyricsDiskCache(
     @Volatile
     private var generation = 0
 
-    fun get(cacheKey: String, nowMs: Long): LyricsDocument? {
+    fun currentGeneration(): Int = generation
+
+    fun get(cacheKey: String, nowMs: Long): DiskCacheEntry? {
         val file = entryFile(cacheKey)
         synchronized(lock) {
             if (!file.isFile) return null
@@ -50,13 +58,18 @@ class LyricsDiskCache(
                 return null
             }
             file.setLastModified(nowMs)
-            return doc
+            return DiskCacheEntry(document = doc, storedAtMs = storedAt, ttlMs = ttl)
         }
     }
 
-    fun put(cacheKey: String, document: LyricsDocument, ttlMs: Long, nowMs: Long) {
+    fun put(
+        cacheKey: String,
+        document: LyricsDocument,
+        ttlMs: Long,
+        nowMs: Long,
+        expectedGeneration: Int = generation,
+    ) {
         if (ttlMs <= 0L) return
-        val startedGen = generation
         val payload = JSONObject()
             .put("formatVersion", LyricsDocument.CURRENT_FORMAT_VERSION)
             .put("storedAtMs", nowMs)
@@ -67,7 +80,7 @@ class LyricsDiskCache(
         if (bytes.size > maxEntryBytes) return
 
         synchronized(lock) {
-            if (generation != startedGen) return
+            if (generation != expectedGeneration) return
             rootDir.mkdirs()
             val target = entryFile(cacheKey)
             val temp = File(rootDir, target.name + ".tmp")

@@ -16,6 +16,7 @@ import com.beykus.beygram.playback.PlaybackItem
 import com.beykus.beygram.playback.PlaybackOrigin
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.toList
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -156,5 +157,84 @@ class LyricsRepositoryTest {
 
         val unknownPrivacy = repo.observeLyrics(publicTelegramTrack(protectedChat = null), LyricsSourceSettings(externalLookupEnabled = true)).toList().last()
         assertEquals(LyricsLoadState.Unavailable(LyricsUnavailableReasonV2.RestrictedPrivacy), unknownPrivacy)
+    }
+
+    @Test
+    fun clearCacheWhileRequestInFlightPreventsStaleRepopulation() = runBlocking {
+        val gate = kotlinx.coroutines.CompletableDeferred<Unit>()
+        val calls = AtomicInteger(0)
+        val slowSource = object : LyricsSource {
+            override val id = LyricsSourceId.LrcLib
+            override val isExternalNetwork = true
+            override fun supports(identity: TrackIdentity) = true
+            override suspend fun fetch(identity: TrackIdentity): LyricsFetchResult {
+                calls.incrementAndGet()
+                gate.await()
+                return LyricsFetchResult.Found(doc(id, LyricsSyncMode.LineSynced, "Old ${calls.get()}", true), 0.9f)
+            }
+        }
+        val disk = LyricsDiskCache(tempFolder.root)
+        val repo = LyricsRepository(listOf(slowSource), diskCache = disk)
+        val track = publicTelegramTrack()
+        val settings = LyricsSourceSettings(externalLookupEnabled = true)
+
+        val job = launch {
+            repo.observeLyrics(track, settings).toList()
+        }
+        kotlinx.coroutines.delay(20)
+        repo.clearCacheOffMain()
+        gate.complete(Unit)
+        job.join()
+
+        // Next call must NOT read stale entry from memory or disk cache; it must query source again.
+        val next = repo.observeLyrics(track, settings).toList().last() as LyricsLoadState.Ready
+        assertEquals(2, calls.get())
+        assertEquals("Old 2", next.document.lines[0].text)
+    }
+
+    @Test
+    fun negativeCacheBypassesWhenOptInOrPrivacyChangesAndDiskPromotionPreservesTtl() = runBlocking {
+        var clock = 1_000_000L
+        val calls = AtomicInteger(0)
+        val source = object : LyricsSource {
+            override val id = LyricsSourceId.LrcLib
+            override val isExternalNetwork = true
+            override fun supports(identity: TrackIdentity) = true
+            override suspend fun fetch(identity: TrackIdentity): LyricsFetchResult {
+                val n = calls.incrementAndGet()
+                return if (n == 1) LyricsFetchResult.Found(doc(id, LyricsSyncMode.LineSynced, "Line $n", true), 0.9f)
+                else LyricsFetchResult.Found(doc(id, LyricsSyncMode.LineSynced, "Refreshed $n", true), 0.9f)
+            }
+        }
+        val disk = LyricsDiskCache(tempFolder.root)
+        val track = publicTelegramTrack()
+        val offSettings = LyricsSourceSettings(externalLookupEnabled = false)
+        val onSettings = LyricsSourceSettings(externalLookupEnabled = true)
+
+        // With opt-in disabled, returns ExternalLookupDisabled (does not poison negative cache for opt-in enabled)
+        val repo1 = LyricsRepository(listOf(source), diskCache = disk, now = { clock })
+        assertEquals(
+            LyricsLoadState.Unavailable(LyricsUnavailableReasonV2.ExternalLookupDisabled),
+            repo1.observeLyrics(track, offSettings).toList().last(),
+        )
+        assertEquals(0, calls.get())
+
+        // Enabling opt-in immediately fetches from source
+        val hit1 = repo1.observeLyrics(track, onSettings).toList().last() as LyricsLoadState.Ready
+        assertEquals("Line 1", hit1.document.lines[0].text)
+        assertEquals(1, calls.get())
+
+        // Promote from disk into a fresh repo near end of 7-day TTL (6 days + 23h later)
+        clock += (7L * 24 * 60 * 60_000L) - 60_000L
+        val repo2 = LyricsRepository(listOf(source), diskCache = disk, now = { clock })
+        val promoted = repo2.observeLyrics(track, onSettings).toList().last() as LyricsLoadState.Ready
+        assertEquals("Line 1", promoted.document.lines[0].text)
+        assertEquals(1, calls.get())
+
+        // 2 minutes later (past original 7-day TTL): promoted memory entry must expire, not extend TTL!
+        clock += 120_000L
+        val expired = repo2.observeLyrics(track, onSettings).toList().last() as LyricsLoadState.Ready
+        assertEquals("Refreshed 2", expired.document.lines[0].text)
+        assertEquals(2, calls.get())
     }
 }
