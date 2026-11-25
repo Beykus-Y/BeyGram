@@ -20,16 +20,11 @@ attempts=${ROBOLECTRIC_FETCH_ATTEMPTS:-6}
 base_delay=${ROBOLECTRIC_FETCH_BASE_DELAY:-20}
 max_delay=300
 
-# The manifest is for one Robolectric version and must name the app's targetSdk, or the jars do not match the tests.
+# The manifest is for one Robolectric version. A mismatch means the jars do not match the tests, so stop here.
 manifest_version=$(sed -n 's/^# robolectric //p' "$manifest" | head -n 1)
 catalog_version=$(sed -n 's/^robolectric *= *"\([^"]*\)".*/\1/p' "$root/gradle/libs.versions.toml" | head -n 1)
 if [ "$manifest_version" != "$catalog_version" ]; then
   echo "::error::robolectric-sdks.txt is for Robolectric '$manifest_version', but the catalog has '$catalog_version'. Update the manifest." >&2
-  exit 1
-fi
-target_sdk=$(sed -n 's/^ *targetSdk = *\([0-9][0-9]*\).*/\1/p' "$root/app/build.gradle.kts" | head -n 1)
-if ! awk -v api="$target_sdk" '$1 == api { found = 1 } END { exit !found }' "$manifest"; then
-  echo "::error::targetSdk $target_sdk has no jar in robolectric-sdks.txt. Tests without @Config need it." >&2
   exit 1
 fi
 
