@@ -51,7 +51,7 @@ internal object UpdateNotifications {
             .setAutoCancel(true)
             .setWhen(now)
             .setShowWhen(false)
-            .setContentIntent(openUpdates(context, release.versionCode))
+            .setContentIntent(openUpdates(context, release.versionCode, now))
         try {
             NotificationManagerCompat.from(context).notify(NOTIFICATION_ID, builder.build())
             store.saveNotifiedVersionCode(release.versionCode)
@@ -91,10 +91,12 @@ internal object UpdateNotifications {
      * Explicit component, an immutable flag and a private data URI that only carries the offered build. No Telegram
      * notification token is involved: this alert is produced by the updater, not by a TDLib session.
      */
-    private fun openUpdates(context: Context, versionCode: Long): PendingIntent {
+    private fun openUpdates(context: Context, versionCode: Long, postedAt: Long): PendingIntent {
         val intent = Intent(context, MainActivity::class.java)
             .setAction(ACTION_OPEN_UPDATES)
-            .setData(Uri.parse("beygram://${context.packageName}/updates/$versionCode"))
+            // The post timestamp makes every notification distinct: after a recreation MainActivity can tell a fresh
+            // tap from the re-delivered Intent of an older notification.
+            .setData(Uri.parse("beygram://${context.packageName}/updates/$versionCode/$postedAt"))
             .addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP)
         return PendingIntent.getActivity(
             context,

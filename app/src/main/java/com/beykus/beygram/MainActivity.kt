@@ -63,6 +63,7 @@ import com.beykus.beygram.data.appearance.DesignStyle
 import com.beykus.beygram.data.appearance.MAX_UNFINISHED_STARTS
 import com.beykus.beygram.data.appearance.shouldFallBackToDefault
 import com.beykus.beygram.data.update.AutomaticUpdateChecks
+import com.beykus.beygram.data.update.UpdateIntentGate
 import com.beykus.beygram.data.update.UpdateNotifications
 import com.beykus.beygram.ui.design.rememberDesign
 import com.beykus.beygram.ui.design.rememberGlassBackdrop
@@ -92,6 +93,8 @@ class MainActivity : FragmentActivity() {
     private var incomingShare by mutableStateOf<IncomingShare?>(null)
     /** Bumped by the update notification; the Compose tree opens Updates once and clears it. */
     private var openUpdatesRequest by mutableIntStateOf(0)
+    /** Deduplicates notification taps; the processed Intent URI survives Activity recreation. */
+    private val updateIntentGate = UpdateIntentGate()
     private val deepLinkInbox by lazy {
         PendingDeepLinkInbox(SharedPreferencesPendingDeepLinkStorage(this))
     }
@@ -111,6 +114,7 @@ class MainActivity : FragmentActivity() {
         applyWindowPrivacy()
         if (savedInstanceState != null) {
             openUpdatesRequest = savedInstanceState.getInt("open_updates_request", 0)
+            updateIntentGate.restore(savedInstanceState.getString("handled_updates_intent"))
             if (savedInstanceState.getBoolean("notification_pending")) notificationRequest = NotificationOpenRequest(savedInstanceState.getLong("notification_token"),
                 savedInstanceState.getLong("notification_chat").takeIf { it != 0L }, savedInstanceState.getBoolean("notification_settings"), savedInstanceState.getBoolean("notification_proxy"), savedInstanceState.getLong("notification_topic"),
                 savedInstanceState.getString("notification_account") ?: "legacy")
@@ -125,12 +129,13 @@ class MainActivity : FragmentActivity() {
                 incomingShare = IncomingShare(restoredShareId, restoredText, restoredFiles, savedInstanceState.getLong("share_chat_id"))
             }
         } else {
-            // Only a genuinely new launch consumes the intent. A recreated Activity restores the pending request from
-            // its saved state, so a re-delivered or already-handled intent cannot open the screen twice.
-            acceptOpenUpdatesIntent(intent)
             acceptNotificationIntent(intent)
             acceptShareIntent(intent)
         }
+        // A notification tap may arrive exactly while the Activity is being recreated. The intent is therefore handled
+        // on every create, but only once per posted notification: the data URI carries its post timestamp and the
+        // processed one is remembered across recreation, so an old Intent cannot reopen the screen.
+        acceptOpenUpdatesIntent(intent)
         // A configuration change keeps the same intent; only a genuinely new VIEW data string is accepted again.
         lastDeepLinkIntentData = savedInstanceState?.getString("deeplink_intent_data") ?: lastDeepLinkIntentData
         val incomingLinkData = intent?.takeIf { it.action == Intent.ACTION_VIEW }?.dataString
@@ -415,9 +420,12 @@ class MainActivity : FragmentActivity() {
      * re-delivery (Recents, rotation) cannot reopen the screen a second time.
      */
     private fun acceptOpenUpdatesIntent(intent: Intent?) {
-        if (intent?.action != UpdateNotifications.ACTION_OPEN_UPDATES) return
-        intent.action = null
-        openUpdatesRequest++
+        if (intent == null) return
+        val action = intent.action
+        val accepted = updateIntentGate.accept(action, intent.dataString)
+        // Clear the action so the same Intent instance cannot be handled a second time by a later call.
+        if (action == UpdateNotifications.ACTION_OPEN_UPDATES) intent.action = null
+        if (accepted) openUpdatesRequest++
     }
 
     /** A tap on the playback notification opens the full player once the screen has been composed. */
@@ -430,6 +438,7 @@ class MainActivity : FragmentActivity() {
     override fun onSaveInstanceState(outState: Bundle) {
         outState.putBoolean("notification_pending", notificationRequest != null)
         outState.putInt("open_updates_request", openUpdatesRequest)
+        outState.putString("handled_updates_intent", updateIntentGate.handledData)
         notificationRequest?.let { outState.putLong("notification_token", it.token); outState.putLong("notification_chat", it.chatId ?: 0L); outState.putBoolean("notification_settings", it.settings); outState.putBoolean("notification_proxy", it.proxy); outState.putLong("notification_topic", it.topicId); outState.putString("notification_account", it.accountId) }
         incomingShare?.let {
             outState.putLong("share_id", it.requestId)
