@@ -2403,6 +2403,7 @@ private fun BeyGramAppContent(
                             observeFile = repository::observeFile,
                             onDownloadFile = repository::downloadFile,
                             onAutoDownloadFile = repository::autoDownloadFile,
+                            playbackCoordinator = repository.playbackCoordinator,
                             onBack = {
                                 if (!restoreLinkReturnChat()) {
                                     // Back from the feed returns to the topic list, or to the open topic in a panel view.

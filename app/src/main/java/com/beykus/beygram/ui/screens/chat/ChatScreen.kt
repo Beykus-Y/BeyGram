@@ -196,6 +196,8 @@ fun ChatScreen(
     // Read only by the forward dialog, so chat list updates don't recompose the chat while it is closed.
     chats: () -> List<ChatPreview>,
     observeFile: (Int) -> StateFlow<MediaFileState>, onDownloadFile: (Int) -> Unit,
+    /** Range-aware playback support from the repository; null keeps the previous whole-prefix behaviour. */
+    playbackCoordinator: com.beykus.beygram.playback.UserRangeCoordinator? = null,
     onBack: () -> Unit, onChatInfo: () -> Unit, onStatistics: (() -> Unit)? = null, connectionState: TelegramConnectionState,
     recordingSettings: VideoMessageSettingsStore, translationSettings: TranslationSettingsStore,
     chatOverrides: ChatOverridesStore, focusMessageId: Long = 0L, onFocusHandled: () -> Unit = {},
@@ -3099,6 +3101,7 @@ fun ChatScreen(
     if (viewed != null && viewed.media != null && viewOnceAsked == null) MediaViewer(
         pages = viewOnceGate.swipeable(viewerPages, chat.id, viewed.id, conversation.interactionAllowed(InteractionEffect.OpenContent, chat.id)), selectedId = viewed.id, onSelect = { selectedMediaId = it }, originBounds = mediaOrigin(viewed.id),
         observeFile = observeFile, downloadFile = onDownloadFile,
+        playbackCoordinator = playbackCoordinator,
         onViewed = { id ->
             val once = (messages.firstOrNull { it.id == id } ?: retainedViewOnce)?.isViewOnce == true
             if (!once || id !in openedViewOnceIds) {
