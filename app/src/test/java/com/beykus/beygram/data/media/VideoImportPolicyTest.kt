@@ -16,12 +16,12 @@ class VideoImportPolicyTest {
     }
 
     @Test
-    fun hevcMp4IsAVideoMessageAndPlayableByCurrentClients() {
-        // Telegram Android encodes HEVC itself and iOS decodes it natively, so HEVC is sent as a video (#1175).
-        assertTrue(videoCanBeSentAsVideoMessage("video/mp4", listOf("video/hevc")))
+    fun hevcMp4IsNotPromisedAsAVideoMessage() {
+        // A HEVC encoder in one Android client and an iOS decoder do not prove that an arbitrary MP4/HEVC profile plays
+        // for the recipient (Codex review of #1184). HEVC stays a document and gets an explicit conversion path.
+        assertFalse(videoCanBeSentAsVideoMessage("video/mp4", listOf("video/hevc")))
         assertEquals(VideoCodecClass.Hevc, videoCodecClass(listOf("video/hevc")))
-        assertFalse(videoCodecNeedsConversion("video/mp4", listOf("video/hevc")))
-        // HEVC is not H.264, so the compressor may still re-encode it for size.
+        assertTrue(videoCodecNeedsConversion("video/mp4", listOf("video/hevc")))
         assertFalse(videoIsAlreadyTargetCodec(listOf("video/hevc")))
     }
 

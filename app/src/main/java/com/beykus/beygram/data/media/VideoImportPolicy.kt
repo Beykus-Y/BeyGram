@@ -18,12 +18,14 @@ internal const val HEVC_VIDEO_CODEC = "video/hevc"
 /**
  * How well a source codec is known to work in a Telegram video message.
  *
- * - [Avc] — H.264, the codec Telegram itself targets. Always sent as a video, never re-encoded for compatibility.
- * - [Hevc] — HEVC. Sent as a video: Telegram Android ships an HEVC encoder
- *   (`MediaCodec.createEncoderByType("video/hevc")`) and iOS decodes HEVC natively, so current clients play it.
- * - [Unconfirmed] — AV1, VP9, MPEG-4 Part 2 and anything unknown. TDLib will accept the upload, but no upstream
- *   Telegram client is known to decode these inside a video message. The composition is *not* promised to work, so the
- *   file is imported as a document and the composer offers a transcode to H.264 instead.
+ * The confirmed area is deliberately **H.264 only**: it is the codec TDLib documents for `inputVideo` and the one every
+ * Telegram client decodes. A HEVC encoder inside one Android client and an iOS decoder do not prove that an arbitrary
+ * MP4/HEVC profile plays on the recipient's client (profiles, levels, hardware decoders vary), so HEVC is *not* promised
+ * as a video message: the file is imported as a document and the composer offers a transcode to H.264.
+ *
+ * - [Avc] — H.264: sent as a video message, never re-encoded for compatibility.
+ * - [Hevc] — HEVC: needs a transcode before it becomes a video message.
+ * - [Unconfirmed] — AV1, VP9, MPEG-4 Part 2 and anything unknown: same path as HEVC.
  */
 internal enum class VideoCodecClass { Avc, Hevc, Unconfirmed }
 
@@ -35,11 +37,11 @@ internal fun videoCodecClass(videoCodecs: List<String>): VideoCodecClass = when 
 }
 
 /**
- * Only containers and codecs whose playback is confirmed become a video message immediately. AV1/VP9 are deliberately
- * excluded: sending them as a video would promise a compatibility that neither Telegram Android nor iOS confirms.
+ * Only H.264 in an MP4 becomes a video message immediately. Every other codec (HEVC included) would promise a
+ * compatibility that is not proven for the recipient's client, so it stays a document with an explicit conversion path.
  */
 internal fun videoCanBeSentAsVideoMessage(mimeType: String, videoCodecs: List<String>): Boolean =
-    mimeType in VIDEO_MESSAGE_CONTAINERS && videoCodecClass(videoCodecs) != VideoCodecClass.Unconfirmed
+    mimeType in VIDEO_MESSAGE_CONTAINERS && videoCodecClass(videoCodecs) == VideoCodecClass.Avc
 
 /**
  * The composer may convert this MP4 to a video message by re-encoding it to H.264. It is the fallback for AV1/VP9:
@@ -47,7 +49,7 @@ internal fun videoCanBeSentAsVideoMessage(mimeType: String, videoCodecs: List<St
  * with the original bytes.
  */
 internal fun videoCodecNeedsConversion(mimeType: String, videoCodecs: List<String>): Boolean =
-    mimeType in VIDEO_MESSAGE_CONTAINERS && videoCodecClass(videoCodecs) == VideoCodecClass.Unconfirmed
+    mimeType in VIDEO_MESSAGE_CONTAINERS && videoCodecClass(videoCodecs) != VideoCodecClass.Avc
 
 /** H.264 sources are already the codec this pipeline targets, so re-encoding would only lose quality. */
 internal fun videoIsAlreadyTargetCodec(videoCodecs: List<String>): Boolean =
