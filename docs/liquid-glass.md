@@ -80,10 +80,10 @@ High really blurs (text behind the dock is unreadable but coloured), then Balanc
 ## Liquid Glass V2 (experimental, #1120, #1125)
 
 - Off by default (`AppearanceConfig.liquidGlassV2`), API 33+, only the High level, and only the floating `GlassEdge.Rim` panels. Everything else keeps the plain blur, which is also the fallback when the shader does not compile or a panel has no size yet.
-- `LiquidGlassGeometry.kt`: corner radii come from the outline the panel is clipped to (per corner for rounded rectangles, half the shorter side for circles and pills); the band is capped at a fifth of the shorter side.
+- `LiquidGlassGeometry.kt`: corner radii come from the outline the panel is clipped to (per corner for rounded rectangles, half the shorter side for circles and pills); the band is capped at a third of the shorter side (`maxThicknessFraction`).
 - `LiquidGlassLens.kt`: the shader models a circular bevel with Snell refraction (index 1.5) over the blurred sample. Light surfaces get a soft shade, dark ones a highlight. The constants (`LensEdgeThickness`, `LensStrength`) are unverified on a device.
 - A shader is created only for panels that sample the backdrop. Only the compile check is cached per process; each panel still has its own RuntimeShader, because its size and radii are its own uniforms.
-- While a panel's size is animating, it draws the plain blur; the lens is rebuilt 120 ms after the size settles, so there is a visible switch at the end of a size change (to check on a device).
+- While a panel's size is animating, it draws the plain blur. The lens drops out at once on a size change and cross-fades in over 240 ms (`crossfadeMillis`) after the size settles. Observed on a device (reviewer note): the blur jumps from about 6 dp to 30 dp when the lens drops out; to check on a device.
 - `LiquidGlassMetrics.kt`: counts shaders, compile failures, lens effects and fallback frames (frames where a lens panel drew the plain blur). Compile failures are logged under the tag `LiquidGlassV2`.
 - The switch is kept by user presets and by the unsaved draft (draft version 5).
 - Not done: merging neighbouring glass panels into one shape (judged too costly for the engine at this stage).
