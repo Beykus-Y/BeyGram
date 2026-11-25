@@ -5,7 +5,8 @@ import java.util.concurrent.atomic.AtomicLong
 
 /**
  * Замеры одного просмотра видео в чате (Issue #1121). Объект живёт вместе с плеером, а сводка
- * уходит в журнал диагностики один раз при освобождении плеера. Имён файлов и содержимого в сводке нет.
+ * уходит в журнал диагностики один раз при освобождении плеера, и только если видео играло или
+ * перематывалось. Имён файлов и содержимого в сводке нет.
  *
  * Время берётся по [now], поэтому логику можно проверить тестом без плеера.
  */
@@ -13,7 +14,7 @@ class VideoPlaybackMetrics(
     private val now: () -> Long = SystemClock::elapsedRealtime,
     private val heapUsedKb: () -> Long = ::currentHeapUsedKb
 ) {
-    private val openedAt = now()
+    private var playRequestedAt: Long? = null
     private var firstFrameMs: Long? = null
     private var heapAtFirstFrameKb: Long? = null
     private var bufferingSince: Long? = null
@@ -24,10 +25,19 @@ class VideoPlaybackMetrics(
     private var lastSeekToReadyMs: Long? = null
     private val bytesRead = AtomicLong(0L)
 
-    /** Первый кадр после создания плеера (TTFF). Повторные вызовы ничего не меняют. */
+    /** Пользователь (или автостарт страницы) попросил воспроизведение. От этого момента считается TTFF. */
+    fun onPlayRequested() {
+        if (playRequestedAt == null) playRequestedAt = now()
+    }
+
+    /**
+     * Первый кадр после запроса воспроизведения (TTFF). Кадр до запроса ничего не меняет, повторные
+     * вызовы тоже. Так страница, созданная заранее и открытая позже, не получит завышенного значения.
+     */
     fun onFirstFrame() {
         if (firstFrameMs != null) return
-        firstFrameMs = now() - openedAt
+        val requested = playRequestedAt ?: return
+        firstFrameMs = now() - requested
         heapAtFirstFrameKb = heapUsedKb()
     }
 
@@ -64,10 +74,18 @@ class VideoPlaybackMetrics(
         if (count > 0) bytesRead.addAndGet(count.toLong())
     }
 
-    /** Итоговая сводка для журнала. Значения без измерения пропускаются. */
-    fun summary(startBuffer: VideoStartBuffer, fileSizeBytes: Long): Map<String, String> {
+    /** Сводка пишется только для просмотров, где было воспроизведение или перемотка. Страницы без них не занимают журнал. */
+    fun hasPlayed(): Boolean = firstFrameMs != null || seekCount > 0
+
+    /**
+     * Итоговая сводка для журнала. [streaming] = true, если видео шло из растущего файла TDLib (там
+     * действует стартовый буфер), false для полностью скачанного файла (стартовый буфер не применяется).
+     * Значения без измерения пропускаются.
+     */
+    fun summary(startBuffer: VideoStartBuffer, fileSizeBytes: Long, streaming: Boolean): Map<String, String> {
         val result = linkedMapOf(
             "start_buffer" to startBuffer.wire,
+            "source" to (if (streaming) "growing_file" else "complete_file"),
             "file_size_bytes" to fileSizeBytes.toString(),
             "bytes_read" to bytesRead.get().toString(),
             "rebuffer_count" to rebufferCount.toString(),

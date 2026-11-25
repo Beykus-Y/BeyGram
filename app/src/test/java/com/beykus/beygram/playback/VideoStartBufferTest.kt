@@ -1,6 +1,7 @@
 package com.beykus.beygram.playback
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Test
 
@@ -22,5 +23,11 @@ class VideoStartBufferTest {
 
     @Test fun defaultLeavesMedia3LoadControlUntouched() {
         assertNull(VideoStartBuffer.DEFAULT.loadControlOrNull())
+    }
+
+    @Test fun experimentalVariantsBuildALoadControl() {
+        for (mode in VideoStartBuffer.entries.filter { it.bufferForPlaybackMs != null }) {
+            assertNotNull(mode.wire, mode.loadControlOrNull())
+        }
     }
 }

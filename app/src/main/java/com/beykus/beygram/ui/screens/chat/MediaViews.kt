@@ -1984,7 +1984,9 @@ private fun LocalVideo(
             // Звук видео забирает фокус у внешних плееров. У анимации звука нет, поэтому фокус ей не нужен.
             .setAudioAttributes(AudioAttributes.Builder().setUsage(C.USAGE_MEDIA).setContentType(C.AUDIO_CONTENT_TYPE_MOVIE).build(), /* handleAudioFocus = */ !loop)
             .setHandleAudioBecomingNoisy(true)
-        startBuffer.loadControlOrNull()?.let { builder.setLoadControl(it) }
+        // Диагностический буфер действует только на растущий файл TDLib: там streaming-значения LoadControl
+        // совпадают с дефолтами, меняется лишь стартовый буфер. Полностью скачанный файл остаётся на LoadControl Media3.
+        if (progressive != null) startBuffer.loadControlOrNull()?.let { builder.setLoadControl(it) }
         builder.build()
     }
     var video by remember(path, loop, sourceKey) { mutableStateOf(VideoPlayerState()) }
@@ -2032,18 +2034,19 @@ private fun LocalVideo(
         onDispose {
             player.removeListener(listener)
             // Сводка замеров уходит один раз на просмотр. В ней нет имени файла и содержимого.
-            if (!loop) runCatching {
+            if (!loop && metrics.hasPlayed()) runCatching {
                 val size = progressive?.totalSize ?: File(path).length()
                 StructuredEventLog.shared.record(
                     kind = EventKind.PERFORMANCE,
                     code = "video_playback_summary",
-                    attrs = metrics.summary(startBuffer, size)
+                    attrs = metrics.summary(startBuffer, size, streaming = progressive != null)
                 )
             }
             player.release()
         }
     }
     fun play() {
+        metrics.onPlayRequested()
         if (video.ended) player.seekToDefaultPosition()
         // Пока файл уже играет, отметку не ставим: иначе следующий возврат из буферизации снова её отправит.
         if (!player.isPlaying) startRequested = true
