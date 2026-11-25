@@ -2193,6 +2193,8 @@
     <string name="a11y_chat_muted">Без уведомлений</string>
     <string name="a11y_chat_info">Информация о чате</string>
     <string name="a11y_profile_photo_open">Открыть фотографию профиля</string>
+    <string name="a11y_profile_photo_expand">Раскрыть фото профиля</string>
+    <string name="a11y_profile_photo_expanded_state">Фото раскрыто</string>
     <string name="a11y_media_open">Открыть: %1$s</string>
     <string name="a11y_media_download">Скачать: %1$s</string>
     <string name="a11y_voice_message">Голосовое сообщение, %1$s</string>
@@ -2678,6 +2680,9 @@
     <string name="settings_experiments_group_music">Музыка</string>
     <string name="settings_experiments_group_transitions">Паузы и переходы</string>
     <string name="settings_experiments_transitions_note">Пропуск тишины и плавные переходы относятся к обычному плееру и не зависят от BG Mix. Пока музыка играет через BG Mix, у него свои плавные переходы, и эти две настройки на неё не действуют.</string>
+    <string name="settings_experiments_group_profile">Профиль</string>
+    <string name="settings_profile_scene_title">Профиль 2.0: адаптивная сцена (бета)</string>
+    <string name="settings_profile_scene_desc">Экспериментальный вид профиля с многослойной сценой. Выключено по умолчанию; выключение возвращает стандартный профиль.</string>
     <string name="lyrics_show">Показать текст</string>
     <string name="lyrics_hide">Скрыть текст</string>
     <string name="lyrics_none_for_track">Для этого трека нет текста</string>

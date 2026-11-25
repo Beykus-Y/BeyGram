@@ -20,6 +20,8 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.sizeIn
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.ui.draw.clip
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -56,6 +58,7 @@ import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.heading
+import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -656,7 +659,9 @@ fun GiftsScreen(
             content = {
                 Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
-                        Text(dialogGift.emoji.ifBlank { "🎁" }, fontSize = 30.sp)
+                        GiftVisualImage(dialogGift.visual, 30.dp) {
+                            Text(dialogGift.emoji.ifBlank { "🎁" }, fontSize = 30.sp)
+                        }
                         Spacer(Modifier.size(10.dp))
                         Text(
                             stringResource(R.string.gifts_cost, formatStarAmount(dialogGift.starCount)),
@@ -800,7 +805,9 @@ private fun GiftCatalogRow(
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
             // The gift and its text read as one item; the buttons beside them stay separate controls for TalkBack.
             Row(Modifier.weight(1f).semantics(mergeDescendants = true) {}, verticalAlignment = Alignment.CenterVertically) {
-                Text(gift.emoji.ifBlank { "🎁" }, fontSize = 32.sp)
+                GiftVisualImage(gift.visual, 32.dp) {
+                    Text(gift.emoji.ifBlank { "🎁" }, fontSize = 32.sp)
+                }
                 Column(Modifier.weight(1f).padding(start = 12.dp)) {
                     Text(
                         if (gift.auctionId.isNullOrBlank()) stringResource(R.string.gifts_cost, formatStarAmount(gift.starCount)) else stringResource(R.string.gift_auction_title),
@@ -867,8 +874,21 @@ private fun ReceivedGiftRow(gift: ReceivedGiftItem) {
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             // The gift itself is the main visual, so the emoji gets a larger slot than the text around it.
-            Box(Modifier.sizeIn(minWidth = 48.dp, minHeight = 48.dp), contentAlignment = Alignment.Center) {
-                Text(gift.emoji.ifBlank { "🎁" }, fontSize = 36.sp)
+            // An upgraded gift shows its backdrop behind the model and its symbol in the corner; a regular gift has neither.
+            GiftCollectibleBackdrop(
+                gift.collectible,
+                Modifier.sizeIn(minWidth = 48.dp, minHeight = 48.dp).clip(RoundedCornerShape(12.dp))
+            ) {
+                GiftVisualImage(gift.visual, 36.dp) {
+                    Text(gift.emoji.ifBlank { "🎁" }, fontSize = 36.sp)
+                }
+                // The symbol only shows its thumbnail, so a symbol without one has nothing to draw. Its inset keeps it
+                // inside the rounded backdrop corner, and its semantics are cleared because the row already says the gift.
+                gift.collectible?.symbol?.takeIf { it.thumbnailFileId != null }?.let { symbol ->
+                    Box(Modifier.align(Alignment.BottomEnd).padding(4.dp).clearAndSetSemantics {}) {
+                        GiftVisualImage(symbol, 18.dp, staticOnly = true) {}
+                    }
+                }
             }
             Column(Modifier.weight(1f).padding(start = 12.dp)) {
                 // Regular gifts have no title from Telegram, so they show a generic name rather than the list heading.

@@ -441,6 +441,8 @@
     <string name="a11y_chat_muted">Muted</string>
     <string name="a11y_chat_info">Chat info</string>
     <string name="a11y_profile_photo_open">Open profile photo</string>
+    <string name="a11y_profile_photo_expand">Expand profile photo</string>
+    <string name="a11y_profile_photo_expanded_state">Photo expanded</string>
     <string name="a11y_media_open">Open: %1$s</string>
     <string name="a11y_media_download">Download: %1$s</string>
     <string name="a11y_voice_message">Voice message, %1$s</string>
@@ -938,6 +940,9 @@
     <string name="settings_experiments_group_music">Music</string>
     <string name="settings_experiments_group_transitions">Gaps and transitions</string>
     <string name="settings_experiments_transitions_note">Skip silence and crossfade belong to the regular player and do not depend on BG Mix. While music plays through BG Mix, it uses its own smooth transitions and these two settings do not apply to it.</string>
+    <string name="settings_experiments_group_profile">Profile</string>
+    <string name="settings_profile_scene_title">Profile 2.0: adaptive scene (beta)</string>
+    <string name="settings_profile_scene_desc">Experimental profile layout with a layered scene. Off by default; turning it off returns the standard profile.</string>
     <string name="lyrics_show">Show lyrics</string>
     <string name="lyrics_hide">Hide lyrics</string>
     <string name="lyrics_none_for_track">There are no lyrics for this track</string>
