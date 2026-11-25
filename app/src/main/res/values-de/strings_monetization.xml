@@ -351,4 +351,9 @@
     <string name="gift_auction_history_number_pending">Nummer noch nicht vergeben</string>
     <string name="gift_auction_history_number">Sammlerstück Nr. %1$d</string>
     <string name="gift_auction_history_error">Verlauf konnte nicht geladen werden</string>
+    <string name="gifts_collectible_number">Geschenk Nr. %1$d</string>
+    <string name="gifts_rarity_uncommon">Ungewöhnlich</string>
+    <string name="gifts_rarity_rare">Selten</string>
+    <string name="gifts_rarity_epic">Episch</string>
+    <string name="gifts_rarity_legendary">Legendär</string>
 </resources>

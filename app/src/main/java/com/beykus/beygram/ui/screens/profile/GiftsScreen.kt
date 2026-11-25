@@ -79,6 +79,7 @@ import com.beykus.beygram.domain.model.GiftSendStep
 import com.beykus.beygram.domain.model.GiftTextValidation
 import com.beykus.beygram.domain.model.GiftsInfo
 import com.beykus.beygram.domain.model.MonetizationUnavailableException
+import com.beykus.beygram.domain.model.GiftRarityTier
 import com.beykus.beygram.domain.model.ReceivedGiftItem
 import com.beykus.beygram.domain.model.ReceivedGiftsPage
 import com.beykus.beygram.domain.model.ResaleGiftItem
@@ -909,6 +910,22 @@ private fun ReceivedGiftRow(gift: ReceivedGiftItem) {
                     color = palette.textSecondary,
                     fontSize = 12.sp
                 )
+                // An upgraded gift names its number and the model's rarity; a regular gift names neither.
+                gift.collectible?.let { details ->
+                    Text(
+                        stringResource(R.string.gifts_collectible_number, details.number),
+                        color = palette.textSecondary,
+                        fontSize = 12.sp
+                    )
+                    details.modelRarityTier?.let { tier ->
+                        Text(
+                            stringResource(giftRarityLabelRes(tier)),
+                            color = palette.accentInk,
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.SemiBold
+                        )
+                    }
+                }
             }
             gift.starCount?.let { stars ->
                 Text(
@@ -1030,4 +1047,12 @@ private object RetainedGiftSendStore {
     private fun update(accountId: String, value: RetainedGiftSend) {
         _states.value = _states.value + (accountId to value)
     }
+}
+
+/** The label of a model's rarity tier, shown under an upgraded gift's number. */
+private fun giftRarityLabelRes(tier: GiftRarityTier): Int = when (tier) {
+    GiftRarityTier.Uncommon -> R.string.gifts_rarity_uncommon
+    GiftRarityTier.Rare -> R.string.gifts_rarity_rare
+    GiftRarityTier.Epic -> R.string.gifts_rarity_epic
+    GiftRarityTier.Legendary -> R.string.gifts_rarity_legendary
 }

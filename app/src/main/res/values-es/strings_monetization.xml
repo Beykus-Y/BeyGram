@@ -340,4 +340,9 @@
     <string name="gift_auction_history_number_pending">Número aún sin asignar</string>
     <string name="gift_auction_history_number">Regalo coleccionable n.º %1$d</string>
     <string name="gift_auction_history_error">No se pudo cargar el historial</string>
+    <string name="gifts_collectible_number">Regalo n.º %1$d</string>
+    <string name="gifts_rarity_uncommon">Poco común</string>
+    <string name="gifts_rarity_rare">Rara</string>
+    <string name="gifts_rarity_epic">Épica</string>
+    <string name="gifts_rarity_legendary">Legendaria</string>
 </resources>

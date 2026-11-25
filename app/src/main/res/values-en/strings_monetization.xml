@@ -351,4 +351,9 @@
     <string name="gift_auction_history_number_pending">Number not assigned yet</string>
     <string name="gift_auction_history_number">Collectible #%1$d</string>
     <string name="gift_auction_history_error">Could not load history</string>
+    <string name="gifts_collectible_number">Gift #%1$d</string>
+    <string name="gifts_rarity_uncommon">Uncommon</string>
+    <string name="gifts_rarity_rare">Rare</string>
+    <string name="gifts_rarity_epic">Epic</string>
+    <string name="gifts_rarity_legendary">Legendary</string>
 </resources>
