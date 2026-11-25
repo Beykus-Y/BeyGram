@@ -175,6 +175,29 @@ class UserRangeCoordinatorTest {
     }
 
     @Test
+    fun `progress at another offset does not extend the window of this offset`() = runTest {
+        // Codex review of #1188: lastAvailable/lastProgressAt were per file, so polling a different offset looked like
+        // progress for the window at offset 0 and kept a stalled download alive forever.
+        val ranges = FakeRanges()
+        val subject = coordinator(ranges)
+
+        subject.ensureReadable(7, 0L, 1024L, urgent = true)
+        assertEquals(1, ranges.requests.size)
+
+        // Data exists ahead of the file: a neighbouring read of the same file sees bytes...
+        ranges.readable[4_096L] = 8_192L
+        now = 3_000L
+        subject.ensureReadable(7, 4_096L, 1024L, urgent = true)
+        // ...but the window at offset 0 still delivers nothing.
+        now = 5_500L
+        subject.ensureReadable(7, 0L, 1024L, urgent = true)
+
+        // The stalled window must be requested again instead of being extended by the other offset's bytes.
+        assertEquals(2, ranges.requests.size)
+        assertEquals(Triple(0L, 0L, true), ranges.requests.last())
+    }
+
+    @Test
     fun `a stalled user window still keeps its priority`() = runTest {
         val ranges = FakeRanges()
         val subject = coordinator(ranges)
@@ -192,20 +215,21 @@ class UserRangeCoordinatorTest {
     }
 
     @Test
-    fun `progress restores the retry budget`() = runTest {
+    fun `progress at the window offset restores the retry budget`() = runTest {
         val ranges = FakeRanges()
         val subject = coordinator(ranges)
 
         subject.ensureTail(7, 0L, 1_000L)
-        subject.ensureTail(7, 2_000L, 1_000L)
-        subject.ensureTail(7, 4_000L, 1_000L)
-        assertEquals(3, ranges.requests.size)
+        assertEquals(1, ranges.requests.size)
 
-        // Bytes arrived at the next offset: the file is moving, so a new window is allowed immediately.
-        ranges.readable[6_000L] = 512L
+        // Bytes arrive at the window's own offset: the download is alive, so the retry budget is restored and a new
+        // offset may be requested without waiting for the backoff.
+        ranges.readable[0L] = 512L
         now = 10L
-        subject.ensureTail(7, 6_000L, 1_000L)
-        assertEquals(4, ranges.requests.size)
+        subject.ensureTail(7, 0L, 1_000L)
+        subject.ensureTail(7, 5_000L, 1_000L)
+        assertEquals(2, ranges.requests.size)
+        assertEquals(Triple(5_000L, 1_000L, true), ranges.requests.last())
     }
 
     @Test
