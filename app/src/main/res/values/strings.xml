@@ -2720,6 +2720,12 @@
     <string name="lyrics_external_lrclib_toggle">Поиск в LRCLIB</string>
     <string name="lyrics_clear_cache">Очистить кеш текстов</string>
     <string name="lyrics_cache_cleared">Кеш текстов очищен</string>
+    <string name="rhythm_section_title">BG Rhythm</string>
+    <string name="rhythm_mode_off">Выкл</string>
+    <string name="rhythm_mode_calm">Спокойный</string>
+    <string name="rhythm_mode_dynamic">Динамичный</string>
+    <string name="rhythm_needs_bgbeat_hint">BG Rhythm использует данные анализа BG Beat. Включите BG Beat, чтобы эффекты реагировали на ритм.</string>
+    <string name="rhythm_enable_bgbeat">Включить BG Beat</string>
     <string name="chat_quote_title">Цитировать фрагмент</string>
     <string name="chat_quote_hint">Текст цитаты</string>
     <string name="chat_quote_action">Цитировать</string>

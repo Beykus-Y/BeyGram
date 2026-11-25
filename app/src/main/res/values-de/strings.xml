@@ -980,6 +980,12 @@
     <string name="lyrics_external_lrclib_toggle">LRCLIB-Suche</string>
     <string name="lyrics_clear_cache">Liedtext-Cache leeren</string>
     <string name="lyrics_cache_cleared">Liedtext-Cache geleert</string>
+    <string name="rhythm_section_title">BG Rhythm</string>
+    <string name="rhythm_mode_off">Aus</string>
+    <string name="rhythm_mode_calm">Ruhig</string>
+    <string name="rhythm_mode_dynamic">Dynamisch</string>
+    <string name="rhythm_needs_bgbeat_hint">BG Rhythm nutzt die BG-Beat-Analyse. Aktiviere BG Beat für taktgesteuerte Effekte.</string>
+    <string name="rhythm_enable_bgbeat">BG Beat aktivieren</string>
     <string name="chat_quote_title">Abschnitt zitieren</string>
     <string name="chat_quote_hint">Zitierter Text</string>
     <string name="chat_quote_action">Zitieren</string>
