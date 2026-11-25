@@ -118,11 +118,9 @@ internal fun profileSceneFrame(inputs: ProfileSceneInputs): ProfileSceneFrame {
     val statusRect = lerpSceneRect(statusZero, i.compactStatus, collapse)
 
     // Cover: the layer must be at least as large as the clip in both directions, then the overscale adds parallax room.
-    val cover = if (photoW <= 0f || photoH <= 0f) 1f
-    else max(avatarRect.width / photoW, avatarRect.height / photoH)
+    val cover = if (photoW <= 0f || photoH <= 0f) 1f else max(avatarRect.width / photoW, avatarRect.height / photoH)
     val layerScale = cover * i.overscale
-    val slack = if (photoW <= 0f || photoH <= 0f) 0f
-    else max(0f, (photoH * layerScale - avatarRect.height) / 2f)
+    val slack = if (photoW <= 0f || photoH <= 0f) 0f else max(0f, (photoH * layerScale - avatarRect.height) / 2f)
     val parallax = if (i.reduceMotion) 0f else (i.scrollPx * PARALLAX_FACTOR).coerceIn(0f, slack) * reveal
 
     return ProfileSceneFrame(
