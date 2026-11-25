@@ -1035,4 +1035,7 @@
     <string name="forum_topics_reorder_failed">Could not change the topic order</string>
     <string name="forum_topic_move_up">Move up</string>
     <string name="forum_topic_move_down">Move down</string>
+    <string name="diag_video_buffer_title">Video start buffer</string>
+    <string name="diag_video_buffer_value_default">Media3 default</string>
+    <string name="diag_video_buffer_value_ms">%1$d ms</string>
 </resources>

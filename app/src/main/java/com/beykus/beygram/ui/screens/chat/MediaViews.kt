@@ -89,6 +89,11 @@ import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.BlurredEdgeTreatment
 import com.beykus.beygram.ui.screens.bgmusic.BgMusicChatDocument
 import com.beykus.beygram.ui.screens.bgmusic.isBgMusicDocument
+import com.beykus.beygram.diagnostics.StructuredEventLog
+import com.beykus.beygram.diagnostics.report.EventKind
+import com.beykus.beygram.playback.VideoPlaybackMetrics
+import com.beykus.beygram.playback.VideoStartBufferSettings
+import com.beykus.beygram.playback.loadControlOrNull
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.Color
@@ -1877,7 +1882,8 @@ private class ProgressiveFileDataSource(
     private val isComplete: () -> Boolean,
     private val isDownloading: () -> Boolean,
     private val readablePrefix: () -> Long,
-    private val onNeedMore: () -> Unit
+    private val onNeedMore: () -> Unit,
+    private val onBytesRead: (Int) -> Unit = {}
 ) : DataSource {
     private var file: RandomAccessFile? = null
     private var position = 0L
@@ -1914,6 +1920,7 @@ private class ProgressiveFileDataSource(
                 val read = opened.read(buffer, offset, toRead)
                 if (read > 0) {
                     position += read
+                    onBytesRead(read)
                     return read
                 }
             }
@@ -1969,12 +1976,18 @@ private fun LocalVideo(
     val currentOnStarted by rememberUpdatedState(onStarted)
     val currentActive by rememberUpdatedState(active)
     val sourceKey = progressive?.fileId ?: -1
+    // Стартовый буфер: по умолчанию не задан (Media3), выбирается только в диагностическом режиме (Issue #1121).
+    val startBuffer = remember(context) { VideoStartBufferSettings.load(context) }
+    val metrics = remember(path, loop, sourceKey) { VideoPlaybackMetrics() }
     val player = remember(path, loop, sourceKey) {
-        ExoPlayer.Builder(context.applicationContext)
+        val builder = ExoPlayer.Builder(context.applicationContext)
             // Звук видео забирает фокус у внешних плееров. У анимации звука нет, поэтому фокус ей не нужен.
             .setAudioAttributes(AudioAttributes.Builder().setUsage(C.USAGE_MEDIA).setContentType(C.AUDIO_CONTENT_TYPE_MOVIE).build(), /* handleAudioFocus = */ !loop)
             .setHandleAudioBecomingNoisy(true)
-            .build()
+        // Диагностический буфер действует только на растущий файл TDLib: там streaming-значения LoadControl
+        // совпадают с дефолтами, меняется лишь стартовый буфер. Полностью скачанный файл остаётся на LoadControl Media3.
+        if (progressive != null) startBuffer.loadControlOrNull()?.let { builder.setLoadControl(it) }
+        builder.build()
     }
     var video by remember(path, loop, sourceKey) { mutableStateOf(VideoPlayerState()) }
     // Просмотр отмечается, когда файл начинает играть после нажатия или открытия. Возврат из буферизации отметку не повторяет.
@@ -1982,14 +1995,27 @@ private fun LocalVideo(
     DisposableEffect(player) {
         val listener = object : Player.Listener {
             override fun onIsPlayingChanged(isPlaying: Boolean) {
+                metrics.onPlayingChanged(isPlaying)
                 video = video.copy(playing = isPlaying)
                 if (isPlaying && startRequested) {
                     startRequested = false
                     currentOnStarted()
                 }
             }
-            override fun onPlaybackStateChanged(playbackState: Int) { video = video.afterPlaybackState(playbackState) }
-            override fun onPlayerError(error: PlaybackException) { video = video.afterFailure() }
+            override fun onPlaybackStateChanged(playbackState: Int) {
+                metrics.onPlaybackState(playbackState, player.playWhenReady)
+                video = video.afterPlaybackState(playbackState)
+            }
+            override fun onPlayWhenReadyChanged(playWhenReady: Boolean, reason: Int) {
+                metrics.onPlayWhenReadyChanged(playWhenReady)
+            }
+            override fun onPositionDiscontinuity(oldPosition: Player.PositionInfo, newPosition: Player.PositionInfo, reason: Int) {
+                if (reason == Player.DISCONTINUITY_REASON_SEEK) metrics.onSeekApplied(player.playbackState == Player.STATE_READY)
+            }
+            override fun onPlayerError(error: PlaybackException) {
+                metrics.onFailed()
+                video = video.afterFailure()
+            }
         }
         player.addListener(listener)
         player.repeatMode = if (loop) Player.REPEAT_MODE_ONE else Player.REPEAT_MODE_OFF
@@ -2004,7 +2030,8 @@ private fun LocalVideo(
                     isComplete = growth.completed,
                     isDownloading = growth.downloading,
                     readablePrefix = growth.readablePrefix,
-                    onNeedMore = growth.onNeedMore
+                    onNeedMore = growth.onNeedMore,
+                    onBytesRead = metrics::onBytesRead
                 )
             }
             player.setMediaSource(
@@ -2015,10 +2042,20 @@ private fun LocalVideo(
         player.prepare()
         onDispose {
             player.removeListener(listener)
+            // Сводка замеров уходит один раз на просмотр. В ней нет имени файла и содержимого.
+            if (!loop && metrics.hasPlayed()) runCatching {
+                val size = progressive?.totalSize ?: File(path).length()
+                StructuredEventLog.shared.record(
+                    kind = EventKind.PERFORMANCE,
+                    code = "video_playback_summary",
+                    attrs = metrics.summary(startBuffer, size, streaming = progressive != null)
+                )
+            }
             player.release()
         }
     }
     fun play() {
+        metrics.onPlayRequested()
         if (video.ended) player.seekToDefaultPosition()
         // Пока файл уже играет, отметку не ставим: иначе следующий возврат из буферизации снова её отправит.
         if (!player.isPlaying) startRequested = true
@@ -2036,6 +2073,7 @@ private fun LocalVideo(
     }
     fun seek(fraction: Float) {
         val target = seekPositionMs(fraction, video.durationMs) ?: return
+        metrics.onSeek()
         player.seekTo(target)
         video = video.copy(positionMs = target)
     }
@@ -2070,6 +2108,7 @@ private fun LocalVideo(
                 onManualDownload()
                 video = VideoPlayerState()
                 startRequested = true
+                metrics.onRetry()
                 player.prepare()
                 player.play()
             }) { Text(stringResource(R.string.common_retry)) }
