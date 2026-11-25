@@ -197,7 +197,11 @@ class UserRangeCoordinator(
 
     /** The file is fully local now: no window is needed and the state is dropped. */
     fun onCompleted(fileId: Int) {
-        synchronized(lock) { states.remove(fileId) }
+        synchronized(lock) {
+            states.remove(fileId)
+            // The file is local: no viewer can request anything for it any more, so its tokens must not linger either.
+            owners.remove(fileId)
+        }
     }
 
     /**
