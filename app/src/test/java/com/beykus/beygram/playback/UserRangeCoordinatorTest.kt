@@ -1,6 +1,9 @@
 package com.beykus.beygram.playback
 
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
@@ -12,8 +15,13 @@ class UserRangeCoordinatorTest {
         val readable = HashMap<Long, Long>()
         val requests = mutableListOf<Triple<Long, Long, Boolean>>()
         val cancelled = mutableListOf<Int>()
+        /** When set, the next availability queries wait for it, which models a request in flight. */
+        var gate: kotlinx.coroutines.CompletableDeferred<Unit>? = null
 
-        override suspend fun readableFrom(fileId: Int, offset: Long): Long = readable[offset] ?: 0L
+        override suspend fun readableFrom(fileId: Int, offset: Long): Long {
+            gate?.await()
+            return readable[offset] ?: 0L
+        }
 
         override fun requestWindow(fileId: Int, offset: Long, limit: Long, urgent: Boolean) {
             requests += Triple(offset, limit, urgent)
@@ -195,6 +203,47 @@ class UserRangeCoordinatorTest {
         // The stalled window must be requested again instead of being extended by the other offset's bytes.
         assertEquals(2, ranges.requests.size)
         assertEquals(Triple(0L, 0L, true), ranges.requests.last())
+    }
+
+    @Test
+    fun `a page closed during a pending query never sends a window request`() = runTest {
+        val ranges = FakeRanges()
+        val gate = CompletableDeferred<Unit>()
+        ranges.gate = gate
+        val subject = coordinator(ranges)
+
+        val query = launch { subject.ensureReadable(7, 0L, 1_024L, urgent = true) }
+        // Let the reader reach the suspended query; otherwise reset would happen before the coroutine even starts.
+        runCurrent()
+        // The reader is still waiting for TDLib when the viewer closes.
+        subject.reset(7)
+        gate.complete(Unit)
+        query.join()
+
+        assertTrue("no window may be requested for a closed page", ranges.requests.isEmpty())
+    }
+
+    @Test
+    fun `a cancelled query propagates instead of being treated as zero bytes`() = runTest {
+        val ranges = object : PlaybackRanges {
+            override suspend fun readableFrom(fileId: Int, offset: Long): Long =
+                throw kotlinx.coroutines.CancellationException("closed")
+
+            override fun requestWindow(fileId: Int, offset: Long, limit: Long, urgent: Boolean) {
+                error("a cancelled query must not request a window")
+            }
+
+            override fun cancelWindow(fileId: Int) = Unit
+        }
+        val subject = UserRangeCoordinator(ranges, clock = { now })
+
+        var cancelled = false
+        try {
+            subject.ensureReadable(7, 0L, 1_024L, urgent = true)
+        } catch (_: kotlinx.coroutines.CancellationException) {
+            cancelled = true
+        }
+        assertTrue(cancelled)
     }
 
     @Test

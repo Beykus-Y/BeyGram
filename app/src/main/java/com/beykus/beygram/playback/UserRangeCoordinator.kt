@@ -75,6 +75,9 @@ class UserRangeCoordinator(
         val state = states.getOrPut(fileId) { FileState() }
         val now = clock()
         val available = ranges.readableFrom(fileId, offset)
+        // The page may have been closed while the query was in flight: `reset` removes the state, and a request must not
+        // be sent for a screen that no longer owns this file.
+        if (states[fileId] !== state) return 0L
         state.onAvailable(offset, available, now)
         if (available >= needed) return available
 
@@ -107,6 +110,7 @@ class UserRangeCoordinator(
         val state = states.getOrPut(fileId) { FileState() }
         val now = clock()
         val available = ranges.readableFrom(fileId, start)
+        if (states[fileId] !== state) return 0L
         state.onAvailable(start, available, now)
         if (available >= length) return available
 
