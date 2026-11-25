@@ -77,6 +77,7 @@ import com.beykus.beygram.domain.model.*
 import com.beykus.beygram.domain.repository.TelegramRepository
 import com.beykus.beygram.navigation.MainTab
 import com.beykus.beygram.ui.accessibility.errorAnnouncement
+import com.beykus.beygram.ui.accessibility.rememberSystemReducedMotion
 import com.beykus.beygram.ui.components.*
 import com.beykus.beygram.ui.screens.chat.LocalMediaImage
 import com.beykus.beygram.ui.screens.chat.MediaViewer
@@ -157,7 +158,6 @@ fun ProfileScreen(
     remember(context) { ProfileSceneSettings.load(context) }
     val sceneEnabled by ProfileSceneSettings.enabled.collectAsState()
     val sceneC = ProfileSceneSettings.variantFor(sceneEnabled) == ProfileVariant.C
-    var photoExpanded by rememberSaveable(state.info?.id) { mutableStateOf(false) }
     var pendingPhoto by rememberSaveable { mutableStateOf<OutgoingMedia?>(null) }
     var preparing by remember { mutableStateOf(false) }
     var saving by remember { mutableStateOf(false) }
@@ -203,7 +203,6 @@ fun ProfileScreen(
     }
     // Profile 2.0 C1: while a photo is revealed, Back folds it first. Registered after the handlers above so it
     // takes priority, and disabled otherwise so Back keeps its usual behaviour (including after a rotation).
-    BackHandler(enabled = ProfileSceneSettings.backClosesExpansion(sceneC, photoExpanded)) { photoExpanded = false }
     val groupInfo = state.info?.takeIf { it.kind == ProfileKind.Group }
     if (pendingPhoto == null && groupInfo != null) GroupProfileScreen(
         info = groupInfo, state = state, lastSeenStyle = lastSeenStyle, observeFile = observeFile, downloadFile = downloadFile,
@@ -221,8 +220,48 @@ fun ProfileScreen(
         // compact toolbar identity and the title swaps in place of the static screen label (#999).
         val scrollState = rememberScrollState()
         var identityHeightPx by remember { mutableIntStateOf(0) }
-        val collapse = remember { derivedStateOf { com.beykus.beygram.ui.motion.collapseFractionForScroll(scrollState.value, identityHeightPx) } }
+        var identityTopAtZeroPx by remember { mutableIntStateOf(0) }
+        var sceneTitleHeightPx by remember { mutableIntStateOf(0) }
+        var sceneStatusHeightPx by remember { mutableIntStateOf(0) }
+        var sceneBadgesHeightPx by remember { mutableIntStateOf(0) }
         val collapseGeometry = remember(state.info?.id) { ProfileCollapseGeometry() }
+        val sceneDensity = LocalDensity.current.density
+        val sceneWindow = LocalWindowInfo.current.containerSize
+        val sceneReduceMotion = rememberSystemReducedMotion()
+        // Variant A keeps the scroll-offset fraction. C (P2) takes the scene model's collapse once the compact
+        // geometry has been measured; until then, or without an identity, it falls back to the same fraction.
+        val collapse = remember(sceneC, sceneDensity, sceneWindow, state.info?.id) {
+            derivedStateOf {
+                val compactA = collapseGeometry.compactAvatar
+                val compactT = collapseGeometry.compactTitle
+                val compactS = collapseGeometry.compactStatus
+                if (!sceneC || compactA == null || compactT == null || compactS == null || state.info == null) {
+                    com.beykus.beygram.ui.motion.collapseFractionForScroll(scrollState.value, identityHeightPx)
+                } else {
+                    val top = identityTopAtZeroPx.toFloat()
+                    profileSceneFrame(
+                        profileSceneInputsFor(
+                            density = sceneDensity,
+                            viewportWidthPx = sceneWindow.width.toFloat(),
+                            viewportHeightPx = sceneWindow.height.toFloat(),
+                            contentLeftPx = 0f,
+                            contentRightPx = sceneWindow.width.toFloat(),
+                            scrollPx = scrollState.value.toFloat(),
+                            stageTopPx = top,
+                            toolbarBottomPx = top,
+                            titleHeightPx = sceneTitleHeightPx.toFloat(),
+                            statusHeightPx = sceneStatusHeightPx.toFloat(),
+                            badgesHeightPx = sceneBadgesHeightPx.toFloat(),
+                            hasPhoto = state.info?.photo != null,
+                            reduceMotion = sceneReduceMotion,
+                            compactAvatar = compactA.toSceneRect(),
+                            compactTitle = compactT.toSceneRect(),
+                            compactStatus = compactS.toSceneRect(),
+                        )
+                    ).collapse
+                }
+            }
+        }
         val transitionTarget = profileTransition
         val transitionFingerprint = transitionTarget?.let {
             val container = LocalWindowInfo.current.containerSize
@@ -269,21 +308,17 @@ fun ProfileScreen(
             state.info?.let { info ->
                 Column(Modifier.fillMaxWidth().padding(start = 20.dp, end = 20.dp, top = 12.dp, bottom = 16.dp), horizontalAlignment = Alignment.CenterHorizontally) {
                     Column(
-                        Modifier.fillMaxWidth().onSizeChanged { identityHeightPx = it.height },
+                        Modifier.fillMaxWidth().onSizeChanged { identityHeightPx = it.height }
+                            .onGloballyPositioned { identityTopAtZeroPx = (it.boundsInWindow().top + scrollState.value).toInt() },
                         horizontalAlignment = Alignment.CenterHorizontally
                     ) {
                     // Only an avatar with a photo is a control; without one there is nothing to open and nothing to announce.
                     // While a flight or mid-scroll collapse carries the avatar it is invisible, so it must not be tappable either.
                     Box(
                         (if (info.photo != null && collapse.value <= 0f && (profileTransition == null || !profileTransition.flightActive())) {
-                            Modifier.clickable(role = Role.Button) {
-                                if (ProfileSceneSettings.avatarTapAction(sceneC, photoExpanded) == AvatarTap.RevealPhoto) photoExpanded = true
-                                else showPhoto = true
-                            }
+                            Modifier.clickable(role = Role.Button) { showPhoto = true }
                                 .semantics {
-                                    contentDescription = context.getString(
-                                        if (sceneC && !photoExpanded) R.string.a11y_profile_photo_expand else R.string.a11y_profile_photo_open
-                                    )
+                                    contentDescription = context.getString(R.string.a11y_profile_photo_open)
                                 }
                         } else {
                             Modifier
@@ -306,14 +341,6 @@ fun ProfileScreen(
                         TelegramAvatar(info.initials, palette.accent, 112.dp, info.photo, observeFile, downloadFile,
                             Modifier.clearAndSetSemantics {})
                     }
-                    if (sceneC && photoExpanded && info.photo != null) {
-                        Spacer(Modifier.height(12.dp))
-                        ProfileExpandedPhoto(
-                            photo = info.photo, color = palette.accent, observeFile = observeFile, downloadFile = downloadFile,
-                            onOpenGallery = { showPhoto = true },
-                            scrollPx = { scrollState.value.toFloat() }
-                        )
-                    }
                     Spacer(Modifier.height(16.dp))
                     Text(info.profileTitleText(), color = palette.textPrimary, fontSize = 26.sp, fontWeight = FontWeight.Bold, textAlign = TextAlign.Center,
                         modifier = Modifier
@@ -332,6 +359,7 @@ fun ProfileScreen(
                                     profileTransition.reportTitle(visualBounds, transitionFingerprint)
                                 }
                             }
+                            .onSizeChanged { sceneTitleHeightPx = it.height }
                             .semantics { heading() })
                     Spacer(Modifier.height(4.dp))
                     Box(
@@ -351,13 +379,14 @@ fun ProfileScreen(
                                     profileTransition.reportStatus(visualBounds, transitionFingerprint)
                                 }
                             }
+                            .onSizeChanged { sceneStatusHeightPx = it.height }
                     ) {
                         ProfileSubtitle(info, lastSeenStyle)
                     }
                     }
                     Box(Modifier.graphicsLayer {
                         alpha = expandedBadgesAlpha(collapse.value) * (profileTransition?.headerVisibility() ?: 1f)
-                    }) {
+                    }.onSizeChanged { sceneBadgesHeightPx = it.height }) {
                         ProfileBadges(info)
                     }
                     if (info.profileAudios.isNotEmpty()) {

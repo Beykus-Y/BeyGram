@@ -1,5 +1,7 @@
 package com.beykus.beygram.ui.screens.profile
 
+import androidx.compose.ui.geometry.Rect
+
 /**
  * Profile 2.0 C, step P2 (#1138): builds the scene model's inputs from what the screen measures.
  *
@@ -48,3 +50,6 @@ internal fun profileSceneInputsFor(
     compactStatus = compactStatus,
     reduceMotion = reduceMotion,
 )
+
+/** Converts a window rect from the compact toolbar geometry into the model's rect. */
+internal fun Rect.toSceneRect(): SceneRect = SceneRect(left, top, right, bottom)

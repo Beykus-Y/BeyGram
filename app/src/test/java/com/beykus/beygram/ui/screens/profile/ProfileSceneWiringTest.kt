@@ -1,7 +1,6 @@
 package com.beykus.beygram.ui.screens.profile
 
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertFalse
 import org.junit.Test
 
 class ProfileSceneWiringTest {
@@ -30,7 +29,8 @@ class ProfileSceneWiringTest {
             compactAvatar = compact, compactTitle = compact, compactStatus = compact,
         )
         val frame = profileSceneFrame(inputs)
-        assertFalse(frame.parallaxPx != 0f)
+        assertEquals(0f, frame.parallaxPx, 0f)
+        assertEquals(0f, frame.collapse, 0f)
         assertEquals(0f, inputs.revealFraction, 0f)
     }
 }
