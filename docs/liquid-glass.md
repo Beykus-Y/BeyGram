@@ -88,3 +88,13 @@ High really blurs (text behind the dock is unreadable but coloured), then Balanc
 - The switch is kept by user presets and by the unsaved draft (draft version 5).
 - Not done: merging neighbouring glass panels into one shape (judged too costly for the engine at this stage).
 - Not verified on a device: the look over text, photos and avatars, light and dark themes, animation of size changes, and frame cost. These need a manual check on API 33+ hardware.
+
+### Liquid Glass V2: tuning (LensTuning, values are starting points, not measured)
+
+- `thicknessDp` 22 dp, capped at `maxThicknessFraction` 1/3 of the panel's shorter side (a 64 dp dock gets about 21 dp of lens).
+- `strength` 0.9 and `refractionIndex` 1.5: how far the refracted ray travels inside the bevel.
+- `blurScale` 0.2: the lens reads the sharp layer, then the output is blurred at a fifth of the style's blur.
+- `tintScale` 0.87: the tint is lightened only while the lens is on screen, for legibility of dock labels.
+- `crossfadeMillis` 240: the lens fades in once a settled size is known. It drops out at once when the size changes, so it never draws at a stale size.
+- Presets in `LensTuningPresets`: `Default`, `Clear` (less blur, lighter tint), `Bold` (wider band, stronger bend). Switch by pointing the Liquid Glass design's `lensTuning` in DesignPresets.kt at one of them.
+- Not verified on a device: legibility of labels over the lens, frame cost, and how the switch looks at the end of a size change.

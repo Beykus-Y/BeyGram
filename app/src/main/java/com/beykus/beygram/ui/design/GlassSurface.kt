@@ -6,6 +6,7 @@ import android.graphics.RenderEffect
 import android.graphics.Shader
 import android.os.Build
 import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.snap
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -185,9 +186,11 @@ fun GlassPanel(
         }
     }
     val lensActive = lensEffect != null && panelSize == lensSize
+    // The lens cross-fades in once a settled size is known, and drops out at once when the size changes: a fade-out
+    // would keep drawing the lens at the old size while the panel has already moved on.
     val lensMix: Float by animateFloatAsState(
         targetValue = if (lensActive) 1f else 0f,
-        animationSpec = tween(lensTuning.crossfadeMillis),
+        animationSpec = if (lensActive) tween(lensTuning.crossfadeMillis) else snap(),
         label = "liquidGlassLensMix"
     )
     Box(

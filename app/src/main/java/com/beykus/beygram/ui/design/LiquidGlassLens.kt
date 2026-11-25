@@ -47,7 +47,7 @@ data class LensTuning(
      * Multiplier on the style's tint alpha while the lens is on screen. The lighter tint lets the bent content show
      * through; a dense tint over a blurred sample reads as a matt plastic surface.
      */
-    val tintScale: Float = 0.75f,
+    val tintScale: Float = 0.87f,
     /** Time for the lens to fade in or out, so the switch at a size change is a cross-fade and not a jump. */
     val crossfadeMillis: Int = 240
 )
