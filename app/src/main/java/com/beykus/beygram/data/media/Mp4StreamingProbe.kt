@@ -33,6 +33,12 @@ internal data class Mp4StreamingInfo(
 )
 
 /**
+ * Only the layout of the top-level boxes: their types in file order and the `moov` payload size when that box is
+ * already visible. Used by the progressive-playback diagnostics (Issue #1174). Never decides playback.
+ */
+internal data class Mp4Layout(val boxTypes: List<String>, val moovPayloadBytes: Long?)
+
+/**
  * Checks whether an MP4 can be played progressively without a full local copy: the `moov` index must be
  * complete and located before `mdat`, and the video track must use a codec that Android/Telegram players
  * commonly support. `availableBytes` lets the player probe a partially downloaded prefix; the parser only
@@ -160,6 +166,20 @@ internal object Mp4StreamingProbe {
         audioCodecs = audioCodecs,
         indexStreamable = indexStreamable
     )
+
+    /** Reads box headers only; any read problem gives an empty layout, which the diagnostics report as such. */
+    fun topLayout(file: File, availableBytes: Long = file.length()): Mp4Layout = try {
+        RandomAccessFile(file, "r").use { source ->
+            val length = minOf(source.length(), availableBytes.coerceAtLeast(0L))
+            val boxes = topLevelBoxes(source, length)
+            Mp4Layout(
+                boxTypes = boxes.map { it.type },
+                moovPayloadBytes = boxes.firstOrNull { it.type == "moov" }?.payloadSize
+            )
+        }
+    } catch (_: Exception) {
+        Mp4Layout(boxTypes = emptyList(), moovPayloadBytes = null)
+    }
 
     private fun topLevelBoxes(source: RandomAccessFile, length: Long): List<Box> {
         val boxes = ArrayList<Box>()

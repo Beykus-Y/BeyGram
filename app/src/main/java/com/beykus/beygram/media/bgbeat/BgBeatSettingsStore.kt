@@ -50,6 +50,7 @@ class BgBeatSettingsStore internal constructor(
     companion object {
         const val PREFS_NAME = "bgbeat_settings"
         const val KEY_ENABLED = "bgbeat_enabled"
+        const val DEFAULT_ENABLED = true
         const val MAX_CACHE_BYTES = 50L * 1024L * 1024L // 50 MiB limit
 
         @Volatile
@@ -132,13 +133,13 @@ class BgBeatSettingsStore internal constructor(
         }
     }
 
-    private val _enabled = MutableStateFlow(storage.getBoolean(KEY_ENABLED, false))
+    private val _enabled = MutableStateFlow(storage.getBoolean(KEY_ENABLED, DEFAULT_ENABLED))
     val enabled: StateFlow<Boolean> = _enabled.asStateFlow()
 
     init {
         storage.registerListener { key ->
             if (key == KEY_ENABLED) {
-                _enabled.value = storage.getBoolean(KEY_ENABLED, false)
+                _enabled.value = storage.getBoolean(KEY_ENABLED, DEFAULT_ENABLED)
             }
         }
     }

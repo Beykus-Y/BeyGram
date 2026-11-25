@@ -80,4 +80,23 @@ class YandexCanvasDiagnosticsTest {
 
         assertEquals("canvas.checked=1; backgroundVideoUri=1; scheme.https=1; ext.mp4=1", captured)
     }
+
+    @Test
+    fun parseTrackExtractsHttpsBackgroundVideoUriAndId() {
+        val api = YandexApi(object : YandexHttp() {})
+        val trackJson = JSONObject()
+            .put("id", "777")
+            .put("title", "Song")
+            .put("backgroundVideoUri", "https://video-preview.s3.yandex.net/clip.mp4")
+            .put("backgroundVideoId", "vid-123")
+        val parsed = api.parseTrack(trackJson)!!
+        assertEquals("https://video-preview.s3.yandex.net/clip.mp4", parsed.backgroundVideoUri)
+        assertEquals("vid-123", parsed.backgroundVideoId)
+
+        val httpOnlyJson = JSONObject()
+            .put("id", "778")
+            .put("title", "Song2")
+            .put("backgroundVideoUri", "http://insecure.example/clip.mp4")
+        assertEquals(null, api.parseTrack(httpOnlyJson)!!.backgroundVideoUri)
+    }
 }

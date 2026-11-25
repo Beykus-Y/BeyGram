@@ -13,6 +13,8 @@
     <string name="profile_gallery_delete_title">Delete profile photo?</string>
     <string name="profile_gallery_delete_warning">This photo will be deleted from your Telegram profile photo history. This cannot be undone.</string>
     <string name="profile_gallery_position">%1$d of %2$d</string>
+    <string name="profile_gallery_next">Next photo</string>
+    <string name="profile_gallery_previous">Previous photo</string>
     <string name="profile_gallery_retry">Could not load profile photo history · Retry</string>
     <string name="profile_gallery_set_main">Set as main profile photo</string>
     <string name="profile_group_members_count">Members: %1$d</string>

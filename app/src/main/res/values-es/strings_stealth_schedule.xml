@@ -3,13 +3,13 @@
     <string name="stealth_schedule_group_title">Envío invisible</string>
     <string name="stealth_schedule_title">Enviar como mensajes programados de Telegram</string>
     <string name="stealth_schedule_detail">El mensaje va al servidor de Telegram enseguida como mensaje programado, y el servidor lo publica pasado el tiempo elegido. La aplicación puede estar cerrada para entonces.</string>
-    <string name="stealth_schedule_footnote">Mientras el mensaje espera, puedes cancelarlo, moverlo o enviarlo ya desde los mensajes programados del chat. Para archivos el tiempo aumenta para dejar margen a la subida.</string>
+    <string name="stealth_schedule_footnote">Consulta el estado y la hora en Mensajes programados del chat. Desde allí puedes reprogramar, cancelar o enviar ahora. El retraso seleccionado no determina quién puede verte en línea.</string>
     <string name="stealth_schedule_limits">Esto reduce el riesgo de mostrarte en línea, pero no lo garantiza: la aplicación no controla tus otros dispositivos ni las reglas de Telegram. En chats secretos, chats con mensajes de pago, multimedia de visualización única y ubicación en tiempo real no se puede programar, y la aplicación pregunta si enviar ya.</string>
     <plurals name="stealth_schedule_minutes">
         <item quantity="one">%1$d min</item>
         <item quantity="other">%1$d min</item>
     </plurals>
-    <string name="stealth_schedule_done">Programado en el servidor de Telegram. El mensaje aparecerá en el chat a la hora fijada.</string>
+    <string name="stealth_schedule_done">Consulta el estado en «Mensajes programados».</string>
     <string name="stealth_schedule_failed">No se pudo programar el mensaje en el servidor de Telegram.</string>
     <string name="stealth_schedule_unavailable_secret">Telegram no admite mensajes programados en chats secretos.</string>
     <string name="stealth_schedule_unavailable_paid">Telegram no admite mensajes programados en chats con mensajes de pago.</string>
@@ -28,4 +28,8 @@
     <string name="stealth_schedule_short_warning">El retraso guardado es inferior a 15 segundos. Elige al menos 15 segundos. Hasta entonces se bloquea el envío normal sin consentimiento explícito.</string>
     <string name="stealth_schedule_music_bot_blocked">El bot de música envía un mensaje inmediato a Mensajes guardados. Esta acción no está disponible mientras el envío invisible esté activado.</string>
     <string name="stealth_diagnostic_send_blocked">Esta comprobación no está disponible en el modo invisible, porque envía un mensaje de inmediato. Desactiva el envío invisible e inténtalo de nuevo.</string>
+
+    <string name="stealth_schedule_status_pending">Pendiente de confirmación de Telegram</string>
+    <string name="stealth_schedule_status_queued">En la cola según TDLib</string>
+    <string name="stealth_schedule_status_unknown">Estado actual desconocido</string>
 </resources>
