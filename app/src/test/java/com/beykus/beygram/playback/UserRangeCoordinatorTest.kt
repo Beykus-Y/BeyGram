@@ -1,0 +1,195 @@
+package com.beykus.beygram.playback
+
+import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.test.runTest
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
+import org.junit.Test
+
+@OptIn(ExperimentalCoroutinesApi::class)
+class UserRangeCoordinatorTest {
+    private class FakeRanges : PlaybackRanges {
+        val readable = HashMap<Long, Long>()
+        val requests = mutableListOf<Triple<Long, Long, Boolean>>()
+        val cancelled = mutableListOf<Int>()
+
+        override suspend fun readableFrom(fileId: Int, offset: Long): Long = readable[offset] ?: 0L
+
+        override fun requestWindow(fileId: Int, offset: Long, limit: Long, urgent: Boolean) {
+            requests += Triple(offset, limit, urgent)
+        }
+
+        override fun cancelWindow(fileId: Int) {
+            cancelled += fileId
+        }
+    }
+
+    private var now = 0L
+
+    private fun coordinator(ranges: FakeRanges) = UserRangeCoordinator(
+        ranges = ranges,
+        clock = { now },
+        retryBackoffMs = 1_000L,
+        maxAttemptsWithoutProgress = 3,
+    )
+
+    @Test
+    fun `the first read asks for a window at the requested offset`() = runTest {
+        val ranges = FakeRanges()
+        val subject = coordinator(ranges)
+
+        val available = subject.ensureReadable(fileId = 7, offset = 0L, needed = 64 * 1024L, urgent = true)
+
+        assertEquals(0L, available)
+        assertEquals(listOf(Triple(0L, 0L, true)), ranges.requests)
+    }
+
+    @Test
+    fun `a pending unlimited window is not requested twice`() = runTest {
+        val ranges = FakeRanges()
+        val subject = coordinator(ranges)
+
+        subject.ensureReadable(7, 0L, 1024L, urgent = true)
+        subject.ensureReadable(7, 0L, 1024L, urgent = true)
+        subject.ensureReadable(7, 4096L, 1024L, urgent = true)
+
+        assertEquals(1, ranges.requests.size)
+    }
+
+    @Test
+    fun `a seek outside a bounded tail window replaces it`() = runTest {
+        val ranges = FakeRanges()
+        val subject = coordinator(ranges)
+
+        subject.ensureTail(fileId = 9, start = 1_000_000L, length = 65_536L)
+        // The bounded tail cannot serve a read at the start of the file.
+        subject.ensureReadable(9, 0L, 4096L, urgent = true)
+
+        assertEquals(2, ranges.requests.size)
+        assertEquals(Triple(0L, 0L, true), ranges.requests.last())
+    }
+
+    @Test
+    fun `a covered read does not request anything`() = runTest {
+        val ranges = FakeRanges().apply { readable[1_000_000L] = 65_536L }
+        val subject = coordinator(ranges)
+
+        val available = subject.ensureTail(9, 1_000_000L, 65_536L)
+
+        assertEquals(65_536L, available)
+        assertTrue(ranges.requests.isEmpty())
+    }
+
+    @Test
+    fun `a background preload never replaces an active user window`() = runTest {
+        val ranges = FakeRanges()
+        val subject = coordinator(ranges)
+
+        subject.ensureReadable(7, 0L, 1024L, urgent = true)
+        // A neighbouring page tries to preload at another offset while the user is watching.
+        subject.ensureReadable(7, 500_000L, 1024L, urgent = false)
+
+        assertEquals(1, ranges.requests.size)
+        assertEquals(Triple(0L, 0L, true), ranges.requests.single())
+    }
+
+    @Test
+    fun `a user seek is allowed to replace the background window`() = runTest {
+        val ranges = FakeRanges()
+        val subject = coordinator(ranges)
+
+        subject.ensureReadable(7, 10_000L, 1024L, urgent = false)
+        subject.ensureReadable(7, 10_000L, 1024L, urgent = true)
+
+        assertEquals(2, ranges.requests.size)
+        assertEquals(Triple(10_000L, 0L, true), ranges.requests.last())
+    }
+
+    @Test
+    fun `requests without progress back off and then resume`() = runTest {
+        val ranges = FakeRanges()
+        val subject = coordinator(ranges)
+
+        // Three bounded tail windows, none of which yields bytes.
+        subject.ensureTail(7, 0L, 1_000L)
+        subject.ensureTail(7, 2_000L, 1_000L)
+        subject.ensureTail(7, 4_000L, 1_000L)
+        assertEquals(3, ranges.requests.size)
+
+        // Immediately after that the coordinator waits instead of restarting the download.
+        now = 10L
+        subject.ensureTail(7, 6_000L, 1_000L)
+        assertEquals(3, ranges.requests.size)
+
+        // After the backoff it tries once more.
+        now = 2_000L
+        subject.ensureTail(7, 6_000L, 1_000L)
+        assertEquals(4, ranges.requests.size)
+    }
+
+    @Test
+    fun `progress restores the retry budget`() = runTest {
+        val ranges = FakeRanges()
+        val subject = coordinator(ranges)
+
+        subject.ensureTail(7, 0L, 1_000L)
+        subject.ensureTail(7, 2_000L, 1_000L)
+        subject.ensureTail(7, 4_000L, 1_000L)
+        assertEquals(3, ranges.requests.size)
+
+        // Bytes arrived at the next offset: the file is moving, so a new window is allowed immediately.
+        ranges.readable[6_000L] = 512L
+        now = 10L
+        subject.ensureTail(7, 6_000L, 1_000L)
+        assertEquals(4, ranges.requests.size)
+    }
+
+    @Test
+    fun `completion forgets the window and a later read starts a new one`() = runTest {
+        val ranges = FakeRanges()
+        val subject = coordinator(ranges)
+
+        subject.ensureReadable(7, 0L, 1024L, urgent = true)
+        subject.onCompleted(7)
+        subject.ensureReadable(7, 0L, 1024L, urgent = true)
+
+        assertEquals(2, ranges.requests.size)
+        // Completion does not cancel a finished download.
+        assertTrue(ranges.cancelled.isEmpty())
+    }
+
+    @Test
+    fun `reset cancels only a file that had a window`() = runTest {
+        val ranges = FakeRanges()
+        val subject = coordinator(ranges)
+
+        subject.reset(7)
+        assertTrue(ranges.cancelled.isEmpty())
+
+        subject.ensureReadable(7, 0L, 1024L, urgent = true)
+        subject.reset(7)
+        assertEquals(listOf(7), ranges.cancelled)
+    }
+
+    @Test
+    fun `resetAll cancels every tracked file`() = runTest {
+        val ranges = FakeRanges()
+        val subject = coordinator(ranges)
+
+        subject.ensureReadable(7, 0L, 1024L, urgent = true)
+        subject.ensureReadable(8, 0L, 1024L, urgent = false)
+        subject.resetAll()
+
+        assertEquals(setOf(7, 8), ranges.cancelled.toSet())
+    }
+
+    @Test
+    fun `a bounded window covers only its own range`() {
+        val window = RangeWindow(offset = 1_000L, limit = 500L, urgent = true)
+        assertTrue(window.covers(1_000L, 500L))
+        assertTrue(window.covers(1_200L, 100L))
+        assertTrue(!window.covers(900L, 200L))
+        assertTrue(!window.covers(1_400L, 200L))
+        assertTrue(RangeWindow(0L, 0L, true).covers(0L, Long.MAX_VALUE / 2))
+    }
+}

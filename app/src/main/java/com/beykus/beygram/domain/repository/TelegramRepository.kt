@@ -409,4 +409,12 @@ interface TelegramRepository : ConversationRepository, NotificationRepository, R
 
     /** Automatic download that the repository may deny, cancel or skip according to the local policy. */
     fun autoDownloadFile(request: AutoDownloadRequest)
+
+    /**
+     * Range-aware reads for progressive playback, or null when the backend cannot answer them.
+     *
+     * The player uses it to prove that the bytes at a concrete offset are present, and to point TDLib's single user
+     * download window at the position it is about to play. It never creates a second cache.
+     */
+    val playbackRanges: com.beykus.beygram.playback.PlaybackRanges? get() = null
 }
