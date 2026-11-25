@@ -115,7 +115,7 @@ internal fun ProfileSceneAvatarLayer(
                     scaleX = scene.layerScale
                     scaleY = scene.layerScale
                     translationX = (rect.left + rect.right) / 2f - origin.x - size.width / 2f
-                    translationY = (rect.top + rect.bottom) / 2f - origin.y - size.height / 2f
+                    translationY = (rect.top + rect.bottom) / 2f - origin.y - size.height / 2f + scene.parallaxPx
                     alpha = visibility()
                 }
             }.background(color),

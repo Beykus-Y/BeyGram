@@ -52,6 +52,7 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.layout.boundsInWindow
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.onSizeChanged
@@ -229,9 +230,10 @@ fun ProfileScreen(
         val sceneWindow = LocalWindowInfo.current.containerSize
         val sceneReduceMotion = rememberSystemReducedMotion()
         val scenePhoto = state.info?.photo
+        val stretch = remember(state.info?.id, sceneC) { ProfilePhotoStretchState() }
         var photoExpanded by rememberSaveable(state.info?.id, sceneC) { mutableStateOf(false) }
         val reveal = remember(state.info?.id, sceneC) { Animatable(if (photoExpanded) 1f else 0f) }
-        val sceneFrame by remember(sceneC, sceneDensity, sceneWindow, scenePhoto, state.info?.id) {
+        val sceneFrame by remember(sceneC, sceneDensity, sceneWindow, scenePhoto, state.info?.id, sceneReduceMotion) {
             derivedStateOf {
                 val compactAvatar = collapseGeometry.compactAvatar
                 val compactTitle = collapseGeometry.compactTitle
@@ -252,7 +254,7 @@ fun ProfileScreen(
                         statusHeightPx = sceneHeights.statusHeightPx.toFloat(),
                         badgesHeightPx = sceneHeights.badgesHeightPx.toFloat(),
                         hasPhoto = scenePhoto != null,
-                        reduceMotion = true,
+                        reduceMotion = sceneReduceMotion,
                         compactAvatar = compactAvatar.toSceneRect(),
                         compactTitle = compactTitle.toSceneRect(),
                         compactStatus = compactStatus.toSceneRect(),
@@ -261,22 +263,28 @@ fun ProfileScreen(
                     profileSceneFrame(inputs.copy(
                         contentLeftPx = sceneHeights.stageLeftPx.toFloat(),
                         contentRightPx = (sceneHeights.stageLeftPx + sceneHeights.stageWidthPx).toFloat(),
-                        overscale = 1f
+                        pullDownPx = stretch.distancePx
                     ))
                 }
             }
         }
-        val collapse = remember(sceneC, state.info?.id, sceneDensity, sceneWindow, scenePhoto) {
+        val collapse = remember(sceneC, state.info?.id, sceneDensity, sceneWindow, scenePhoto, sceneReduceMotion) {
             derivedStateOf {
                 if (sceneC) sceneFrame?.collapse ?: 0f
                 else com.beykus.beygram.ui.motion.collapseFractionForScroll(scrollState.value, identityHeightPx)
             }
         }
-        val revealAvailable by remember(sceneC, state.info?.id, sceneDensity, sceneWindow, scenePhoto) {
+        val revealAvailable by remember(sceneC, state.info?.id, sceneDensity, sceneWindow, scenePhoto, sceneReduceMotion) {
             derivedStateOf { sceneFrame?.revealEnabled == true }
         }
         val revealActive by remember(reveal) { derivedStateOf { reveal.value > 0f || photoExpanded } }
         var foldingPhoto by remember(reveal) { mutableStateOf(false) }
+        val stretchEnabled by remember(sceneC, sceneReduceMotion, state.info?.id, sceneDensity, sceneWindow, scenePhoto) {
+            derivedStateOf { sceneC && !sceneReduceMotion && revealAvailable && reveal.value >= 1f && !foldingPhoto }
+        }
+        val stretchConnection = rememberProfilePhotoStretch(
+            stretch, scrollState, stretchEnabled, with(LocalDensity.current) { 56.dp.toPx() }
+        )
         suspend fun animateReveal(target: Float) {
             if (sceneReduceMotion) reveal.snapTo(target)
             else reveal.animateTo(target, tween(250))
@@ -498,6 +506,8 @@ fun ProfileScreen(
                             scrollPx = { scrollState.value.toFloat() },
                             hasPhoto = info.photo != null,
                             reveal = { reveal.value },
+                            reduceMotion = sceneReduceMotion,
+                            pullDownPx = { stretch.distancePx },
                             modifier = Modifier.fillMaxWidth()
                         ) {
                             avatarSlot(); titleSlot(); statusSlot(); badgesSlot()
@@ -651,7 +661,7 @@ fun ProfileScreen(
         if (sceneC) {
             // Fixed viewport: this node does not scroll, so its window top is the toolbar bottom at every scroll offset.
             Column(
-                Modifier.fillMaxSize().onGloballyPositioned {
+                Modifier.fillMaxSize().nestedScroll(stretchConnection).onGloballyPositioned {
                     sceneHeights.toolbarBottomPx = it.boundsInWindow().top.toInt()
                     sceneHeights.viewportHeightPx = it.size.height
                 }

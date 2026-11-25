@@ -4,6 +4,7 @@ import android.app.Application
 import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.Paint
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.semantics.SemanticsActions
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.click
@@ -101,7 +102,19 @@ class ProfileSceneUiCapture {
             assertTrue(expandedWidth > midwayWidth)
             capture(output, "03-c-revealed")
 
+            val expandedHeight = avatar.getUnclippedBoundsInRoot().let { it.bottom - it.top }
             val content = compose.onNode(hasScrollAction())
+            content.performTouchInput {
+                down(center)
+                moveBy(Offset(0f, 180f))
+            }
+            val stretchedHeight = avatar.getUnclippedBoundsInRoot().let { it.bottom - it.top }
+            assertTrue("Pull-down must grow the same photo", stretchedHeight > expandedHeight)
+            assertTrue(stretchedHeight - expandedHeight <= 56.dp)
+            capture(output, "03b-c-pull-down")
+            content.performTouchInput { up() }
+            compose.waitForIdle()
+            assertEquals(expandedHeight, avatar.getUnclippedBoundsInRoot().let { it.bottom - it.top })
             content.performSemanticsAction(SemanticsActions.ScrollBy) { scroll -> scroll(0f, 200f) }
             capture(output, "04-c-collapse-mid")
             content.performSemanticsAction(SemanticsActions.ScrollBy) { scroll -> scroll(0f, 3000f) }
