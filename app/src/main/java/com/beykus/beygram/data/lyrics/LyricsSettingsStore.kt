@@ -17,7 +17,7 @@ data class LyricsSourceSettings(
  * External lookup is disabled by default until the user explicitly enables it.
  */
 object LyricsSettingsStore {
-    private const val PREFS_NAME = "beygram_lyrics_v2"
+    const val PREFS_NAME = "beygram_lyrics_v2"
     private const val KEY_EXTERNAL_ENABLED = "external_lookup_enabled"
     private const val KEY_EMBEDDED_ENABLED = "embedded_tags_enabled"
     private const val KEY_YANDEX_ENABLED = "yandex_enabled"
@@ -71,6 +71,13 @@ object LyricsSettingsStore {
                 lrcLibEnabled = prefs.getBoolean(KEY_LRCLIB_ENABLED, true),
             )
             loaded = true
+        }
+    }
+
+    internal fun resetForTests() {
+        synchronized(lock) {
+            loaded = false
+            _settings.value = LyricsSourceSettings()
         }
     }
 }

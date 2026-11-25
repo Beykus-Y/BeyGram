@@ -93,22 +93,23 @@ class AppearanceDraftSaverTest {
         }
     }
 
-    @Test fun draftSavedBeforeTheLensPresetRestoresAsStandard() {
-        // A version-5 draft: the V2 switch was stored with the lens preset not yet existing. It restores as Standard.
+    @Test fun draftSavedBeforeTheLensPresetRestoresAsClear() {
+        // A version-5 draft: the V2 switch was stored with the lens preset not yet existing. It restores as Clear.
         val legacy = encodeAppearanceDraft(completeDraft().copy(liquidGlassV2 = true, liquidGlassPreset = LiquidGlassLensPreset.Bold))
             .take(17) + "5"
         assertEquals(18, legacy.size)
         val restored = decodeAppearanceDraft(legacy)
         assertEquals(true, restored?.liquidGlassV2)
-        assertEquals(LiquidGlassLensPreset.Standard, restored?.liquidGlassPreset)
+        assertEquals(LiquidGlassLensPreset.Clear, restored?.liquidGlassPreset)
     }
 
-    @Test fun draftSavedBeforeTheLiquidGlassV2SwitchRestoresWithItOff() {
+    @Test fun draftSavedBeforeTheLiquidGlassV2SwitchRestoresWithV2ClearDefault() {
         // A version-4 draft: the sixteen values of that build, then its version "4". The switch did not exist yet.
-        val legacy = encodeAppearanceDraft(completeDraft().copy(liquidGlassV2 = true)).take(16) + "4"
+        val legacy = encodeAppearanceDraft(completeDraft().copy(liquidGlassV2 = false, liquidGlassPreset = LiquidGlassLensPreset.Standard)).take(16) + "4"
         assertEquals(17, legacy.size)
         val restored = decodeAppearanceDraft(legacy)
-        assertEquals(false, restored?.liquidGlassV2)
+        assertEquals(true, restored?.liquidGlassV2)
+        assertEquals(LiquidGlassLensPreset.Clear, restored?.liquidGlassPreset)
         assertEquals(completeDraft(), restored)
     }
 

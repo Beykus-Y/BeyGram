@@ -22,6 +22,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Equalizer
 import androidx.compose.material.icons.rounded.KeyboardArrowRight
+import androidx.compose.material.icons.rounded.Tune
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
@@ -61,6 +62,10 @@ import com.beykus.beygram.ui.components.BeyGramDialog
 import com.beykus.beygram.ui.components.BeyGramSheet
 import com.beykus.beygram.ui.components.beyGramPalette
 import com.beykus.beygram.ui.design.styledShape
+import com.beykus.beygram.ui.screens.music.LocalOpenMusicSettings
+
+/** Compact tab slices inside [PlayerSoundSheet]. */
+private enum class PlayerSoundTab { Sound, Visuals, Details }
 
 /** Sleep timer presets shown as chips; the full list of durations stays in the playback model. */
 private val SLEEP_PRESET_MINUTES = listOf(15, 30, 60)
@@ -78,6 +83,7 @@ internal fun PlayerSoundSheet(
 ) {
     val palette = beyGramPalette()
     val context = LocalContext.current
+    val openMusicSettings = LocalOpenMusicSettings.current
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     val sleepTimer by PlaybackEngine.sleepTimer.collectAsStateWithLifecycle()
     val rhythmModeFlow = remember(context) { BgRhythmSettingsStore.flow(context) }
@@ -88,6 +94,11 @@ internal fun PlayerSoundSheet(
     val canvasSettings by canvasSettingsFlow.collectAsStateWithLifecycle()
     val minutesRemaining = rememberSleepMinutes(sleepTimer)
     var customOpen by remember { mutableStateOf(false) }
+    var selectedTab by remember { mutableStateOf(PlayerSoundTab.Sound) }
+    var audioDetails by remember(player.item.key, player.item.path) { mutableStateOf<AudioDetails?>(null) }
+    LaunchedEffect(player.item.key, player.item.path) {
+        audioDetails = AudioDetailsProbe.probe(player.item)
+    }
     // BG Mix has no playback speed, so the chips stay off while it plays instead of changing only the saved value.
     val speedEnabled = !player.bgMix
     BeyGramSheet(
@@ -109,140 +120,170 @@ internal fun PlayerSoundSheet(
                 fontSize = 18.sp,
                 fontWeight = FontWeight.SemiBold
             )
-            SoundSectionTitle(stringResource(R.string.player_speed))
             Row(
                 Modifier
                     .fillMaxWidth()
                     .horizontalScroll(rememberScrollState())
-                    .alpha(if (speedEnabled) 1f else 0.4f),
+                    .padding(top = 12.dp),
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                PLAYBACK_SPEED_OPTIONS.forEach { speed ->
-                    SoundChip(
-                        text = stringResource(R.string.player_speed_option, speedLabel(speed)),
-                        selected = player.speed == speed,
-                        enabled = speedEnabled,
-                        onClick = { PlaybackEngine.setMusicSpeed(speed) }
-                    )
-                }
-            }
-            if (player.bgMix) Text(
-                stringResource(R.string.player_speed_bgmix_hint),
-                color = palette.textSecondary,
-                fontSize = 12.sp,
-                modifier = Modifier.padding(top = 8.dp)
-            )
-            SoundSectionTitle(stringResource(R.string.player_sleep_timer))
-            sleepTimer?.let { timer ->
-                Text(sleepTimerStatusText(timer, minutesRemaining), color = palette.textPrimary, fontSize = 13.sp)
-                Row(
-                    Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(top = 8.dp),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    SoundChip(stringResource(R.string.player_sleep_extend, SLEEP_EXTEND_MINUTES), false, true) {
-                        PlaybackEngine.extendSleepTimer(SLEEP_EXTEND_MINUTES)
-                    }
-                    SoundChip(stringResource(R.string.player_sleep_cancel_plain), false, true) {
-                        PlaybackEngine.cancelSleepTimer()
-                    }
-                }
-            }
-            Row(
-                Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(top = 8.dp),
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                SLEEP_PRESET_MINUTES.forEach { minutes ->
-                    SoundChip(stringResource(R.string.player_sleep_minutes_short, minutes), false, true) {
-                        PlaybackEngine.setSleepTimer(minutes)
-                    }
-                }
                 SoundChip(
-                    stringResource(R.string.player_sleep_until_track_end),
-                    selected = sleepTimer?.untilTrackEnd == true,
-                    enabled = true
-                ) {
-                    PlaybackEngine.setSleepTimerUntilTrackEnd()
-                }
-                SoundChip(stringResource(R.string.player_sleep_custom), false, true) { customOpen = true }
+                    stringResource(R.string.player_sound_tab_sound),
+                    selectedTab == PlayerSoundTab.Sound,
+                    true
+                ) { selectedTab = PlayerSoundTab.Sound }
+                SoundChip(
+                    stringResource(R.string.player_sound_tab_visuals),
+                    selectedTab == PlayerSoundTab.Visuals,
+                    true
+                ) { selectedTab = PlayerSoundTab.Visuals }
+                SoundChip(
+                    stringResource(R.string.player_sound_tab_details),
+                    selectedTab == PlayerSoundTab.Details,
+                    true
+                ) { selectedTab = PlayerSoundTab.Details }
             }
-            SoundSectionTitle(stringResource(R.string.rhythm_section_title))
-            Row(
-                Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                SoundChip(stringResource(R.string.rhythm_mode_off), rhythmMode == BgRhythmMode.Off, true) {
-                    BgRhythmSettingsStore.setMode(context, BgRhythmMode.Off)
-                }
-                SoundChip(stringResource(R.string.rhythm_mode_calm), rhythmMode == BgRhythmMode.Calm, true) {
-                    BgRhythmSettingsStore.setMode(context, BgRhythmMode.Calm)
-                }
-                SoundChip(stringResource(R.string.rhythm_mode_dynamic), rhythmMode == BgRhythmMode.Dynamic, true) {
-                    BgRhythmSettingsStore.setMode(context, BgRhythmMode.Dynamic)
-                }
-            }
-            if (rhythmMode != BgRhythmMode.Off && !bgBeatEnabled) {
-                Text(
-                    stringResource(R.string.rhythm_needs_bgbeat_hint),
-                    color = palette.textSecondary,
-                    fontSize = 12.sp,
-                    modifier = Modifier.padding(top = 8.dp)
-                )
-                Row(
-                    Modifier.fillMaxWidth().padding(top = 6.dp),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    SoundChip(stringResource(R.string.rhythm_enable_bgbeat), false, true) {
-                        bgBeatStore.setEnabled(true)
+            when (selectedTab) {
+                PlayerSoundTab.Sound -> {
+                    SoundSectionTitle(stringResource(R.string.player_speed))
+                    Row(
+                        Modifier
+                            .fillMaxWidth()
+                            .horizontalScroll(rememberScrollState())
+                            .alpha(if (speedEnabled) 1f else 0.4f),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        PLAYBACK_SPEED_OPTIONS.forEach { speed ->
+                            SoundChip(
+                                text = stringResource(R.string.player_speed_option, speedLabel(speed)),
+                                selected = player.speed == speed,
+                                enabled = speedEnabled,
+                                onClick = { PlaybackEngine.setMusicSpeed(speed) }
+                            )
+                        }
+                    }
+                    if (player.bgMix) Text(
+                        stringResource(R.string.player_speed_bgmix_hint),
+                        color = palette.textSecondary,
+                        fontSize = 12.sp,
+                        modifier = Modifier.padding(top = 8.dp)
+                    )
+                    SoundSectionTitle(stringResource(R.string.player_sleep_timer))
+                    sleepTimer?.let { timer ->
+                        Text(sleepTimerStatusText(timer, minutesRemaining), color = palette.textPrimary, fontSize = 13.sp)
+                        Row(
+                            Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(top = 8.dp),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            SoundChip(stringResource(R.string.player_sleep_extend, SLEEP_EXTEND_MINUTES), false, true) {
+                                PlaybackEngine.extendSleepTimer(SLEEP_EXTEND_MINUTES)
+                            }
+                            SoundChip(stringResource(R.string.player_sleep_cancel_plain), false, true) {
+                                PlaybackEngine.cancelSleepTimer()
+                            }
+                        }
+                    }
+                    Row(
+                        Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(top = 8.dp),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        SLEEP_PRESET_MINUTES.forEach { minutes ->
+                            SoundChip(stringResource(R.string.player_sleep_minutes_short, minutes), false, true) {
+                                PlaybackEngine.setSleepTimer(minutes)
+                            }
+                        }
+                        SoundChip(
+                            stringResource(R.string.player_sleep_until_track_end),
+                            selected = sleepTimer?.untilTrackEnd == true,
+                            enabled = true
+                        ) {
+                            PlaybackEngine.setSleepTimerUntilTrackEnd()
+                        }
+                        SoundChip(stringResource(R.string.player_sleep_custom), false, true) { customOpen = true }
+                    }
+                    if (onOpenEqualizer != null) {
+                        SoundActionRow(
+                            icon = Icons.Rounded.Equalizer,
+                            label = stringResource(R.string.player_equalizer),
+                            onClick = {
+                                onDismiss()
+                                onOpenEqualizer()
+                            }
+                        )
                     }
                 }
-            }
-            SoundSectionTitle(stringResource(R.string.canvas_section_title))
-            Row(
-                Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                SoundChip(stringResource(R.string.canvas_mode_off), canvasSettings.mode == BgCanvasMode.Off, true) {
-                    CanvasSettingsStore.setMode(context, BgCanvasMode.Off)
-                }
-                SoundChip(stringResource(R.string.canvas_mode_card), canvasSettings.mode == BgCanvasMode.Card, true) {
-                    CanvasSettingsStore.setMode(context, BgCanvasMode.Card)
-                }
-                SoundChip(stringResource(R.string.canvas_mode_fullscreen), canvasSettings.mode == BgCanvasMode.Fullscreen, true) {
-                    CanvasSettingsStore.setMode(context, BgCanvasMode.Fullscreen)
-                }
-            }
-            if (onOpenEqualizer != null) {
-                Row(
-                    Modifier
-                        .fillMaxWidth()
-                        .heightIn(min = 48.dp)
-                        .padding(top = 16.dp)
-                        .clip(styledShape(14.dp))
-                        .clickable(role = Role.Button) {
-                            onDismiss()
-                            onOpenEqualizer()
+                PlayerSoundTab.Visuals -> {
+                    SoundSectionTitle(stringResource(R.string.rhythm_section_title))
+                    Row(
+                        Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        SoundChip(stringResource(R.string.rhythm_mode_off), rhythmMode == BgRhythmMode.Off, true) {
+                            BgRhythmSettingsStore.setMode(context, BgRhythmMode.Off)
                         }
-                        .padding(horizontal = 4.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Icon(Icons.Rounded.Equalizer, null, tint = palette.accent, modifier = Modifier.size(22.dp))
-                    Spacer(Modifier.width(12.dp))
-                    Text(
-                        stringResource(R.string.player_equalizer),
-                        color = palette.textPrimary,
-                        fontSize = 15.sp,
-                        modifier = Modifier.weight(1f)
-                    )
-                    Icon(Icons.Rounded.KeyboardArrowRight, null, tint = palette.textSecondary)
+                        SoundChip(stringResource(R.string.rhythm_mode_calm), rhythmMode == BgRhythmMode.Calm, true) {
+                            BgRhythmSettingsStore.setMode(context, BgRhythmMode.Calm)
+                        }
+                        SoundChip(stringResource(R.string.rhythm_mode_dynamic), rhythmMode == BgRhythmMode.Dynamic, true) {
+                            BgRhythmSettingsStore.setMode(context, BgRhythmMode.Dynamic)
+                        }
+                    }
+                    if (rhythmMode != BgRhythmMode.Off && !bgBeatEnabled) {
+                        Text(
+                            stringResource(R.string.rhythm_needs_bgbeat_hint),
+                            color = palette.textSecondary,
+                            fontSize = 12.sp,
+                            modifier = Modifier.padding(top = 8.dp)
+                        )
+                        Row(
+                            Modifier.fillMaxWidth().padding(top = 6.dp),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            SoundChip(stringResource(R.string.rhythm_enable_bgbeat), false, true) {
+                                bgBeatStore.setEnabled(true)
+                            }
+                        }
+                    }
+                    SoundSectionTitle(stringResource(R.string.canvas_section_title))
+                    Row(
+                        Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        SoundChip(stringResource(R.string.canvas_mode_off), canvasSettings.mode == BgCanvasMode.Off, true) {
+                            CanvasSettingsStore.setMode(context, BgCanvasMode.Off)
+                        }
+                        SoundChip(stringResource(R.string.canvas_mode_card), canvasSettings.mode == BgCanvasMode.Card, true) {
+                            CanvasSettingsStore.setMode(context, BgCanvasMode.Card)
+                        }
+                        SoundChip(stringResource(R.string.canvas_mode_fullscreen), canvasSettings.mode == BgCanvasMode.Fullscreen, true) {
+                            CanvasSettingsStore.setMode(context, BgCanvasMode.Fullscreen)
+                        }
+                    }
+                    if (openMusicSettings != null) {
+                        SoundActionRow(
+                            icon = Icons.Rounded.Tune,
+                            label = stringResource(R.string.music_settings_open_all),
+                            onClick = {
+                                onDismiss()
+                                openMusicSettings()
+                            }
+                        )
+                    }
                 }
-            }
-            var audioDetails by remember(player.item.key, player.item.path) { mutableStateOf<AudioDetails?>(null) }
-            LaunchedEffect(player.item.key, player.item.path) {
-                audioDetails = AudioDetailsProbe.probe(player.item)
-            }
-            audioDetails?.let { details ->
-                SoundSectionTitle(stringResource(R.string.audio_details_section_title))
-                AudioDetailsSection(details)
+                PlayerSoundTab.Details -> {
+                    val details = audioDetails
+                    if (details != null) {
+                        SoundSectionTitle(stringResource(R.string.audio_details_section_title))
+                        AudioDetailsSection(details)
+                    } else {
+                        Text(
+                            stringResource(R.string.audio_details_streaming),
+                            color = palette.textSecondary,
+                            fontSize = 13.sp,
+                            modifier = Modifier.padding(top = 16.dp)
+                        )
+                    }
+                }
             }
         }
     }
@@ -328,6 +369,35 @@ internal fun AudioDetailsSection(details: AudioDetails) {
                 fontSize = 12.sp,
             )
         }
+    }
+}
+
+@Composable
+private fun SoundActionRow(
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    label: String,
+    onClick: () -> Unit
+) {
+    val palette = beyGramPalette()
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .heightIn(min = 48.dp)
+            .padding(top = 16.dp)
+            .clip(styledShape(14.dp))
+            .clickable(role = Role.Button, onClick = onClick)
+            .padding(horizontal = 4.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Icon(icon, null, tint = palette.accent, modifier = Modifier.size(22.dp))
+        Spacer(Modifier.width(12.dp))
+        Text(
+            label,
+            color = palette.textPrimary,
+            fontSize = 15.sp,
+            modifier = Modifier.weight(1f)
+        )
+        Icon(Icons.Rounded.KeyboardArrowRight, null, tint = palette.textSecondary)
     }
 }
 

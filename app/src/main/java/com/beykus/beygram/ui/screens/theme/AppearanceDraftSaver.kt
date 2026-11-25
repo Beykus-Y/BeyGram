@@ -68,7 +68,7 @@ private const val APPEARANCE_DRAFT_V6_SIZE = 19
 /**
  * Reads a draft written by [encodeAppearanceDraft]. Older drafts are shorter: the design style, the glass quality, the
  * bar placement and the Liquid Glass V2 switch were added at the end, so a draft saved by an earlier build still
- * restores with the defaults for the new choices (the V2 switch is off). Damaged values fall back the same way DataStore does.
+ * restores with the defaults for the new choices (V2 on with Clear). Damaged values fall back the same way DataStore does.
  */
 internal fun decodeAppearanceDraft(parts: List<String>): AppearanceConfig? {
     if (parts.size !in 7..APPEARANCE_DRAFT_V6_SIZE) return null
@@ -92,7 +92,7 @@ internal fun decodeAppearanceDraft(parts: List<String>): AppearanceConfig? {
         messageAnimations = messageAnimationConfigFromStored(parts.getOrNull(12)),
         designStyle = designStyleFromStored(parts.getOrNull(13)?.takeIf { hasDesignChoices }),
         glassQuality = glassQualityFromStored(parts.getOrNull(14)?.takeIf { hasDesignChoices }),
-        liquidGlassV2 = parts.getOrNull(16)?.takeIf { hasLiquidGlassV2 }?.toBooleanStrictOrNull() ?: false,
+        liquidGlassV2 = parts.getOrNull(16)?.takeIf { hasLiquidGlassV2 }?.toBooleanStrictOrNull() ?: true,
         liquidGlassPreset = liquidGlassLensPresetFromStored(parts.getOrNull(17)?.takeIf { hasLiquidGlassPreset }),
         navigationPlacement = navigationPlacementFromStored(
             parts.getOrNull(15)?.takeIf { hasNavigationPlacement }

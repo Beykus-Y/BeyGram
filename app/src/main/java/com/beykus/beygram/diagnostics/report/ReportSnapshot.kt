@@ -38,8 +38,9 @@ object ReportSnapshot {
     private fun sanitizeAttrs(attrs: Map<String, String>): Map<String, String> =
         attrs.entries.take(MAX_EVENT_ATTRS)
             .map { (key, value) ->
-                ReportPrivacy.sanitize(key, MAX_EVENT_CODE_CHARS) to
-                    ReportPrivacy.sanitize(value, MAX_EVENT_ATTR_VALUE_CHARS)
+                val safeKey = ReportPrivacy.sanitize(key, MAX_EVENT_CODE_CHARS)
+                // The key is known here, so trusted numeric metrics keep their digits; free text stays strictly redacted.
+                safeKey to ReportPrivacy.sanitizeAttribute(safeKey, value, MAX_EVENT_ATTR_VALUE_CHARS)
             }
             .filter { (key, _) -> key.isNotEmpty() }
             .toMap()

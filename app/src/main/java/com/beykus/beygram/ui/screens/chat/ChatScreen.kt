@@ -1352,7 +1352,7 @@ fun ChatScreen(
         reactionOptions = conversation.availableReactions(chat.id, id).getOrNull().orEmpty()
     }
     // Фото и видео листаются по всему чату: окно грузится вокруг открытого вложения, а не только по загруженной истории.
-    val mediaWindow = remember(chat.id) {
+    val mediaWindow = remember(conversation, chat.id) {
         SharedMediaWindow(
             load = { from, newer -> conversation.sharedMessages(chat.id, SharedMediaKind.Media, from, newer) },
             failure = { it.userMessage(context, R.string.err_chat_history_load_failed) }
@@ -1360,14 +1360,32 @@ fun ChatScreen(
     }
     LaunchedEffect(selectedMediaId) {
         val id = selectedMediaId ?: return@LaunchedEffect
-        val kind = currentMessages.firstOrNull { it.id == id }?.media?.kind
+        val selectedMessage = currentMessages.firstOrNull { it.id == id }
+        val kind = selectedMessage?.media?.kind
         // Вложение, которое уже в окне, не перезагружаем: так просмотрщик возвращается к нему на том же месте.
         if (kind != null && kind in viewerSwipeKinds && mediaWindow.messages.none { it.id == id }) {
-            mediaWindow.restart(id)
+            mediaWindow.restart(id, anchorMessage = selectedMessage.takeUnless { it.isViewOnce })
             mediaWindow.loadOlder()
         }
         // Новее догружаем от края: открытое вложение обычно стоит у правого края окна, а прерванная загрузка не оставляет дыр.
-        mediaWindow.loadNear(id)
+        mediaWindow.loadNear(id) { !it.isViewOnce }
+    }
+    var previousHistoryIds by remember(conversation, chat.id) { mutableStateOf<Set<Long>?>(null) }
+    LaunchedEffect(messages, selectedMediaId) {
+        val currentIds = messages.mapTo(HashSet(messages.size)) { it.id }
+        val prevIds = previousHistoryIds
+        if (prevIds != null) {
+            val removed = prevIds - currentIds
+            if (removed.isNotEmpty()) mediaWindow.removeDeleted(removed)
+            if (selectedMediaId != null && mediaWindow.loaded) {
+                val windowMax = mediaWindow.messages.maxOfOrNull { it.id } ?: 0L
+                val hasNewerMedia = messages.any { m ->
+                    m.id !in prevIds && m.id > windowMax && !m.isViewOnce && m.media?.kind in viewerSwipeKinds
+                }
+                if (hasNewerMedia) mediaWindow.refreshNewer()
+            }
+        }
+        previousHistoryIds = currentIds
     }
     LaunchedEffect(selectedMediaId) {
         // Счётчик при свайпе держит прежнее значение до ответа, чтобы не мигал. Права так не держим: см. MediaViewerPolicy.rightsFor.
@@ -3092,9 +3110,23 @@ fun ChatScreen(
     val historyPages = remember(messages, viewerOpen) {
         if (!viewerOpen) emptyList<MediaViewerItem>() else messages.mapNotNull { m -> m.media?.takeIf { it.kind in viewerSwipeKinds }?.let { MediaViewerItem(m.id, it, m.isViewOnce, chat.id, m.text) } }
     }
-    // Пока окно не пришло или не загрузилось, листаем уже загруженную историю чата; без неё показываем вложение одно.
-    val viewerPages = listOf(windowPages, historyPages).firstOrNull { pages -> pages.any { it.messageId == selectedMediaId } }
-        ?: listOfNotNull(viewed?.let { m -> m.media?.let { MediaViewerItem(m.id, it, m.isViewOnce, chat.id, m.text) } })
+    val historyRange = remember(messages, viewerOpen) {
+        if (!viewerOpen || messages.isEmpty()) null
+        else messages.minOf { it.id }..messages.maxOf { it.id }
+    }
+    val liveHistoryIds = remember(messages, viewerOpen) {
+        if (!viewerOpen) null else messages.mapTo(HashSet(messages.size)) { it.id }
+    }
+    val fallbackItem = viewed?.let { m -> m.media?.let { MediaViewerItem(m.id, it, m.isViewOnce, chat.id, m.text) } }
+    // Объединяем пересекающиеся страницы окна и живой истории чата с дедупликацией, чтобы не терять крайнее фото.
+    val viewerPages = resolveMediaViewerPages(
+        windowPages = windowPages,
+        historyPages = historyPages,
+        selectedId = selectedMediaId,
+        fallbackItem = fallbackItem,
+        historyMessageIdRange = historyRange,
+        liveHistoryIds = liveHistoryIds,
+    )
     val viewOnceGate = rememberViewOnceStealthGate(chat.id)
     val viewOnceAsked = viewed?.takeIf { viewOnceGate.needsConsent(chat.id, it.id, it.isViewOnce, conversation.interactionAllowed(InteractionEffect.OpenContent, chat.id)) }
     if (viewOnceAsked != null) viewOnceGate.ConsentDialog(chat.id, viewOnceAsked.id) { selectedMediaId = null }
