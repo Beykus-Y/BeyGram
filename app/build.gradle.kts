@@ -201,6 +201,11 @@ android {
                 test.systemProperty("roborazzi.test.$mode", "true")
                 test.inputs.files(fileTree(goldens)).withPropertyName("screenshotGoldens")
                 test.maxHeapSize = "2g"
+                // CI fills this directory with checksum-verified SDK jars first (scripts/robolectric-prefetch.sh), so the
+                // tests never ask Maven for one. Local builds leave the variable unset and keep Robolectric's download.
+                providers.environmentVariable("BEYGRAM_ROBOLECTRIC_DIR").orNull?.let { dir ->
+                    test.systemProperty("robolectric.dependency.dir", dir)
+                }
             }
         }
     }
