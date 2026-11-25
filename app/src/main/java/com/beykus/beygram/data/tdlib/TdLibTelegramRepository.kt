@@ -48,6 +48,7 @@ import com.beykus.beygram.domain.model.SpeechRecognitionFailure
 import com.beykus.beygram.domain.model.SpeechRecognitionFailureReason
 import com.beykus.beygram.domain.model.SpeechRecognitionTrial
 import com.beykus.beygram.playback.PlaybackRanges
+import com.beykus.beygram.playback.UserRangeCoordinator
 import com.beykus.beygram.domain.model.MessageDraft
 import com.beykus.beygram.domain.model.MessageThread
 import com.beykus.beygram.domain.model.MessageThreadPage
@@ -261,6 +262,7 @@ class TdLibTelegramRepository private constructor(
     private val tdRequests = TdRequests { client }
     /** Range-aware playback reads over the same client and cache; no second downloader is created. */
     override val playbackRanges: PlaybackRanges = tdPlaybackRanges(tdRequests) { client }
+    override val playbackCoordinator: UserRangeCoordinator = UserRangeCoordinator(playbackRanges)
     private val accountSecurity = TdAccountSecurity(tdRequests)
     private val secretChatDirectory = TdSecretChats(tdRequests)
     @Volatile private var secretChatSession = 0L
