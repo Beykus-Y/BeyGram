@@ -217,7 +217,9 @@ import com.beykus.beygram.ui.screens.settings.StableUpdatesScreen
 import com.beykus.beygram.ui.screens.start.StartScreen
 import com.beykus.beygram.ui.screens.profile.ChannelStatisticsScreen
 import com.beykus.beygram.ui.screens.profile.ChatMembersScreen
+import com.beykus.beygram.ui.screens.profile.GiftFileAccess
 import com.beykus.beygram.ui.screens.profile.GiftsScreen
+import com.beykus.beygram.ui.screens.profile.ProvideGiftFileAccess
 import com.beykus.beygram.ui.screens.profile.PremiumScreen
 import com.beykus.beygram.ui.screens.profile.GroupManagementScreen
 import com.beykus.beygram.ui.screens.profile.LocalAddProfileAudio
@@ -3305,6 +3307,7 @@ GlobalSearchScreen(
                         AppRoute.Gifts -> if (giftsProfileId == 0L) {
                             LaunchedEffect(Unit) { routeName = AppRoute.MyProfile.name }
                         } else {
+                            ProvideGiftFileAccess(GiftFileAccess(repository::observeFile, repository::downloadFile)) {
                             GiftsScreen(
                                 accountId = selectedAccountId,
                                 title = stringResource(
@@ -3328,6 +3331,7 @@ GlobalSearchScreen(
                                 onOpenStars = { openStars(AppRoute.Gifts) },
                                 onBack = { routeName = giftsReturnRouteName }
                             )
+                            }
                         }
                         AppRoute.Appearance -> ThemeSettingsScreen(
                             saved = appearance,
