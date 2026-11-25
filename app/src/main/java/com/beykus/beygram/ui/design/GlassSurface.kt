@@ -146,6 +146,11 @@ fun GlassPanel(
     modifier: Modifier = Modifier,
     edge: GlassEdge = GlassEdge.Rim,
     contentPadding: PaddingValues = PaddingValues(0.dp),
+    /**
+     * Opts full-width top chrome into the lens (Issue #1173). The lens then bends only along the side that meets the
+     * content; the screen-edge sides stay flat. Ignored for every other edge.
+     */
+    lensOnFreeEdge: Boolean = false,
     content: @Composable BoxScope.() -> Unit
 ) {
     val glass = design.surfaces.glass
@@ -160,11 +165,11 @@ fun GlassPanel(
     val samplesFrosted = !samplesBackdrop && glass != null && glass.samplesFrosted && backdrop != null
     val frostLayer = rememberGraphicsLayer()
     // Liquid Glass V2: the lens shader exists only where the style asks for it and the device has API 33+.
-    // Only the floating pane gets the lens: full-width chrome meets the screen edges, where a bevel would show as a
-    // border on the sides.
+    // Floating panes get the lens. Full-width top chrome gets it only with [lensOnFreeEdge], and then only along its
+    // bottom side (see freeEdgeSides): its window-edge sides are not bevelled, which would draw a border there.
     // A shader is created only for a panel that really draws the sampled backdrop; Balanced, Lite and the frosted or
     // unsampled frames never compile one.
-    val lensWanted = glass?.lensRefraction == true && edge == GlassEdge.Rim && samplesBackdrop
+    val lensWanted = glassLensWanted(glass?.lensRefraction == true, edge, samplesBackdrop, lensOnFreeEdge)
     val lensShader = remember(lensWanted) { if (lensWanted) newLensShader() else null }
     var panelSize by remember { mutableStateOf(IntSize.Zero) }
     // The lens is built for the size the panel has settled at. While a size animation runs, the panel draws the plain
@@ -184,14 +189,20 @@ fun GlassPanel(
     val lensBaseEffect = remember(lensShader, blurPx, darkSurface, lensTuning) {
         lensShader?.let { buildLensBaseRenderEffect(blurPx * lensTuning.blurScale, darkSurface) }
     }
-    val lensEffect = remember(lensShader, lensSize, shape, lensThicknessPx, blurPx, darkSurface, density, layoutDirection, lensTuning) {
+    val lensEffect = remember(lensShader, lensSize, shape, lensThicknessPx, blurPx, darkSurface, density, layoutDirection, lensTuning, edge) {
         lensShader?.let {
-            buildLensRenderEffect(it, lensSize, shape, lensThicknessPx, blurPx, darkSurface, density, layoutDirection, lensTuning)
+            buildLensRenderEffect(it, lensSize, shape, lensThicknessPx, blurPx, darkSurface, density, layoutDirection, lensTuning, edge)
         }
     }
-    val lensActive = lensEffect != null && panelSize == lensSize
+    // Full-width chrome changes height while the list scrolls (the header collapses). Dropping the lens on every such
+    // step would flicker it, so a shrinking header keeps the last settled lens and rebuilds it once the size settles.
+    // A growing header drops it as before: the stale lens would show the bottom band with the background shifted.
+    // The effect is only rebuilt at settle (keyed on lensSize), so this costs no extra per-frame work.
+    val keepsLensThroughResize = lensOnFreeEdge && lensEffect != null && panelSize.height <= lensSize.height
+    val lensActive = lensEffect != null && (panelSize == lensSize || keepsLensThroughResize)
     // The lens cross-fades in once a settled size is known, and drops out at once when the size changes: a fade-out
-    // would keep drawing the lens at the old size while the panel has already moved on.
+    // would keep drawing the lens at the old size while the panel has already moved on. Free-edge chrome is the exception
+    // above.
     val lensMix: Float by animateFloatAsState(
         targetValue = if (lensActive) 1f else 0f,
         animationSpec = if (lensActive) tween(lensTuning.crossfadeMillis) else snap(),

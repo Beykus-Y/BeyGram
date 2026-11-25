@@ -990,6 +990,17 @@
     <string name="canvas_mode_off">Aus</string>
     <string name="canvas_mode_card">Cover</string>
     <string name="canvas_mode_fullscreen">Vollbild</string>
+    <string name="audio_details_section_title">Audiodetails</string>
+    <string name="audio_details_source_telegram">Telegram</string>
+    <string name="audio_details_source_yandex">Yandex Music</string>
+    <string name="audio_details_source_local">Lokale Datei</string>
+    <string name="audio_details_bitrate_exact">%1$d kbps</string>
+    <string name="audio_details_bitrate_estimated">~%1$d kbps (geschätzt)</string>
+    <string name="audio_details_bit_depth">%1$d-Bit</string>
+    <string name="audio_details_channels_mono">Mono</string>
+    <string name="audio_details_channels_stereo">Stereo</string>
+    <string name="audio_details_channels_multi">%1$d Kan.</string>
+    <string name="audio_details_streaming">Streaming — technische Details erscheinen nach dem Laden der Datei</string>
     <string name="chat_quote_title">Abschnitt zitieren</string>
     <string name="chat_quote_hint">Zitierter Text</string>
     <string name="chat_quote_action">Zitieren</string>
