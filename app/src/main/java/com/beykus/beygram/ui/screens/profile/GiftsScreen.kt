@@ -55,6 +55,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.res.pluralStringResource
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.heading
@@ -94,6 +95,7 @@ import com.beykus.beygram.domain.model.next
 import com.beykus.beygram.domain.model.nextReceivedGiftsOffset
 import com.beykus.beygram.domain.model.validateGiftText
 import com.beykus.beygram.ui.accessibility.errorAnnouncement
+import com.beykus.beygram.ui.components.BeyGramPalette
 import com.beykus.beygram.ui.components.beyGramPalette
 import com.beykus.beygram.ui.text.resolve
 import com.beykus.beygram.ui.text.userMessage
@@ -917,10 +919,22 @@ private fun ReceivedGiftRow(gift: ReceivedGiftItem) {
                         color = palette.textSecondary,
                         fontSize = 12.sp
                     )
-                    details.modelRarityTier?.let { tier ->
+                    // A tier is named and coloured per level, with the exact share as a fallback when TDLib sends
+                    // only the per-mille value, which is when the tier is null.
+                    val rarityLabel = when {
+                        details.modelRarityTier != null ->
+                            stringResource(giftRarityLabelRes(details.modelRarityTier))
+                        details.modelRarityPerMille != null ->
+                            stringResource(
+                                R.string.gifts_rarity_percent,
+                                String.format(java.util.Locale.getDefault(), "%.1f", details.modelRarityPerMille / 10.0)
+                            )
+                        else -> null
+                    }
+                    rarityLabel?.let { label ->
                         Text(
-                            stringResource(giftRarityLabelRes(tier)),
-                            color = palette.accentInk,
+                            label,
+                            color = giftRarityColor(details.modelRarityTier, palette),
                             fontSize = 12.sp,
                             fontWeight = FontWeight.SemiBold
                         )
@@ -1055,4 +1069,13 @@ private fun giftRarityLabelRes(tier: GiftRarityTier): Int = when (tier) {
     GiftRarityTier.Rare -> R.string.gifts_rarity_rare
     GiftRarityTier.Epic -> R.string.gifts_rarity_epic
     GiftRarityTier.Legendary -> R.string.gifts_rarity_legendary
+}
+
+/** Each rarity tier has its own colour from the theme palette, so the levels read apart without the label. */
+private fun giftRarityColor(tier: GiftRarityTier?, palette: BeyGramPalette): Color = when (tier) {
+    GiftRarityTier.Uncommon -> palette.textSecondary
+    GiftRarityTier.Rare -> palette.accentInk
+    GiftRarityTier.Epic -> palette.warningText
+    GiftRarityTier.Legendary -> palette.accent
+    null -> palette.textSecondary
 }

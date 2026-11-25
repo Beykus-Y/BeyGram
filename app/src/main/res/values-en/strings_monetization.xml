@@ -356,4 +356,5 @@
     <string name="gifts_rarity_rare">Rare</string>
     <string name="gifts_rarity_epic">Epic</string>
     <string name="gifts_rarity_legendary">Legendary</string>
+    <string name="gifts_rarity_percent">%1$s%%</string>
 </resources>
