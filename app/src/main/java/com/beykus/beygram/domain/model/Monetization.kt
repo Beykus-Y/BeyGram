@@ -517,6 +517,36 @@ fun StarsTopUpStep.next(event: StarsTopUpEvent): StarsTopUpStep = when (this) {
  * A gift that TDLib currently sells directly. Resale and auction-only gifts are
  * represented but cannot be bought from this screen.
  */
+/**
+ * The real sticker of a gift (TGS animation, WebP or WebM) as TDLib file ids. The emoji stays the fallback when a gift
+ * carries no sticker or its file has not been registered. The file itself is downloaded by the media layer on demand.
+ */
+data class GiftVisual(
+    val fileId: Int,
+    val format: StickerFileFormat,
+    val thumbnailFileId: Int?,
+    val width: Int,
+    val height: Int
+)
+
+/** Rarity tier of a collectible attribute, as TDLib names it; a per-mille share is kept separately. */
+enum class GiftRarityTier { Uncommon, Rare, Epic, Legendary }
+
+/**
+ * What an upgraded (collectible) gift shows beside its model artwork: the symbol sticker, the backdrop colours (RGB,
+ * without alpha), the model's rarity and the gift number. Null for a regular gift.
+ */
+data class GiftCollectibleDetails(
+    val number: Int,
+    val symbol: GiftVisual?,
+    val backdropCenterColor: Int?,
+    val backdropEdgeColor: Int?,
+    val backdropSymbolColor: Int?,
+    val backdropTextColor: Int?,
+    val modelRarityPerMille: Int?,
+    val modelRarityTier: GiftRarityTier?
+)
+
 data class GiftCatalogItem(
     val id: Long,
     val emoji: String,
@@ -530,7 +560,8 @@ data class GiftCatalogItem(
     val resaleCount: Int = 0,
     /** Minimum resale price in Stars equivalent; not a purchase quote. */
     val minResaleStarCount: Long = 0L,
-    val resaleTitle: String = ""
+    val resaleTitle: String = "",
+    val visual: GiftVisual? = null
 )
 
 data class ReceivedGiftItem(
@@ -544,7 +575,9 @@ data class ReceivedGiftItem(
     val isPrivate: Boolean,
     val isSaved: Boolean,
     val isUpgraded: Boolean,
-    val wasRefunded: Boolean
+    val wasRefunded: Boolean,
+    val visual: GiftVisual? = null,
+    val collectible: GiftCollectibleDetails? = null
 )
 
 data class GiftCollectionItem(

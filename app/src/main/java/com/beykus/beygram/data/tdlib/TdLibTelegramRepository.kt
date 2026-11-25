@@ -261,7 +261,6 @@ class TdLibTelegramRepository private constructor(
     private val accountSecurity = TdAccountSecurity(tdRequests)
     private val secretChatDirectory = TdSecretChats(tdRequests)
     @Volatile private var secretChatSession = 0L
-    private val payments = TdPayments(tdRequests)
     private val paidReactions = TdPaidReactions { tdRequests(it) }
     private val videoNoteLossTransport = TdVideoNoteLossTransport(tdRequests,
         stealthActive = { stealthSettings.current.scheduledSendDelay != null })
@@ -514,6 +513,7 @@ class TdLibTelegramRepository private constructor(
         { profiles.me.value.info?.isPremium == true }
     )
     private val stickerCatalog = TdStickerCatalog(tdRequests, mediaFiles)
+    private val payments = TdPayments(tdRequests, mediaFiles)
 
     init {
         autoDownloadNetworkMonitor.start()

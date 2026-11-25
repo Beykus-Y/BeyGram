@@ -12,7 +12,8 @@ import org.junit.Test
 
 class PremiumInfoTimeoutTest {
     private val payments = TdPayments(
-        TdRequests { error("TDLib is not used by these tests") }
+        TdRequests { error("TDLib is not used by these tests") },
+        MediaFileStore()
     )
 
     @Test

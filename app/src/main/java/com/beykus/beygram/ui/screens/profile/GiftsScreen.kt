@@ -656,7 +656,9 @@ fun GiftsScreen(
             content = {
                 Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
-                        Text(dialogGift.emoji.ifBlank { "🎁" }, fontSize = 30.sp)
+                        GiftVisualImage(dialogGift.visual, 30.dp) {
+                            Text(dialogGift.emoji.ifBlank { "🎁" }, fontSize = 30.sp)
+                        }
                         Spacer(Modifier.size(10.dp))
                         Text(
                             stringResource(R.string.gifts_cost, formatStarAmount(dialogGift.starCount)),
@@ -800,7 +802,9 @@ private fun GiftCatalogRow(
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
             // The gift and its text read as one item; the buttons beside them stay separate controls for TalkBack.
             Row(Modifier.weight(1f).semantics(mergeDescendants = true) {}, verticalAlignment = Alignment.CenterVertically) {
-                Text(gift.emoji.ifBlank { "🎁" }, fontSize = 32.sp)
+                GiftVisualImage(gift.visual, 32.dp) {
+                    Text(gift.emoji.ifBlank { "🎁" }, fontSize = 32.sp)
+                }
                 Column(Modifier.weight(1f).padding(start = 12.dp)) {
                     Text(
                         if (gift.auctionId.isNullOrBlank()) stringResource(R.string.gifts_cost, formatStarAmount(gift.starCount)) else stringResource(R.string.gift_auction_title),
@@ -868,7 +872,9 @@ private fun ReceivedGiftRow(gift: ReceivedGiftItem) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             // The gift itself is the main visual, so the emoji gets a larger slot than the text around it.
             Box(Modifier.sizeIn(minWidth = 48.dp, minHeight = 48.dp), contentAlignment = Alignment.Center) {
-                Text(gift.emoji.ifBlank { "🎁" }, fontSize = 36.sp)
+                GiftVisualImage(gift.visual, 36.dp) {
+                    Text(gift.emoji.ifBlank { "🎁" }, fontSize = 36.sp)
+                }
             }
             Column(Modifier.weight(1f).padding(start = 12.dp)) {
                 // Regular gifts have no title from Telegram, so they show a generic name rather than the list heading.
