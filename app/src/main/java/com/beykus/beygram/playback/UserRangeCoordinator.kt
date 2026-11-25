@@ -81,8 +81,12 @@ class UserRangeCoordinator(
      */
     private val lock = Any()
 
-    /** Epoch of the page that currently owns each file; a request with an older epoch is ignored. */
-    private val epochs = HashMap<Int, Long>()
+    /**
+     * Live viewers of each file. A set, not one epoch: the same file can be shown by a bubble in the timeline and by the
+     * full-screen viewer at the same time, and closing one must neither block nor cancel the other. A request is valid
+     * while its own token is still in the set (#1195).
+     */
+    private val owners = HashMap<Int, MutableSet<Long>>()
     private var nextEpoch = 0L
 
     /**
@@ -90,16 +94,17 @@ class UserRangeCoordinator(
      *
      * The token closes the last window between a closed page and a loader thread: Media3 may already be inside
      * [ensureReadable] (or about to enter it) when the screen is disposed. A plain "does the state still exist" check
-     * cannot tell that late call from a newly opened page, so the call is tied to the page's epoch instead (#1195).
+     * cannot tell that late call from a newly opened page, so the call is tied to the page's token instead (#1195).
      */
     fun owner(fileId: Int): RangeOwner = synchronized(lock) {
         val epoch = nextEpoch++
-        epochs[fileId] = epoch
+        owners.getOrPut(fileId) { mutableSetOf() }.add(epoch)
         RangeOwner(fileId, epoch)
     }
 
-    /** True when the call belongs to the page that currently owns its file; a null owner keeps the plain behaviour. */
-    private fun ownsLocked(owner: RangeOwner?): Boolean = owner == null || epochs[owner.fileId] == owner.epoch
+    /** True when the call belongs to a page that is still open; a null owner keeps the plain behaviour. */
+    private fun ownsLocked(owner: RangeOwner?): Boolean =
+        owner == null || owners[owner.fileId]?.contains(owner.epoch) == true
 
     /** Bytes readable from [offset], without asking TDLib for anything. */
     suspend fun readableFrom(fileId: Int, offset: Long): Long = ranges.readableFrom(fileId, offset)
@@ -221,8 +226,17 @@ class UserRangeCoordinator(
      */
     fun reset(fileId: Int, owner: RangeOwner? = null) {
         synchronized(lock) {
-            if (!ownsLocked(owner)) return
-            epochs.remove(fileId)
+            val remaining = if (owner == null) {
+                owners.remove(fileId)
+                emptySet<Long>()
+            } else {
+                val live = owners[fileId] ?: return
+                if (!live.remove(owner.epoch)) return
+                if (live.isEmpty()) owners.remove(fileId)
+                live
+            }
+            // Other viewers still show this file: the window stays theirs.
+            if (remaining.isNotEmpty()) return
             val state = states.remove(fileId) ?: return
             if (state.window != null) ranges.cancelWindow(fileId)
         }
@@ -233,7 +247,7 @@ class UserRangeCoordinator(
         synchronized(lock) {
             val ids = states.keys.toList()
             states.clear()
-            epochs.clear()
+            owners.clear()
             ids.forEach(ranges::cancelWindow)
         }
     }
