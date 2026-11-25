@@ -339,6 +339,28 @@ class UserRangeCoordinatorTest {
     }
 
     @Test
+    fun `two viewers of the same file do not cancel each other`() = runTest {
+        // A bubble in the timeline and the full-screen viewer can show the same video at once (Codex review of #1195).
+        val ranges = FakeRanges()
+        val subject = coordinator(ranges)
+        val bubble = subject.owner(7)
+        val viewer = subject.owner(7)
+
+        subject.ensureReadable(7, 0L, 1_024L, urgent = true, owner = bubble)
+        subject.ensureReadable(7, 5_000_000L, 1_024L, urgent = true, owner = viewer)
+        assertEquals(2, ranges.requests.size)
+
+        // Closing the bubble must not take the window away from the viewer that is still on screen.
+        subject.reset(7, bubble)
+        assertTrue(ranges.cancelled.isEmpty())
+        subject.ensureReadable(7, 5_000_000L, 1_024L, urgent = true, owner = viewer)
+        assertEquals(2, ranges.requests.size)
+
+        subject.reset(7, viewer)
+        assertEquals(listOf(7), ranges.cancelled)
+    }
+
+    @Test
     fun `a cancelled query propagates instead of being treated as zero bytes`() = runTest {
         val ranges = object : PlaybackRanges {
             override suspend fun readableFrom(fileId: Int, offset: Long): Long =
