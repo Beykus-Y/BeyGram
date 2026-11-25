@@ -7,6 +7,7 @@ import androidx.compose.ui.test.onRoot
 import com.beykus.beygram.data.appearance.DesignStyle
 import com.beykus.beygram.data.appearance.GlassQuality
 import com.beykus.beygram.data.settings.ChatStealthMode
+import com.beykus.beygram.data.settings.StealthSettings
 import com.beykus.beygram.data.settings.StealthSettingsStore
 import com.beykus.beygram.data.settings.StealthStorage
 import com.beykus.beygram.ui.design.designFor
@@ -14,6 +15,7 @@ import com.beykus.beygram.ui.theme.BeyGramTheme
 import com.github.takahirom.roborazzi.captureRoboImage
 import java.io.File
 import org.junit.Assume.assumeNotNull
+import org.junit.Assume.assumeTrue
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -60,5 +62,47 @@ class StealthUiCapture {
             compose.onRoot().captureRoboImage(output.absolutePath)
             check(output.length() > 0L) { "No screenshot was recorded at $output" }
         }
+    }
+
+    @Test
+    @Config(qualifiers = "ru-rRU-w320dp-h640dp-mdpi")
+    fun smallLightNormal() = captureReview("phone-small-light-normal", dark = false, settings = StealthSettings())
+
+    @Test
+    @Config(qualifiers = "ru-rRU-w411dp-h891dp-xhdpi")
+    fun largeDarkCustom() = captureReview(
+        "phone-large-dark-custom", dark = true,
+        settings = StealthSettings(noReadReceipts = true, hideTyping = true, chats = mapOf(42L to ChatStealthMode.Block))
+    )
+
+    @Test
+    @Config(qualifiers = "ru-rRU-w851dp-h393dp-land-mdpi")
+    fun landscapeLightHiddenReading() = captureReview(
+        "landscape-light-hidden-reading", dark = false,
+        settings = stealthPreset(StealthPresetKind.HiddenReading, StealthSettings())
+    )
+
+    @Test
+    @Config(qualifiers = "ru-rRU-w800dp-h1000dp-mdpi")
+    fun tabletDarkFailClosed() = captureReview("tablet-dark-fail-closed", dark = true, settings = StealthSettings.FailClosed)
+
+    private fun captureReview(name: String, dark: Boolean, settings: StealthSettings) {
+        assumeTrue(System.getenv("BEYGRAM_STEALTH_CAPTURE_MATRIX") == "review")
+        val outputDirectory = System.getenv("BEYGRAM_STEALTH_CAPTURE_DIR")
+        assumeNotNull(outputDirectory)
+        val target = File(checkNotNull(outputDirectory))
+        val store = StealthSettingsStore(object : StealthStorage {
+            override fun entries(): Map<String, *> = if (settings.failClosed) error("Synthetic read failure") else emptyMap<String, Any>()
+            override fun replace(values: Map<String, Any>) = true
+        })
+        if (!settings.failClosed) store.update { settings }
+        compose.setContent {
+            BeyGramTheme(darkTheme = dark) {
+                StealthSettingsScreen(store, onServerPrivacy = {}, onBack = {})
+            }
+        }
+        val output = File(target, "$name.png")
+        compose.onRoot().captureRoboImage(output.absolutePath)
+        check(output.length() > 0L) { "No screenshot was recorded at $output" }
     }
 }

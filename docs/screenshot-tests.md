@@ -111,3 +111,28 @@ $env:BEYGRAM_STEALTH_CAPTURE_STAGE = 'before'
 ```
 
 Для второго коммита установите `BEYGRAM_STEALTH_CAPTURE_STAGE=after` и повторите команду Gradle. Robolectric подтверждает компоновку Compose по теме и токенам. Оптический эффект Liquid Glass V2 с реальным backdrop, TalkBack и производительность требуют проверки на Android.
+
+## Выгрузка PNG в GitHub Actions
+
+В PR из этого репозитория добавьте метку `capture-stealth` для обзора Stealth или `capture-screenshots` для штатной матрицы. Оба варианта используют существующий **Record screenshot goldens** и берут точный head на момент назначения метки. Снимки публикуются в **Artifacts**. Эти запуски работают по запросу. `record-screenshots` остаётся отдельной операцией обновления эталонов.
+
+```bash
+gh run download RUN_ID -n "capture-stealth-HEAD_SHA" -D reports/stealth
+```
+
+### Одинаковая матрица на Linux и Windows
+
+Воспроизводимость между запусками требует одинаковых JDK, Android SDK, Robolectric и параметров сцены. Пример для Linux после установки SDK 36.1 и JDK 17, настроенных через Android SDK и `JAVA_HOME`.
+
+```bash
+mkdir -p "$PWD/app/build/visual-captures"
+BEYGRAM_STEALTH_CAPTURE_DIR="$PWD/app/build/visual-captures" \
+BEYGRAM_STEALTH_CAPTURE_STAGE=after BEYGRAM_STEALTH_CAPTURE_MATRIX=review \
+./gradlew :app:testDevDebugUnitTest -Pscreenshots=record --tests '*StealthUiCapture' --rerun
+```
+
+```powershell
+.\scripts\visual-tests.ps1 -StealthCaptureDir '.\app\build\visual-captures' -Matrix review
+```
+
+Матрица `review` добавляет маленький светлый телефон с Normal, большой тёмный телефон с Custom, альбомное окно с HiddenReading и планшет с FailClosed. Базовая серия снимает Maximum во всех стилях.

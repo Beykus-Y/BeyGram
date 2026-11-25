@@ -13,3 +13,10 @@
 - ADB: `C:\Users\Beykus\AppData\Local\Android\Sdk\platform-tools\adb.exe`
 - Dev package: `com.beykus.beygram.dev`
 - Prod package: `com.beykus.beygram`
+
+## Visual regression testing
+
+- Use the existing Roborazzi + Robolectric Native Graphics suite for visual changes. Render production Compose with synthetic state and a plain test Application. Do not connect a real Telegram session or install an APK for screenshot tests.
+- Linux: run `./gradlew :app:testDevDebugUnitTest -Pscreenshots=compare --tests '*RelevantScreenshotTest'`. Windows: run `.\scripts\visual-tests.ps1 -Mode compare -TestPattern '*RelevantScreenshotTest'`.
+- For review PNGs in GitHub Actions, label an in-repo pull request `capture-stealth` for Stealth or `capture-screenshots` for the existing visual suite. Open **Artifacts** in the completed run. These opt-in captures do not replace normal CI. Use `record-screenshots` only for intentional, reviewed changes to committed goldens.
+- Use a pinned revision and matching JDK, SDK, Robolectric, theme, viewport, font scale, and synthetic state for strict comparisons. See [the reproducibility guide](docs/screenshot-tests.md).

@@ -14,7 +14,11 @@ param(
 
     [Parameter(ParameterSetName = 'Stealth')]
     [ValidateSet('before', 'after')]
-    [string]$Stage = 'after'
+    [string]$Stage = 'after',
+
+    [Parameter(ParameterSetName = 'Stealth')]
+    [ValidateSet('standard', 'review')]
+    [string]$Matrix = 'standard'
 )
 
 $ErrorActionPreference = 'Stop'
@@ -23,6 +27,7 @@ $wrapperName = if ($env:OS -eq 'Windows_NT') { 'gradlew.bat' } else { 'gradlew' 
 $wrapper = Join-Path $projectRoot $wrapperName
 $previousCaptureDir = $env:BEYGRAM_STEALTH_CAPTURE_DIR
 $previousCaptureStage = $env:BEYGRAM_STEALTH_CAPTURE_STAGE
+$previousCaptureMatrix = $env:BEYGRAM_STEALTH_CAPTURE_MATRIX
 
 if ($PSCmdlet.ParameterSetName -eq 'Stealth') {
     $captureDir = $ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath($StealthCaptureDir)
@@ -45,6 +50,7 @@ try {
     if ($PSCmdlet.ParameterSetName -eq 'Stealth') {
         $env:BEYGRAM_STEALTH_CAPTURE_DIR = $captureDir
         $env:BEYGRAM_STEALTH_CAPTURE_STAGE = $Stage.ToLowerInvariant()
+        $env:BEYGRAM_STEALTH_CAPTURE_MATRIX = $Matrix.ToLowerInvariant()
     }
     & $wrapper @gradleArguments
     if ($LASTEXITCODE -ne 0) {
@@ -59,5 +65,6 @@ try {
 } finally {
     $env:BEYGRAM_STEALTH_CAPTURE_DIR = $previousCaptureDir
     $env:BEYGRAM_STEALTH_CAPTURE_STAGE = $previousCaptureStage
+    $env:BEYGRAM_STEALTH_CAPTURE_MATRIX = $previousCaptureMatrix
     Pop-Location
 }
