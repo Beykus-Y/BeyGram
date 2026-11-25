@@ -89,6 +89,11 @@ import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.BlurredEdgeTreatment
 import com.beykus.beygram.ui.screens.bgmusic.BgMusicChatDocument
 import com.beykus.beygram.ui.screens.bgmusic.isBgMusicDocument
+import com.beykus.beygram.diagnostics.StructuredEventLog
+import com.beykus.beygram.diagnostics.report.EventKind
+import com.beykus.beygram.playback.VideoPlaybackMetrics
+import com.beykus.beygram.playback.VideoStartBufferSettings
+import com.beykus.beygram.playback.loadControlOrNull
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.Color
@@ -1877,7 +1882,8 @@ private class ProgressiveFileDataSource(
     private val isComplete: () -> Boolean,
     private val isDownloading: () -> Boolean,
     private val readablePrefix: () -> Long,
-    private val onNeedMore: () -> Unit
+    private val onNeedMore: () -> Unit,
+    private val onBytesRead: (Int) -> Unit = {}
 ) : DataSource {
     private var file: RandomAccessFile? = null
     private var position = 0L
@@ -1914,6 +1920,7 @@ private class ProgressiveFileDataSource(
                 val read = opened.read(buffer, offset, toRead)
                 if (read > 0) {
                     position += read
+                    onBytesRead(read)
                     return read
                 }
             }
@@ -1969,12 +1976,16 @@ private fun LocalVideo(
     val currentOnStarted by rememberUpdatedState(onStarted)
     val currentActive by rememberUpdatedState(active)
     val sourceKey = progressive?.fileId ?: -1
+    // Стартовый буфер: по умолчанию не задан (Media3), выбирается только в диагностическом режиме (Issue #1121).
+    val startBuffer = remember(context) { VideoStartBufferSettings.load(context) }
+    val metrics = remember(path, loop, sourceKey) { VideoPlaybackMetrics() }
     val player = remember(path, loop, sourceKey) {
-        ExoPlayer.Builder(context.applicationContext)
+        val builder = ExoPlayer.Builder(context.applicationContext)
             // Звук видео забирает фокус у внешних плееров. У анимации звука нет, поэтому фокус ей не нужен.
             .setAudioAttributes(AudioAttributes.Builder().setUsage(C.USAGE_MEDIA).setContentType(C.AUDIO_CONTENT_TYPE_MOVIE).build(), /* handleAudioFocus = */ !loop)
             .setHandleAudioBecomingNoisy(true)
-            .build()
+        startBuffer.loadControlOrNull()?.let { builder.setLoadControl(it) }
+        builder.build()
     }
     var video by remember(path, loop, sourceKey) { mutableStateOf(VideoPlayerState()) }
     // Просмотр отмечается, когда файл начинает играть после нажатия или открытия. Возврат из буферизации отметку не повторяет.
@@ -1988,7 +1999,11 @@ private fun LocalVideo(
                     currentOnStarted()
                 }
             }
-            override fun onPlaybackStateChanged(playbackState: Int) { video = video.afterPlaybackState(playbackState) }
+            override fun onPlaybackStateChanged(playbackState: Int) {
+                metrics.onBufferingChanged(playbackState == Player.STATE_BUFFERING)
+                video = video.afterPlaybackState(playbackState)
+            }
+            override fun onRenderedFirstFrame() { metrics.onFirstFrame() }
             override fun onPlayerError(error: PlaybackException) { video = video.afterFailure() }
         }
         player.addListener(listener)
@@ -2004,7 +2019,8 @@ private fun LocalVideo(
                     isComplete = growth.completed,
                     isDownloading = growth.downloading,
                     readablePrefix = growth.readablePrefix,
-                    onNeedMore = growth.onNeedMore
+                    onNeedMore = growth.onNeedMore,
+                    onBytesRead = metrics::onBytesRead
                 )
             }
             player.setMediaSource(
@@ -2015,6 +2031,15 @@ private fun LocalVideo(
         player.prepare()
         onDispose {
             player.removeListener(listener)
+            // Сводка замеров уходит один раз на просмотр. В ней нет имени файла и содержимого.
+            if (!loop) runCatching {
+                val size = progressive?.totalSize ?: File(path).length()
+                StructuredEventLog.shared.record(
+                    kind = EventKind.PERFORMANCE,
+                    code = "video_playback_summary",
+                    attrs = metrics.summary(startBuffer, size)
+                )
+            }
             player.release()
         }
     }
@@ -2036,6 +2061,7 @@ private fun LocalVideo(
     }
     fun seek(fraction: Float) {
         val target = seekPositionMs(fraction, video.durationMs) ?: return
+        metrics.onSeek()
         player.seekTo(target)
         video = video.copy(positionMs = target)
     }
