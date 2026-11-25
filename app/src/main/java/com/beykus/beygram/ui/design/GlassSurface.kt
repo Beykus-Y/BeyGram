@@ -195,9 +195,10 @@ fun GlassPanel(
         }
     }
     // Full-width chrome changes height while the list scrolls (the header collapses). Dropping the lens on every such
-    // step would flicker it, so that chrome keeps the last settled lens and rebuilds it once the size settles. Its
-    // effect is only rebuilt at settle (keyed on lensSize), so this costs no extra per-frame work.
-    val keepsLensThroughResize = lensOnFreeEdge && lensEffect != null
+    // step would flicker it, so a shrinking header keeps the last settled lens and rebuilds it once the size settles.
+    // A growing header drops it as before: the stale lens would show the bottom band with the background shifted.
+    // The effect is only rebuilt at settle (keyed on lensSize), so this costs no extra per-frame work.
+    val keepsLensThroughResize = lensOnFreeEdge && lensEffect != null && panelSize.height <= lensSize.height
     val lensActive = lensEffect != null && (panelSize == lensSize || keepsLensThroughResize)
     // The lens cross-fades in once a settled size is known, and drops out at once when the size changes: a fade-out
     // would keep drawing the lens at the old size while the panel has already moved on. Free-edge chrome is the exception
