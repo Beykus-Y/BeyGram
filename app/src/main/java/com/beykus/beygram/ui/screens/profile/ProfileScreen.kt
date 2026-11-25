@@ -384,7 +384,13 @@ fun ProfileScreen(
                     }
                     }
                     if (sceneC) {
-                        ProfileSceneStage(heights = sceneHeights, scrollPx = { scrollState.value.toFloat() }, modifier = Modifier.fillMaxWidth()) {
+                        ProfileSceneStage(
+                            heights = sceneHeights,
+                            scrollPx = { scrollState.value.toFloat() },
+                            hasPhoto = info.photo != null,
+                            reveal = { 0f },
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
                             avatarSlot(); titleSlot(); statusSlot(); badgesSlot()
                         }
                     } else {
