@@ -154,8 +154,8 @@ val Material3DesignSystem = DesignSystem(
  */
 fun liquidGlassDesign(
     quality: GlassQuality,
-    liquidGlassV2: Boolean = false,
-    liquidGlassPreset: LiquidGlassLensPreset = LiquidGlassLensPreset.Standard
+    liquidGlassV2: Boolean = true,
+    liquidGlassPreset: LiquidGlassLensPreset = LiquidGlassLensPreset.Clear
 ): DesignSystem {
     val resolved = if (quality == GlassQuality.Auto) GlassQuality.High else quality
     val glass = when (resolved) {

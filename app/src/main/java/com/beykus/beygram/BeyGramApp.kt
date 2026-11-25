@@ -275,6 +275,8 @@ import com.beykus.beygram.ui.screens.playback.LocalOpenMyMusic
 import com.beykus.beygram.ui.screens.bgmusic.LocalOpenMusicPlaylist
 import com.beykus.beygram.ui.screens.music.ProviderMusicHosts
 import com.beykus.beygram.ui.screens.music.LocalOpenProviderAlbum
+import com.beykus.beygram.ui.screens.music.LocalOpenMusicSettings
+import com.beykus.beygram.ui.screens.music.MusicSettingsScreen
 import com.beykus.beygram.ui.screens.music.MyMusicScreen
 import com.beykus.beygram.ui.screens.music.MusicPlaylistScreen
 import com.beykus.beygram.ui.screens.music.ChatLibraryLink
@@ -556,6 +558,7 @@ internal fun BeyGramAppContent(
     // Where Back from the playlist goes: My Music, the chat whose `.bgmusic` preview opened it, or the chat info
     // when the playlist is a chat's collection.
     var musicPlaylistReturnRouteName by rememberSaveable { mutableStateOf(AppRoute.MyMusic.name) }
+    var musicSettingsReturnRouteName by rememberSaveable { mutableStateOf(AppRoute.MyMusic.name) }
     // The account that opened the playlist. Playlists belong to an account, so a switch leaves the playlist behind.
     var musicPlaylistAccountId by rememberSaveable { mutableStateOf("") }
     LaunchedEffect(selectedAccountId) {
@@ -1845,6 +1848,7 @@ internal fun BeyGramAppContent(
     }
     BackHandler(enabled = route == AppRoute.MusicCollection) { closeMusicCollection() }
     BackHandler(enabled = route == AppRoute.MusicPlaylist) { routeName = musicPlaylistReturnRouteName }
+    BackHandler(enabled = route == AppRoute.MusicSettings) { routeName = musicSettingsReturnRouteName }
     BackHandler(enabled = route == AppRoute.AutoDownloadSettings) { routeName = AppRoute.Settings.name }
     BackHandler(enabled = route == AppRoute.Language || route == AppRoute.Sessions) { routeName = AppRoute.Settings.name }
     BackHandler(enabled = route == AppRoute.AppLock) { routeName = AppRoute.Settings.name }
@@ -2831,6 +2835,10 @@ internal fun BeyGramAppContent(
         LocalOpenProviderAlbum provides { albumId: String ->
             ProviderMusicHosts.yandex()?.let { host -> openMusicCollection(host.albumRef(albumId)) }
         },
+        LocalOpenMusicSettings provides {
+            musicSettingsReturnRouteName = routeName
+            routeName = AppRoute.MusicSettings.name
+        },
         LocalRailCreateChat provides { routeName = AppRoute.NewChat.name },
         LocalOpenMyMusic provides {
             if (routeName == AppRoute.MyMusic.name) {
@@ -3462,7 +3470,15 @@ GlobalSearchScreen(
                                 musicSignInReturnRouteName = AppRoute.MyMusic.name
                                 routeName = AppRoute.MusicAccountSignIn.name
                             },
-                            onOpenCollection = ::openMusicCollection
+                            onOpenCollection = ::openMusicCollection,
+                            onOpenSettings = {
+                                musicSettingsReturnRouteName = AppRoute.MyMusic.name
+                                routeName = AppRoute.MusicSettings.name
+                            }
+                        )
+                        AppRoute.MusicSettings -> MusicSettingsScreen(
+                            onBack = { routeName = musicSettingsReturnRouteName },
+                            onOpenEqualizer = { routeName = AppRoute.Equalizer.name }
                         )
                         AppRoute.MusicCollection -> {
                             // Reachable only when the build has a music source; its screen draws the collection.

@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Benchmark-only manifest overlay (#1119).
+
+  Macrobenchmark measures a build that is not debuggable, so the platform exposes no debug hooks for it. The
+  `profileable` flag is what allows the benchmark (and the Baseline Profile generator) to read performance data
+  without making the build debuggable. This flavour of the manifest exists only in the `benchmark` build type.
+-->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <application>
+        <profileable
+            android:enabled="true"
+            android:shell="true" />
+    </application>
+</manifest>
