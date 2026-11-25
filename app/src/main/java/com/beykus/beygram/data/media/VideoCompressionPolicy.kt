@@ -10,7 +10,9 @@ internal data class VideoSourceInfo(
     val sizeBytes: Long,
     val mimeType: String,
     val videoCodecH264: Boolean,
-    val hasAudio: Boolean
+    val hasAudio: Boolean,
+    /** How well the source codec is known to play in a Telegram video message. */
+    val videoCodecClass: VideoCodecClass = VideoCodecClass.Avc
 ) {
     val shortSide: Int get() = minOf(width, height).coerceAtLeast(0)
 

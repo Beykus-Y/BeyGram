@@ -51,6 +51,26 @@ class Mp4StreamingProbeTest {
         assertEquals(Mp4StreamingReason.UnsupportedVideoCodec, info.reason)
     }
 
+    @Test fun outgoingStreamingFlagFollowsTheIndexNotTheCodec() {
+        // A fast-start HEVC file can be streamed by clients that decode HEVC, so the sender must not clear the flag.
+        val hevc = Mp4StreamingProbe.inspect(tempFile(fastStartBytes("hvc1")))
+        assertTrue(hevc.indexStreamable)
+        assertTrue(Mp4StreamingProbe.supportsOutgoingStreaming(tempFile(fastStartBytes("hvc1"))))
+
+        // An unknown codec keeps a readable index, so the container fact is still true for the sender.
+        assertTrue(Mp4StreamingProbe.inspect(tempFile(fastStartBytes("jpeg"))).indexStreamable)
+
+        // moov after mdat means nobody can start before the file is complete.
+        val moovLast = Mp4StreamingProbe.inspect(tempFile(concat(ftyp(), mdat(32), moovWithVideo("hvc1"))))
+        assertFalse(moovLast.indexStreamable)
+        assertFalse(Mp4StreamingProbe.supportsOutgoingStreaming(tempFile(concat(ftyp(), mdat(32), moovWithVideo("hvc1")))))
+
+        // A truncated index is not a promise either.
+        val full = fastStartBytes("hvc1")
+        val moovEnd = ftyp().size + moovWithVideo("hvc1").size
+        assertFalse(Mp4StreamingProbe.inspect(tempFile(full), availableBytes = (moovEnd - 4).toLong()).indexStreamable)
+    }
+
     @Test fun audioOnlyMp4DoesNotClaimVideoStreaming() {
         val bytes = concat(ftyp(), box("moov", box("trak", box("mdia", box("minf", box("stbl", stsd("mp4a")))))), mdat(16))
         val info = Mp4StreamingProbe.inspect(tempFile(bytes))

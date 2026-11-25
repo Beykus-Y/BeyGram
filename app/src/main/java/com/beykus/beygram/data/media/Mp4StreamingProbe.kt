@@ -23,7 +23,13 @@ internal data class Mp4StreamingInfo(
     val videoCodecs: Set<String>,
     val streamable: Boolean,
     val reason: Mp4StreamingReason,
-    val audioCodecs: Set<String> = emptySet()
+    val audioCodecs: Set<String> = emptySet(),
+    /**
+     * The index is complete and placed before the media payload, so a client that understands the codec can start
+     * reading immediately. This is the only fact the outgoing supports_streaming flag describes; whether *this*
+     * device can decode the codec is [streamable].
+     */
+    val indexStreamable: Boolean = false
 )
 
 /**
@@ -71,16 +77,20 @@ internal object Mp4StreamingProbe {
             val videoCodecs = codecs.intersect(VIDEO_CODECS)
             val audioOnly = codecs.isNotEmpty() && codecs.all { it in AUDIO_CODECS }
             return when {
-                codecs.isEmpty() || audioOnly -> result(Mp4StreamingReason.NoVideoTrack, isMp4 = true)
+                codecs.isEmpty() || audioOnly -> result(
+                    Mp4StreamingReason.NoVideoTrack, isMp4 = true, indexStreamable = true
+                )
                 videoCodecs.isEmpty() -> result(
-                    Mp4StreamingReason.UnsupportedVideoCodec, isMp4 = true, videoCodecs = codecs
+                    Mp4StreamingReason.UnsupportedVideoCodec, isMp4 = true, videoCodecs = codecs,
+                    indexStreamable = true
                 )
                 else -> Mp4StreamingInfo(
                     isMp4 = true,
                     fastStart = true,
                     videoCodecs = videoCodecs,
                     streamable = true,
-                    reason = Mp4StreamingReason.Streamable
+                    reason = Mp4StreamingReason.Streamable,
+                    indexStreamable = true
                 )
             }
         }
@@ -89,6 +99,13 @@ internal object Mp4StreamingProbe {
     }
 
     fun supportsStreaming(file: File): Boolean = inspect(file).streamable
+
+    /**
+     * The outgoing `supports_streaming` flag: a hint that the index sits before the payload, so a receiver can start
+     * before the whole file arrives. It deliberately ignores the codec, because the sender cannot know which codecs a
+     * receiver decodes; a non-fast-start file keeps the flag false.
+     */
+    fun supportsOutgoingStreaming(file: File): Boolean = inspect(file).indexStreamable
 
     /**
      * Audio-only MP4/M4A counterpart. The same structural rules apply (complete moov before mdat),
@@ -112,7 +129,7 @@ internal object Mp4StreamingProbe {
             val audioCodecs = codecs.intersect(AUDIO_CODECS)
             return when {
                 codecs.isEmpty() || audioCodecs.isEmpty() -> result(
-                    Mp4StreamingReason.NoAudioTrack, isMp4 = true, audioCodecs = codecs
+                    Mp4StreamingReason.NoAudioTrack, isMp4 = true, audioCodecs = codecs, indexStreamable = true
                 )
                 else -> Mp4StreamingInfo(
                     isMp4 = true,
@@ -120,7 +137,8 @@ internal object Mp4StreamingProbe {
                     videoCodecs = codecs.intersect(VIDEO_CODECS),
                     streamable = true,
                     reason = Mp4StreamingReason.Streamable,
-                    audioCodecs = audioCodecs
+                    audioCodecs = audioCodecs,
+                    indexStreamable = true
                 )
             }
         }
@@ -137,14 +155,16 @@ internal object Mp4StreamingProbe {
         reason: Mp4StreamingReason,
         isMp4: Boolean,
         videoCodecs: Set<String> = emptySet(),
-        audioCodecs: Set<String> = emptySet()
+        audioCodecs: Set<String> = emptySet(),
+        indexStreamable: Boolean = false
     ) = Mp4StreamingInfo(
         isMp4 = isMp4,
         fastStart = false,
         videoCodecs = videoCodecs,
         streamable = false,
         reason = reason,
-        audioCodecs = audioCodecs
+        audioCodecs = audioCodecs,
+        indexStreamable = indexStreamable
     )
 
     /** Reads box headers only; any read problem gives an empty layout, which the diagnostics report as such. */

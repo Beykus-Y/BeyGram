@@ -1136,6 +1136,7 @@
     <string name="diag_video_buffer_title">Tampon de démarrage vidéo</string>
     <string name="diag_video_buffer_value_default">Valeur par défaut de Media3</string>
     <string name="diag_video_buffer_value_ms">%1$d ms</string>
+    <string name="composer_quality_hint_codec">Telegram ne lit pas le codec de cette vidéo. Compressez-la pour l\'envoyer comme vidéo, ou envoyez-la comme fichier.</string>
     <!-- Автопроверка обновлений (#1148): канал уведомлений и плашка на экране чатов. -->
     <string name="updates_channel_name">Mises à jour BeyGram</string>
     <string name="updates_channel_description">Signale la disponibilité d\'une nouvelle version de BeyGram.</string>
