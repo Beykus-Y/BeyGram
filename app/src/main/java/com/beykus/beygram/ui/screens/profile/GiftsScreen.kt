@@ -20,6 +20,8 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.sizeIn
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.ui.draw.clip
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -56,6 +58,7 @@ import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.heading
+import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -871,9 +874,20 @@ private fun ReceivedGiftRow(gift: ReceivedGiftItem) {
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             // The gift itself is the main visual, so the emoji gets a larger slot than the text around it.
-            Box(Modifier.sizeIn(minWidth = 48.dp, minHeight = 48.dp), contentAlignment = Alignment.Center) {
+            // An upgraded gift shows its backdrop behind the model and its symbol in the corner; a regular gift has neither.
+            GiftCollectibleBackdrop(
+                gift.collectible,
+                Modifier.sizeIn(minWidth = 48.dp, minHeight = 48.dp).clip(RoundedCornerShape(12.dp))
+            ) {
                 GiftVisualImage(gift.visual, 36.dp) {
                     Text(gift.emoji.ifBlank { "🎁" }, fontSize = 36.sp)
+                }
+                // The symbol only shows its thumbnail, so a symbol without one has nothing to draw. Its inset keeps it
+                // inside the rounded backdrop corner, and its semantics are cleared because the row already says the gift.
+                gift.collectible?.symbol?.takeIf { it.thumbnailFileId != null }?.let { symbol ->
+                    Box(Modifier.align(Alignment.BottomEnd).padding(4.dp).clearAndSetSemantics {}) {
+                        GiftVisualImage(symbol, 18.dp, staticOnly = true) {}
+                    }
                 }
             }
             Column(Modifier.weight(1f).padding(start = 12.dp)) {
