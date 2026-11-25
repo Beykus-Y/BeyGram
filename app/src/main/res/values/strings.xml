@@ -2193,6 +2193,8 @@
     <string name="a11y_chat_muted">Без уведомлений</string>
     <string name="a11y_chat_info">Информация о чате</string>
     <string name="a11y_profile_photo_open">Открыть фотографию профиля</string>
+    <string name="a11y_profile_photo_expand">Раскрыть фото профиля</string>
+    <string name="a11y_profile_photo_expanded_state">Фото раскрыто</string>
     <string name="a11y_media_open">Открыть: %1$s</string>
     <string name="a11y_media_download">Скачать: %1$s</string>
     <string name="a11y_voice_message">Голосовое сообщение, %1$s</string>

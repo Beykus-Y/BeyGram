@@ -158,7 +158,6 @@ fun ProfileScreen(
     val sceneEnabled by ProfileSceneSettings.enabled.collectAsState()
     val sceneC = ProfileSceneSettings.variantFor(sceneEnabled) == ProfileVariant.C
     var photoExpanded by rememberSaveable(state.info?.id) { mutableStateOf(false) }
-    if (sceneC && photoExpanded) BackHandler { photoExpanded = false }
     var pendingPhoto by rememberSaveable { mutableStateOf<OutgoingMedia?>(null) }
     var preparing by remember { mutableStateOf(false) }
     var saving by remember { mutableStateOf(false) }
@@ -202,6 +201,9 @@ fun ProfileScreen(
             }
         }
     }
+    // Profile 2.0 C1: while a photo is revealed, Back folds it first. Registered after the handlers above so it
+    // takes priority, and disabled otherwise so Back keeps its usual behaviour (including after a rotation).
+    BackHandler(enabled = ProfileSceneSettings.backClosesExpansion(sceneC, photoExpanded)) { photoExpanded = false }
     val groupInfo = state.info?.takeIf { it.kind == ProfileKind.Group }
     if (pendingPhoto == null && groupInfo != null) GroupProfileScreen(
         info = groupInfo, state = state, lastSeenStyle = lastSeenStyle, observeFile = observeFile, downloadFile = downloadFile,
@@ -274,8 +276,15 @@ fun ProfileScreen(
                     // While a flight or mid-scroll collapse carries the avatar it is invisible, so it must not be tappable either.
                     Box(
                         (if (info.photo != null && collapse.value <= 0f && (profileTransition == null || !profileTransition.flightActive())) {
-                            Modifier.clickable(role = Role.Button) { if (sceneC && !photoExpanded) photoExpanded = true else showPhoto = true }
-                                .semantics { contentDescription = context.getString(R.string.a11y_profile_photo_open) }
+                            Modifier.clickable(role = Role.Button) {
+                                if (ProfileSceneSettings.avatarTapAction(sceneC, photoExpanded) == AvatarTap.RevealPhoto) photoExpanded = true
+                                else showPhoto = true
+                            }
+                                .semantics {
+                                    contentDescription = context.getString(
+                                        if (sceneC && !photoExpanded) R.string.a11y_profile_photo_expand else R.string.a11y_profile_photo_open
+                                    )
+                                }
                         } else {
                             Modifier
                         }).graphicsLayer {
