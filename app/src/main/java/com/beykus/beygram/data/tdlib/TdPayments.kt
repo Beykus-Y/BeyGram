@@ -416,7 +416,7 @@ internal class TdPayments(
      * Maps a TDLib sticker to the gift's visual and registers its file (and thumbnail) so the visible cell can fetch
      * its own preview. A sticker in a format the app cannot draw yields null, and the emoji is shown instead.
      */
-    private fun giftVisual(sticker: TdApi.Sticker?): GiftVisual? {
+    internal fun giftVisual(sticker: TdApi.Sticker?): GiftVisual? {
         val value = sticker ?: return null
         val file = value.sticker ?: return null
         val format = value.format?.toStickerFileFormat() ?: return null
@@ -435,7 +435,7 @@ internal class TdPayments(
      * The collectible attributes of an upgraded gift that its card shows beside the model. Null for a regular gift.
      * The symbol sticker is registered like the visual; the colours and rarity are plain values.
      */
-    private fun giftCollectible(upgraded: TdApi.UpgradedGift?): GiftCollectibleDetails? {
+    internal fun giftCollectible(upgraded: TdApi.UpgradedGift?): GiftCollectibleDetails? {
         val gift = upgraded ?: return null
         val colors = gift.backdrop?.colors
         val rarity = gift.model?.rarity
