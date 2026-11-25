@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="stealth_risky_warning_title">Esta acción puede mostrarte en línea</string>
-    <string name="stealth_risky_warning_text">Las reacciones, los votos en encuestas y los botones de bots son visibles para los demás, y Telegram puede mostrarte en línea un rato. ¿Continuar?</string>
+    <string name="stealth_risky_warning_text">Las reacciones, las acciones en encuestas y los botones de bots pueden ser visibles para otras personas. Telegram también puede mostrarte en línea brevemente. ¿Continuar?</string>
     <string name="stealth_risky_warning_confirm">Continuar</string>
 </resources>

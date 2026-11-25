@@ -16,7 +16,8 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.selection.selectable
-import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.selection.selectableGroup
+import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.ChevronRight
@@ -27,17 +28,23 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.RadioButton
 import com.beykus.beygram.ui.components.Switch
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.State
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.LiveRegionMode
+import androidx.compose.ui.semantics.heading
+import androidx.compose.ui.semantics.liveRegion
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
@@ -52,6 +59,7 @@ import com.beykus.beygram.data.settings.StealthScheduleDelayChoices
 import com.beykus.beygram.data.settings.StealthScheduleDelayRange
 import com.beykus.beygram.data.settings.StealthSettingsStore
 import com.beykus.beygram.data.settings.stealthDelayUsesServer
+import com.beykus.beygram.domain.model.ChatPreview
 import com.beykus.beygram.ui.components.beyGramPalette
 import com.beykus.beygram.ui.components.groupSurfaceColor
 import com.beykus.beygram.ui.design.groupCardShape
@@ -71,8 +79,15 @@ fun StealthSettingsScreen(
     store: StealthSettingsStore?,
     onServerPrivacy: () -> Unit,
     onBack: () -> Unit,
-    delayStore: DelayedSendSettingsStore? = null
+    delayStore: DelayedSendSettingsStore? = null,
+    accountName: String? = null,
+    exceptionChats: List<ChatPreview> = emptyList()
 ) {
+    var showExceptions by rememberSaveable(store) { mutableStateOf(false) }
+    if (store != null && showExceptions) {
+        StealthExceptionsScreen(store, exceptionChats, onBack = { showExceptions = false })
+        return
+    }
     val palette = beyGramPalette()
     val design = LocalDesignSystem.current
     BackHandler(onBack = onBack)
@@ -86,7 +101,13 @@ fun StealthSettingsScreen(
                 modifier = Modifier.padding(horizontal = 20.dp, vertical = 12.dp)
             )
         } else {
-            StealthSettingsBody(store = store, onServerPrivacy = onServerPrivacy, delayStore = delayStore)
+            StealthSettingsBody(
+                store = store,
+                onServerPrivacy = onServerPrivacy,
+                delayStore = delayStore,
+                accountName = accountName,
+                onExceptions = { showExceptions = true }
+            )
         }
     }
 }
@@ -99,7 +120,13 @@ internal fun rememberStealthSettings(store: StealthSettingsStore?): State<Stealt
 }
 
 @Composable
-private fun ColumnScope.StealthSettingsBody(store: StealthSettingsStore, onServerPrivacy: () -> Unit, delayStore: DelayedSendSettingsStore?) {
+private fun ColumnScope.StealthSettingsBody(
+    store: StealthSettingsStore,
+    onServerPrivacy: () -> Unit,
+    delayStore: DelayedSendSettingsStore?,
+    accountName: String?,
+    onExceptions: () -> Unit
+) {
     val palette = beyGramPalette()
     val design = LocalDesignSystem.current
     val settings by store.state.collectAsStateWithLifecycle()
@@ -114,28 +141,11 @@ private fun ColumnScope.StealthSettingsBody(store: StealthSettingsStore, onServe
         Modifier.fillMaxWidth().weight(1f).verticalScroll(rememberScrollState()).padding(horizontal = 16.dp, vertical = 8.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
-        StatusCard(settings = settings, saveFailed = saveFailed)
-
-        GroupTitle(stringResource(R.string.stealth_group_presets))
-        Column(Modifier.fillMaxWidth().glassCard(design, groupSurfaceColor(), palette.textSecondary, groupCardShape()).padding(vertical = 4.dp)) {
-            ChoiceRow(stringResource(R.string.stealth_preset_normal), selected = preset == StealthPresetKind.Normal) {
-                update { stealthPreset(StealthPresetKind.Normal, it) }
-            }
-            SettingsRowDivider(startInset = SettingsRowInset)
-            ChoiceRow(stringResource(R.string.stealth_preset_hidden_reading), selected = preset == StealthPresetKind.HiddenReading) {
-                update { stealthPreset(StealthPresetKind.HiddenReading, it) }
-            }
-            SettingsRowDivider(startInset = SettingsRowInset)
-            ChoiceRow(stringResource(R.string.stealth_preset_maximum), selected = preset == StealthPresetKind.Maximum) {
-                update { stealthPreset(StealthPresetKind.Maximum, it) }
-            }
-            if (preset == StealthPresetKind.Custom) {
-                SettingsRowDivider(startInset = SettingsRowInset)
-                ChoiceRow(stringResource(R.string.stealth_preset_custom), selected = true, onSelect = null)
-            }
+        StatusCard(settings, preset, exceptions, saveFailed, accountName) { choice ->
+            update { stealthPreset(choice, it) }
         }
 
-        GroupTitle(stringResource(R.string.stealth_group_switches))
+        GroupTitle(stringResource(R.string.stealth_group_reading))
         Column(Modifier.fillMaxWidth().glassCard(design, groupSurfaceColor(), palette.textSecondary, groupCardShape()).padding(vertical = 4.dp)) {
             SwitchRow(
                 title = stringResource(R.string.stealth_hide_typing_title),
@@ -160,7 +170,10 @@ private fun ColumnScope.StealthSettingsBody(store: StealthSettingsStore, onServe
                 detail = stringResource(R.string.stealth_no_story_views_detail),
                 checked = settings.noStoryViews
             ) { value -> update { it.copy(noStoryViews = value) } }
-            SettingsRowDivider(startInset = SettingsRowInset)
+        }
+
+        GroupTitle(stringResource(R.string.stealth_group_activity))
+        Column(Modifier.fillMaxWidth().glassCard(design, groupSurfaceColor(), palette.textSecondary, groupCardShape()).padding(vertical = 4.dp)) {
             SwitchRow(
                 title = stringResource(R.string.stealth_hide_online_title),
                 detail = stringResource(R.string.stealth_hide_online_detail),
@@ -174,17 +187,23 @@ private fun ColumnScope.StealthSettingsBody(store: StealthSettingsStore, onServe
             ) { value -> update { it.copy(warnRiskyActions = value) } }
         }
 
-        ScheduledSendSection(settings = settings, update = ::update)
-
-        Column(
-            Modifier.fillMaxWidth().glassCard(design, groupSurfaceColor(), palette.textSecondary, groupCardShape()).padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp)
+        Row(
+            Modifier.fillMaxWidth().glassCard(design, groupSurfaceColor(), palette.textSecondary, groupCardShape())
+                .heightIn(min = 48.dp).clickable(role = Role.Button, onClick = onExceptions)
+                .padding(horizontal = 16.dp, vertical = 14.dp),
+            verticalAlignment = Alignment.CenterVertically
         ) {
-            Text(stringResource(R.string.stealth_limits_title), color = palette.textPrimary, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
-            Text(stringResource(R.string.stealth_limits_scope), color = palette.textSecondary, fontSize = 13.sp)
-            Text(stringResource(R.string.stealth_limits_actions), color = palette.textSecondary, fontSize = 13.sp)
-            Text(stringResource(R.string.stealth_limits_online), color = palette.textSecondary, fontSize = 13.sp)
+            Text(
+                stringResource(R.string.stealth_exceptions_count, exceptions),
+                color = palette.textPrimary,
+                fontSize = 15.sp,
+                fontWeight = FontWeight.Medium,
+                modifier = Modifier.weight(1f)
+            )
+            Icon(Icons.Rounded.ChevronRight, contentDescription = null, tint = palette.textSecondary, modifier = Modifier.size(22.dp))
         }
+
+        ScheduledSendSection(settings = settings, update = ::update)
 
         Row(
             Modifier.fillMaxWidth().glassCard(design, groupSurfaceColor(), palette.textSecondary, groupCardShape())
@@ -197,16 +216,6 @@ private fun ColumnScope.StealthSettingsBody(store: StealthSettingsStore, onServe
                 Text(stringResource(R.string.stealth_server_last_seen_detail), color = palette.textSecondary, fontSize = 13.sp)
             }
             Icon(Icons.Rounded.ChevronRight, contentDescription = null, tint = palette.textSecondary, modifier = Modifier.size(22.dp))
-        }
-
-        Column(
-            Modifier.fillMaxWidth().glassCard(design, groupSurfaceColor(), palette.textSecondary, groupCardShape()).padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(4.dp)
-        ) {
-            if (exceptions > 0) {
-                Text(stringResource(R.string.stealth_exceptions_count, exceptions), color = palette.textPrimary, fontSize = 15.sp, fontWeight = FontWeight.Medium)
-            }
-            Text(stringResource(R.string.stealth_exceptions_detail), color = palette.textSecondary, fontSize = 13.sp)
         }
 
         if (delayStore != null) DelayedSendSection(delayStore)
@@ -338,36 +347,95 @@ private fun delayChoiceLabel(seconds: Int): String = when (seconds) {
 }
 
 @Composable
-private fun StatusCard(settings: StealthSettings, saveFailed: Boolean) {
+private fun StatusCard(
+    settings: StealthSettings,
+    preset: StealthPresetKind,
+    exceptionCount: Int,
+    saveFailed: Boolean,
+    accountName: String?,
+    onPresetSelected: (StealthPresetKind) -> Unit
+) {
     val palette = beyGramPalette()
     val design = LocalDesignSystem.current
+    var showLimits by rememberSaveable { mutableStateOf(false) }
     Column(
         Modifier.fillMaxWidth().glassCard(design, groupSurfaceColor(), palette.textSecondary, groupCardShape()).padding(16.dp),
-        verticalArrangement = Arrangement.spacedBy(6.dp)
+        verticalArrangement = Arrangement.spacedBy(8.dp)
     ) {
-        Text(stringResource(R.string.stealth_title), color = palette.textPrimary, fontSize = 17.sp, fontWeight = FontWeight.SemiBold)
+        Text(stringResource(R.string.stealth_client_state), color = palette.textSecondary, fontSize = 13.sp)
+        accountName?.let { Text(it, color = palette.textSecondary, fontSize = 13.sp) }
         Text(
-            stringResource(if (settings.protectionActive) R.string.stealth_status_on else R.string.stealth_status_off),
-            color = if (settings.protectionActive) palette.accentInk else palette.textSecondary,
-            fontSize = 14.sp
+            stringResource(if (settings.failClosed) R.string.stealth_unavailable else preset.labelRes()),
+            color = palette.textPrimary,
+            fontSize = 22.sp,
+            fontWeight = FontWeight.SemiBold,
+            modifier = Modifier.semantics { heading() }
         )
-        if (settings.failClosed) {
-            Text(stringResource(R.string.stealth_fail_closed), color = palette.warningText, fontSize = 13.sp, modifier = Modifier.padding(top = 4.dp))
+        Text(stringResource(R.string.stealth_server_visibility_unknown), color = palette.textSecondary, fontSize = 13.sp)
+        if (settings.failClosed || saveFailed) {
+            Column(Modifier.semantics { liveRegion = LiveRegionMode.Polite }) {
+                if (settings.failClosed) Text(stringResource(R.string.stealth_fail_closed), color = palette.warningText, fontSize = 14.sp)
+                if (saveFailed) Text(stringResource(R.string.stealth_save_failed), color = palette.danger, fontSize = 14.sp)
+            }
         }
-        if (saveFailed) {
-            Text(stringResource(R.string.stealth_save_failed), color = palette.danger, fontSize = 13.sp, modifier = Modifier.padding(top = 4.dp))
+
+        GroupTitle(stringResource(R.string.stealth_quick_presets))
+        Column(Modifier.selectableGroup()) {
+            listOf(StealthPresetKind.Normal, StealthPresetKind.HiddenReading, StealthPresetKind.Maximum).forEach { choice ->
+                ChoiceRow(stringResource(choice.labelRes()), selected = !settings.failClosed && preset == choice) { onPresetSelected(choice) }
+            }
+        }
+
+        GroupTitle(stringResource(R.string.stealth_active_parameters))
+        val activeLabels = buildList {
+            if (settings.hideTyping) add(R.string.stealth_summary_typing)
+            if (settings.noReadReceipts) add(R.string.stealth_summary_reads)
+            if (settings.noContentOpen) add(R.string.stealth_summary_media)
+            if (settings.noStoryViews) add(R.string.stealth_summary_stories)
+            if (settings.hideOnline) add(R.string.stealth_summary_presence)
+            if (settings.hideOnline && settings.warnRiskyActions) add(R.string.stealth_summary_warnings)
+            if (settings.serverScheduledSend) add(R.string.stealth_summary_scheduled)
+        }
+        if (activeLabels.isEmpty() && exceptionCount == 0) {
+            Text(stringResource(R.string.stealth_no_active_parameters), color = palette.textSecondary, fontSize = 13.sp)
+        }
+        if (activeLabels.isNotEmpty()) {
+            val activeSettings = activeLabels.map { stringResource(it) }
+            Text(activeSettings.joinToString(" · "), color = palette.textSecondary, fontSize = 13.sp)
+        }
+        if (settings.serverScheduledSend && !stealthDelayUsesServer(settings.scheduledSendDelaySeconds)) {
+            Text(stringResource(R.string.stealth_schedule_short_warning), color = palette.warningText, fontSize = 13.sp)
+        }
+        if (exceptionCount > 0) {
+            Text(stringResource(R.string.stealth_exceptions_count, exceptionCount), color = palette.textSecondary, fontSize = 13.sp)
+        }
+        Text(stringResource(R.string.stealth_summary_scope), color = palette.textSecondary, fontSize = 13.sp)
+        TextButton(onClick = { showLimits = !showLimits }, modifier = Modifier.heightIn(min = 48.dp)) {
+            Text(stringResource(if (showLimits) R.string.stealth_hide_limits else R.string.stealth_show_limits))
+        }
+        if (showLimits) {
+            Text(stringResource(R.string.stealth_limits_scope), color = palette.textSecondary, fontSize = 13.sp)
+            Text(stringResource(R.string.stealth_limits_actions), color = palette.textSecondary, fontSize = 13.sp)
+            Text(stringResource(R.string.stealth_limits_online), color = palette.textSecondary, fontSize = 13.sp)
         }
     }
 }
 
+private fun StealthPresetKind.labelRes(): Int = when (this) {
+    StealthPresetKind.Normal -> R.string.stealth_preset_normal
+    StealthPresetKind.HiddenReading -> R.string.stealth_preset_hidden_reading
+    StealthPresetKind.Maximum -> R.string.stealth_preset_maximum
+    StealthPresetKind.Custom -> R.string.stealth_preset_custom
+}
+
 @Composable
 private fun GroupTitle(text: String) {
-    Text(text, color = beyGramPalette().textSecondary, fontSize = 14.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.padding(horizontal = 6.dp))
+    Text(text, color = beyGramPalette().textSecondary, fontSize = 14.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.padding(horizontal = 6.dp).semantics { heading() })
 }
 
 /** A radio row. Without [onSelect] it only shows its state, as the custom row does. */
 @Composable
-private fun ChoiceRow(title: String, selected: Boolean, onSelect: (() -> Unit)?) {
+internal fun ChoiceRow(title: String, selected: Boolean, onSelect: (() -> Unit)?) {
     val palette = beyGramPalette()
     val base = Modifier.fillMaxWidth().heightIn(min = 48.dp)
     val rowModifier = if (onSelect == null) base else base.selectable(selected = selected, role = Role.RadioButton, onClick = onSelect)
@@ -382,13 +450,13 @@ private fun ChoiceRow(title: String, selected: Boolean, onSelect: (() -> Unit)?)
 private fun SwitchRow(title: String, detail: String, checked: Boolean, onCheckedChange: (Boolean) -> Unit) {
     val palette = beyGramPalette()
     Row(
-        Modifier.fillMaxWidth().clickable(role = Role.Switch) { onCheckedChange(!checked) }.padding(horizontal = 16.dp, vertical = 10.dp),
+        Modifier.fillMaxWidth().heightIn(min = 48.dp).toggleable(value = checked, role = Role.Switch, onValueChange = onCheckedChange).padding(horizontal = 16.dp, vertical = 10.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
         Column(Modifier.weight(1f).padding(end = 12.dp)) {
             Text(title, color = palette.textPrimary, fontSize = 15.sp, fontWeight = FontWeight.Medium)
             Text(detail, color = palette.textSecondary, fontSize = 13.sp, modifier = Modifier.padding(top = 2.dp))
         }
-        Switch(checked = checked, onCheckedChange = onCheckedChange)
+        Switch(checked = checked, onCheckedChange = null)
     }
 }

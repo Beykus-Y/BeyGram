@@ -3635,8 +3635,14 @@ GlobalSearchScreen(
                             )
                         }
                         AppRoute.StealthSettings -> key(selectedAccountId) {
+                            val currentProfile by repository.myProfile.collectAsStateWithLifecycle()
+                            val activeChats by repository.chats.collectAsStateWithLifecycle()
+                            val archivedChats by repository.archivedChats.collectAsStateWithLifecycle()
+                            val exceptionChats = remember(activeChats, archivedChats) { activeChats + archivedChats }
                             StealthSettingsScreen(
                                 store = (repository as? TdLibTelegramRepository)?.stealthSettings,
+                                accountName = currentProfile.info?.title?.takeIf { it.isNotBlank() },
+                                exceptionChats = exceptionChats,
                                 delayStore = (repository as? TdLibTelegramRepository)?.let { DelayedSendSettingsStore.forAccount(context, it.accountId) },
                                 onServerPrivacy = { routeName = AppRoute.PrivacySettings.name },
                                 onBack = { routeName = AppRoute.PrivacySettings.name }

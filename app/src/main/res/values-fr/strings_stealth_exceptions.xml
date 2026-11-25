@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="stealth_exceptions_title">Exceptions des discussions</string>
+    <string name="stealth_exceptions_inheritance">Les discussions sans exception héritent des paramètres du compte. Les exceptions concernent les lectures, l&#8217;ouverture des médias, la saisie et les vues de stories. La présence, les avertissements et la programmation s&#8217;appliquent à tout le compte.</string>
+    <string name="stealth_exceptions_results">%1$d sur %2$d affichées</string>
+    <string name="stealth_exceptions_empty">Aucune exception correspondante</string>
+    <string name="stealth_exceptions_unknown_chat">Discussion · %1$d</string>
+    <string name="stealth_exceptions_reset">Réinitialiser toutes les exceptions</string>
+    <string name="stealth_exceptions_all">Toutes</string>
+    <string name="stealth_exceptions_allow">Autorisées</string>
+    <string name="stealth_exceptions_block">Bloquées</string>
+    <string name="stealth_exceptions_private">Privées</string>
+</resources>
