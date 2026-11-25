@@ -253,7 +253,12 @@ fun GlassPanel(
         // The tint is what makes glass readable: it is always drawn, blurred or not. Over a real blurred sample the
         // style's own tint is enough; without one the panel stays dense, so labels never fight sharp content below.
         val tintAlpha = glass?.tintAlpha?.coerceIn(0f, 1f) ?: 0f
-        val baseAlpha = if (samplesBackdrop || samplesFrosted) tintAlpha else maxOf(tintAlpha, 0.93f)
+        // With the lens on screen the tint is lighter, so the bent content shows through the glass.
+        val baseAlpha = if (samplesBackdrop || samplesFrosted) {
+            tintAlpha * (if (lensActive) lensTuning.tintScale else 1f)
+        } else {
+            maxOf(tintAlpha, 0.93f)
+        }
         Box(Modifier.matchParentSize().background(tint.copy(alpha = baseAlpha)))
         if (glass != null) {
             // One light edge, brightest where the light falls and fading towards the bottom. A uniform frame plus a

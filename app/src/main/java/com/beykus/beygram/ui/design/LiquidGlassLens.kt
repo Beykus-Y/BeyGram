@@ -40,10 +40,30 @@ data class LensTuning(
      * Blur of the lens path as a fraction of the style's blur. The refraction bends structure, so the lens reads the
      * sharp layer and only the output is softened; a full blur first would leave nothing to bend.
      */
-    val blurScale: Float = 0.5f
+    val blurScale: Float = 0.5f,
+    /**
+     * Multiplier on the style's tint alpha while the lens is on screen. The lighter tint lets the bent content show
+     * through; a dense tint over a blurred sample reads as a matt plastic surface.
+     */
+    val tintScale: Float = 0.75f
 )
 
 internal val DefaultLensTuning = LensTuning()
+
+/**
+ * Named variants for comparing on a device. The panel uses [DefaultLensTuning]; to try a variant, point the
+ * `lensTuning` of the Liquid Glass design in DesignPresets.kt at one of these and rebuild. Values are starting points.
+ */
+object LensTuningPresets {
+    /** The starting point. */
+    val Default = LensTuning()
+
+    /** Clearer glass: the least blur on the lens path and the lightest tint. */
+    val Clear = LensTuning(blurScale = 0.35f, tintScale = 0.6f)
+
+    /** A stronger bend at the rim, with a wider band. */
+    val Bold = LensTuning(thicknessDp = 28.dp, strength = 1.2f, tintScale = 0.8f)
+}
 
 /**
  * Shader that refracts the already blurred backdrop sample ("img") at the panel edge.

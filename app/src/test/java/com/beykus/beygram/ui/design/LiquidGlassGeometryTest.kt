@@ -66,6 +66,7 @@ class LiquidGlassGeometryTest {
         assertTrue(tuning.refractionIndex > 1f)
         assertTrue(tuning.strength > 0f)
         assertTrue(tuning.blurScale > 0f && tuning.blurScale <= 1f)
+        assertTrue(tuning.tintScale > 0f && tuning.tintScale <= 1f)
         assertTrue(tuning.thicknessDp > 0.dp)
     }
 }
