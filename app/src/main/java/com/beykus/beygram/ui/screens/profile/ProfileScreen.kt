@@ -77,6 +77,7 @@ import com.beykus.beygram.domain.model.*
 import com.beykus.beygram.domain.repository.TelegramRepository
 import com.beykus.beygram.navigation.MainTab
 import com.beykus.beygram.ui.accessibility.errorAnnouncement
+import com.beykus.beygram.ui.accessibility.rememberSystemReducedMotion
 import com.beykus.beygram.ui.components.*
 import com.beykus.beygram.ui.screens.chat.LocalMediaImage
 import com.beykus.beygram.ui.screens.chat.MediaViewer
@@ -155,6 +156,8 @@ fun ProfileScreen(
     var showPhoto by rememberSaveable(state.info?.id) { mutableStateOf(false) }
     // Profile 2.0 C1 (#1138): experimental, off by default. A reveals the avatar's gallery directly.
     remember(context) { ProfileSceneSettings.load(context) }
+    val sceneEnabled by ProfileSceneSettings.enabled.collectAsState()
+    val sceneC = ProfileSceneSettings.variantFor(sceneEnabled) == ProfileVariant.C
     var pendingPhoto by rememberSaveable { mutableStateOf<OutgoingMedia?>(null) }
     var preparing by remember { mutableStateOf(false) }
     var saving by remember { mutableStateOf(false) }
@@ -217,8 +220,39 @@ fun ProfileScreen(
         // compact toolbar identity and the title swaps in place of the static screen label (#999).
         val scrollState = rememberScrollState()
         var identityHeightPx by remember { mutableIntStateOf(0) }
-        val collapse = remember { derivedStateOf { com.beykus.beygram.ui.motion.collapseFractionForScroll(scrollState.value, identityHeightPx) } }
         val collapseGeometry = remember(state.info?.id) { ProfileCollapseGeometry() }
+        val sceneHeights = remember(state.info?.id) { ProfileSceneHeights() }
+        val sceneDensity = LocalDensity.current.density
+        val sceneWindow = LocalWindowInfo.current.containerSize
+        val sceneReduceMotion = rememberSystemReducedMotion()
+        // Variant A keeps the scroll-offset fraction. C takes the scene model's collapse once the stage is measured
+        // and the compact toolbar geometry is known; before that it stays at rest, so nothing jumps on the first frame.
+        val collapse = remember(sceneC, sceneDensity, sceneWindow, sceneReduceMotion, state.info?.id) {
+            derivedStateOf {
+                if (!sceneC) {
+                    com.beykus.beygram.ui.motion.collapseFractionForScroll(scrollState.value, identityHeightPx)
+                } else {
+                    val compactA = collapseGeometry.compactAvatar
+                    val compactT = collapseGeometry.compactTitle
+                    val compactS = collapseGeometry.compactStatus
+                    if (!sceneHeights.measured || compactA == null || compactT == null || compactS == null) 0f
+                    else profileSceneFrame(
+                        profileSceneScreenInputs(
+                            density = sceneDensity,
+                            windowWidthPx = sceneWindow.width.toFloat(),
+                            windowHeightPx = sceneWindow.height.toFloat(),
+                            scrollPx = scrollState.value.toFloat(),
+                            heights = sceneHeights,
+                            hasPhoto = state.info?.photo != null,
+                            reduceMotion = sceneReduceMotion,
+                            compactAvatar = compactA.toSceneRect(),
+                            compactTitle = compactT.toSceneRect(),
+                            compactStatus = compactS.toSceneRect(),
+                        )
+                    ).collapse
+                }
+            }
+        }
         val transitionTarget = profileTransition
         val transitionFingerprint = transitionTarget?.let {
             val container = LocalWindowInfo.current.containerSize
@@ -261,13 +295,15 @@ fun ProfileScreen(
         }
         if (state.isLoading) LinearProgressIndicator(Modifier.fillMaxWidth().semantics { contentDescription = loadingText })
         state.error?.let { ProfileLoadError(it.resolve(), state.isLoading, onRefresh) }
-        Column(Modifier.fillMaxSize().verticalScroll(scrollState).padding(bottom = 28.dp)) {
+        Column(
+            Modifier.fillMaxWidth()
+                .then(if (sceneC) Modifier.heightIn(min = with(LocalDensity.current) { (sceneWindow.height + sceneHeights.stageHeightPx).toDp() })
+                else Modifier.fillMaxHeight())
+                .verticalScroll(scrollState).padding(bottom = 28.dp)
+        ) {
             state.info?.let { info ->
                 Column(Modifier.fillMaxWidth().padding(start = 20.dp, end = 20.dp, top = 12.dp, bottom = 16.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-                    Column(
-                        Modifier.fillMaxWidth().onSizeChanged { identityHeightPx = it.height },
-                        horizontalAlignment = Alignment.CenterHorizontally
-                    ) {
+                    val avatarSlot: @Composable () -> Unit = {
                     // Only an avatar with a photo is a control; without one there is nothing to open and nothing to announce.
                     // While a flight or mid-scroll collapse carries the avatar it is invisible, so it must not be tappable either.
                     Box(
@@ -297,8 +333,9 @@ fun ProfileScreen(
                         TelegramAvatar(info.initials, palette.accent, 112.dp, info.photo, observeFile, downloadFile,
                             Modifier.clearAndSetSemantics {})
                     }
-                    Spacer(Modifier.height(16.dp))
-                    Text(info.profileTitleText(), color = palette.textPrimary, fontSize = 26.sp, fontWeight = FontWeight.Bold, textAlign = TextAlign.Center,
+                    }
+                    val titleSlot: @Composable () -> Unit = {
+                        Text(info.profileTitleText(), color = palette.textPrimary, fontSize = 26.sp, fontWeight = FontWeight.Bold, textAlign = TextAlign.Center,
                         modifier = Modifier
                             .graphicsLayer {
                                 alpha = expandedHeaderIdentityAlpha(collapse.value, collapseGeometry.overlayReady) *
@@ -316,7 +353,8 @@ fun ProfileScreen(
                                 }
                             }
                             .semantics { heading() })
-                    Spacer(Modifier.height(4.dp))
+                    }
+                    val statusSlot: @Composable () -> Unit = {
                     Box(
                         Modifier
                             .graphicsLayer {
@@ -338,10 +376,29 @@ fun ProfileScreen(
                         ProfileSubtitle(info, lastSeenStyle)
                     }
                     }
+                    val badgesSlot: @Composable () -> Unit = {
                     Box(Modifier.graphicsLayer {
                         alpha = expandedBadgesAlpha(collapse.value) * (profileTransition?.headerVisibility() ?: 1f)
                     }) {
                         ProfileBadges(info)
+                    }
+                    }
+                    if (sceneC) {
+                        ProfileSceneStage(heights = sceneHeights, scrollPx = { scrollState.value.toFloat() }, hasPhoto = info.photo != null, modifier = Modifier.fillMaxWidth()) {
+                            avatarSlot(); titleSlot(); statusSlot(); badgesSlot()
+                        }
+                    } else {
+                        Column(
+                            Modifier.fillMaxWidth().onSizeChanged { identityHeightPx = it.height },
+                            horizontalAlignment = Alignment.CenterHorizontally
+                        ) {
+                            avatarSlot()
+                            Spacer(Modifier.height(16.dp))
+                            titleSlot()
+                            Spacer(Modifier.height(4.dp))
+                            statusSlot()
+                        }
+                        badgesSlot()
                     }
                     if (info.profileAudios.isNotEmpty()) {
                         Spacer(Modifier.height(14.dp))
