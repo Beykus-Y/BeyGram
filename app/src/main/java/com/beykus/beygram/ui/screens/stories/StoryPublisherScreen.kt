@@ -242,8 +242,8 @@ fun StoryPublisherScreen(
         scope.launch {
             try {
                 val prepared = importer.prepare(uri, asDocument = false)
-                // The message importer only keeps H.264 MP4 as a video; every other container is
-                // still a valid story source because it is re-encoded below.
+                // MP4 is always a video, whatever its codec (#1175); other containers (MKV/WebM/MOV) stay
+                // documents for messages but are still valid story sources, because the story preparer re-encodes them.
                 val source = if (prepared.kind == MediaKind.Document && prepared.mimeType.startsWith("video/")) {
                     prepared.copy(kind = MediaKind.Video)
                 } else {
