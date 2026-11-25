@@ -5,6 +5,9 @@ import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -33,6 +36,7 @@ import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.unit.constrainHeight
 import androidx.compose.ui.unit.constrainWidth
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.beykus.beygram.domain.model.AvatarPhoto
 import com.beykus.beygram.domain.model.MediaFileState
@@ -56,7 +60,8 @@ internal fun ProfileSceneAvatarLayer(
     loadLargePhoto: Boolean,
     observeFile: (Int) -> StateFlow<MediaFileState>,
     downloadFile: (Int) -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    pageLabel: String? = null
 ) {
     var origin by remember { mutableStateOf(Offset.Zero) }
     val mask = remember { Path() }
@@ -127,6 +132,25 @@ internal fun ProfileSceneAvatarLayer(
             } else {
                 Avatar(initials, color, 112.dp)
             }
+        }
+        pageLabel?.let {
+            Text(
+                text = it,
+                color = Color.White,
+                fontSize = 13.sp,
+                modifier = Modifier.align(Alignment.TopStart).graphicsLayer {
+                    val scene = frame()
+                    val rect = scene?.avatarRect
+                    if (rect == null) {
+                        alpha = 0f
+                    } else {
+                        translationX = (rect.left + rect.right - size.width) / 2f - origin.x
+                        translationY = rect.bottom - origin.y - size.height - 12.dp.toPx()
+                        alpha = (1f - scene.collapse * 4f).coerceAtLeast(0f) * visibility()
+                    }
+                }.background(Color.Black.copy(alpha = 0.74f), CircleShape)
+                    .padding(horizontal = 10.dp, vertical = 4.dp)
+            )
         }
     }
 }
