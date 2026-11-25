@@ -192,6 +192,7 @@ import androidx.compose.material.icons.rounded.GraphicEq
 import com.beykus.beygram.playback.PLAYBACK_SPEED_OPTIONS
 import com.beykus.beygram.playback.PlaybackEngine
 import com.beykus.beygram.playback.PlaybackItem
+import com.beykus.beygram.playback.PlaybackState
 import com.beykus.beygram.playback.PlaybackRepeatMode
 import com.beykus.beygram.playback.SLEEP_TIMER_MAX_MINUTES
 import com.beykus.beygram.playback.SleepTimerState
@@ -935,12 +936,23 @@ private fun PlayerArtwork(
         label = "artworkElevation"
     )
     val swipeThresholdPx = with(density) { 72.dp.toPx() }
+    val maxSwipeShiftPx = swipeThresholdPx * 0.65f
     var dragOffsetX by remember(player.item.key) { mutableFloatStateOf(0f) }
     val animatedDragX by animateFloatAsState(
         targetValue = if (reduced) 0f else dragOffsetX,
         animationSpec = mediaMotion.animationSpec(),
         label = "artworkSwipe"
     )
+    val playbackState by PlaybackEngine.state.collectAsStateWithLifecycle()
+    val nextAdjacent = remember(playbackState.queue, playbackState.queueIndex, player.canNext) {
+        if (player.canNext) adjacentQueueItem(playbackState, -1) else null
+    }
+    val prevAdjacent = remember(playbackState.queue, playbackState.queueIndex, player.canPrevious) {
+        if (player.canPrevious) adjacentQueueItem(playbackState, 1) else null
+    }
+    // Preload adjacent provider covers so static artwork appears immediately during swipe.
+    val nextProviderCover = rememberProviderCover(nextAdjacent?.let { ProviderTracks.byKey(it.key)?.coverUrl })
+    val prevProviderCover = rememberProviderCover(prevAdjacent?.let { ProviderTracks.byKey(it.key)?.coverUrl })
     // Short visual feedback badge when double-tapping left/right half of the artwork (±10s).
     var seekFlashDirection by remember(player.item.key) { mutableIntStateOf(0) }
     var seekFlashNonce by remember(player.item.key) { mutableIntStateOf(0) }
@@ -995,76 +1007,114 @@ private fun PlayerArtwork(
                     onHorizontalDrag = { change, dragAmount ->
                         change.consume()
                         total += dragAmount
-                        val maxShift = swipeThresholdPx * 0.65f
-                        dragOffsetX = (total * 0.45f).coerceIn(-maxShift, maxShift)
+                        dragOffsetX = (total * 0.45f).coerceIn(-maxSwipeShiftPx, maxSwipeShiftPx)
                     }
                 )
             }
-            .graphicsLayer {
-                val rhythmScale = if (rhythmSignal.isActive) {
-                    1f + rhythmSignal.beatPulse * 0.025f + rhythmSignal.downbeatPulse * 0.015f
-                } else {
-                    1f
-                }
-                val combined = entryScale.value * breatheScale * rhythmScale
-                scaleX = combined
-                scaleY = combined
-                translationX = animatedDragX
-                alpha = if (PlayerExpansion.fullSharedHidden(FlightRole.Artwork)) 0f else 1f
-            }
-            .shadow(elevation, styledShape(20.dp), clip = false)
             .onGloballyPositioned { targets.artwork = it }
     ) {
-        TrackArtwork(
-            artworkPath = player.item.artworkPath,
-            audioPath = player.item.path.takeIf { it.isNotBlank() },
-            modifier = Modifier.fillMaxSize(),
-            background = palette.accentSoft,
-            tint = palette.accentInk,
-            symbolSize = size * 0.22f,
-            cornerRadius = 20.dp,
-            border = palette.divider.copy(alpha = 0.55f)
-        )
-        BgCanvasOverlay(
-            state = cardCanvasState,
-            playing = player.playing,
-            modifier = Modifier
-                .fillMaxSize()
-                .clip(styledShape(20.dp)),
-            onVisualStateChange = onCardCanvasVisualStateChange,
-        )
-        MascotOverlay(
-            item = player.item,
-            modifier = Modifier
-                .fillMaxSize()
-                .clip(styledShape(20.dp))
-        )
-        AnimatedVisibility(
-            visible = seekFlashDirection != 0,
-            enter = mediaMotion.fadeEnter(),
-            exit = mediaMotion.fadeExit(),
-            modifier = Modifier
-                .align(if (seekFlashDirection < 0) Alignment.CenterStart else Alignment.CenterEnd)
-                .padding(horizontal = 18.dp)
-        ) {
-            Surface(
-                color = Color.Black.copy(alpha = 0.58f),
-                shape = RoundedCornerShape(50)
-            ) {
-                Text(
-                    text = if (seekFlashDirection < 0) "−10s" else "+10s",
-                    color = Color.White,
-                    fontSize = 14.sp,
-                    fontWeight = FontWeight.SemiBold,
-                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp)
-                )
-            }
+        val peekDirection = when {
+            reduced -> 0
+            animatedDragX < -2f -> -1
+            animatedDragX > 2f -> 1
+            else -> 0
         }
-        MascotToggleChip(
-            modifier = Modifier
-                .align(Alignment.BottomEnd)
-                .padding(10.dp)
-        )
+        val peekItem = when (peekDirection) {
+            -1 -> nextAdjacent
+            1 -> prevAdjacent
+            else -> null
+        }
+        if (peekItem != null && !PlayerExpansion.fullSharedHidden(FlightRole.Artwork)) {
+            val progress = artworkSwipeProgress(animatedDragX, maxSwipeShiftPx)
+            val peekCover = if (peekDirection < 0) nextProviderCover else prevProviderCover
+            val peekScale = 0.90f + 0.08f * progress
+            val peekShift = with(density) { 26.dp.toPx() } * (1f - progress) * (if (peekDirection < 0) 1f else -1f)
+            TrackArtwork(
+                artworkPath = peekItem.artworkPath?.takeIf { it.isNotBlank() } ?: peekCover,
+                audioPath = peekItem.path.takeIf { it.isNotBlank() },
+                modifier = Modifier
+                    .fillMaxSize()
+                    .graphicsLayer {
+                        scaleX = peekScale
+                        scaleY = peekScale
+                        translationX = peekShift
+                        alpha = 0.35f + 0.65f * progress
+                    },
+                background = palette.accentSoft,
+                tint = palette.accentInk,
+                symbolSize = size * 0.22f,
+                cornerRadius = 20.dp,
+                border = palette.divider.copy(alpha = 0.4f)
+            )
+        }
+        Box(
+            Modifier
+                .fillMaxSize()
+                .graphicsLayer {
+                    val rhythmScale = if (rhythmSignal.isActive) {
+                        1f + rhythmSignal.beatPulse * 0.025f + rhythmSignal.downbeatPulse * 0.015f
+                    } else {
+                        1f
+                    }
+                    val combined = entryScale.value * breatheScale * rhythmScale
+                    scaleX = combined
+                    scaleY = combined
+                    translationX = animatedDragX
+                    alpha = if (PlayerExpansion.fullSharedHidden(FlightRole.Artwork)) 0f else 1f
+                }
+                .shadow(elevation, styledShape(20.dp), clip = false)
+        ) {
+            TrackArtwork(
+                artworkPath = player.item.artworkPath,
+                audioPath = player.item.path.takeIf { it.isNotBlank() },
+                modifier = Modifier.fillMaxSize(),
+                background = palette.accentSoft,
+                tint = palette.accentInk,
+                symbolSize = size * 0.22f,
+                cornerRadius = 20.dp,
+                border = palette.divider.copy(alpha = 0.55f)
+            )
+            BgCanvasOverlay(
+                state = cardCanvasState,
+                playing = player.playing,
+                modifier = Modifier
+                    .fillMaxSize()
+                    .clip(styledShape(20.dp)),
+                onVisualStateChange = onCardCanvasVisualStateChange,
+            )
+            MascotOverlay(
+                item = player.item,
+                modifier = Modifier
+                    .fillMaxSize()
+                    .clip(styledShape(20.dp))
+            )
+            AnimatedVisibility(
+                visible = seekFlashDirection != 0,
+                enter = mediaMotion.fadeEnter(),
+                exit = mediaMotion.fadeExit(),
+                modifier = Modifier
+                    .align(if (seekFlashDirection < 0) Alignment.CenterStart else Alignment.CenterEnd)
+                    .padding(horizontal = 18.dp)
+            ) {
+                Surface(
+                    color = Color.Black.copy(alpha = 0.58f),
+                    shape = RoundedCornerShape(50)
+                ) {
+                    Text(
+                        text = if (seekFlashDirection < 0) "−10s" else "+10s",
+                        color = Color.White,
+                        fontSize = 14.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp)
+                    )
+                }
+            }
+            MascotToggleChip(
+                modifier = Modifier
+                    .align(Alignment.BottomEnd)
+                    .padding(10.dp)
+            )
+        }
     }
 }
 
@@ -2715,3 +2765,16 @@ internal fun shouldShowJumpToCurrent(
         currentItemListIndex >= 0 &&
         visibleIndices.isNotEmpty() &&
         currentItemListIndex !in visibleIndices
+
+internal fun adjacentQueueItem(state: PlaybackState, direction: Int): PlaybackItem? {
+    val idx = state.queueIndex
+    if (idx < 0) return null
+    return when {
+        direction < 0 -> state.queue.getOrNull(idx + 1)
+        direction > 0 -> if (idx > 0) state.queue.getOrNull(idx - 1) else null
+        else -> null
+    }
+}
+
+internal fun artworkSwipeProgress(dragOffsetPx: Float, maxShiftPx: Float): Float =
+    (kotlin.math.abs(dragOffsetPx) / maxShiftPx.coerceAtLeast(1f)).coerceIn(0f, 1f)
