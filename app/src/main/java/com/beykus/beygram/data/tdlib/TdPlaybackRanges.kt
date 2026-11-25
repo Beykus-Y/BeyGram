@@ -1,6 +1,7 @@
 package com.beykus.beygram.data.tdlib
 
 import com.beykus.beygram.playback.PlaybackRanges
+import kotlinx.coroutines.CancellationException
 import org.drinkless.tdlib.Client
 import org.drinkless.tdlib.TdApi
 
@@ -19,7 +20,15 @@ internal class TdPlaybackRanges(
 ) : PlaybackRanges {
     override suspend fun readableFrom(fileId: Int, offset: Long): Long {
         if (fileId <= 0 || offset < 0L) return 0L
-        val answer = runCatching { requests(TdApi.GetFileDownloadedPrefixSize(fileId, offset)) }.getOrNull()
+        val answer = try {
+            requests(TdApi.GetFileDownloadedPrefixSize(fileId, offset))
+        } catch (cancelled: CancellationException) {
+            // Cancellation is not a failed query: the caller (a closed page, a new video, a switched account) must see
+            // it, otherwise the coordinator would happily request a window for a screen that no longer exists.
+            throw cancelled
+        } catch (_: Exception) {
+            null
+        }
         return (answer as? TdApi.FileDownloadedPrefixSize)?.size?.coerceAtLeast(0L) ?: 0L
     }
 

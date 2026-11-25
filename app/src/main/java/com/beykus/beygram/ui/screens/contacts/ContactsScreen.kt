@@ -20,6 +20,7 @@ import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.WindowInsetsSides
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.only
@@ -82,7 +83,7 @@ import com.beykus.beygram.ui.components.beyGramPalette
 import com.beykus.beygram.ui.components.groupSurfaceColor
 import com.beykus.beygram.ui.components.listRowTitleWeight
 import com.beykus.beygram.ui.components.StyledListDivider
-import com.beykus.beygram.ui.components.MainTabHeader
+import com.beykus.beygram.ui.components.MainTabLayout
 import com.beykus.beygram.ui.components.MainTabTitle
 import com.beykus.beygram.ui.components.LocalNavigationDock
 import com.beykus.beygram.ui.components.scrollClearance
@@ -201,12 +202,9 @@ fun ContactsScreen(
     LaunchedEffect(accountId) { reload() }
 
     // The same screen surface as Settings: the glass style draws its glow, the others the plain screen colour.
-    Column(
-        Modifier.fillMaxSize().glassScreenBackground(design, palette.screen)
-            .mainTabInsets()
-            .imePadding()
-    ) {
-        MainTabHeader {
+    MainTabLayout(
+        modifier = Modifier.fillMaxSize().glassScreenBackground(design, palette.screen).mainTabInsets().imePadding(),
+        header = {
             Column {
                 MainTabTitle(stringResource(R.string.contacts_title), Modifier.fillMaxWidth().padding(start = 20.dp, end = 8.dp, top = 8.dp, bottom = 8.dp)) {
                     IconButton(onClick = { showAddDialog = true }) { Icon(Icons.Rounded.PersonAdd, stringResource(R.string.contacts_add_contact_description), tint = palette.accent) }
@@ -216,28 +214,33 @@ fun ContactsScreen(
                 }
             }
         }
-        if (loading && contacts.isNotEmpty()) LinearProgressIndicator(Modifier.fillMaxWidth(), color = palette.accent)
+    ) { headerInset ->
+        val showProgress = loading && contacts.isNotEmpty()
+        val hasTopMessage = showProgress || openError != null
+        if (hasTopMessage) Spacer(Modifier.height(headerInset))
+        val topInset = if (hasTopMessage) 0.dp else headerInset
+        if (showProgress) LinearProgressIndicator(Modifier.fillMaxWidth(), color = palette.accent)
         openError?.let { Text(it, color = palette.danger, fontSize = 14.sp, modifier = Modifier.padding(horizontal = 20.dp, vertical = 4.dp)) }
         when {
-            loading && contacts.isEmpty() -> Box(Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
+            loading && contacts.isEmpty() -> Box(Modifier.weight(1f).fillMaxWidth().padding(top = topInset), contentAlignment = Alignment.Center) {
                 CircularProgressIndicator(color = palette.accent)
             }
             loadError != null && contacts.isEmpty() -> Column(
-                Modifier.weight(1f).fillMaxWidth().padding(24.dp),
+                Modifier.weight(1f).fillMaxWidth().padding(top = topInset).padding(24.dp),
                 horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.Center
             ) {
                 Text(loadError.orEmpty(), color = palette.danger, textAlign = TextAlign.Center)
                 TextButton(onClick = { reload() }) { Text(stringResource(R.string.common_retry)) }
             }
-            contacts.isEmpty() -> EmptyState(stringResource(R.string.contacts_empty_none), Modifier.weight(1f))
-            visible.isEmpty() -> EmptyState(stringResource(R.string.contacts_empty_no_results), Modifier.weight(1f))
+            contacts.isEmpty() -> EmptyState(stringResource(R.string.contacts_empty_none), Modifier.weight(1f).padding(top = topInset))
+            visible.isEmpty() -> EmptyState(stringResource(R.string.contacts_empty_no_results), Modifier.weight(1f).padding(top = topInset))
             else -> Box(
                 // The list is one group card, as a settings list is; the hint, the headings and the rows inside carry no glass.
                 Modifier.weight(1f).fillMaxWidth().padding(start = 16.dp, end = 16.dp, top = 10.dp, bottom = if (dockInset > 0.dp) 0.dp else 16.dp)
                     .glassCard(design, groupSurfaceColor(), palette.textSecondary, groupCardShape())
             ) {
-                LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(top = 6.dp, bottom = 6.dp + dockInset)) {
+                LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(top = 6.dp + topInset, bottom = 6.dp + dockInset)) {
                     item(key = "contacts_actions_hint") {
                         Text(
                             stringResource(R.string.contacts_actions_hint),

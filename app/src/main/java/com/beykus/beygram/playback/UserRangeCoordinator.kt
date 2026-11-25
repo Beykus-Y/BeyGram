@@ -30,25 +30,34 @@ class UserRangeCoordinator(
         var attemptsWithoutProgress = 0
         var lastRequestAt = 0L
         var lastProgressAt = 0L
-        var lastAvailable = -1L
+        /** Availability at the window's own offset; -1 until the first observation of this window. */
+        var windowAvailable = -1L
 
-        fun onAvailable(available: Long, now: Long) {
-            // Any growth is progress: the retry budget is restored and the window is proven alive.
-            if (available > lastAvailable) {
+        /**
+         * Records availability for [offset]. Only the window's own offset proves that the window is alive: bytes
+         * available at some other offset (a seek target, a neighbouring read) say nothing about this download and must
+         * not extend its life.
+         */
+        fun onAvailable(offset: Long, available: Long, now: Long) {
+            val active = window ?: return
+            if (offset != active.offset) return
+            if (available > windowAvailable) {
                 attemptsWithoutProgress = 0
                 lastProgressAt = now
             }
-            lastAvailable = available
+            windowAvailable = available
         }
 
         fun waitingForBackoff(now: Long, limit: Int, backoffMs: Long): Boolean =
             attemptsWithoutProgress >= limit && now - lastRequestAt < backoffMs
 
-        fun startWindow(window: RangeWindow, now: Long, userOwned: Boolean) {
+        fun startWindow(window: RangeWindow, now: Long, userOwned: Boolean, observedAvailable: Long) {
             this.window = window
             this.userOwned = userOwned
             this.lastRequestAt = now
             this.lastProgressAt = now
+            // The value seen before the request is the baseline: re-observing it is not progress.
+            this.windowAvailable = observedAvailable
             this.attemptsWithoutProgress += 1
         }
     }
@@ -66,7 +75,10 @@ class UserRangeCoordinator(
         val state = states.getOrPut(fileId) { FileState() }
         val now = clock()
         val available = ranges.readableFrom(fileId, offset)
-        state.onAvailable(available, now)
+        // The page may have been closed while the query was in flight: `reset` removes the state, and a request must not
+        // be sent for a screen that no longer owns this file.
+        if (states[fileId] !== state) return 0L
+        state.onAvailable(offset, available, now)
         if (available >= needed) return available
 
         val wanted = RangeWindow(offset, 0L, urgent)
@@ -84,7 +96,7 @@ class UserRangeCoordinator(
             // Backoff elapsed: allow a fresh series of attempts.
             state.attemptsWithoutProgress = 0
         }
-        state.startWindow(wanted, now, urgent)
+        state.startWindow(wanted, now, urgent, available)
         ranges.requestWindow(fileId, offset, 0L, urgent)
         return available
     }
@@ -98,7 +110,8 @@ class UserRangeCoordinator(
         val state = states.getOrPut(fileId) { FileState() }
         val now = clock()
         val available = ranges.readableFrom(fileId, start)
-        state.onAvailable(available, now)
+        if (states[fileId] !== state) return 0L
+        state.onAvailable(start, available, now)
         if (available >= length) return available
 
         val pending = state.window
@@ -110,7 +123,7 @@ class UserRangeCoordinator(
         }
         if (state.waitingForBackoff(now, maxAttemptsWithoutProgress, retryBackoffMs)) return available
         if (state.attemptsWithoutProgress >= maxAttemptsWithoutProgress) state.attemptsWithoutProgress = 0
-        state.startWindow(RangeWindow(start, length, urgent), now, urgent)
+        state.startWindow(RangeWindow(start, length, urgent), now, urgent, available)
         ranges.requestWindow(fileId, start, length, urgent)
         return available
     }

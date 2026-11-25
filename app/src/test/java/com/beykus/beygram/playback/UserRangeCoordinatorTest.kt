@@ -1,6 +1,9 @@
 package com.beykus.beygram.playback
 
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
@@ -12,8 +15,13 @@ class UserRangeCoordinatorTest {
         val readable = HashMap<Long, Long>()
         val requests = mutableListOf<Triple<Long, Long, Boolean>>()
         val cancelled = mutableListOf<Int>()
+        /** When set, the next availability queries wait for it, which models a request in flight. */
+        var gate: kotlinx.coroutines.CompletableDeferred<Unit>? = null
 
-        override suspend fun readableFrom(fileId: Int, offset: Long): Long = readable[offset] ?: 0L
+        override suspend fun readableFrom(fileId: Int, offset: Long): Long {
+            gate?.await()
+            return readable[offset] ?: 0L
+        }
 
         override fun requestWindow(fileId: Int, offset: Long, limit: Long, urgent: Boolean) {
             requests += Triple(offset, limit, urgent)
@@ -175,6 +183,70 @@ class UserRangeCoordinatorTest {
     }
 
     @Test
+    fun `progress at another offset does not extend the window of this offset`() = runTest {
+        // Codex review of #1188: lastAvailable/lastProgressAt were per file, so polling a different offset looked like
+        // progress for the window at offset 0 and kept a stalled download alive forever.
+        val ranges = FakeRanges()
+        val subject = coordinator(ranges)
+
+        subject.ensureReadable(7, 0L, 1024L, urgent = true)
+        assertEquals(1, ranges.requests.size)
+
+        // Data exists ahead of the file: a neighbouring read of the same file sees bytes...
+        ranges.readable[4_096L] = 8_192L
+        now = 3_000L
+        subject.ensureReadable(7, 4_096L, 1024L, urgent = true)
+        // ...but the window at offset 0 still delivers nothing.
+        now = 5_500L
+        subject.ensureReadable(7, 0L, 1024L, urgent = true)
+
+        // The stalled window must be requested again instead of being extended by the other offset's bytes.
+        assertEquals(2, ranges.requests.size)
+        assertEquals(Triple(0L, 0L, true), ranges.requests.last())
+    }
+
+    @Test
+    fun `a page closed during a pending query never sends a window request`() = runTest {
+        val ranges = FakeRanges()
+        val gate = CompletableDeferred<Unit>()
+        ranges.gate = gate
+        val subject = coordinator(ranges)
+
+        val query = launch { subject.ensureReadable(7, 0L, 1_024L, urgent = true) }
+        // Let the reader reach the suspended query; otherwise reset would happen before the coroutine even starts.
+        runCurrent()
+        // The reader is still waiting for TDLib when the viewer closes.
+        subject.reset(7)
+        gate.complete(Unit)
+        query.join()
+
+        assertTrue("no window may be requested for a closed page", ranges.requests.isEmpty())
+    }
+
+    @Test
+    fun `a cancelled query propagates instead of being treated as zero bytes`() = runTest {
+        val ranges = object : PlaybackRanges {
+            override suspend fun readableFrom(fileId: Int, offset: Long): Long =
+                throw kotlinx.coroutines.CancellationException("closed")
+
+            override fun requestWindow(fileId: Int, offset: Long, limit: Long, urgent: Boolean) {
+                error("a cancelled query must not request a window")
+            }
+
+            override fun cancelWindow(fileId: Int) = Unit
+        }
+        val subject = UserRangeCoordinator(ranges, clock = { now })
+
+        var cancelled = false
+        try {
+            subject.ensureReadable(7, 0L, 1_024L, urgent = true)
+        } catch (_: kotlinx.coroutines.CancellationException) {
+            cancelled = true
+        }
+        assertTrue(cancelled)
+    }
+
+    @Test
     fun `a stalled user window still keeps its priority`() = runTest {
         val ranges = FakeRanges()
         val subject = coordinator(ranges)
@@ -192,20 +264,21 @@ class UserRangeCoordinatorTest {
     }
 
     @Test
-    fun `progress restores the retry budget`() = runTest {
+    fun `progress at the window offset restores the retry budget`() = runTest {
         val ranges = FakeRanges()
         val subject = coordinator(ranges)
 
         subject.ensureTail(7, 0L, 1_000L)
-        subject.ensureTail(7, 2_000L, 1_000L)
-        subject.ensureTail(7, 4_000L, 1_000L)
-        assertEquals(3, ranges.requests.size)
+        assertEquals(1, ranges.requests.size)
 
-        // Bytes arrived at the next offset: the file is moving, so a new window is allowed immediately.
-        ranges.readable[6_000L] = 512L
+        // Bytes arrive at the window's own offset: the download is alive, so the retry budget is restored and a new
+        // offset may be requested without waiting for the backoff.
+        ranges.readable[0L] = 512L
         now = 10L
-        subject.ensureTail(7, 6_000L, 1_000L)
-        assertEquals(4, ranges.requests.size)
+        subject.ensureTail(7, 0L, 1_000L)
+        subject.ensureTail(7, 5_000L, 1_000L)
+        assertEquals(2, ranges.requests.size)
+        assertEquals(Triple(5_000L, 1_000L, true), ranges.requests.last())
     }
 
     @Test
