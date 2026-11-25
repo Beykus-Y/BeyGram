@@ -30,6 +30,7 @@ jobs:
     name: Unit tests
     env:
       BEYGRAM_ROBOLECTRIC_DIR: ${{ github.workspace }}-robolectric-deps
+      BEYGRAM_MAVEN_CENTRAL_MIRROR: https://maven-central.storage-download.googleapis.com/maven2
     runs-on: ubuntu-24.04
     timeout-minutes: 45
     permissions:

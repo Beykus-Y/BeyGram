@@ -202,10 +202,15 @@ jobs:
         # JVM tests of the dev debug variant. They run before the APKs are built, so a failing test fails this job,
         # and a failed main build cannot be published. A rerun happens only when every failure is a Robolectric
         # download failure (scripts/gradle-test-retry.sh).
+        env:
+          # Only the test steps resolve Robolectric through the mirror; the APK steps keep Maven Central only.
+          BEYGRAM_MAVEN_CENTRAL_MIRROR: https://maven-central.storage-download.googleapis.com/maven2
         run: scripts/gradle-test-retry.sh app/build/test-results/testDevDebugUnitTest :app:testDevDebugUnitTest
 
       - name: Verify Yandex Music in the Stable variant
         # The shared provider tests must also pass against prod; PR builds use blank OAuth configuration.
+        env:
+          BEYGRAM_MAVEN_CENTRAL_MIRROR: https://maven-central.storage-download.googleapis.com/maven2
         run: >-
           scripts/gradle-test-retry.sh app/build/test-results/testProdDebugUnitTest
           :app:testProdDebugUnitTest --tests 'com.beykus.beygram.data.yandex.*'
