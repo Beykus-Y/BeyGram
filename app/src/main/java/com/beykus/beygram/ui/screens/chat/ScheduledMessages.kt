@@ -164,6 +164,7 @@ internal fun ScheduledMessagesDialog(
     var messages by remember(chatId, conversation) { mutableStateOf<List<ChatMessage>>(emptyList()) }
     var loading by remember(chatId, conversation) { mutableStateOf(true) }
     var hasLoaded by remember(chatId, conversation) { mutableStateOf(false) }
+    var queueKnown by remember(chatId, conversation) { mutableStateOf(false) }
     var busy by remember(chatId, conversation) { mutableStateOf(false) }
     var error by remember(chatId, conversation) { mutableStateOf<String?>(null) }
     var reload by remember(chatId, conversation) { mutableIntStateOf(0) }
@@ -177,6 +178,7 @@ internal fun ScheduledMessagesDialog(
         error = null
         while (true) {
             val result = conversation.scheduledMessages(chatId)
+            queueKnown = result.isSuccess
             result.onSuccess {
                 messages = it
                 error = null
@@ -281,6 +283,7 @@ internal fun ScheduledMessagesDialog(
                     items(messages, key = { it.id }) { message ->
                         ScheduledMessageRow(
                             message = message,
+                            queueKnown = queueKnown,
                             busy = busy,
                             onEdit = { editing = message },
                             onReschedule = {
@@ -326,9 +329,17 @@ internal fun ScheduledMessagesDialog(
     }
 }
 
+internal fun scheduledMessageStatus(sendState: MessageSendState, queueKnown: Boolean): Int =
+    if (!queueKnown) R.string.stealth_schedule_status_unknown else when (sendState) {
+        MessageSendState.Sending -> R.string.stealth_schedule_status_pending
+        MessageSendState.Failed -> R.string.chat_scheduled_failed
+        MessageSendState.Sent -> R.string.stealth_schedule_status_queued
+    }
+
 @Composable
 private fun ScheduledMessageRow(
     message: ChatMessage,
+    queueKnown: Boolean,
     busy: Boolean,
     onEdit: () -> Unit,
     onReschedule: () -> Unit,
@@ -341,7 +352,12 @@ private fun ScheduledMessageRow(
     Column(Modifier.fillMaxWidth().padding(vertical = 8.dp)) {
         Text(message.summary(), color = palette.textPrimary, fontSize = 14.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
         Text(scheduledTimeLabel(message), color = palette.textSecondary, fontSize = 12.sp, modifier = Modifier.padding(top = 2.dp))
-        if (failed) Text(stringResource(R.string.chat_scheduled_failed), color = palette.danger, fontSize = 12.sp, modifier = Modifier.padding(top = 2.dp))
+        Text(
+            stringResource(scheduledMessageStatus(message.sendState, queueKnown)),
+            color = if (queueKnown && failed) palette.danger else palette.textSecondary,
+            fontSize = 12.sp,
+            modifier = Modifier.padding(top = 2.dp)
+        )
         // Wrapping makes every action discoverable without a hidden horizontal swipe.
         FlowRow(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
             if (failed) TextButton(onClick = onRetry, enabled = !busy) { Text(stringResource(R.string.common_retry)) }
