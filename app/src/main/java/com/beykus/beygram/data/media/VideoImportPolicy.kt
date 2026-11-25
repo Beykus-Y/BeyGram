@@ -1,35 +1,54 @@
 package com.beykus.beygram.data.media
 
 /**
- * Three capabilities that used to be one condition. They are deliberately separate, because a video can be worth
- * sending even when this device cannot re-encode it, and it can be streamable even when its codec is not the one the
- * compressor prefers.
+ * Three capabilities that must not be one condition. A video can be worth sending even when this device cannot
+ * re-encode it, and it can be streamable even when its codec is not the one the compressor prefers.
  *
- * 1. [videoCanBeSentAsVideoMessage] — can the file become a Telegram video message at all?
- * 2. [videoCanBeCompressedByThisDevice] — may the composer offer/perform a local transcode?
- * 3. [Mp4StreamingProbe] — can the player start before the whole file arrives?
+ * 1. [videoCanBeSentAsVideoMessage] — may the file become a Telegram video message right away?
+ * 2. [videoIsAlreadyTargetCodec] / [videoCodecNeedsConversion] — should the composer offer a local transcode?
+ * 3. [Mp4StreamingProbe] — can a player start before the whole file arrives?
  */
 
 /** Containers Telegram stores as a video message. MKV/WebM/MOV are not confirmed and stay documents. */
 private val VIDEO_MESSAGE_CONTAINERS = setOf("video/mp4")
 
+internal const val TARGET_VIDEO_CODEC = "video/avc"
+internal const val HEVC_VIDEO_CODEC = "video/hevc"
+
 /**
- * A Telegram video message is a file plus a video track. TDLib's `inputVideo` puts no codec restriction on it:
- * "The video is expected to be re-encoded to MPEG4 format with H.264 codec by the sender" is a compatibility
- * recommendation for senders, not a requirement of the API, and Telegram's own clients send HEVC video messages.
+ * How well a source codec is known to work in a Telegram video message.
  *
- * Therefore the codec decides only whether this device will *re-encode* the file, never whether the message is a
- * video. Re-encoding is offered separately by the composer and never changes the type of the message.
+ * - [Avc] — H.264, the codec Telegram itself targets. Always sent as a video, never re-encoded for compatibility.
+ * - [Hevc] — HEVC. Sent as a video: Telegram Android ships an HEVC encoder
+ *   (`MediaCodec.createEncoderByType("video/hevc")`) and iOS decodes HEVC natively, so current clients play it.
+ * - [Unconfirmed] — AV1, VP9, MPEG-4 Part 2 and anything unknown. TDLib will accept the upload, but no upstream
+ *   Telegram client is known to decode these inside a video message. The composition is *not* promised to work, so the
+ *   file is imported as a document and the composer offers a transcode to H.264 instead.
+ */
+internal enum class VideoCodecClass { Avc, Hevc, Unconfirmed }
+
+internal fun videoCodecClass(videoCodecs: List<String>): VideoCodecClass = when {
+    videoCodecs.isEmpty() -> VideoCodecClass.Unconfirmed
+    videoCodecs.all { it == TARGET_VIDEO_CODEC } -> VideoCodecClass.Avc
+    videoCodecs.all { it == HEVC_VIDEO_CODEC } -> VideoCodecClass.Hevc
+    else -> VideoCodecClass.Unconfirmed
+}
+
+/**
+ * Only containers and codecs whose playback is confirmed become a video message immediately. AV1/VP9 are deliberately
+ * excluded: sending them as a video would promise a compatibility that neither Telegram Android nor iOS confirms.
  */
 internal fun videoCanBeSentAsVideoMessage(mimeType: String, videoCodecs: List<String>): Boolean =
-    mimeType in VIDEO_MESSAGE_CONTAINERS && videoCodecs.isNotEmpty()
+    mimeType in VIDEO_MESSAGE_CONTAINERS && videoCodecClass(videoCodecs) != VideoCodecClass.Unconfirmed
 
 /**
- * Whether the source is already the codec this pipeline targets, so re-encoding would only lose quality. Any other
- * video codec is still *eligible* for compression (the device may decode HEVC/AV1 and encode H.264), but nothing is
- * promised: a failed transcode keeps the original file and the video message type.
+ * The composer may convert this MP4 to a video message by re-encoding it to H.264. It is the fallback for AV1/VP9:
+ * after a successful transcode the attachment becomes a video; if the device cannot transcode, it stays a document
+ * with the original bytes.
  */
-internal fun videoIsAlreadyTargetCodec(videoCodecs: List<String>): Boolean =
-    videoCodecs.isNotEmpty() && videoCodecs.all { it == TARGET_VIDEO_CODEC }
+internal fun videoCodecNeedsConversion(mimeType: String, videoCodecs: List<String>): Boolean =
+    mimeType in VIDEO_MESSAGE_CONTAINERS && videoCodecClass(videoCodecs) == VideoCodecClass.Unconfirmed
 
-internal const val TARGET_VIDEO_CODEC = "video/avc"
+/** H.264 sources are already the codec this pipeline targets, so re-encoding would only lose quality. */
+internal fun videoIsAlreadyTargetCodec(videoCodecs: List<String>): Boolean =
+    videoCodecClass(videoCodecs) == VideoCodecClass.Avc

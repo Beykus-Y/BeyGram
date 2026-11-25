@@ -107,6 +107,7 @@ import com.beykus.beygram.data.media.OutgoingMediaImporter
 import com.beykus.beygram.data.media.PhotoEditor
 import com.beykus.beygram.data.media.PhotoExportQuality
 import com.beykus.beygram.data.media.PhotoRotation
+import com.beykus.beygram.data.media.VideoCodecClass
 import com.beykus.beygram.data.media.VideoCompressor
 import com.beykus.beygram.data.media.VideoLimitIssue
 import com.beykus.beygram.data.media.VideoPlanReason
@@ -896,7 +897,12 @@ internal class AttachmentState(
                     mode = MediaQualityMode.Original,
                     delivery = MediaDeliveryMode.File,
                     prepared = null,
-                    hint = if (limit == VideoLimitIssue.TooLong) MediaPreparationHint.TooLongAsFile else MediaPreparationHint.TooLargeAsFile
+                    hint = when {
+                        // A document whose codec is unconfirmed stays a file; explain why nothing was converted.
+                        item.kind == MediaKind.Document -> MediaPreparationHint.CodecNeedsConversion
+                        limit == VideoLimitIssue.TooLong -> MediaPreparationHint.TooLongAsFile
+                        else -> MediaPreparationHint.TooLargeAsFile
+                    }
                 )
             }
             viewOnce = false
@@ -906,19 +912,27 @@ internal class AttachmentState(
             return
         }
         val plan = videoCompressionPlan(info, mode.toVideoOption())
-        if (!plan.transcode) {
-            val hint = when (plan.reason) {
-                VideoPlanReason.AlreadyEfficient -> MediaPreparationHint.AlreadyEfficient
-                VideoPlanReason.UnknownMetadata -> MediaPreparationHint.UnknownMetadata
-                VideoPlanReason.NotWorthIt -> MediaPreparationHint.NotWorthIt
-                VideoPlanReason.OriginalRequested, VideoPlanReason.Transcode -> null
+        // An unconfirmed codec (AV1/VP9) is only sendable as a video after a transcode; that goal outranks the
+        // "not worth it" size heuristic. Choosing "Original" keeps the file as a document, which is the fallback.
+        val convertForCompatibility = item.kind == MediaKind.Document &&
+            info.videoCodecClass == VideoCodecClass.Unconfirmed &&
+            mode != MediaQualityMode.Original
+        if (!plan.transcode && !convertForCompatibility) {
+            val hint = when {
+                item.kind == MediaKind.Document && info.videoCodecClass == VideoCodecClass.Unconfirmed ->
+                    MediaPreparationHint.CodecNeedsConversion
+                plan.reason == VideoPlanReason.AlreadyEfficient -> MediaPreparationHint.AlreadyEfficient
+                plan.reason == VideoPlanReason.UnknownMetadata -> MediaPreparationHint.UnknownMetadata
+                plan.reason == VideoPlanReason.NotWorthIt -> MediaPreparationHint.NotWorthIt
+                else -> null
             }
             if (hint != null) updateQuality(item.path) { it.copy(hint = hint) }
             return
         }
+        val effectivePlan = if (plan.transcode) plan else plan.copy(transcode = true, reason = VideoPlanReason.Transcode)
         val output = File(source.parentFile, "quality-${UUID.randomUUID()}.mp4")
         try {
-            compressor.compress(source, output, plan, info) { progress ->
+            compressor.compress(source, output, effectivePlan, info) { progress ->
                 if (qualityCurrent(item.path, token)) {
                     updateQuality(item.path) { it.copy(progress = progress) }
                 }

@@ -2797,4 +2797,5 @@
     <string name="report_step_send">Отправка</string>
     <string name="report_step_result">Результат</string>
     <string name="report_result_pending">Статус появится здесь после отправки</string>
+    <string name="composer_quality_hint_codec">Кодек этого видео не поддерживается Telegram. Сожмите его, чтобы отправить как видео, или оставьте файлом.</string>
 </resources>
