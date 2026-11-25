@@ -2009,7 +2009,10 @@ private fun LocalVideo(
             override fun onPositionDiscontinuity(oldPosition: Player.PositionInfo, newPosition: Player.PositionInfo, reason: Int) {
                 if (reason == Player.DISCONTINUITY_REASON_SEEK) metrics.onSeekApplied(player.playbackState == Player.STATE_READY)
             }
-            override fun onPlayerError(error: PlaybackException) { video = video.afterFailure() }
+            override fun onPlayerError(error: PlaybackException) {
+                metrics.onFailed()
+                video = video.afterFailure()
+            }
         }
         player.addListener(listener)
         player.repeatMode = if (loop) Player.REPEAT_MODE_ONE else Player.REPEAT_MODE_OFF
@@ -2102,6 +2105,7 @@ private fun LocalVideo(
                 onManualDownload()
                 video = VideoPlayerState()
                 startRequested = true
+                metrics.onPlayRequested()
                 player.prepare()
                 player.play()
             }) { Text(stringResource(R.string.common_retry)) }

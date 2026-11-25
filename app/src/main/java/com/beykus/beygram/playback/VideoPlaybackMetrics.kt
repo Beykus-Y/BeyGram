@@ -64,11 +64,16 @@ class VideoPlaybackMetrics(
     fun onPlaybackState(state: Int, playWhenReady: Boolean) {
         val t = now()
         if (state == BUFFERING_STATE) {
-            // Повторный сигнал буферизации ничего не меняет: вход в неё учитывается один раз.
-            if (bufferingSince != null) return
-            bufferingSince = t
-            bufferingCounted = started && !seekPending && playWhenReady
-            if (bufferingCounted) rebufferCount++
+            val since = bufferingSince
+            if (since == null) {
+                bufferingSince = t
+                bufferingCounted = started && !seekPending && playWhenReady
+                if (bufferingCounted) rebufferCount++
+            } else if (bufferingCounted && !playWhenReady) {
+                // Пауза посреди ребуферизации: время до паузы учтено, дальше ребуферизация не идёт.
+                rebufferTotalMs += t - since
+                bufferingCounted = false
+            }
             return
         }
         bufferingSince?.let { since ->
@@ -93,6 +98,12 @@ class VideoPlaybackMetrics(
     fun onSeekApplied(ready: Boolean) {
         if (!seekPending) return
         if (ready && bufferingSince == null) completeSeekIfPending(now())
+    }
+
+    /** Ошибка плеера: открытая перемотка больше не завершится, поэтому её время в сводку не попадает. */
+    fun onFailed() {
+        seekPending = false
+        seekSentAt = null
     }
 
     /** Байты, которые источник отдал плееру. Вызывается из потока загрузки, поэтому счётчик атомарный. */

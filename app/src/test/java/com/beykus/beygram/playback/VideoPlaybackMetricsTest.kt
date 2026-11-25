@@ -178,6 +178,37 @@ class VideoPlaybackMetricsTest {
         assertEquals("0", summary(m)["rebuffer_count"])
     }
 
+    @Test fun pauseDuringRebufferStopsCountingAtPause() {
+        val clock = FakeClock()
+        val m = metrics(clock)
+        m.onPlayRequested()
+        m.onPlayingChanged(true)
+        m.onPlaybackState(READY, playWhenReady = true)
+        m.onPlaybackState(BUFFERING, playWhenReady = true)
+        clock.advance(120)
+        m.onPlaybackState(BUFFERING, playWhenReady = false) // пауза посреди буферизации
+        clock.advance(900)
+        m.onPlaybackState(READY, playWhenReady = false)
+        val s = summary(m)
+        assertEquals("1", s["rebuffer_count"])
+        assertEquals("120", s["rebuffer_total_ms"])
+    }
+
+    @Test fun failureClearsPendingSeekSoItDoesNotCompleteLater() {
+        val clock = FakeClock()
+        val m = metrics(clock)
+        m.onPlayRequested()
+        m.onPlayingChanged(true)
+        m.onPlaybackState(READY, playWhenReady = true)
+        m.onSeek()
+        m.onFailed()
+        clock.advance(400)
+        m.onPlaybackState(READY, playWhenReady = true)
+        val s = summary(m)
+        assertNull(s["last_seek_to_ready_ms"])
+        assertEquals("1", s["seek_count"])
+    }
+
     @Test fun bytesReadAreAccumulatedAndNegativeCountsIgnored() {
         val m = metrics(FakeClock())
         m.onBytesRead(4_096)
