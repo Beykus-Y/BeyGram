@@ -68,22 +68,8 @@ private fun readPowerSaveMode(context: Context): Boolean = runCatching {
     (context.getSystemService(Context.POWER_SERVICE) as? PowerManager)?.isPowerSaveMode == true
 }.getOrDefault(false)
 
-/**
- * Observes BG Canvas availability for [item] when [active], resumed, and allowed by settings,
- * reduced motion, and battery saver. Never spawns decoders for queued tracks; only prefetches the
- * single immediate next track's file into disk cache once the current canvas is ready.
- */
 @Composable
-internal fun rememberBgCanvasState(
-    item: PlaybackItem,
-    active: Boolean,
-): Pair<BgCanvasMode, CanvasLoadState> {
-    val context = LocalContext.current
-    val settingsFlow = remember(context) { CanvasSettingsStore.flow(context) }
-    val settings by settingsFlow.collectAsStateWithLifecycle()
-    val reducedMotion = rememberSystemReducedMotion()
-    val motion = LocalMotionSettings.current
-
+internal fun rememberLifecycleResumed(): Boolean {
     val lifecycleOwner = LocalLifecycleOwner.current
     var resumed by remember(lifecycleOwner) {
         mutableStateOf(lifecycleOwner.lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED))
@@ -95,7 +81,12 @@ internal fun rememberBgCanvasState(
         lifecycleOwner.lifecycle.addObserver(observer)
         onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
     }
+    return resumed
+}
 
+@Composable
+internal fun rememberPowerSaveMode(resumed: Boolean = rememberLifecycleResumed()): Boolean {
+    val context = LocalContext.current
     var powerSave by remember(context) { mutableStateOf(readPowerSaveMode(context)) }
     LaunchedEffect(context, resumed) {
         powerSave = readPowerSaveMode(context)
@@ -114,6 +105,26 @@ internal fun rememberBgCanvasState(
             runCatching { context.unregisterReceiver(receiver) }
         }
     }
+    return powerSave
+}
+
+/**
+ * Observes BG Canvas availability for [item] when [active], resumed, and allowed by settings,
+ * reduced motion, and battery saver. Never spawns decoders for queued tracks; only prefetches the
+ * single immediate next track's file into disk cache once the current canvas is ready.
+ */
+@Composable
+internal fun rememberBgCanvasState(
+    item: PlaybackItem,
+    active: Boolean,
+): Pair<BgCanvasMode, CanvasLoadState> {
+    val context = LocalContext.current
+    val settingsFlow = remember(context) { CanvasSettingsStore.flow(context) }
+    val settings by settingsFlow.collectAsStateWithLifecycle()
+    val reducedMotion = rememberSystemReducedMotion()
+    val motion = LocalMotionSettings.current
+    val resumed = rememberLifecycleResumed()
+    val powerSave = rememberPowerSaveMode(resumed)
 
     val allowed = isBgCanvasAllowed(
         active = active,
@@ -162,13 +173,34 @@ internal fun BgCanvasOverlay(
     state: CanvasLoadState,
     playing: Boolean,
     modifier: Modifier = Modifier,
+    onVisualStateChange: (CanvasVisualState) -> Unit = {},
 ) {
-    val asset = (state as? CanvasLoadState.Ready)?.asset ?: return
+    val currentOnVisualStateChange by rememberUpdatedState(onVisualStateChange)
+    val asset = (state as? CanvasLoadState.Ready)?.asset
+    if (asset == null) {
+        LaunchedEffect(state) {
+            currentOnVisualStateChange(CanvasVisualState.Inactive)
+        }
+        return
+    }
     val context = LocalContext.current
     var failedKey by remember(asset.playbackKey, asset.localFilePath) { mutableStateOf(false) }
+    var firstFrameRendered by remember(asset.playbackKey, asset.localFilePath) { mutableStateOf(false) }
+
+    val reportedState = when {
+        failedKey -> CanvasVisualState.Failed
+        firstFrameRendered -> CanvasVisualState.DisplayingFirstFrame
+        else -> CanvasVisualState.Preparing
+    }
+    LaunchedEffect(reportedState) {
+        currentOnVisualStateChange(reportedState)
+    }
+    DisposableEffect(asset.playbackKey, asset.localFilePath) {
+        onDispose { currentOnVisualStateChange(CanvasVisualState.Inactive) }
+    }
+
     if (failedKey) return
 
-    var firstFrameRendered by remember(asset.playbackKey, asset.localFilePath) { mutableStateOf(false) }
     val mediaMotion = rememberMotionSpec(MotionToken.MediaExpand)
     val alpha by animateFloatAsState(
         targetValue = if (firstFrameRendered) 1f else 0f,
