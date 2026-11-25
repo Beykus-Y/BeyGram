@@ -1550,9 +1550,11 @@ private fun MediaViewerPage(
     val activeNow by rememberUpdatedState(active)
     val ranges = playbackCoordinator
     // Leaving the page (or switching to another video) releases the single TDLib window; a stale request must not keep
-    // a download alive for a screen nobody looks at.
-    DisposableEffect(media.fileId, ranges) {
-        onDispose { ranges?.reset(media.fileId) }
+    // a download alive for a screen nobody looks at. The page takes a token: a loader thread that was already inside
+    // Media3 when this screen closed arrives with an older token and cannot request a window for it (#1195).
+    val pageOwner = remember(media.fileId, ranges) { ranges?.owner(media.fileId) }
+    DisposableEffect(media.fileId, ranges, pageOwner) {
+        onDispose { ranges?.reset(media.fileId, pageOwner) }
     }
     val progressive = if (progressiveUnlocked && unlockedPath != null) {
         ProgressiveVideoSource(
@@ -1584,7 +1586,7 @@ private fun MediaViewerPage(
                     // user/background priority rules, retries and backoff.
                     scope.launch {
                         runCatching {
-                            ranges.ensureReadable(media.fileId, position, RANGE_READ_AHEAD_BYTES, activeNow)
+                            ranges.ensureReadable(media.fileId, position, RANGE_READ_AHEAD_BYTES, activeNow, owner = pageOwner)
                         }
                     }
                 } else if (activeNow) downloadFile(media.fileId)
