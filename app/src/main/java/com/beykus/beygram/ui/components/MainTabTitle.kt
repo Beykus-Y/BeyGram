@@ -1,7 +1,11 @@
 package com.beykus.beygram.ui.components
 
+import android.os.Build
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ColumnScope
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.zIndex
 import androidx.compose.foundation.layout.RowScope
@@ -13,8 +17,18 @@ import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.graphics.RectangleShape
+import com.beykus.beygram.ui.design.GlassBackdrop
 import com.beykus.beygram.ui.design.GlassEdge
+import com.beykus.beygram.ui.design.glassBackdropSource
+import com.beykus.beygram.ui.design.rememberGlassBackdrop
 import com.beykus.beygram.ui.design.GlassPanel
 import com.beykus.beygram.ui.design.LocalGlassBackdrop
 import com.beykus.beygram.ui.design.usesGlassPanels
@@ -95,14 +109,13 @@ fun Modifier.mainTabInsets(): Modifier {
     )
 }
 
-/**
- * The header of a main tab (Calls, Contacts, Settings). In Liquid Glass it is the same pane as the chat list header:
- * glass tint, the same bottom hairline, covering the status bar. The tab's content does not scroll under it, so it samples
- * nothing (a recorded window backdrop must never reach a pane inside the recorded subtree, #623). Other styles draw
- * the content as it is.
- */
+/** The fixed tab header shares the list's recording only when V2 can draw it. */
 @Composable
-fun MainTabHeader(content: @Composable () -> Unit) {
+private fun MainTabHeader(
+    modifier: Modifier = Modifier,
+    backdrop: GlassBackdrop? = null,
+    content: @Composable () -> Unit
+) {
     val design = LocalDesignSystem.current
     if (design.style == DesignStyle.Material2) {
         // The classic raised app bar: a surface with a 4dp shadow that also covers the status bar, as on nested screens.
@@ -118,7 +131,7 @@ fun MainTabHeader(content: @Composable () -> Unit) {
         return
     }
     val palette = beyGramPalette()
-    CompositionLocalProvider(LocalGlassBackdrop provides null) {
+    CompositionLocalProvider(LocalGlassBackdrop provides backdrop) {
         GlassPanel(
             design = design,
             tint = palette.surface,
@@ -126,9 +139,51 @@ fun MainTabHeader(content: @Composable () -> Unit) {
             backdropBase = palette.screen,
             shape = RectangleShape,
             edge = GlassEdge.BottomHairline,
-            modifier = Modifier.fillMaxWidth()
+            lensOnFreeEdge = backdrop != null,
+            modifier = modifier.fillMaxWidth()
         ) {
             Box(Modifier.windowInsetsPadding(WindowInsets.statusBars)) { content() }
         }
+    }
+}
+
+/**
+ * When the V2 lens is available, the scroll content starts below the measured heading and scrolls behind it.
+ * Only the content is recorded. The header is a sibling, and the recorded content cannot read this source (#623).
+ * All other styles, qualities and API levels keep the fixed header above the list.
+ */
+@Composable
+internal fun MainTabLayout(
+    modifier: Modifier,
+    header: @Composable () -> Unit,
+    content: @Composable ColumnScope.(headerInset: Dp) -> Unit
+) {
+    val glass = LocalDesignSystem.current.surfaces.glass
+    val drawsLens = glass?.lensRefraction == true && glass.samplesBackdrop &&
+        Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU
+    if (!drawsLens) {
+        Column(modifier) {
+            MainTabHeader(content = header)
+            content(0.dp)
+        }
+        return
+    }
+
+    val backdrop = rememberGlassBackdrop()
+    val density = LocalDensity.current
+    var headerHeight by remember { mutableIntStateOf(0) }
+    Box(modifier) {
+        Column(Modifier.fillMaxSize().glassBackdropSource(backdrop)) {
+            CompositionLocalProvider(LocalGlassBackdrop provides null) {
+                content(with(density) { headerHeight.toDp() })
+            }
+        }
+        MainTabHeader(
+            modifier = Modifier.onSizeChanged { headerHeight = it.height }
+                // The header's blank space must not let taps through to a row scrolling underneath.
+                .pointerInput(Unit) { awaitPointerEventScope { while (true) awaitPointerEvent() } },
+            backdrop = backdrop,
+            content = header
+        )
     }
 }
