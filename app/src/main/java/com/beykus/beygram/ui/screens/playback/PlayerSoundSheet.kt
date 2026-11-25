@@ -33,6 +33,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
@@ -40,6 +41,9 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.beykus.beygram.R
+import com.beykus.beygram.media.bgbeat.BgBeatSettingsStore
+import com.beykus.beygram.media.bgrhythm.BgRhythmMode
+import com.beykus.beygram.media.bgrhythm.BgRhythmSettingsStore
 import com.beykus.beygram.playback.PLAYBACK_SPEED_OPTIONS
 import com.beykus.beygram.playback.PlaybackEngine
 import com.beykus.beygram.playback.SLEEP_TIMER_MAX_MINUTES
@@ -64,8 +68,13 @@ internal fun PlayerSoundSheet(
     onDismiss: () -> Unit
 ) {
     val palette = beyGramPalette()
+    val context = LocalContext.current
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     val sleepTimer by PlaybackEngine.sleepTimer.collectAsStateWithLifecycle()
+    val rhythmModeFlow = remember(context) { BgRhythmSettingsStore.flow(context) }
+    val rhythmMode by rhythmModeFlow.collectAsStateWithLifecycle()
+    val bgBeatStore = remember(context) { BgBeatSettingsStore.getInstance(context) }
+    val bgBeatEnabled by bgBeatStore.enabled.collectAsStateWithLifecycle()
     val minutesRemaining = rememberSleepMinutes(sleepTimer)
     var customOpen by remember { mutableStateOf(false) }
     // BG Mix has no playback speed, so the chips stay off while it plays instead of changing only the saved value.
@@ -144,6 +153,37 @@ internal fun PlayerSoundSheet(
                     PlaybackEngine.setSleepTimerUntilTrackEnd()
                 }
                 SoundChip(stringResource(R.string.player_sleep_custom), false, true) { customOpen = true }
+            }
+            SoundSectionTitle(stringResource(R.string.rhythm_section_title))
+            Row(
+                Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                SoundChip(stringResource(R.string.rhythm_mode_off), rhythmMode == BgRhythmMode.Off, true) {
+                    BgRhythmSettingsStore.setMode(context, BgRhythmMode.Off)
+                }
+                SoundChip(stringResource(R.string.rhythm_mode_calm), rhythmMode == BgRhythmMode.Calm, true) {
+                    BgRhythmSettingsStore.setMode(context, BgRhythmMode.Calm)
+                }
+                SoundChip(stringResource(R.string.rhythm_mode_dynamic), rhythmMode == BgRhythmMode.Dynamic, true) {
+                    BgRhythmSettingsStore.setMode(context, BgRhythmMode.Dynamic)
+                }
+            }
+            if (rhythmMode != BgRhythmMode.Off && !bgBeatEnabled) {
+                Text(
+                    stringResource(R.string.rhythm_needs_bgbeat_hint),
+                    color = palette.textSecondary,
+                    fontSize = 12.sp,
+                    modifier = Modifier.padding(top = 8.dp)
+                )
+                Row(
+                    Modifier.fillMaxWidth().padding(top = 6.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    SoundChip(stringResource(R.string.rhythm_enable_bgbeat), false, true) {
+                        bgBeatStore.setEnabled(true)
+                    }
+                }
             }
             if (onOpenEqualizer != null) {
                 Row(
