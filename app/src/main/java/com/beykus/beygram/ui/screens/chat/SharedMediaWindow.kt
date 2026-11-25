@@ -41,9 +41,11 @@ internal class SharedMediaWindow(
     // Each generation owns its own lock: a stalled obsolete network request cannot block a restart.
     private var lock = Mutex()
     private var generation = 0
+    /** Якорь, с которого перезапустили окно; может отсутствовать в первой странице TDLib (`offset = 0`). */
+    private var anchorId: Long? = null
     /** Курсор TDLib для страниц старше; без якоря 0 — от самого нового вложения. */
     private var olderCursor = 0L
-    /** Самый новый id в окне: страницы новее идут от него. */
+    /** Самый новый id, реально присутствующий в окне: страницы новее отсекаются по нему. */
     private var newestId = 0L
     /** Запрос в ту же сторону уже стоит в очереди или выполняется: повтор дал бы лишнюю страницу, поэтому его не ставим. */
     private var olderQueued = false
@@ -55,18 +57,25 @@ internal class SharedMediaWindow(
     /**
      * Сбрасывает окно. Без [anchor] страницы идут от самого нового вложения, и новее ничего нет.
      * С [anchor] первая страница начинается с самого вложения, а новее догружается от него.
+     * Если передан [anchorMessage], он сразу сохраняется в окне, чтобы не потеряться при ответе TDLib с `offset = 0`.
      */
-    fun restart(anchor: Long?) {
+    fun restart(anchor: Long?, anchorMessage: ChatMessage? = null) {
         generation++
         lock = Mutex()
         loading = false
-        messages = emptyList()
+        val seeded = if (anchor != null && anchorMessage != null && anchorMessage.id == anchor) {
+            listOf(anchorMessage)
+        } else {
+            emptyList()
+        }
+        messages = seeded
         loaded = false
         hasOlder = true
         hasNewer = anchor != null
         error = null
+        anchorId = anchor
         olderCursor = anchor ?: 0L
-        newestId = anchor ?: 0L
+        newestId = seeded.firstOrNull()?.id ?: 0L
         olderQueued = false
         newerQueued = false
         olderAgain = false
@@ -92,8 +101,12 @@ internal class SharedMediaWindow(
     /** Убирает вложения, удалённые в чате. Страницы не перезагружаем: удалённым id в окне больше делать нечего. */
     fun removeDeleted(ids: Set<Long>) {
         if (ids.isEmpty()) return
+        if (anchorId != null && anchorId in ids) anchorId = null
         val kept = messages.filterNot { it.id in ids }
-        if (kept.size != messages.size) messages = kept
+        if (kept.size != messages.size) {
+            messages = kept
+            newestId = kept.maxOfOrNull { it.id } ?: 0L
+        }
     }
 
     /**
@@ -147,7 +160,12 @@ internal class SharedMediaWindow(
         loading = true
         error = null
         try {
-            val result = if (newer) load(newestId, true) else load(olderCursor, false)
+            val result = if (newer) {
+                val fromId = if (messages.isNotEmpty()) newestId else (anchorId ?: 0L)
+                load(fromId, true)
+            } else {
+                load(olderCursor, false)
+            }
             if (current == generation) applyPage(result, newer)
         } finally {
             // An obsolete request must not change the loading state of a restarted window.
@@ -158,8 +176,9 @@ internal class SharedMediaWindow(
     private fun applyPage(result: Result<MessageSearchPage>, newer: Boolean) {
         result.onSuccess { page ->
             if (newer) {
-                // Страница новых может зацепить уже загруженное, поэтому берём только то, что новее самого нового.
-                val fresh = page.messages.filter { it.id > newestId }
+                // Страница новых может зацепить уже загруженное, поэтому берём только то, что новее реально загруженного максимума.
+                val floor = messages.maxOfOrNull { it.id } ?: 0L
+                val fresh = page.messages.filter { it.id > floor }
                 merge(fresh)
                 hasNewer = fresh.isNotEmpty()
             } else {
@@ -170,7 +189,7 @@ internal class SharedMediaWindow(
                 hasOlder = page.nextFromMessageId != 0L && page.nextFromMessageId != previousCursor
                 loaded = true
             }
-            newestId = maxOf(newestId, page.messages.maxOfOrNull { it.id } ?: 0L)
+            newestId = maxOf(newestId, messages.maxOfOrNull { it.id } ?: 0L)
         }.onFailure { error = failure(it) }
     }
 
