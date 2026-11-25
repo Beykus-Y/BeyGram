@@ -5,6 +5,7 @@ import com.beykus.beygram.data.appearance.BubbleStyle
 import com.beykus.beygram.data.appearance.ChatWallpaper
 import com.beykus.beygram.data.appearance.DesignStyle
 import com.beykus.beygram.data.appearance.GlassQuality
+import com.beykus.beygram.data.appearance.LiquidGlassLensPreset
 import com.beykus.beygram.data.appearance.ListDensity
 import com.beykus.beygram.data.appearance.encode
 import com.beykus.beygram.data.appearance.MessageAnimationConfig
@@ -68,7 +69,47 @@ class AppearanceDraftSaverTest {
         val draft = completeDraft()
         val restored = decodeAppearanceDraft(encodeAppearanceDraft(draft))
         assertEquals(draft, restored)
-        assertEquals(17, encodeAppearanceDraft(draft).size)
+        assertEquals(19, encodeAppearanceDraft(draft).size)
+    }
+
+    @Test fun liquidGlassV2SwitchSurvivesActivityRecreation() {
+        val on = decodeAppearanceDraft(
+            encodeAppearanceDraft(completeDraft().copy(liquidGlassV2 = true))
+        )
+        assertEquals(true, on?.liquidGlassV2)
+
+        val off = decodeAppearanceDraft(
+            encodeAppearanceDraft(completeDraft().copy(liquidGlassV2 = false))
+        )
+        assertEquals(false, off?.liquidGlassV2)
+    }
+
+    @Test fun liquidGlassLensPresetSurvivesActivityRecreation() {
+        for (preset in LiquidGlassLensPreset.entries) {
+            val restored = decodeAppearanceDraft(
+                encodeAppearanceDraft(completeDraft().copy(liquidGlassV2 = true, liquidGlassPreset = preset))
+            )
+            assertEquals(preset, restored?.liquidGlassPreset)
+        }
+    }
+
+    @Test fun draftSavedBeforeTheLensPresetRestoresAsStandard() {
+        // A version-5 draft: the V2 switch was stored with the lens preset not yet existing. It restores as Standard.
+        val legacy = encodeAppearanceDraft(completeDraft().copy(liquidGlassV2 = true, liquidGlassPreset = LiquidGlassLensPreset.Bold))
+            .take(17) + "5"
+        assertEquals(18, legacy.size)
+        val restored = decodeAppearanceDraft(legacy)
+        assertEquals(true, restored?.liquidGlassV2)
+        assertEquals(LiquidGlassLensPreset.Standard, restored?.liquidGlassPreset)
+    }
+
+    @Test fun draftSavedBeforeTheLiquidGlassV2SwitchRestoresWithItOff() {
+        // A version-4 draft: the sixteen values of that build, then its version "4". The switch did not exist yet.
+        val legacy = encodeAppearanceDraft(completeDraft().copy(liquidGlassV2 = true)).take(16) + "4"
+        assertEquals(17, legacy.size)
+        val restored = decodeAppearanceDraft(legacy)
+        assertEquals(false, restored?.liquidGlassV2)
+        assertEquals(completeDraft(), restored)
     }
 
     @Test fun designStyleAndGlassQualitySurviveActivityRecreation() {
@@ -94,11 +135,12 @@ class AppearanceDraftSaverTest {
     }
 
     @Test fun draftSavedBeforeThePlacementExistedKeepsTheStylePlacement() {
-        // A version-3 draft: the design style and the glass quality, but no bar placement.
+        // A version-3 draft: the design style and the glass quality, but no bar placement and no V2 switch.
+        // The first fifteen values of that build (style and quality included), then its version "3".
         val legacy = encodeAppearanceDraft(
             completeDraft().copy(designStyle = DesignStyle.Signature, glassQuality = GlassQuality.High)
-        ).toMutableList()
-        legacy.removeAt(15)
+        ).take(15) + "3"
+        assertEquals(16, legacy.size)
         val restored = decodeAppearanceDraft(legacy)
         assertEquals(DesignStyle.Signature, restored?.designStyle)
         assertEquals(GlassQuality.High, restored?.glassQuality)

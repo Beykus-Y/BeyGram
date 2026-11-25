@@ -61,6 +61,8 @@ import com.beykus.beygram.ui.components.beyGramPalette
 import com.beykus.beygram.ui.design.designFor
 import com.beykus.beygram.ui.design.recordsGlassBackdrop
 import com.beykus.beygram.ui.design.rememberDesign
+import com.beykus.beygram.data.appearance.LiquidGlassLensPreset
+import androidx.compose.ui.graphics.Color
 
 /**
  * The main preview is a whole phone screen. Its height is this share of the device's screen height, kept between the
@@ -196,11 +198,17 @@ internal fun AppearanceStylePage(
                         )
                     }
                 }
-                // The lens needs API 33+; below that the switch would do nothing, so it is not offered.
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                // The lens needs API 33+ and only refracts the High level (Auto resolves to High), so below
+                // those the switch would do nothing and is not offered.
+                val lensApplies = draft.glassQuality == GlassQuality.High || draft.glassQuality == GlassQuality.Auto
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU && lensApplies) {
                     LiquidGlassV2Row(
                         enabled = draft.liquidGlassV2,
                         onChange = { onDraftChange(draft.copy(liquidGlassV2 = it)) }
+                    )
+                    if (draft.liquidGlassV2) LiquidGlassPresetRow(
+                        selected = draft.liquidGlassPreset,
+                        onSelect = { onDraftChange(draft.copy(liquidGlassPreset = it)) }
                     )
                 }
             }
@@ -285,6 +293,62 @@ private fun StyleCard(
             overflow = TextOverflow.Ellipsis,
             modifier = Modifier.fillMaxWidth().heightIn(min = StyleCardCaptionHeight).padding(bottom = 2.dp)
         )
+    }
+}
+
+/** The lens variant under the V2 switch: three choices, each shown with its label. */
+@Composable
+private fun LiquidGlassPresetRow(selected: LiquidGlassLensPreset, onSelect: (LiquidGlassLensPreset) -> Unit) {
+    val palette = beyGramPalette()
+    val shape = AppearanceDimens.innerShape
+    Column(
+        Modifier.fillMaxWidth().padding(start = 28.dp, bottom = 6.dp),
+        verticalArrangement = Arrangement.spacedBy(6.dp)
+    ) {
+        Text(
+            stringResource(R.string.appearance_style_lens_title),
+            color = palette.textSecondary,
+            fontSize = 12.sp,
+            lineHeight = 17.sp
+        )
+        Text(
+            stringResource(R.string.appearance_style_lens_detail),
+            color = palette.textSecondary,
+            fontSize = 12.sp,
+            lineHeight = 17.sp
+        )
+        Row(
+            Modifier.fillMaxWidth().selectableGroup(),
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            LiquidGlassLensPreset.entries.forEach { preset ->
+                val isSelected = preset == selected
+                val label = when (preset) {
+                    LiquidGlassLensPreset.Standard -> stringResource(R.string.appearance_style_lens_standard)
+                    LiquidGlassLensPreset.Clear -> stringResource(R.string.appearance_style_lens_clear)
+                    LiquidGlassLensPreset.Bold -> stringResource(R.string.appearance_style_lens_bold)
+                }
+                Box(
+                    Modifier.weight(1f)
+                        .clip(shape)
+                        .background(if (isSelected) palette.accent else Color.Transparent)
+                        .border(1.dp, if (isSelected) palette.accent else palette.divider, shape)
+                        .selectable(selected = isSelected, role = Role.RadioButton, onClick = { onSelect(preset) })
+                        .padding(vertical = 8.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(
+                        label,
+                        color = if (isSelected) palette.accentInk else palette.textPrimary,
+                        fontSize = 13.sp,
+                        lineHeight = 18.sp,
+                        fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Medium,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
+            }
+        }
     }
 }
 
