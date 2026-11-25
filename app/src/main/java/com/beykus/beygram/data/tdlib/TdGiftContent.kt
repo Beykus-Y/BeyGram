@@ -33,6 +33,7 @@ internal fun giftChatContent(
             isRefunded = content.wasRefunded,
             wasConverted = content.wasConverted,
             wasUpgraded = content.wasUpgraded,
+            emoji = gift?.sticker?.emoji.orEmpty(),
             visual = visual(gift?.sticker),
         )
     }
@@ -51,6 +52,7 @@ internal fun giftChatContent(
             number = gift?.number?.coerceAtLeast(0) ?: 0,
             note = gift?.originalDetails?.text?.text.orEmpty(),
             isPremium = gift?.isPremium == true,
+            emoji = gift?.model?.sticker?.emoji.orEmpty(),
             visual = visual(gift?.model?.sticker),
             collectible = collectible(gift),
         )
@@ -60,6 +62,7 @@ internal fun giftChatContent(
         stickerFileId = content.gift?.sticker?.sticker?.id ?: 0,
         starCount = content.gift?.starCount ?: 0L,
         isRefunded = true,
+        emoji = content.gift?.sticker?.emoji.orEmpty(),
         visual = visual(content.gift?.sticker),
     )
     is TdApi.MessageGiftedPremium -> GiftChatContent(
@@ -68,18 +71,21 @@ internal fun giftChatContent(
         premiumMonths = content.monthCount.coerceAtLeast(0),
         note = content.text?.text.orEmpty(),
         isPremium = true,
+        emoji = content.sticker?.emoji.orEmpty(),
         visual = visual(content.sticker),
     )
     is TdApi.MessageGiftedStars -> GiftChatContent(
         kind = GiftChatKind.Stars,
         stickerFileId = content.sticker?.sticker?.id ?: 0,
         starCount = content.starCount.coerceAtLeast(0L),
+        emoji = content.sticker?.emoji.orEmpty(),
         visual = visual(content.sticker),
     )
     is TdApi.MessageGiftedTon -> GiftChatContent(
         kind = GiftChatKind.Ton,
         stickerFileId = content.sticker?.sticker?.id ?: 0,
         tonAmount = content.tonAmount.coerceAtLeast(0L),
+        emoji = content.sticker?.emoji.orEmpty(),
         visual = visual(content.sticker),
     )
     is TdApi.MessageUpgradedGiftPurchaseOffer -> GiftChatContent(
@@ -89,6 +95,7 @@ internal fun giftChatContent(
         title = content.gift?.title.orEmpty(),
         name = content.gift?.name.orEmpty(),
         number = content.gift?.number?.coerceAtLeast(0) ?: 0,
+        emoji = content.gift?.model?.sticker?.emoji.orEmpty(),
         visual = visual(content.gift?.model?.sticker),
         collectible = collectible(content.gift),
     )
@@ -99,6 +106,7 @@ internal fun giftChatContent(
         title = content.gift?.title.orEmpty(),
         name = content.gift?.name.orEmpty(),
         number = content.gift?.number?.coerceAtLeast(0) ?: 0,
+        emoji = content.gift?.model?.sticker?.emoji.orEmpty(),
         visual = visual(content.gift?.model?.sticker),
         collectible = collectible(content.gift),
     )

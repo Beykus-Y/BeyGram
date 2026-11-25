@@ -206,7 +206,11 @@ class TdGiftContentTest {
         // A regular gift has artwork but nothing collectible.
         val regular = giftChatContent(messageGift(gift(50L, stickerId = 33)), visuals, collectibles)!!
         assertEquals(33, regular.visual?.fileId)
+        assertEquals("🎁", regular.emoji)
         assertNull(regular.collectible)
+
+        // The artwork is not on the device yet on the first frame: the card shows the sticker's emoji until then.
+        assertEquals("🎁", upgraded.emoji)
     }
 
     @Test

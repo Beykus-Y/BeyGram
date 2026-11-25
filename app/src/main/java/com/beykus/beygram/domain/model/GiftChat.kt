@@ -50,6 +50,8 @@ data class GiftChatContent(
     val isRefunded: Boolean = false,
     val wasConverted: Boolean = false,
     val wasUpgraded: Boolean = false,
+    /** Emoji of the gift's sticker, shown until the artwork itself is on the device. Empty when TDLib has none. */
+    val emoji: String = "",
     /**
      * The real sticker of the gift, in the same shape the gift screens draw ([GiftVisual]). Null when TDLib reported no
      * drawable sticker, in which case the card shows the emoji or a generic glyph instead.
