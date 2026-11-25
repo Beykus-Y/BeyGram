@@ -426,8 +426,8 @@
     <string name="a11y_open_link">%1$s öffnen</string>
     <string name="a11y_open_attachment">Anhang öffnen</string>
     <string name="a11y_profile_photo_open">Profilfoto öffnen</string>
-    <string name="a11y_profile_photo_expand">Profilfoto vergrößern</string>
     <string name="a11y_profile_photo_expanded_state">Foto vergrößert</string>
+    <string name="a11y_profile_photo_collapse">Foto verkleinern</string>
     <string name="a11y_state_loading">Wird geladen</string>
     <string name="a11y_state_paused">Pausiert</string>
     <string name="a11y_state_playing">Wiedergabe</string>
