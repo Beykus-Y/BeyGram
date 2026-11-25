@@ -23,6 +23,7 @@ jobs:
     name: Record goldens
     env:
       BEYGRAM_ROBOLECTRIC_DIR: ${{ github.workspace }}-robolectric-deps
+      BEYGRAM_MAVEN_CENTRAL_MIRROR: https://maven-central.storage-download.googleapis.com/maven2
     if: >-
       github.event.label.name == 'record-screenshots' &&
       github.event.pull_request.head.repo.full_name == github.repository

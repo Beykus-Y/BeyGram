@@ -48,6 +48,7 @@ jobs:
     name: Build APKs
     env:
       BEYGRAM_ROBOLECTRIC_DIR: ${{ github.workspace }}-robolectric-deps
+      BEYGRAM_MAVEN_CENTRAL_MIRROR: https://maven-central.storage-download.googleapis.com/maven2
     # Tags never build: publishing reuses the main build of the tagged commit.
     if: >-
       github.event_name == 'pull_request' ||
