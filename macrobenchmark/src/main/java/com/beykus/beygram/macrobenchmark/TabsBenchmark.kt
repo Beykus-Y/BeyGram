@@ -5,20 +5,23 @@ import androidx.benchmark.macro.FrameTimingMetric
 import androidx.benchmark.macro.junit4.MacrobenchmarkRule
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.filters.LargeTest
+import androidx.test.platform.app.InstrumentationRegistry
 import androidx.test.uiautomator.By
-import androidx.test.uiautomator.Direction
-import androidx.test.uiautomator.Until
 import org.junit.Assume.assumeTrue
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
 
 /**
- * Switching between the main tabs (#1119, Performance 2.0). The app is launched in `setupBlock`; the measured block only
- * taps a tab and waits for its content, so the number describes the switch and not the cold start.
+ * Switching between the main tabs (#1119, Performance 2.0).
  *
- * Tab labels come from the bottom navigation of the current UI. A missing tab fails the run with a clear message
- * instead of measuring an unchanged screen.
+ * The app is launched and brought to the chats tab in `setupBlock`; the measured block only taps a tab. No scrolling or
+ * other work happens inside the measurement: a scroll would describe the list, not the switch (Codex review).
+ *
+ * Each switch is verified by the semantic *selected* state of the tab itself, which is what the target screen looks
+ * like from the screen reader's point of view. Labels come from the app resources for the reference locale; a device
+ * with another UI language can override them with
+ * `-Pandroid.testInstrumentationRunnerArguments.tabChats=... -Pandroid.testInstrumentationRunnerArguments.tabSettings=...`.
  */
 @LargeTest
 @RunWith(AndroidJUnit4::class)
@@ -27,9 +30,12 @@ class TabsBenchmark {
     val benchmarkRule = MacrobenchmarkRule()
 
     private val packageName = Benchmarks.targetPackage()
+    private val args = InstrumentationRegistry.getArguments()
+    private val tabChats = args.getString("tabChats") ?: "Сообщения"
+    private val tabSettings = args.getString("tabSettings") ?: "Настройки"
 
     @Test
-    fun switchBetweenTabs() = benchmarkRule.measureRepeated(
+    fun switchToSettingsAndBack() = benchmarkRule.measureRepeated(
         packageName = packageName,
         metrics = listOf(FrameTimingMetric()),
         compilationMode = CompilationMode.Partial(),
@@ -37,27 +43,26 @@ class TabsBenchmark {
         setupBlock = {
             killApp()
             startAppAndWait()
+            selectTab(tabChats)
         },
     ) {
-        // The chats tab is the starting point: the benchmark only switches away and back.
-        for (label in listOf(TAB_SETTINGS, TAB_CHATS)) {
-            val tab = device.findObject(By.text(label))
-            check(tab != null) { "Tab '$label' was not found: the measured screen is not the main tab host" }
-            tab.click()
-            device.waitForIdle()
-        }
-        // A scroll inside the chats list proves the switch actually landed on it.
-        val list = Benchmarks.chatList(device)
-        check(list != null) { "The chats list did not come back after switching tabs" }
-        list.setGestureMargin(device.displayWidth / 5)
-        list.scroll(Direction.DOWN, 0.6f)
-        list.scroll(Direction.UP, 0.6f)
+        selectTab(tabSettings)
+        selectTab(tabChats)
+    }
+
+    /**
+     * Taps [label] and verifies that the tab reports itself as selected afterwards. Without this check a missed tap
+     * would silently measure an unchanged screen.
+     */
+    private fun androidx.benchmark.macro.MacrobenchmarkScope.selectTab(label: String) {
+        val tab = device.findObject(By.text(label))
+        check(tab != null) { "Tab '$label' was not found: pass tabChats/tabSettings arguments for this UI language" }
+        tab.click()
         device.waitForIdle()
+        check(tab.isSelected) { "Tab '$label' did not become the selected screen" }
     }
 
     private companion object {
         const val ITERATIONS = 5
-        const val TAB_CHATS = "Чаты"
-        const val TAB_SETTINGS = "Настройки"
     }
 }
