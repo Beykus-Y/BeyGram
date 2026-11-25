@@ -51,14 +51,16 @@ adb shell getprop ro.build.version.sdk # 29+ (у M21 — Android 10/11/12 в з�
 adb shell pm list packages | Select-String "com.beykus.beygram"
 ```
 
-Сборка и установка профилируемого варианта (debug-подпись, R8 выключен как в релизе):
+Сборка и установка профилируемого варианта (debug-подпись, R8 выключен как в релизе). У benchmark **свой
+applicationId** (`com.beykus.beygram.dev.benchmark` / `com.beykus.beygram.benchmark`), поэтому он никогда не
+устанавливается поверх Dev или Stable и не затрагивает аккаунт владельца. Gradle-задачи `connectedDevBenchmarkAndroidTest`
+устанавливают этот пакет сами; вручную ставить ничего не нужно.
 
 ```powershell
+# Только проверить сборку/манифест, не устанавливая
 ./gradlew :app:assembleDevBenchmark
-adb install -r app/build/outputs/apk/devBenchmark/app-dev-benchmark.apk
-
-# Требуется для замеров: приложение не debuggable, но profileable
-adb shell dumpsys package com.beykus.beygram.dev | Select-String "profileable"
+# Пакет benchmark-сборки (не Dev и не Stable)
+adb shell dumpsys package com.beykus.beygram.dev.benchmark | Select-String "profileable|versionName"
 ```
 
 Перед каждым блоком: закрыть приложение, разблокировать экран, включить авиарежим не нужно (проверка не влияет),
@@ -74,11 +76,18 @@ adb shell dumpsys package com.beykus.beygram.dev | Select-String "profileable"
 ./gradlew :macrobenchmark:connectedDevBenchmarkAndroidTest `
   -Pandroid.testInstrumentationRunnerArguments.class=com.beykus.beygram.macrobenchmark.ChatNavigationBenchmark
 
-# Stable-канал вместо DEV (тот же APK не нужен: бенчмарк ставится заново)
+# Stable-канал вместо DEV: свой пакет com.beykus.beygram.benchmark
 ./gradlew :macrobenchmark:connectedProdBenchmarkAndroidTest `
-  -Pandroid.testInstrumentationRunnerArguments.class=com.beykus.beygram.macrobenchmark.StartupBenchmark `
-  -Pandroid.testInstrumentationRunnerArguments.targetPackage=com.beykus.beygram
+  -Pandroid.testInstrumentationRunnerArguments.class=com.beykus.beygram.macrobenchmark.StartupBenchmark
 ```
+
+Пакет под тестом определяется автоматически (instrumentation target, то есть фактический flavor + суффикс
+`.benchmark`), поэтому `targetPackage` вручную указывать не нужно.
+
+Методика: `setupBlock` останавливает приложение и доводит его до нужного экрана (список чатов или конкретный чат), а
+измеряемый блок содержит только действие — открытие чата, возврат или скролл. Каждый такой сценарий проверяет, что
+он действительно на нужном экране и что список сдвинулся (`Benchmarks.requireListMoved`), иначе прогон падает, а не
+публикует кадры статичного экрана.
 
 Где смотреть результаты:
 
@@ -89,9 +98,8 @@ adb shell dumpsys package com.beykus.beygram.dev | Select-String "profileable"
 дата и температура, `timeToInitialDisplay`/`timeToFullDisplay` (P50/P95/P99, min/max), длительность кадров и jank,
 размер APK, PSS/RSS после прогретого сценария.
 
-Проверка отсутствия регрессии установки: после замеров вернуть обычную сборку `:app:installDevDebug` и убедиться,
-что данные приложения и аккаунт на месте (benchmark-вариант имеет тот же applicationId и debug-подпись, поэтому
-ставится поверх, но проверять это нужно явно).
+Удаление: `adb uninstall com.beykus.beygram.dev.benchmark` (или `.benchmark` для Stable). Рабочий Dev/Stable не
+затрагивается: у benchmark-сборки отдельный applicationId и отдельные данные.
 
 Результаты: `macrobenchmark/build/outputs/connected_android_test_additional_output/...` и
 `macrobenchmark/build/outputs/androidTest-results/connected/...`.
@@ -114,7 +122,17 @@ debug с release; минимум 5 прогонов; чередование ва
 2. запускает `BaselineProfileGenerator` на `devBenchmark`/`prodBenchmark`;
 3. находит полученный `baseline-prof.txt` в выводах теста;
 4. отказывается копировать файл, если в нём меньше 100 записей (значит прогон почти ничего не прошёл);
-5. кладёт профиль в `app/src/main/baseline-prof.txt`, откуда AGP упаковывает его в APK.
+5. берёт только результат **этого** запуска **этого** flavor: файл должен быть создан после старта скрипта и лежать в
+   каталоге варианта, поэтому старый профиль или профиль другого flavor скопировать нельзя;
+6. кладёт профиль в `app/src/main/baseline-prof.txt`, откуда AGP упаковывает его в APK.
+
+Проверка упаковки в release APK (после получения профиля):
+
+```powershell
+./gradlew :app:assembleDevRelease
+./scripts/baseline-profile.ps1 -ApkPath app/build/outputs/apk/devRelease/app-dev-release.apk
+# OK: baseline profile is packaged ... ; при отсутствии файла — ошибка
+```
 
 **В репозитории нет `baseline-prof.txt`**, и он не создаётся вручную. Пока устройство не запускало генератор,
 файла быть не должно: пустой или выдуманный профиль выглядит как результат профилирования, но им не является.

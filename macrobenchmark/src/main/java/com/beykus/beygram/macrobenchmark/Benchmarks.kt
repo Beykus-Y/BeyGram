@@ -16,9 +16,14 @@ import androidx.test.uiautomator.Until
  * changes. Nothing here edits account data; only the UI is driven, and nothing is sent anywhere.
  */
 internal object Benchmarks {
-    /** Release-like target. `-e targetPackage com.beykus.beygram` switches to the Stable flavour. */
+    /**
+     * The package the benchmark runs against. The module self-instruments the app under test, so the instrumentation
+     * target already carries the flavour and the `.benchmark` id suffix; nothing is hardcoded. An explicit
+     * `-e targetPackage ...` still wins for one-off runs.
+     */
     fun targetPackage(): String =
-        InstrumentationRegistry.getArguments().getString("targetPackage") ?: "com.beykus.beygram.dev"
+        InstrumentationRegistry.getArguments().getString("targetPackage")
+            ?: InstrumentationRegistry.getInstrumentation().targetContext.packageName
 
     /** The chat list: the first scrollable container on screen. */
     fun chatList(device: UiDevice): UiObject2? = device.findObject(By.scrollable(true))
@@ -37,6 +42,20 @@ internal object Benchmarks {
             .filter { node -> node.visibleBounds.top >= headerBottom }
             .filter { node -> node.visibleBounds.top >= list.visibleBounds.top }
             .minByOrNull { node -> node.visibleBounds.top }
+    }
+
+    /**
+     * A stable identifier of the first visible row: its text. Used only to prove that a scroll really moved the list,
+     * not to navigate. Compose has no android:id, so the row text is the strongest available anchor.
+     */
+    fun firstRowSignature(device: UiDevice): String? = firstChatRow(device)?.text?.toString()?.takeIf { it.isNotBlank() }
+
+    /** Fails the measurement instead of reporting frames for a list that never moved. */
+    fun requireListMoved(device: UiDevice, before: String?) {
+        val after = firstRowSignature(device)
+        check(before != null && after != null && before != after) {
+            "The chat list did not move: the measurement would describe a static screen"
+        }
     }
 
     /** A vertical swipe over the screen, expressed in fractions so it works on any density. */

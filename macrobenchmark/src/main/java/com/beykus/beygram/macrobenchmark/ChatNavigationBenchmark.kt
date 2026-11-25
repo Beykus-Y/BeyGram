@@ -11,11 +11,12 @@ import org.junit.Test
 import org.junit.runner.RunWith
 
 /**
- * Navigation and scrolling of the chat list (#1119): opening a conversation, returning to the list and scrolling both
- * lists. `FrameTimingMetric` reports frame duration, so the output carries jank and P50/P95/P99 per frame.
+ * Navigation and scrolling of the chat list (#1119).
  *
- * These scenarios need at least one conversation in the signed-in account. Without chats the test is skipped instead of
- * measuring an empty state.
+ * The app is started, stopped and prepared in `setupBlock`, so the measured block contains only the action the metric
+ * is supposed to describe — an open, a return or a scroll — not the cold start. Every non-startup scenario also proves
+ * that it measured the intended screen: the chat list must exist, the first row must be identifiable, and a scroll must
+ * actually change the first visible row. Otherwise the run fails instead of reporting frames for a static screen.
  */
 @LargeTest
 @RunWith(AndroidJUnit4::class)
@@ -31,12 +32,16 @@ class ChatNavigationBenchmark {
         metrics = listOf(FrameTimingMetric()),
         compilationMode = CompilationMode.Partial(),
         iterations = ITERATIONS,
-        setupBlock = { killApp() },
+        // Launch and the first list frame happen before the measurement starts.
+        setupBlock = {
+            killApp()
+            startAppAndWait()
+        },
     ) {
-        startAppAndWait()
-        // A list with no rows cannot be measured; the assumption fails the run visibly rather than silently passing.
-        assumeTrue("No chat row on screen", openFirstChat())
+        assumeTrue("No chat row on screen", Benchmarks.firstChatRow(device) != null)
+        check(openFirstChat()) { "The chat did not open: the measured screen was not a conversation" }
         goBackFromChat()
+        check(Benchmarks.chatList(device) != null) { "The chat list did not come back after the return gesture" }
     }
 
     @Test
@@ -45,13 +50,17 @@ class ChatNavigationBenchmark {
         metrics = listOf(FrameTimingMetric()),
         compilationMode = CompilationMode.Partial(),
         iterations = ITERATIONS,
-        setupBlock = { killApp() },
+        setupBlock = {
+            killApp()
+            startAppAndWait()
+        },
     ) {
-        startAppAndWait()
         assumeTrue("No chat list on screen", Benchmarks.chatList(device) != null)
+        val before = Benchmarks.firstRowSignature(device)
         repeat(SCROLLS) {
             Benchmarks.swipeVertically(device, up = true)
         }
+        Benchmarks.requireListMoved(device, before)
         repeat(SCROLLS) {
             Benchmarks.swipeVertically(device, up = false)
         }
@@ -63,13 +72,18 @@ class ChatNavigationBenchmark {
         metrics = listOf(FrameTimingMetric()),
         compilationMode = CompilationMode.Partial(),
         iterations = ITERATIONS,
-        setupBlock = { killApp() },
+        setupBlock = {
+            killApp()
+            // The chat is opened before the measurement: only scrolling inside it is timed.
+            startAppAndWait()
+            check(openFirstChat()) { "The chat did not open: nothing to scroll" }
+        },
     ) {
-        startAppAndWait()
-        assumeTrue("No chat could be opened", openFirstChat())
+        val before = Benchmarks.firstRowSignature(device)
         repeat(SCROLLS) {
             Benchmarks.swipeVertically(device, up = false)
         }
+        Benchmarks.requireListMoved(device, before)
         repeat(SCROLLS) {
             Benchmarks.swipeVertically(device, up = true)
         }
