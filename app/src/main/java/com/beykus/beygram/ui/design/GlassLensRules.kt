@@ -17,7 +17,7 @@ internal fun glassLensWanted(
     lensOnFreeEdge: Boolean
 ): Boolean {
     if (!lensRefraction || !samplesBackdrop) return false
-    return edge == GlassEdge.Rim || (lensOnFreeEdge && edge == GlassEdge.BottomHairline)
+    return edge == GlassEdge.Rim || lensOnFreeEdge
 }
 
 /**

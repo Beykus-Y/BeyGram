@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.material3.Text
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.SideEffect
@@ -21,15 +22,20 @@ import androidx.compose.ui.test.getUnclippedBoundsInRoot
 import androidx.compose.ui.test.hasScrollAction
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithTag
+import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performSemanticsAction
 import androidx.compose.ui.test.performTouchInput
 import androidx.compose.ui.unit.dp
 import com.beykus.beygram.data.appearance.DesignStyle
 import com.beykus.beygram.data.appearance.GlassQuality
 import com.beykus.beygram.ui.design.GlassBackdrop
+import com.beykus.beygram.ui.design.GlassEdge
 import com.beykus.beygram.ui.design.LocalGlassBackdrop
 import com.beykus.beygram.ui.design.designFor
 import com.beykus.beygram.ui.design.rememberGlassBackdrop
+import com.beykus.beygram.ui.design.glassBackdropSource
+import com.beykus.beygram.ui.screens.chat.ChatChromeHost
+import com.beykus.beygram.ui.screens.chat.LocalComposerOnGlassPlane
 import com.beykus.beygram.ui.theme.BeyGramTheme
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
@@ -104,5 +110,55 @@ class MainTabGlassLayoutTest {
         compose.waitForIdle()
         compose.runOnIdle { assertNull(headerSource) }
         assertEquals(header.getUnclippedBoundsInRoot().bottom, row.getUnclippedBoundsInRoot().top)
+    }
+
+    @Test
+    fun sharedComposerAndItsPopupDoNotInheritTheChatCapture() {
+        val floating = mutableStateOf(false)
+        var sharedPlane = false
+        var composerSource: GlassBackdrop? = null
+        var popupSource: GlassBackdrop? = null
+        compose.setContent {
+            val backdrop = rememberGlassBackdrop()
+            BeyGramTheme(design = designFor(DesignStyle.LiquidGlass, GlassQuality.High, liquidGlassV2 = true)) {
+                Box {
+                    Box(Modifier.fillMaxSize().glassBackdropSource(backdrop))
+                    ChatChromeHost(
+                        glass = true,
+                        edge = GlassEdge.TopHairline,
+                        backdrop = backdrop,
+                        onHeight = {},
+                        floatingComposer = floating.value,
+                        paneContent = {
+                            val source = LocalGlassBackdrop.current
+                            val inPlane = LocalComposerOnGlassPlane.current
+                            SideEffect {
+                                composerSource = source
+                                sharedPlane = inPlane
+                            }
+                            Box(Modifier.fillMaxWidth().height(64.dp)) {
+                                BeyGramPopover(expanded = floating.value, onDismissRequest = {}) {
+                                    val popupBackdrop = LocalGlassBackdrop.current
+                                    SideEffect { popupSource = popupBackdrop }
+                                    Text("Attachment actions")
+                                }
+                            }
+                        }
+                    )
+                }
+            }
+        }
+
+        compose.runOnIdle {
+            assertTrue(sharedPlane)
+            assertNull(composerSource)
+            floating.value = true
+        }
+        compose.onNodeWithText("Attachment actions").assertExists()
+        compose.runOnIdle {
+            assertEquals(false, sharedPlane)
+            assertNotNull(composerSource)
+            assertNull(popupSource)
+        }
     }
 }
