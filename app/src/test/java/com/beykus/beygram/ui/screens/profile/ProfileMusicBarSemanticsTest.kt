@@ -1,17 +1,21 @@
 package com.beykus.beygram.ui.screens.profile
 
 import android.app.Application
-import androidx.compose.ui.semantics.SemanticsProperties
+import androidx.compose.ui.semantics.SemanticsActions
+import androidx.compose.ui.semantics.getOrNull
 import androidx.compose.ui.test.SemanticsMatcher
 import androidx.compose.ui.test.assert
-import androidx.compose.ui.test.assertCountEquals
+import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.hasClickAction
 import androidx.compose.ui.test.junit4.createComposeRule
-import androidx.compose.ui.test.onAllNodesWithContentDescription
+import androidx.compose.ui.test.onNodeWithText
+import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.onNodeWithTag
 import com.beykus.beygram.R
 import com.beykus.beygram.domain.model.MediaFileState
 import com.beykus.beygram.domain.model.ProfileAudio
 import kotlinx.coroutines.flow.MutableStateFlow
+import org.junit.Assert.assertEquals
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -43,27 +47,47 @@ class ProfileMusicBarSemanticsTest {
     )
 
     @Test
-    fun playButtonIsExactlyOneNamedTargetWhenNotPlaying() {
-        val files = MutableStateFlow(MediaFileState(id = 7))
+    fun oneTrackOnAnotherProfileExposesOnePlayClick() {
+        showBar(listOf(track))
+
+        val play = label(R.string.profile_music_play)
+        val row = compose.onNodeWithTag(ProfileMusicRowTag)
+        row.assert(SemanticsMatcher("has only the labelled play click") { node ->
+            node.config.getOrNull(SemanticsActions.OnClick)?.label == play &&
+                node.config.getOrNull(SemanticsActions.CustomActions).isNullOrEmpty()
+        })
+        assertEquals(1, compose.onAllNodes(hasClickAction()).fetchSemanticsNodes().size)
+    }
+
+    @Test
+    fun severalTracksExposeOnePlayActionAndOneListClick() {
+        showBar(listOf(track, track.copy(fileId = 8, title = "Second song")))
+
+        val play = label(R.string.profile_music_play)
+        val row = compose.onNodeWithTag(ProfileMusicRowTag)
+        row.assert(SemanticsMatcher("has one separate play action") { node ->
+            node.config.getOrNull(SemanticsActions.CustomActions)?.map { it.label } == listOf(play) &&
+                node.config.getOrNull(SemanticsActions.OnClick) != null
+        })
+        assertEquals(1, compose.onAllNodes(hasClickAction()).fetchSemanticsNodes().size)
+        row.performClick()
+        compose.onNodeWithText(label(R.string.profile_music_title)).assertIsDisplayed()
+    }
+
+    private fun label(id: Int): String = RuntimeEnvironment.getApplication().getString(id)
+
+    private fun showBar(tracks: List<ProfileAudio>) {
         compose.setContent {
             ProfileMusicBar(
                 ownerId = 1L,
-                tracks = listOf(track),
+                tracks = tracks,
                 own = false,
-                observeFile = { files },
+                observeFile = { fileId -> MutableStateFlow(MediaFileState(fileId)) },
                 downloadFile = {},
                 autoDownloadFile = null,
                 removeTrack = { Result.success(Unit) },
                 moveTrackToFront = { Result.success(Unit) }
             )
         }
-        val playLabel = RuntimeEnvironment.getApplication().getString(R.string.profile_music_play)
-        // One play/pause form: the row's custom action. No node may also carry the play label as its own description.
-        compose.onNodeWithTag(ProfileMusicRowTag, useUnmergedTree = true).assert(
-            SemanticsMatcher("has play custom action") { node ->
-                node.config.getOrNull(SemanticsProperties.CustomActions)?.any { it.label == playLabel } == true
-            }
-        )
-        compose.onAllNodesWithContentDescription(playLabel, useUnmergedTree = true).assertCountEquals(0)
     }
 }

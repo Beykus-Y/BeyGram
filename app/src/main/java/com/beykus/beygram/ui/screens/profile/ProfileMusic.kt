@@ -56,13 +56,13 @@ import kotlinx.coroutines.launch
  */
 val LocalAddProfileAudio = compositionLocalOf<(suspend (PlaybackItem) -> Result<Unit>)?> { null }
 
+internal const val ProfileMusicRowTag = "profile_music_row"
+
 /**
  * Полоса музыки под аватаром. Играет через общий плеер, как и музыка из чатов, поэтому мини-плеер и экран
  * плеера работают одинаково. У своего профиля список открывается с перестановкой и удалением, у чужого только
  * прослушивание.
  */
-internal const val ProfileMusicRowTag = "profile_music_row"
-
 @Composable
 internal fun ProfileMusicBar(
     ownerId: Long,
@@ -87,6 +87,7 @@ internal fun ProfileMusicBar(
     val isPlaying = playingIndex >= 0 && playback.playing
     val playLabel = stringResource(R.string.profile_music_play)
     val pauseLabel = stringResource(R.string.profile_music_pause)
+    val playbackLabel = if (isPlaying) pauseLabel else playLabel
     val subtitle = if (tracks.size > 1) stringResource(R.string.profile_music_track_count, index + 1, tracks.size) else shown.performer
     // The list also opens for a single track on the own profile, because a track is removed from there.
     val canOpenList = own || tracks.size > 1
@@ -112,31 +113,36 @@ internal fun ProfileMusicBar(
             // inset, so the bar keeps its place under the header.
             .then(if (cardElevation > 0.dp) Modifier.shadow(cardElevation, cardShape, clip = false) else Modifier)
             .glassCard(design, palette.accentSoft.copy(alpha = 0.6f), palette.textSecondary, cardShape)
-            .clickable(role = Role.Button) { if (canOpenList) listOpen = true else togglePlayback() }
-            // One focus target for TalkBack: play/pause is offered as a custom action on the row.
-            .semantics { customActions = listOf(CustomAccessibilityAction(if (isPlaying) pauseLabel else playLabel) { togglePlayback(); true }) }
+            .clickable(role = Role.Button, onClickLabel = if (canOpenList) null else playbackLabel) {
+                if (canOpenList) listOpen = true else togglePlayback()
+            }
+            .semantics {
+                // When the row itself plays the only track, its labelled click already exposes play/pause.
+                if (canOpenList) {
+                    customActions = listOf(CustomAccessibilityAction(playbackLabel) { togglePlayback(); true })
+                }
+            }
             .padding(horizontal = 8.dp, vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        Box(
-            Modifier
-                // Touch only. The row's custom action is the one play/pause form for accessibility services, so the disc's
-                // own click is cleared from semantics and no second play/pause target is announced.
-                .clearAndSetSemantics {}
-                // The drawn disc stays 44 dp; the touch target grows to the 48 dp minimum (Material accessibility).
-                .minimumInteractiveComponentSize()
-                .size(44.dp)
-                .clip(CircleShape)
-                .background(palette.accent)
-                .clickable(role = Role.Button) { togglePlayback() },
-            contentAlignment = Alignment.Center
-        ) {
-            Icon(
-                if (isPlaying) Icons.Rounded.Pause else Icons.Rounded.PlayArrow,
-                contentDescription = null,
-                tint = palette.onAccent,
-                modifier = Modifier.size(26.dp)
-            )
+        // The disc handles touch; the enclosing semantics node exposes one playback action.
+        Box(Modifier.clearAndSetSemantics {}) {
+            Box(
+                Modifier
+                    .minimumInteractiveComponentSize()
+                    .size(44.dp)
+                    .clip(CircleShape)
+                    .background(palette.accent)
+                    .clickable(role = Role.Button) { togglePlayback() },
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    if (isPlaying) Icons.Rounded.Pause else Icons.Rounded.PlayArrow,
+                    contentDescription = null,
+                    tint = palette.onAccent,
+                    modifier = Modifier.size(26.dp)
+                )
+            }
         }
         Spacer(Modifier.width(12.dp))
         Column(Modifier.weight(1f)) {
