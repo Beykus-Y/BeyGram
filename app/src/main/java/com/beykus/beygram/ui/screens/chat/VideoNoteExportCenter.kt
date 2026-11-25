@@ -144,6 +144,22 @@ internal fun initialSendReply(nextIndex: Int, replyId: Long?): Long? = if (nextI
 
 private val exportMutex = Mutex()
 
+/** How long an unsent raw recording may stay on disk before a later export cleans it up. */
+internal const val RAW_RECORDING_MAX_AGE_MS = 7L * 24 * 60 * 60 * 1000
+
+/**
+ * Raw recording folders that are safe to delete: sessions with files whose newest change is older than [maxAgeMs].
+ * A folder that is still being written, or one that only holds booking files, is never a candidate.
+ */
+internal fun abandonedRecordingSessions(
+    root: File,
+    now: Long,
+    maxAgeMs: Long = RAW_RECORDING_MAX_AGE_MS
+): List<File> = root.listFiles { file -> file.isDirectory }.orEmpty().filter { folder ->
+    val files = folder.listFiles().orEmpty()
+    files.isNotEmpty() && files.maxOfOrNull { it.lastModified() }?.let { now - it > maxAgeMs } == true
+}
+
 /** Process-wide count of queued/running exports, used to block further recording. */
 internal object VideoNoteExportGate {
     var activeExports by mutableStateOf(0)
@@ -246,6 +262,12 @@ internal object VideoNoteExportCenter {
         // Автоматический кружок виден в ленте сразу после отпускания, а не когда обработка закончится.
         if (!previewFirst) _pendingNotes.update { it + PendingVideoNote(chatId, sessionName, processing = true, topicId = topicId, accountId = accountId) }
         scope.launchExclusiveExport {
+            // A recording whose delivery never happened must not stay on disk forever. Cheap enough to run per export:
+            // the raw folders are in no_backup and no other janitor scans them.
+            runCatching {
+                abandonedRecordingSessions(File(appContext.noBackupFilesDir, "uploads"), System.currentTimeMillis())
+                    .forEach { folder -> folder.deleteRecursively() }
+            }
             try {
                 val outputDirectory = File(appContext.filesDir, "uploads").resolve(sessionName).apply {
                     check(mkdirs()) { "Cannot create video-note output directory" }

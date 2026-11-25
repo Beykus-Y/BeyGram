@@ -312,4 +312,21 @@ class VideoNoteDeliveryStateTest {
             VideoNoteExportCenter.discard(item.chatId, item.sessionName)
         }
     }
+
+    @Test fun onlyRecordingsOlderThanTheGracePeriodAreCleanedUp() {
+        val root = folder.newFolder("raw-sessions")
+        val fresh = folder.newFolder("raw-sessions/fresh")
+        folder.newFile("raw-sessions/fresh/video-note.mp4").writeBytes(ByteArray(8))
+        val old = folder.newFolder("raw-sessions/old")
+        val oldFile = folder.newFile("raw-sessions/old/video-note.mp4")
+        oldFile.writeBytes(ByteArray(8))
+        val now = System.currentTimeMillis()
+        oldFile.setLastModified(now - RAW_RECORDING_MAX_AGE_MS - 60_000L)
+        folder.newFolder("raw-sessions/empty")
+
+        val candidates = abandonedRecordingSessions(root, now).map { it.name }.sorted()
+
+        // A session still writing (fresh file) and one without files are kept; only the stale recording is deleted.
+        assertEquals(listOf("old"), candidates)
+    }
 }
