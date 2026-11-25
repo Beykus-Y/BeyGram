@@ -13,6 +13,9 @@ class ProfileSceneModelTest {
         reveal: Float = 0f,
         width: Float = 360f,
         height: Float = 800f,
+        contentLeft: Float = 0f,
+        contentRight: Float = width,
+        stageTop: Float = toolbarBottom,
         hasPhoto: Boolean = true,
         titleHeight: Float = 34f,
         statusHeight: Float = 20f,
@@ -22,10 +25,12 @@ class ProfileSceneModelTest {
         revealFraction = reveal,
         viewportWidthPx = width,
         viewportHeightPx = height,
+        contentLeftPx = contentLeft,
+        contentRightPx = contentRight,
         marginPx = 20f,
         maxPhotoWidthPx = 420f,
         photoHeightFraction = 0.42f,
-        stageTopPx = toolbarBottom,
+        stageTopPx = stageTop,
         toolbarBottomPx = toolbarBottom,
         avatarPx = 112f,
         titleHeightPx = titleHeight,
@@ -43,16 +48,48 @@ class ProfileSceneModelTest {
         assertEquals(expected.toDouble(), actual.toDouble(), tolerance.toDouble())
 
     @Test
-    fun travelDoesNotDependOnReveal() {
-        val closed = profileSceneFrame(inputs(reveal = 0f))
-        val open = profileSceneFrame(inputs(reveal = 1f))
-        assertClose(closed.travelPx, open.travelPx, 0.0001f)
+    fun travelFollowsTheCurrentStageHeightAtAnyReveal() {
+        for (reveal in listOf(0f, 0.5f, 1f)) {
+            val frame = profileSceneFrame(inputs(reveal = reveal))
+            assertClose(frame.stageHeightPx, frame.travelPx, 0.0001f)
+            // Collapse is complete exactly when the stage bottom reaches the toolbar bottom.
+            assertClose(1f, profileSceneFrame(inputs(reveal = reveal, scroll = frame.stageHeightPx)).collapse, 0f)
+        }
+    }
+
+    @Test
+    fun travelBringsTheStageBottomToTheToolbarBottom() {
+        val stageTop = 80f
+        val frame = profileSceneFrame(inputs(stageTop = stageTop, reveal = 0f))
+        val atEnd = profileSceneFrame(inputs(stageTop = stageTop, reveal = 0f, scroll = frame.travelPx))
+        assertClose(toolbarBottom, atEnd.stageBottomPx, 0.01f)
+        assertClose(1f, atEnd.collapse, 0f)
     }
 
     @Test
     fun collapseIsClampedToZeroAndOne() {
         assertClose(0f, profileSceneFrame(inputs(scroll = -5f)).collapse, 0f)
         assertClose(1f, profileSceneFrame(inputs(scroll = 1_000_000f)).collapse, 0f)
+    }
+
+    @Test
+    fun collapseIsMonotonicInScroll() {
+        val travel = profileSceneFrame(inputs()).travelPx
+        var previous = -1f
+        var scroll = 0f
+        while (scroll <= travel * 1.5f) {
+            val collapse = profileSceneFrame(inputs(scroll = scroll)).collapse
+            assertTrue("collapse decreased at scroll=$scroll", collapse >= previous)
+            previous = collapse
+            scroll += 7f
+        }
+    }
+
+    @Test
+    fun nanScrollIsTreatedAsTheTop() {
+        val frame = profileSceneFrame(inputs(scroll = Float.NaN, reveal = 1f))
+        assertClose(0f, frame.collapse, 0f)
+        assertClose(0f, frame.parallaxPx, 0f)
     }
 
     @Test
@@ -71,10 +108,25 @@ class ProfileSceneModelTest {
     }
 
     @Test
+    fun photoWithRevealDisabledKeepsTheLayerAtAvatarSize() {
+        // 0.42 * 200 = 84 < 112: reveal is off, so the layer is the avatar and the scale at rest is 1.
+        val frame = profileSceneFrame(inputs(width = 360f, height = 200f, reveal = 1f))
+        assertFalse(frame.revealEnabled)
+        assertClose(112f, frame.avatarRect.width)
+        assertClose(1f, frame.layerScale, 0.001f)
+    }
+
+    @Test
     fun restingAvatarIsCenteredUnderTheToolbar() {
         val frame = profileSceneFrame(inputs(scroll = 0f, reveal = 0f, width = 360f))
-        // Width 360: centre 180, avatar 112 px wide, top at the toolbar bottom.
         assertEquals(SceneRect(124f, 56f, 236f, 168f), frame.avatarRect)
+    }
+
+    @Test
+    fun insetsMoveTheCentreAndTheContentEdges() {
+        // Content runs from x=40 to x=400 in a 400 px window (a cutout on the left): centre 220.
+        val frame = profileSceneFrame(inputs(width = 400f, contentLeft = 40f, contentRight = 400f, reveal = 0f))
+        assertEquals(SceneRect(164f, 56f, 276f, 168f), frame.avatarRect)
     }
 
     @Test
@@ -98,11 +150,23 @@ class ProfileSceneModelTest {
     }
 
     @Test
+    fun zeroSizedViewportDoesNotBreakTheModel() {
+        val frame = profileSceneFrame(inputs(width = 0f, height = 0f, reveal = 1f))
+        assertFalse(frame.revealEnabled)
+        assertTrue(frame.collapse.isFinite() && frame.layerScale.isFinite() && frame.parallaxPx.isFinite())
+    }
+
+    @Test
     fun revealIsDisabledWhenThePhotoWouldBeShorterThanTheAvatar() {
         val tiny = profileSceneFrame(inputs(width = 360f, height = 200f, reveal = 1f))
-        // 0.42 * 200 = 84 < 112: reveal is off, the avatar stays at rest.
         assertFalse(tiny.revealEnabled)
         assertClose(112f, tiny.avatarRect.width)
+    }
+
+    @Test
+    fun halfRevealedAvatarIsBetweenTheCircleAndThePhoto() {
+        val half = profileSceneFrame(inputs(reveal = 0.5f, scroll = 0f))
+        assertTrue(half.avatarRect.width > 112f && half.avatarRect.width < 320f)
     }
 
     @Test
@@ -119,6 +183,14 @@ class ProfileSceneModelTest {
     }
 
     @Test
+    fun noExtraZoomAtRestWithoutReveal() {
+        // Reveal 0, photo present: the layer scale is exactly the cover scale (overscale not applied).
+        val frame = profileSceneFrame(inputs(scroll = 0f, reveal = 0f))
+        assertClose(112f / 320f, frame.layerScale, 0.001f)
+        assertClose(0f, frame.parallaxPx, 0f)
+    }
+
+    @Test
     fun parallaxIsZeroAtRestAndWithReducedMotion() {
         assertClose(0f, profileSceneFrame(inputs(scroll = 0f, reveal = 1f)).parallaxPx, 0f)
         assertClose(0f, profileSceneFrame(inputs(scroll = 50f, reveal = 1f, reduceMotion = true)).parallaxPx, 0f)
@@ -127,12 +199,11 @@ class ProfileSceneModelTest {
     @Test
     fun parallaxScalesWithRevealAndStaysWithinSlack() {
         val open = profileSceneFrame(inputs(scroll = 50f, reveal = 1f))
-        // 50 px of scroll gives 10 px of shift, which is below the slack at this collapse (about 28 px).
         assertClose(10f, open.parallaxPx)
         val halfOpen = profileSceneFrame(inputs(scroll = 50f, reveal = 0.5f))
         assertClose(5f, halfOpen.parallaxPx)
-        val far = profileSceneFrame(inputs(scroll = 10_000f, reveal = 1f))
         // At full collapse the clip is 40 px: layer 320 * 0.125 * 1.2 = 48 px, slack (48 - 40) / 2 = 4 px.
+        val far = profileSceneFrame(inputs(scroll = 10_000f, reveal = 1f))
         assertClose(4f, far.parallaxPx)
     }
 
