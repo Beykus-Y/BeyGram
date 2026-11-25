@@ -4,6 +4,6 @@
     <string name="stealth_view_once_text">Отправитель узнает, что вы открыли его, и оно исчезнет после просмотра. Режим невидимки здесь не скроет просмотр.</string>
     <string name="stealth_view_once_open">Открыть</string>
     <string name="stealth_send_warning_title">Отправить сообщение?</string>
-    <string name="stealth_send_warning_text">Telegram покажет вас в сети примерно на 30 секунд, даже если статус скрыт.</string>
+    <string name="stealth_send_warning_text">При отправке сейчас Telegram может ненадолго показать вас в сети, даже если статус скрыт.</string>
     <string name="stealth_send_warning_send">Отправить</string>
 </resources>

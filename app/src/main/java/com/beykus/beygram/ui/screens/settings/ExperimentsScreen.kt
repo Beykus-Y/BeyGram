@@ -13,6 +13,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.BugReport
 import androidx.compose.material.icons.rounded.GraphicEq
+import androidx.compose.material.icons.rounded.Person
 import androidx.compose.material.icons.rounded.SkipNext
 import androidx.compose.material.icons.rounded.SmartToy
 import androidx.compose.material.icons.rounded.SwapHoriz
@@ -34,6 +35,7 @@ import com.beykus.beygram.playback.TrackTransitionSettings
 import com.beykus.beygram.ui.components.beyGramPalette
 import com.beykus.beygram.ui.design.LocalDesignSystem
 import com.beykus.beygram.ui.design.glassScreenBackground
+import com.beykus.beygram.ui.screens.profile.ProfileSceneSettings
 import com.beykus.beygram.ui.screens.profile.ProfileToolbar
 
 /**
@@ -56,6 +58,8 @@ fun ExperimentsScreen(onBack: () -> Unit, onMusicAccount: () -> Unit = {}) {
     remember(context) { BgMixSettingsStore.load(context) }
     val bgMixEnabled by BgMixSettingsStore.enabled.collectAsStateWithLifecycle()
     remember(context) { TrackTransitionSettings.load(context) }
+    remember(context) { ProfileSceneSettings.load(context) }
+    val profileScene by ProfileSceneSettings.enabled.collectAsStateWithLifecycle()
     val skipSilence by TrackTransitionSettings.skipSilence.collectAsStateWithLifecycle()
     val crossfade by TrackTransitionSettings.crossfade.collectAsStateWithLifecycle()
     Column(Modifier.fillMaxSize().glassScreenBackground(design, palette.screen).windowInsetsPadding(WindowInsets.safeDrawing)) {
@@ -103,6 +107,15 @@ fun ExperimentsScreen(onBack: () -> Unit, onMusicAccount: () -> Unit = {}) {
                         onCheckedChange = { bgMascotSettings.setDebugOverlay(context, it) }
                     )
                 }
+            }
+            SettingsGroup(stringResource(R.string.settings_experiments_group_profile)) {
+                SettingsToggle(
+                    icon = Icons.Rounded.Person,
+                    title = stringResource(R.string.settings_profile_scene_title),
+                    subtitle = stringResource(R.string.settings_profile_scene_desc),
+                    checked = profileScene,
+                    onCheckedChange = { ProfileSceneSettings.setEnabled(context, it) }
+                )
             }
             SettingsGroup(stringResource(R.string.settings_experiments_group_transitions)) {
                 SettingsToggle(

@@ -20,6 +20,8 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.sizeIn
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.ui.draw.clip
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -53,9 +55,11 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.res.pluralStringResource
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.heading
+import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -76,6 +80,7 @@ import com.beykus.beygram.domain.model.GiftSendStep
 import com.beykus.beygram.domain.model.GiftTextValidation
 import com.beykus.beygram.domain.model.GiftsInfo
 import com.beykus.beygram.domain.model.MonetizationUnavailableException
+import com.beykus.beygram.domain.model.GiftRarityTier
 import com.beykus.beygram.domain.model.ReceivedGiftItem
 import com.beykus.beygram.domain.model.ReceivedGiftsPage
 import com.beykus.beygram.domain.model.ResaleGiftItem
@@ -90,6 +95,7 @@ import com.beykus.beygram.domain.model.next
 import com.beykus.beygram.domain.model.nextReceivedGiftsOffset
 import com.beykus.beygram.domain.model.validateGiftText
 import com.beykus.beygram.ui.accessibility.errorAnnouncement
+import com.beykus.beygram.ui.components.BeyGramPalette
 import com.beykus.beygram.ui.components.beyGramPalette
 import com.beykus.beygram.ui.text.resolve
 import com.beykus.beygram.ui.text.userMessage
@@ -656,7 +662,9 @@ fun GiftsScreen(
             content = {
                 Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
-                        Text(dialogGift.emoji.ifBlank { "🎁" }, fontSize = 30.sp)
+                        GiftVisualImage(dialogGift.visual, 30.dp) {
+                            Text(dialogGift.emoji.ifBlank { "🎁" }, fontSize = 30.sp)
+                        }
                         Spacer(Modifier.size(10.dp))
                         Text(
                             stringResource(R.string.gifts_cost, formatStarAmount(dialogGift.starCount)),
@@ -800,7 +808,9 @@ private fun GiftCatalogRow(
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
             // The gift and its text read as one item; the buttons beside them stay separate controls for TalkBack.
             Row(Modifier.weight(1f).semantics(mergeDescendants = true) {}, verticalAlignment = Alignment.CenterVertically) {
-                Text(gift.emoji.ifBlank { "🎁" }, fontSize = 32.sp)
+                GiftVisualImage(gift.visual, 32.dp) {
+                    Text(gift.emoji.ifBlank { "🎁" }, fontSize = 32.sp)
+                }
                 Column(Modifier.weight(1f).padding(start = 12.dp)) {
                     Text(
                         if (gift.auctionId.isNullOrBlank()) stringResource(R.string.gifts_cost, formatStarAmount(gift.starCount)) else stringResource(R.string.gift_auction_title),
@@ -867,8 +877,22 @@ private fun ReceivedGiftRow(gift: ReceivedGiftItem) {
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             // The gift itself is the main visual, so the emoji gets a larger slot than the text around it.
-            Box(Modifier.sizeIn(minWidth = 48.dp, minHeight = 48.dp), contentAlignment = Alignment.Center) {
-                Text(gift.emoji.ifBlank { "🎁" }, fontSize = 36.sp)
+            // An upgraded gift shows its backdrop behind the model and its symbol in the corner; a regular gift has neither.
+            GiftCollectibleBackdrop(
+                gift.collectible,
+                Modifier.sizeIn(minWidth = 48.dp, minHeight = 48.dp).clip(RoundedCornerShape(12.dp))
+            ) {
+                GiftPatternLayer(gift.collectible?.symbol, hasBackdrop = backdropEndpoints(gift.collectible) != null)
+                GiftVisualImage(gift.visual, 36.dp) {
+                    Text(gift.emoji.ifBlank { "🎁" }, fontSize = 36.sp)
+                }
+                // The symbol only shows its thumbnail, so a symbol without one has nothing to draw. Its inset keeps it
+                // inside the rounded backdrop corner, and its semantics are cleared because the row already says the gift.
+                gift.collectible?.symbol?.takeIf { it.thumbnailFileId != null }?.let { symbol ->
+                    Box(Modifier.align(Alignment.BottomEnd).padding(4.dp).clearAndSetSemantics {}) {
+                        GiftVisualImage(symbol, 18.dp, staticOnly = true) {}
+                    }
+                }
             }
             Column(Modifier.weight(1f).padding(start = 12.dp)) {
                 // Regular gifts have no title from Telegram, so they show a generic name rather than the list heading.
@@ -889,6 +913,34 @@ private fun ReceivedGiftRow(gift: ReceivedGiftItem) {
                     color = palette.textSecondary,
                     fontSize = 12.sp
                 )
+                // An upgraded gift names its number and the model's rarity; a regular gift names neither.
+                gift.collectible?.let { details ->
+                    Text(
+                        stringResource(R.string.gifts_collectible_number, details.number),
+                        color = palette.textSecondary,
+                        fontSize = 12.sp
+                    )
+                    // A tier is named and coloured per level, with the exact share as a fallback when TDLib sends
+                    // only the per-mille value, which is when the tier is null.
+                    val rarityLabel = when {
+                        details.modelRarityTier != null ->
+                            stringResource(giftRarityLabelRes(details.modelRarityTier))
+                        details.modelRarityPerMille != null ->
+                            stringResource(
+                                R.string.gifts_rarity_percent,
+                                String.format(java.util.Locale.getDefault(), "%.1f", details.modelRarityPerMille / 10.0)
+                            )
+                        else -> null
+                    }
+                    rarityLabel?.let { label ->
+                        Text(
+                            label,
+                            color = giftRarityColor(details.modelRarityTier, palette),
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.SemiBold
+                        )
+                    }
+                }
             }
             gift.starCount?.let { stars ->
                 Text(
@@ -1010,4 +1062,21 @@ private object RetainedGiftSendStore {
     private fun update(accountId: String, value: RetainedGiftSend) {
         _states.value = _states.value + (accountId to value)
     }
+}
+
+/** The label of a model's rarity tier, shown under an upgraded gift's number. */
+private fun giftRarityLabelRes(tier: GiftRarityTier): Int = when (tier) {
+    GiftRarityTier.Uncommon -> R.string.gifts_rarity_uncommon
+    GiftRarityTier.Rare -> R.string.gifts_rarity_rare
+    GiftRarityTier.Epic -> R.string.gifts_rarity_epic
+    GiftRarityTier.Legendary -> R.string.gifts_rarity_legendary
+}
+
+/** Each rarity tier has its own colour from the theme palette, so the levels read apart without the label. */
+private fun giftRarityColor(tier: GiftRarityTier?, palette: BeyGramPalette): Color = when (tier) {
+    GiftRarityTier.Uncommon -> palette.textSecondary
+    GiftRarityTier.Rare -> palette.accentInk
+    GiftRarityTier.Epic -> palette.warningText
+    GiftRarityTier.Legendary -> palette.accent
+    null -> palette.textSecondary
 }

@@ -89,6 +89,13 @@ import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.BlurredEdgeTreatment
 import com.beykus.beygram.ui.screens.bgmusic.BgMusicChatDocument
 import com.beykus.beygram.ui.screens.bgmusic.isBgMusicDocument
+import com.beykus.beygram.diagnostics.StructuredEventLog
+import com.beykus.beygram.diagnostics.report.EventKind
+import com.beykus.beygram.playback.VideoPlaybackMetrics
+import com.beykus.beygram.playback.VideoStartBufferSettings
+import com.beykus.beygram.playback.ProgressiveAttemptDiagnostics
+import com.beykus.beygram.playback.loadControlOrNull
+import com.beykus.beygram.playback.nextProgressiveAttemptNumber
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.Color
@@ -1480,17 +1487,46 @@ private fun MediaViewerPage(
     var progressiveUnlocked by remember(media.fileId) { mutableStateOf(false) }
     var progressivePath by remember(media.fileId) { mutableStateOf<String?>(null) }
     var progressiveRejected by remember(media.fileId, partialPath) { mutableStateOf(false) }
+    // Диагностика одного открытия страницы (Issue #1174). Пишется при уходе со страницы, даже если воспроизведение не началось.
+    val diagnostics = remember(media.fileId) {
+        ProgressiveAttemptDiagnostics(nextProgressiveAttemptNumber(), senderSupportsStreaming = media.supportsStreaming)
+    }
+    LaunchedEffect(partialPath != null, file.downloadedPrefixBytes, file.size, file.downloadOffset, file.isDownloading, file.localPath != null) {
+        diagnostics.snapshot(
+            partialPath != null, file.downloadedPrefixBytes, file.size, file.downloadOffset, file.isDownloading, completed = file.localPath != null
+        )
+    }
+    DisposableEffect(diagnostics) {
+        onDispose {
+            if (media.mimeType.startsWith("video/") && diagnostics.hasAttempt()) runCatching {
+                diagnostics.finish()?.let { attrs ->
+                    StructuredEventLog.shared.record(kind = EventKind.PERFORMANCE, code = "video_progressive_attempt", attrs = attrs)
+                }
+            }
+        }
+    }
     LaunchedEffect(media.fileId, partialPath, file.downloadedPrefixBytes, file.localPath, progressiveRejected) {
         if (progressiveUnlocked || progressiveRejected) return@LaunchedEffect
         if (file.localPath != null || partialPath == null || file.size <= 0L || file.downloadedPrefixBytes <= 0L) return@LaunchedEffect
-        val info = withContext(Dispatchers.IO) {
-            runCatching { Mp4StreamingProbe.inspect(File(partialPath), file.downloadedPrefixBytes) }.getOrNull()
+        diagnostics.probeStarted()
+        val probe = try {
+            withContext(Dispatchers.IO) {
+                val info = runCatching { Mp4StreamingProbe.inspect(File(partialPath), file.downloadedPrefixBytes) }.getOrNull()
+                info to Mp4StreamingProbe.topLayout(File(partialPath), file.downloadedPrefixBytes)
+            }
+        } catch (cancelled: Throwable) {
+            // Новый прирост префикса отменил пробу: повторные отмены видны в записи как probe=cancelled.
+            diagnostics.probeCancelled()
+            throw cancelled
         }
+        val info = probe.first
         val reason = info?.reason
+        diagnostics.probeFinished(reason?.name ?: "none", probe.second)
         when {
             info?.streamable == true -> {
                 progressivePath = partialPath
                 progressiveUnlocked = true
+                diagnostics.unlocked()
             }
             reason != null && reason in setOf(
                 Mp4StreamingReason.NotMp4,
@@ -1498,7 +1534,10 @@ private fun MediaViewerPage(
                 Mp4StreamingReason.MoovTooLarge,
                 Mp4StreamingReason.NoVideoTrack,
                 Mp4StreamingReason.UnsupportedVideoCodec
-            ) -> progressiveRejected = true
+            ) -> {
+                progressiveRejected = true
+                diagnostics.rejected(reason.name)
+            }
         }
     }
     val unlockedPath = progressivePath
@@ -1526,7 +1565,8 @@ private fun MediaViewerPage(
                         hasSpoiler = spoilerHidden
                     )
                 )
-            }
+            },
+            diagnostics = diagnostics
         )
     } else null
     val audioSource = rememberAudioPlaybackSource(media, { file }, observeFile, downloadFile)
@@ -1861,7 +1901,9 @@ private data class ProgressiveVideoSource(
     val downloading: () -> Boolean,
     /** TDLib's contiguous readable prefix; bytes beyond it may be unwritten or garbage. */
     val readablePrefix: () -> Long,
-    val onNeedMore: () -> Unit
+    val onNeedMore: () -> Unit,
+    /** Диагностика попытки (Issue #1174); пусто, если источник не нужен для записи. */
+    val diagnostics: ProgressiveAttemptDiagnostics? = null
 )
 
 /**
@@ -1877,7 +1919,9 @@ private class ProgressiveFileDataSource(
     private val isComplete: () -> Boolean,
     private val isDownloading: () -> Boolean,
     private val readablePrefix: () -> Long,
-    private val onNeedMore: () -> Unit
+    private val onNeedMore: () -> Unit,
+    private val onBytesRead: (Int) -> Unit = {},
+    private val diagnostics: ProgressiveAttemptDiagnostics? = null
 ) : DataSource {
     private var file: RandomAccessFile? = null
     private var position = 0L
@@ -1903,6 +1947,7 @@ private class ProgressiveFileDataSource(
         val opened = file ?: return C.RESULT_END_OF_INPUT
         val startedAt = SystemClock.elapsedRealtime()
         var requestedAt = 0L
+        var waited = false
         while (true) {
             // TDLib documents that an incomplete file may contain unavailable/garbage regions:
             // only downloadedPrefixSize is guaranteed readable. Never use file.length() as a boundary
@@ -1914,19 +1959,28 @@ private class ProgressiveFileDataSource(
                 val read = opened.read(buffer, offset, toRead)
                 if (read > 0) {
                     position += read
+                    onBytesRead(read)
+                    diagnostics?.onRead(read)
                     return read
                 }
             }
             if (isComplete()) return C.RESULT_END_OF_INPUT
+            if (!waited) {
+                waited = true
+                diagnostics?.onWait()
+            }
             val now = SystemClock.elapsedRealtime()
             if (!isDownloading() && now - startedAt >= NO_TRANSFER_TIMEOUT_MS) {
+                diagnostics?.onStall("no_transfer")
                 throw IOException("Automatic video download was cancelled")
             }
             if (now - requestedAt >= REQUEST_INTERVAL_MS) {
                 requestedAt = now
+                diagnostics?.onNeedMore()
                 onNeedMore()
             }
             if (now - startedAt >= STALL_TIMEOUT_MS) {
+                diagnostics?.onStall("timeout")
                 throw IOException("Timed out waiting for the next video chunk")
             }
             try {
@@ -1969,12 +2023,19 @@ private fun LocalVideo(
     val currentOnStarted by rememberUpdatedState(onStarted)
     val currentActive by rememberUpdatedState(active)
     val sourceKey = progressive?.fileId ?: -1
+    // Стартовый буфер: по умолчанию не задан (Media3), выбирается только в диагностическом режиме (Issue #1121).
+    val startBuffer = remember(context) { VideoStartBufferSettings.load(context) }
+    val metrics = remember(path, loop, sourceKey) { VideoPlaybackMetrics() }
+    val diagnostics = progressive?.diagnostics
     val player = remember(path, loop, sourceKey) {
-        ExoPlayer.Builder(context.applicationContext)
+        val builder = ExoPlayer.Builder(context.applicationContext)
             // Звук видео забирает фокус у внешних плееров. У анимации звука нет, поэтому фокус ей не нужен.
             .setAudioAttributes(AudioAttributes.Builder().setUsage(C.USAGE_MEDIA).setContentType(C.AUDIO_CONTENT_TYPE_MOVIE).build(), /* handleAudioFocus = */ !loop)
             .setHandleAudioBecomingNoisy(true)
-            .build()
+        // Диагностический буфер действует только на растущий файл TDLib: там streaming-значения LoadControl
+        // совпадают с дефолтами, меняется лишь стартовый буфер. Полностью скачанный файл остаётся на LoadControl Media3.
+        if (progressive != null) startBuffer.loadControlOrNull()?.let { builder.setLoadControl(it) }
+        builder.build()
     }
     var video by remember(path, loop, sourceKey) { mutableStateOf(VideoPlayerState()) }
     // Просмотр отмечается, когда файл начинает играть после нажатия или открытия. Возврат из буферизации отметку не повторяет.
@@ -1982,14 +2043,30 @@ private fun LocalVideo(
     DisposableEffect(player) {
         val listener = object : Player.Listener {
             override fun onIsPlayingChanged(isPlaying: Boolean) {
+                metrics.onPlayingChanged(isPlaying)
+                if (isPlaying) diagnostics?.onPlaying()
                 video = video.copy(playing = isPlaying)
                 if (isPlaying && startRequested) {
                     startRequested = false
                     currentOnStarted()
                 }
             }
-            override fun onPlaybackStateChanged(playbackState: Int) { video = video.afterPlaybackState(playbackState) }
-            override fun onPlayerError(error: PlaybackException) { video = video.afterFailure() }
+            override fun onPlaybackStateChanged(playbackState: Int) {
+                metrics.onPlaybackState(playbackState, player.playWhenReady)
+                diagnostics?.onMediaState(playbackState)
+                video = video.afterPlaybackState(playbackState)
+            }
+            override fun onPlayWhenReadyChanged(playWhenReady: Boolean, reason: Int) {
+                metrics.onPlayWhenReadyChanged(playWhenReady)
+            }
+            override fun onPositionDiscontinuity(oldPosition: Player.PositionInfo, newPosition: Player.PositionInfo, reason: Int) {
+                if (reason == Player.DISCONTINUITY_REASON_SEEK) metrics.onSeekApplied(player.playbackState == Player.STATE_READY)
+            }
+            override fun onPlayerError(error: PlaybackException) {
+                metrics.onFailed()
+                diagnostics?.onPlayerError(error.errorCodeName)
+                video = video.afterFailure()
+            }
         }
         player.addListener(listener)
         player.repeatMode = if (loop) Player.REPEAT_MODE_ONE else Player.REPEAT_MODE_OFF
@@ -1998,14 +2075,19 @@ private fun LocalVideo(
             player.setMediaItem(MediaItem.fromUri(Uri.fromFile(File(path))))
         } else {
             val factory = object : DataSource.Factory {
-                override fun createDataSource(): DataSource = ProgressiveFileDataSource(
-                    filePath = growth.path,
-                    totalSize = growth.totalSize,
-                    isComplete = growth.completed,
-                    isDownloading = growth.downloading,
-                    readablePrefix = growth.readablePrefix,
-                    onNeedMore = growth.onNeedMore
-                )
+                override fun createDataSource(): DataSource {
+                    growth.diagnostics?.sourceCreated()
+                    return ProgressiveFileDataSource(
+                        filePath = growth.path,
+                        totalSize = growth.totalSize,
+                        isComplete = growth.completed,
+                        isDownloading = growth.downloading,
+                        readablePrefix = growth.readablePrefix,
+                        onNeedMore = growth.onNeedMore,
+                        onBytesRead = metrics::onBytesRead,
+                        diagnostics = growth.diagnostics
+                    )
+                }
             }
             player.setMediaSource(
                 ProgressiveMediaSource.Factory(factory)
@@ -2015,10 +2097,20 @@ private fun LocalVideo(
         player.prepare()
         onDispose {
             player.removeListener(listener)
+            // Сводка замеров уходит один раз на просмотр. В ней нет имени файла и содержимого.
+            if (!loop && metrics.hasPlayed()) runCatching {
+                val size = progressive?.totalSize ?: File(path).length()
+                StructuredEventLog.shared.record(
+                    kind = EventKind.PERFORMANCE,
+                    code = "video_playback_summary",
+                    attrs = metrics.summary(startBuffer, size, streaming = progressive != null)
+                )
+            }
             player.release()
         }
     }
     fun play() {
+        metrics.onPlayRequested()
         if (video.ended) player.seekToDefaultPosition()
         // Пока файл уже играет, отметку не ставим: иначе следующий возврат из буферизации снова её отправит.
         if (!player.isPlaying) startRequested = true
@@ -2036,6 +2128,7 @@ private fun LocalVideo(
     }
     fun seek(fraction: Float) {
         val target = seekPositionMs(fraction, video.durationMs) ?: return
+        metrics.onSeek()
         player.seekTo(target)
         video = video.copy(positionMs = target)
     }
@@ -2070,6 +2163,7 @@ private fun LocalVideo(
                 onManualDownload()
                 video = VideoPlayerState()
                 startRequested = true
+                metrics.onRetry()
                 player.prepare()
                 player.play()
             }) { Text(stringResource(R.string.common_retry)) }

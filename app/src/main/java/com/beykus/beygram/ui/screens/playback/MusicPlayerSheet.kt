@@ -52,6 +52,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.automirrored.rounded.KeyboardArrowRight
 import androidx.compose.material.icons.rounded.ChatBubble
+import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.DragHandle
 import androidx.compose.material.icons.rounded.Equalizer
 import androidx.compose.material.icons.rounded.KeyboardArrowDown
@@ -72,6 +73,7 @@ import androidx.compose.material.icons.rounded.QueueMusic
 import androidx.compose.material.icons.rounded.Repeat
 import androidx.compose.material.icons.rounded.RepeatOne
 import androidx.compose.material.icons.rounded.Replay
+import androidx.compose.material.icons.rounded.Search
 import androidx.compose.material.icons.rounded.Tune
 import androidx.compose.material.icons.rounded.Waves
 import androidx.compose.material.icons.rounded.Share
@@ -177,6 +179,9 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.zIndex
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.beykus.beygram.R
+import com.beykus.beygram.data.canvas.BgCanvasMode
+import com.beykus.beygram.data.canvas.CanvasLoadState
+import com.beykus.beygram.media.bgbeat.BgBeatSection
 import com.beykus.beygram.media.bgwave.BgWaveHub
 import androidx.compose.material.icons.rounded.GraphicEq
 import com.beykus.beygram.playback.PLAYBACK_SPEED_OPTIONS
@@ -323,12 +328,52 @@ internal fun MusicPlayerContent(
     // Kept across Player and Queue, so the list keeps its place while the overlay stays open.
     val queueList = rememberSaveable(saver = LazyListState.Saver) { LazyListState() }
     var queuePlaced by rememberSaveable { mutableStateOf(false) }
+    val fallbackDurationMs = player.item.durationSeconds.coerceAtLeast(0) * 1000L
+    val rhythmSignal = rememberBgRhythmSignal(
+        item = player.item,
+        playing = player.playing,
+        speed = player.speed,
+        fallbackDurationMs = fallbackDurationMs,
+        active = panel == PlayerPanel.Player,
+    )
+    val rhythmGlowBrush = remember(palette.accent) {
+        Brush.verticalGradient(
+            0.0f to palette.accent,
+            0.65f to palette.accent.copy(alpha = 0.2f),
+            1.0f to Color.Transparent,
+        )
+    }
+    val (canvasMode, canvasState) = rememberBgCanvasState(
+        item = player.item,
+        active = panel == PlayerPanel.Player,
+    )
+    val cardCanvasState = if (canvasMode == BgCanvasMode.Card) canvasState else CanvasLoadState.Idle
     Box(
         modifier
             .fillMaxWidth()
             .then(if (ambientBrush != null) Modifier.drawBehind { drawRect(ambientBrush) } else Modifier)
+            .drawBehind {
+                if (rhythmSignal.isActive && rhythmSignal.phraseEnergy > 0f) {
+                    drawRect(
+                        brush = rhythmGlowBrush,
+                        alpha = (rhythmSignal.phraseEnergy * 0.16f).coerceIn(0f, 0.16f),
+                    )
+                }
+            }
             .onGloballyPositioned { contentCoords = it }
     ) {
+        if (canvasMode == BgCanvasMode.Fullscreen && canvasState is CanvasLoadState.Ready) {
+            BgCanvasOverlay(
+                state = canvasState,
+                playing = player.playing,
+                modifier = Modifier.matchParentSize(),
+            )
+            Box(
+                Modifier
+                    .matchParentSize()
+                    .background(Color.Black.copy(alpha = 0.48f))
+            )
+        }
         if (waveRibbons) {
             WaveBackdrop(
                 color = palette.accent,
@@ -384,6 +429,8 @@ internal fun MusicPlayerContent(
                     PlayerBody(
                         modifier = Modifier.weight(1f),
                         player = player,
+                        rhythmSignal = rhythmSignal,
+                        cardCanvasState = cardCanvasState,
                         onOpenQueue = { onPanel(PlayerPanel.Queue) },
                         onOpenLyrics = { onPanel(PlayerPanel.Lyrics) },
                         onOpenEqualizer = onOpenEqualizer?.let { open ->
@@ -679,6 +726,8 @@ internal const val SLEEP_EXTEND_MINUTES = 15
 @Composable
 private fun PlayerBody(
     player: MusicPlayerUi,
+    rhythmSignal: BgRhythmSignal,
+    cardCanvasState: CanvasLoadState,
     onOpenQueue: () -> Unit,
     onOpenLyrics: () -> Unit,
     onOpenEqualizer: (() -> Unit)?,
@@ -694,7 +743,7 @@ private fun PlayerBody(
                 Modifier.fillMaxSize().padding(horizontal = 20.dp, vertical = 4.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                PlayerArtwork(player, artwork, mediaMotion)
+                PlayerArtwork(player, artwork, mediaMotion, rhythmSignal, cardCanvasState)
                 Spacer(Modifier.width(28.dp))
                 Column(
                     Modifier
@@ -729,7 +778,7 @@ private fun PlayerBody(
                         .padding(top = 4.dp, bottom = 12.dp),
                     horizontalAlignment = Alignment.CenterHorizontally
                 ) {
-                    PlayerArtwork(player, artwork, mediaMotion)
+                    PlayerArtwork(player, artwork, mediaMotion, rhythmSignal, cardCanvasState)
                     Spacer(Modifier.height(18.dp))
                     PlayerDetails(
                         player = player,
@@ -792,7 +841,13 @@ internal fun seekDeltaFraction(positionMs: Long, durationMs: Long, deltaMs: Long
 }
 
 @Composable
-private fun PlayerArtwork(player: MusicPlayerUi, size: Dp, mediaMotion: MotionSpec) {
+private fun PlayerArtwork(
+    player: MusicPlayerUi,
+    size: Dp,
+    mediaMotion: MotionSpec,
+    rhythmSignal: BgRhythmSignal,
+    cardCanvasState: CanvasLoadState = CanvasLoadState.Idle,
+) {
     val palette = beyGramPalette()
     val density = LocalDensity.current
     val haptic = LocalHapticFeedback.current
@@ -890,7 +945,12 @@ private fun PlayerArtwork(player: MusicPlayerUi, size: Dp, mediaMotion: MotionSp
                 )
             }
             .graphicsLayer {
-                val combined = entryScale.value * breatheScale
+                val rhythmScale = if (rhythmSignal.isActive) {
+                    1f + rhythmSignal.beatPulse * 0.025f + rhythmSignal.downbeatPulse * 0.015f
+                } else {
+                    1f
+                }
+                val combined = entryScale.value * breatheScale * rhythmScale
                 scaleX = combined
                 scaleY = combined
                 translationX = animatedDragX
@@ -908,6 +968,13 @@ private fun PlayerArtwork(player: MusicPlayerUi, size: Dp, mediaMotion: MotionSp
             symbolSize = size * 0.22f,
             cornerRadius = 20.dp,
             border = palette.divider.copy(alpha = 0.55f)
+        )
+        BgCanvasOverlay(
+            state = cardCanvasState,
+            playing = player.playing,
+            modifier = Modifier
+                .fillMaxSize()
+                .clip(styledShape(20.dp))
         )
         MascotOverlay(
             item = player.item,
@@ -1580,6 +1647,7 @@ internal fun resolvePlayerActionKinds(
         }
         else -> {
             add(PlayerActionKind.AddToPlaylist)
+            if (lyricsEnabled) add(PlayerActionKind.Lyrics)
         }
     }
     add(PlayerActionKind.Queue)
@@ -1631,7 +1699,7 @@ private fun PlayerActions(
     val kinds = resolvePlayerActionKinds(
         isProviderTrack = isProviderKey,
         isEndlessRadio = isEndlessRadio,
-        lyricsEnabled = YANDEX_LYRICS_ENABLED
+        lyricsEnabled = if (isProviderKey) YANDEX_LYRICS_ENABLED else (item.isMusic && !item.systemPrivate)
     )
     val actions = kinds.map { kind ->
         when (kind) {
@@ -1784,8 +1852,36 @@ private fun QueuePanel(
     var dropTarget by remember { mutableIntStateOf(-1) }
     var queueMenuOpen by remember { mutableStateOf(false) }
     var saveQueueOpen by remember { mutableStateOf(false) }
+    var searchOpen by rememberSaveable { mutableStateOf(false) }
+    var searchQuery by rememberSaveable { mutableStateOf("") }
+    val scope = rememberCoroutineScope()
+    LaunchedEffect(current.size) {
+        if (current.size <= 1) {
+            searchOpen = false
+            searchQuery = ""
+        }
+    }
     // Tracks that already played stay reachable above the current one; with shuffle there is no meaningful "before".
     val playedRows = if (current.shuffleEnabled || current.currentIndex <= 0) emptyList() else current.rows.take(current.currentIndex)
+    val normalizedQuery = searchQuery.trim()
+    val filtering = normalizedQuery.isNotEmpty()
+    val visiblePlayed = remember(playedRows, normalizedQuery) { filterQueueRows(playedRows, normalizedQuery) }
+    val visibleCurrent = remember(current.current, normalizedQuery) {
+        current.current?.takeIf { filterQueueRows(listOf(it), normalizedQuery).isNotEmpty() }
+    }
+    val visibleUpcoming = remember(current.upcoming, normalizedQuery) { filterQueueRows(current.upcoming, normalizedQuery) }
+    val currentCardListIndex = if (playedRows.isEmpty()) 1 else playedRows.size + 2
+    val showJumpToCurrent by remember(current.current, normalizedQuery, currentCardListIndex) {
+        derivedStateOf {
+            val visibleIndices = listState.layoutInfo.visibleItemsInfo.map { it.index }
+            shouldShowJumpToCurrent(
+                currentItemListIndex = currentCardListIndex,
+                visibleIndices = visibleIndices,
+                queryBlank = normalizedQuery.isEmpty(),
+                hasCurrent = current.current != null,
+            )
+        }
+    }
     // The first open starts at the current track; later opens keep the place the list was left at.
     LaunchedEffect(Unit) {
         if (!placed) {
@@ -1843,27 +1939,41 @@ private fun QueuePanel(
                     fontSize = 11.sp
                 )
             }
-            Box(Modifier.weight(1f), contentAlignment = Alignment.CenterEnd) {
-                IconButton(onClick = { queueMenuOpen = true }) {
-                    Icon(Icons.Rounded.MoreVert, stringResource(R.string.queue_actions), tint = palette.textSecondary)
+            Row(Modifier.weight(1f), horizontalArrangement = Arrangement.End, verticalAlignment = Alignment.CenterVertically) {
+                if (current.size > 1) {
+                    IconButton(onClick = {
+                        searchOpen = !searchOpen
+                        if (!searchOpen) searchQuery = ""
+                    }) {
+                        Icon(
+                            if (searchOpen) Icons.Rounded.Close else Icons.Rounded.Search,
+                            stringResource(R.string.queue_search_action),
+                            tint = if (searchOpen) palette.accent else palette.textSecondary
+                        )
+                    }
                 }
-                BeyGramPopover(expanded = queueMenuOpen, onDismissRequest = { queueMenuOpen = false }) {
-                    BeyGramPopoverItem(
-                        text = stringResource(R.string.queue_clear),
-                        enabled = current.size > 1,
-                        onClick = {
-                            queueMenuOpen = false
-                            PlaybackEngine.clearUpcoming()
-                        }
-                    )
-                    BeyGramPopoverItem(
-                        text = stringResource(R.string.queue_save_as_playlist),
-                        enabled = current.rows.any { it.item.toPlaylistTrack() != null },
-                        onClick = {
-                            queueMenuOpen = false
-                            saveQueueOpen = true
-                        }
-                    )
+                Box {
+                    IconButton(onClick = { queueMenuOpen = true }) {
+                        Icon(Icons.Rounded.MoreVert, stringResource(R.string.queue_actions), tint = palette.textSecondary)
+                    }
+                    BeyGramPopover(expanded = queueMenuOpen, onDismissRequest = { queueMenuOpen = false }) {
+                        BeyGramPopoverItem(
+                            text = stringResource(R.string.queue_clear),
+                            enabled = current.size > 1,
+                            onClick = {
+                                queueMenuOpen = false
+                                PlaybackEngine.clearUpcoming()
+                            }
+                        )
+                        BeyGramPopoverItem(
+                            text = stringResource(R.string.queue_save_as_playlist),
+                            enabled = current.rows.any { it.item.toPlaylistTrack() != null },
+                            onClick = {
+                                queueMenuOpen = false
+                                saveQueueOpen = true
+                            }
+                        )
+                    }
                 }
             }
         }
@@ -1880,6 +1990,26 @@ private fun QueuePanel(
                 modifier = Modifier.weight(1f)
             )
         }
+        if (searchOpen) {
+            androidx.compose.material3.OutlinedTextField(
+                value = searchQuery,
+                onValueChange = { searchQuery = it },
+                singleLine = true,
+                placeholder = { Text(stringResource(R.string.queue_search_hint), fontSize = 14.sp) },
+                leadingIcon = { Icon(Icons.Rounded.Search, null, tint = palette.textSecondary) },
+                trailingIcon = {
+                    if (searchQuery.isNotEmpty()) {
+                        IconButton(onClick = { searchQuery = "" }) {
+                            Icon(Icons.Rounded.Close, stringResource(R.string.queue_search_clear), tint = palette.textSecondary)
+                        }
+                    }
+                },
+                shape = styledShape(14.dp),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp, vertical = 6.dp)
+            )
+        }
         if (current.shuffleEnabled) {
             Text(
                 stringResource(
@@ -1891,27 +2021,28 @@ private fun QueuePanel(
                 modifier = Modifier.padding(horizontal = 20.dp, vertical = 4.dp)
             )
         }
+        Box(Modifier.weight(1f).fillMaxWidth()) {
         LazyColumn(
-            Modifier.weight(1f).fillMaxWidth(),
+            Modifier.fillMaxSize(),
             state = listState,
-            contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 6.dp, bottom = 16.dp)
+            contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 6.dp, bottom = 56.dp)
         ) {
-            if (playedRows.isNotEmpty()) {
+            if (visiblePlayed.isNotEmpty()) {
                 item(key = "played-heading") { QueueSectionTitle(stringResource(R.string.queue_played)) }
-                items(playedRows, key = { "played:${it.item.occurrenceId}:${it.index}" }) { row ->
+                items(visiblePlayed, key = { "played:${it.item.occurrenceId}:${it.index}" }) { row ->
                     QueuePlayedRow(row) { PlaybackEngine.playQueueItem(row.item.key) }
                 }
             }
-            item(key = "current-heading") {
-                QueueSectionTitle(stringResource(R.string.queue_now_playing))
-            }
-            item(key = "current-${current.current?.item?.occurrenceId}") {
-                current.current?.let { row ->
+            if (visibleCurrent != null) {
+                item(key = "current-heading") {
+                    QueueSectionTitle(stringResource(R.string.queue_now_playing))
+                }
+                item(key = "current-${visibleCurrent.item.occurrenceId}") {
                     QueueCurrentCard(
-                        row = row,
-                        showSourcePosition = current.shuffleEnabled && row.index >= 0,
+                        row = visibleCurrent,
+                        showSourcePosition = current.shuffleEnabled && visibleCurrent.index >= 0,
                         onPlayPause = { PlaybackEngine.togglePlayPause() },
-                        onShowInChat = row.item.origin?.let { origin ->
+                        onShowInChat = visibleCurrent.item.origin?.let { origin ->
                             {
                                 PlaybackEngine.requestShowInChat(origin)
                                 onDismiss()
@@ -1920,10 +2051,29 @@ private fun QueuePanel(
                     )
                 }
             }
-            item(key = "next-heading") {
-                QueueSectionTitle(stringResource(R.string.queue_next))
+            if (!filtering || visibleUpcoming.isNotEmpty()) {
+                item(key = "next-heading") {
+                    QueueSectionTitle(stringResource(R.string.queue_next))
+                }
             }
-            if (current.upcoming.isEmpty() && !loadingOlder) {
+            if (filtering && visiblePlayed.isEmpty() && visibleCurrent == null && visibleUpcoming.isEmpty()) {
+                item(key = "queue-search-empty") {
+                    Column(
+                        modifier = Modifier.fillMaxWidth().padding(horizontal = 4.dp, vertical = 20.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally
+                    ) {
+                        Text(
+                            stringResource(R.string.queue_search_empty),
+                            color = palette.textSecondary,
+                            fontSize = 13.sp,
+                            textAlign = TextAlign.Center
+                        )
+                        TextButton(onClick = { searchQuery = "" }, modifier = Modifier.padding(top = 4.dp)) {
+                            Text(stringResource(R.string.queue_search_clear))
+                        }
+                    }
+                }
+            } else if (!filtering && visibleUpcoming.isEmpty() && !loadingOlder) {
                 item(key = "queue-empty") {
                     Column(
                         modifier = Modifier.fillMaxWidth().padding(horizontal = 4.dp, vertical = 12.dp),
@@ -1943,7 +2093,7 @@ private fun QueuePanel(
                     }
                 }
             }
-            items(current.upcoming, key = { "${it.item.occurrenceId}:${it.index}" }) { row ->
+            items(visibleUpcoming, key = { "${it.item.occurrenceId}:${it.index}" }) { row ->
                 val swipeState = rememberSwipeToDismissBoxState(
                     confirmValueChange = { value ->
                         if (value == SwipeToDismissBoxValue.EndToStart && row.index >= 0) {
@@ -1967,7 +2117,7 @@ private fun QueuePanel(
                 ) {
                 QueueUpcomingRow(
                     row = row,
-                    reorderEnabled = !current.shuffleEnabled,
+                    reorderEnabled = !current.shuffleEnabled && !filtering,
                     dragging = dragFrom == row.index,
                     highlighted = dropTarget == row.index,
                     canMoveUp = row.index > current.currentIndex + 1,
@@ -2036,6 +2186,39 @@ private fun QueuePanel(
                     }
                 }
             }
+        }
+        androidx.compose.animation.AnimatedVisibility(
+            visible = showJumpToCurrent,
+            enter = androidx.compose.animation.fadeIn(),
+            exit = androidx.compose.animation.fadeOut(),
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .padding(bottom = 14.dp)
+        ) {
+            Row(
+                Modifier
+                    .heightIn(min = 40.dp)
+                    .shadow(6.dp, styledShape(20.dp))
+                    .clip(styledShape(20.dp))
+                    .background(palette.accent, styledShape(20.dp))
+                    .clickable(role = Role.Button) {
+                        scope.launch {
+                            listState.animateScrollToItem(if (playedRows.isEmpty()) 0 else playedRows.size + 1)
+                        }
+                    }
+                    .padding(horizontal = 16.dp, vertical = 10.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(6.dp)
+            ) {
+                Icon(Icons.Rounded.PlayArrow, null, tint = palette.accentInk, modifier = Modifier.size(16.dp))
+                Text(
+                    stringResource(R.string.queue_jump_to_current),
+                    color = palette.accentInk,
+                    fontSize = 13.sp,
+                    fontWeight = FontWeight.SemiBold
+                )
+            }
+        }
         }
     }
 }
@@ -2453,3 +2636,25 @@ private fun queueStatusText(status: QueueItemStatus): String = stringResource(
         QueueItemStatus.Unavailable -> R.string.queue_unavailable
     }
 )
+
+internal fun filterQueueRows(rows: List<QueueItemUi>, query: String): List<QueueItemUi> {
+    val needle = query.trim()
+    if (needle.isEmpty()) return rows
+    return rows.filter { row ->
+        row.item.musicTitle().contains(needle, ignoreCase = true) ||
+            row.item.musicArtist()?.contains(needle, ignoreCase = true) == true ||
+            row.item.album?.contains(needle, ignoreCase = true) == true
+    }
+}
+
+internal fun shouldShowJumpToCurrent(
+    currentItemListIndex: Int,
+    visibleIndices: List<Int>,
+    queryBlank: Boolean,
+    hasCurrent: Boolean,
+): Boolean =
+    hasCurrent &&
+        queryBlank &&
+        currentItemListIndex >= 0 &&
+        visibleIndices.isNotEmpty() &&
+        currentItemListIndex !in visibleIndices

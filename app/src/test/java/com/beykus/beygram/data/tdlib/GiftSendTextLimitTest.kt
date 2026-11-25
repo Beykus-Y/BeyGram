@@ -11,7 +11,8 @@ import org.junit.Test
 class GiftSendTextLimitTest {
     // TDLib is never reached for an over-limit message; the limit check runs before any request.
     private val payments = TdPayments(
-        TdRequests { error("TDLib is not used by these tests") }
+        TdRequests { error("TDLib is not used by these tests") },
+        MediaFileStore()
     )
 
     @Test
