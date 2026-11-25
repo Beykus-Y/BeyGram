@@ -58,6 +58,8 @@ internal fun ProfileSceneStage(
     scrollPx: () -> Float,
     hasPhoto: Boolean,
     reveal: () -> Float,
+    reduceMotion: Boolean,
+    pullDownPx: () -> Float,
     modifier: Modifier = Modifier,
     content: @Composable () -> Unit,
 ) {
@@ -105,7 +107,8 @@ internal fun ProfileSceneStage(
                 compactAvatar = SceneRect(0f, 0f, 0f, 0f),
                 compactTitle = SceneRect(0f, 0f, 0f, 0f),
                 compactStatus = SceneRect(0f, 0f, 0f, 0f),
-                reduceMotion = true,
+                reduceMotion = reduceMotion,
+                pullDownPx = pullDownPx(),
             )
         )
         val avatarRect = frame.avatarRect

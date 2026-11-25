@@ -76,6 +76,7 @@ internal data class ProfileSceneInputs(
     /** Extra scale of the photo layer at full reveal, so the parallax has room (1 means none). */
     val overscale: Float = 1.2f,
     val reduceMotion: Boolean,
+    val pullDownPx: Float = 0f,
 )
 
 internal data class ProfileSceneFrame(
@@ -118,8 +119,11 @@ internal fun profileSceneFrame(inputs: ProfileSceneInputs): ProfileSceneFrame {
     val fullPhotoHeight = max(0f, min(fullPhotoWidth, i.photoHeightFraction * i.viewportHeightPx))
     val revealEnabled = i.hasPhoto && fullPhotoWidth > 0f && fullPhotoHeight >= i.avatarPx
     val photoW = if (revealEnabled) fullPhotoWidth else 0f
-    val photoH = if (revealEnabled) fullPhotoHeight else 0f
     val reveal = if (revealEnabled) i.revealFraction.coerceIn(0f, 1f) else 0f
+    val stretch = if (reveal == 1f && scroll <= 0f && !i.reduceMotion) {
+        i.pullDownPx.coerceIn(0f, i.avatarPx * 0.5f)
+    } else 0f
+    val photoH = if (revealEnabled) fullPhotoHeight + stretch else 0f
 
     // The identity block height at the current reveal: avatar block grows toward the photo height.
     val blockNow = lerpScene(i.avatarPx, if (revealEnabled) photoH else i.avatarPx, reveal)
@@ -148,13 +152,14 @@ internal fun profileSceneFrame(inputs: ProfileSceneInputs): ProfileSceneFrame {
     val layerSide = if (revealEnabled) max(i.avatarPx, max(photoW, photoH)) else i.avatarPx
     val layerW = layerSide
     val layerH = layerSide
-    val overscaleNow = 1f + (i.overscale - 1f) * reveal
+    val imageMotion = if (i.reduceMotion) 0f else reveal * (1f - collapse)
+    val overscaleNow = 1f + (i.overscale - 1f) * imageMotion
     val cover = if (layerW <= 0f || layerH <= 0f) 1f
     else max(avatarRect.width / layerW, avatarRect.height / layerH)
     val layerScale = cover * overscaleNow
     val slack = if (layerW <= 0f || layerH <= 0f) 0f
     else max(0f, (layerH * layerScale - avatarRect.height) / 2f)
-    val parallax = if (i.reduceMotion) 0f else (scroll * PARALLAX_FACTOR).coerceIn(0f, slack) * reveal
+    val parallax = (scroll * PARALLAX_FACTOR).coerceIn(0f, slack) * imageMotion
 
     return ProfileSceneFrame(
         collapse = collapse,
