@@ -9,7 +9,8 @@ data class ResaleGiftItem(
     /** Null for a TON-only listing or an unavailable Stars price. */
     val starCount: Long?,
     val isOwned: Boolean,
-    val visual: GiftVisual? = null
+    val visual: GiftVisual? = null,
+    val collectible: GiftCollectibleDetails? = null
 )
 
 data class ResaleGiftsPage(val items: List<ResaleGiftItem>, val nextOffset: String)

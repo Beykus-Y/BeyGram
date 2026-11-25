@@ -6,6 +6,8 @@ import com.beykus.beygram.domain.UserMessageException
 import com.beykus.beygram.domain.model.ExternalPaymentMethod
 import com.beykus.beygram.domain.model.GIFT_TEXT_MAX_LENGTH_DEFAULT
 import com.beykus.beygram.domain.model.GiftCatalogItem
+import com.beykus.beygram.domain.model.GiftCollectibleDetails
+import com.beykus.beygram.domain.model.GiftRarityTier
 import com.beykus.beygram.domain.model.GiftVisual
 import com.beykus.beygram.domain.model.StickerFileFormat
 import com.beykus.beygram.domain.model.GiftAuctionQuote
@@ -429,6 +431,26 @@ internal class TdPayments(
         )
     }
 
+    /**
+     * The collectible attributes of an upgraded gift that its card shows beside the model. Null for a regular gift.
+     * The symbol sticker is registered like the visual; the colours and rarity are plain values.
+     */
+    private fun giftCollectible(upgraded: TdApi.UpgradedGift?): GiftCollectibleDetails? {
+        val gift = upgraded ?: return null
+        val colors = gift.backdrop?.colors
+        val rarity = gift.model?.rarity
+        return GiftCollectibleDetails(
+            number = gift.number,
+            symbol = giftVisual(gift.symbol?.sticker),
+            backdropCenterColor = colors?.centerColor,
+            backdropEdgeColor = colors?.edgeColor,
+            backdropSymbolColor = colors?.symbolColor,
+            backdropTextColor = colors?.textColor,
+            modelRarityPerMille = (rarity as? TdApi.UpgradedGiftAttributeRarityPerMille)?.perMille,
+            modelRarityTier = rarity.toRarityTier()
+        )
+    }
+
     /** Read-only market request. The listed price is specific to the collectible name and currency. */
     suspend fun resaleGifts(giftId: Long, offset: String): Result<ResaleGiftsPage> = monetizationResult {
         val page = requests(TdApi.SearchGiftsForResale().apply {
@@ -452,7 +474,8 @@ internal class TdPayments(
                     emoji = gift.symbol?.sticker?.emoji.orEmpty(),
                     starCount = price.starCount.takeIf { it > 0L && !price.toncoinOnly },
                     isOwned = listing.receivedGiftId.orEmpty().isNotBlank(),
-                    visual = giftVisual(gift.model?.sticker)
+                    visual = giftVisual(gift.model?.sticker),
+                    collectible = giftCollectible(gift)
                 )
             }.distinctBy { it.name },
             nextOffset = page.nextOffset.orEmpty()
@@ -893,7 +916,8 @@ internal class TdPayments(
         gifts.map { gift ->
             gift.toReceivedGift(
                 senderName = gift.senderId?.let { sender -> sender.senderKey() }?.let { key -> names[key] },
-                visualOf = this::giftVisual
+                visualOf = this::giftVisual,
+                collectibleOf = this::giftCollectible
             )
         }
     }
@@ -1056,9 +1080,18 @@ private fun TdApi.AvailableGift.toCatalogItem(visualOf: (TdApi.Sticker?) -> Gift
     )
 }
 
+internal fun TdApi.UpgradedGiftAttributeRarity?.toRarityTier(): GiftRarityTier? = when (this) {
+    is TdApi.UpgradedGiftAttributeRarityUncommon -> GiftRarityTier.Uncommon
+    is TdApi.UpgradedGiftAttributeRarityRare -> GiftRarityTier.Rare
+    is TdApi.UpgradedGiftAttributeRarityEpic -> GiftRarityTier.Epic
+    is TdApi.UpgradedGiftAttributeRarityLegendary -> GiftRarityTier.Legendary
+    else -> null
+}
+
 private fun TdApi.ReceivedGift.toReceivedGift(
     senderName: String?,
-    visualOf: (TdApi.Sticker?) -> GiftVisual?
+    visualOf: (TdApi.Sticker?) -> GiftVisual?,
+    collectibleOf: (TdApi.UpgradedGift?) -> GiftCollectibleDetails?
 ): ReceivedGiftItem {
     val sent = gift
     val regular = (sent as? TdApi.SentGiftRegular)?.gift
@@ -1078,7 +1111,8 @@ private fun TdApi.ReceivedGift.toReceivedGift(
         isUpgraded = upgraded != null,
         wasRefunded = wasRefunded,
         // An upgraded gift is drawn by its model; a regular gift by its own sticker.
-        visual = visualOf(regular?.sticker ?: upgraded?.model?.sticker)
+        visual = visualOf(regular?.sticker ?: upgraded?.model?.sticker),
+        collectible = collectibleOf(upgraded)
     )
 }
 
