@@ -50,4 +50,14 @@ data class GiftChatContent(
     val isRefunded: Boolean = false,
     val wasConverted: Boolean = false,
     val wasUpgraded: Boolean = false,
+    /**
+     * The real sticker of the gift, in the same shape the gift screens draw ([GiftVisual]). Null when TDLib reported no
+     * drawable sticker, in which case the card shows the emoji or a generic glyph instead.
+     */
+    val visual: GiftVisual? = null,
+    /**
+     * Collectible attributes of an upgraded gift: symbol, backdrop colours, rarity and number. Shared with the profile
+     * gift screens, which is why the chat card needs no second renderer for them. Null for a regular gift.
+     */
+    val collectible: GiftCollectibleDetails? = null,
 )

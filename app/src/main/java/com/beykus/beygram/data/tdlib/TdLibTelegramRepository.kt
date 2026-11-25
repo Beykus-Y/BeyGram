@@ -3788,7 +3788,7 @@ class TdLibTelegramRepository private constructor(
         val secretChat = isSecretChat(chatId)
         val event = serviceMessages.event(this) { profiles.senderName(TdApi.MessageSenderUser(it)) }
         val service = event?.text
-        val gift = giftChatContent(content)
+        val gift = giftChatContent(content, payments::giftVisual, payments::giftCollectible)
         val special = mediaMapper.special(content)?.takeIf { attachment == null && service == null && content !is TdApi.MessageText }
         val scheduledAt = (schedulingState as? TdApi.MessageSchedulingStateSendAtDate)?.sendDate?.takeIf { it > 0 }?.toLong()
         if (event != null) hydrateServiceMember(this, event.userId)

@@ -2,6 +2,8 @@ package com.beykus.beygram.data.tdlib
 
 import com.beykus.beygram.domain.model.GiftChatContent
 import com.beykus.beygram.domain.model.GiftChatKind
+import com.beykus.beygram.domain.model.GiftCollectibleDetails
+import com.beykus.beygram.domain.model.GiftVisual
 import org.drinkless.tdlib.TdApi
 
 /**
@@ -9,8 +11,16 @@ import org.drinkless.tdlib.TdApi
  *
  * The text form stays in [TdServiceMessageMapper]; this function only carries the facts that the UI needs to draw a real
  * gift (file identifiers, names, number, amounts, note). It never invents data: absent fields stay at their defaults.
+ *
+ * [visual] and [collectible] come from the same mappers the profile gift screens use, so the chat card draws the very
+ * same sticker and backdrop and the file is registered once, for both screens. Both are optional: a caller without a
+ * media layer (the mapping tests) gets a purely textual projection.
  */
-internal fun giftChatContent(content: TdApi.MessageContent): GiftChatContent? = when (content) {
+internal fun giftChatContent(
+    content: TdApi.MessageContent,
+    visual: (TdApi.Sticker?) -> GiftVisual? = { null },
+    collectible: (TdApi.UpgradedGift?) -> GiftCollectibleDetails? = { null },
+): GiftChatContent? = when (content) {
     is TdApi.MessageGift -> {
         val gift = content.gift
         GiftChatContent(
@@ -23,6 +33,7 @@ internal fun giftChatContent(content: TdApi.MessageContent): GiftChatContent? = 
             isRefunded = content.wasRefunded,
             wasConverted = content.wasConverted,
             wasUpgraded = content.wasUpgraded,
+            visual = visual(gift?.sticker),
         )
     }
     is TdApi.MessageUpgradedGift -> {
@@ -40,6 +51,8 @@ internal fun giftChatContent(content: TdApi.MessageContent): GiftChatContent? = 
             number = gift?.number?.coerceAtLeast(0) ?: 0,
             note = gift?.originalDetails?.text?.text.orEmpty(),
             isPremium = gift?.isPremium == true,
+            visual = visual(gift?.model?.sticker),
+            collectible = collectible(gift),
         )
     }
     is TdApi.MessageRefundedUpgradedGift -> GiftChatContent(
@@ -47,6 +60,7 @@ internal fun giftChatContent(content: TdApi.MessageContent): GiftChatContent? = 
         stickerFileId = content.gift?.sticker?.sticker?.id ?: 0,
         starCount = content.gift?.starCount ?: 0L,
         isRefunded = true,
+        visual = visual(content.gift?.sticker),
     )
     is TdApi.MessageGiftedPremium -> GiftChatContent(
         kind = GiftChatKind.Premium,
@@ -54,16 +68,19 @@ internal fun giftChatContent(content: TdApi.MessageContent): GiftChatContent? = 
         premiumMonths = content.monthCount.coerceAtLeast(0),
         note = content.text?.text.orEmpty(),
         isPremium = true,
+        visual = visual(content.sticker),
     )
     is TdApi.MessageGiftedStars -> GiftChatContent(
         kind = GiftChatKind.Stars,
         stickerFileId = content.sticker?.sticker?.id ?: 0,
         starCount = content.starCount.coerceAtLeast(0L),
+        visual = visual(content.sticker),
     )
     is TdApi.MessageGiftedTon -> GiftChatContent(
         kind = GiftChatKind.Ton,
         stickerFileId = content.sticker?.sticker?.id ?: 0,
         tonAmount = content.tonAmount.coerceAtLeast(0L),
+        visual = visual(content.sticker),
     )
     is TdApi.MessageUpgradedGiftPurchaseOffer -> GiftChatContent(
         kind = GiftChatKind.PurchaseOffer,
@@ -72,6 +89,8 @@ internal fun giftChatContent(content: TdApi.MessageContent): GiftChatContent? = 
         title = content.gift?.title.orEmpty(),
         name = content.gift?.name.orEmpty(),
         number = content.gift?.number?.coerceAtLeast(0) ?: 0,
+        visual = visual(content.gift?.model?.sticker),
+        collectible = collectible(content.gift),
     )
     is TdApi.MessageUpgradedGiftPurchaseOfferRejected -> GiftChatContent(
         kind = GiftChatKind.PurchaseOfferRejected,
@@ -80,6 +99,8 @@ internal fun giftChatContent(content: TdApi.MessageContent): GiftChatContent? = 
         title = content.gift?.title.orEmpty(),
         name = content.gift?.name.orEmpty(),
         number = content.gift?.number?.coerceAtLeast(0) ?: 0,
+        visual = visual(content.gift?.model?.sticker),
+        collectible = collectible(content.gift),
     )
     else -> null
 }

@@ -1,6 +1,9 @@
 package com.beykus.beygram.data.tdlib
 
 import com.beykus.beygram.domain.model.GiftChatKind
+import com.beykus.beygram.domain.model.GiftCollectibleDetails
+import com.beykus.beygram.domain.model.GiftVisual
+import com.beykus.beygram.domain.model.StickerFileFormat
 import org.drinkless.tdlib.TdApi
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -46,6 +49,12 @@ class TdGiftContentTest {
             backdrop = TdApi.UpgradedGiftBackdrop().apply {
                 id = 7
                 name = "backdrop"
+                colors = TdApi.UpgradedGiftBackdropColors().apply {
+                    centerColor = 0x112233
+                    edgeColor = 0x445566
+                    symbolColor = 0x778899
+                    textColor = 0xAABBCC
+                }
             }
         }
 
@@ -157,6 +166,56 @@ class TdGiftContentTest {
         val rejectedMapped = giftChatContent(rejected)!!
         assertEquals(GiftChatKind.PurchaseOfferRejected, rejectedMapped.kind)
         assertEquals(8, rejectedMapped.number)
+    }
+
+    @Test
+    fun `the card gets the same visual and collectible data as the gift screens`() {
+        // The chat card reuses GiftVisualImage/GiftCollectibleBackdrop, so it needs exactly the shapes the profile
+        // screens consume: a sticker file for the artwork and the collectible attributes for backdrop and number.
+        val visuals = { sticker: TdApi.Sticker? ->
+            sticker?.let { GiftVisual(it.sticker.id, StickerFileFormat.Webp, null, it.width, it.height) }
+        }
+        val collectibles = { gift: TdApi.UpgradedGift? ->
+            gift?.let {
+                GiftCollectibleDetails(
+                    number = it.number,
+                    symbol = visuals(it.symbol?.sticker),
+                    backdropCenterColor = it.backdrop?.colors?.centerColor,
+                    backdropEdgeColor = it.backdrop?.colors?.edgeColor,
+                    backdropSymbolColor = it.backdrop?.colors?.symbolColor,
+                    backdropTextColor = it.backdrop?.colors?.textColor,
+                    modelRarityPerMille = null,
+                    modelRarityTier = null,
+                )
+            }
+        }
+
+        val upgraded = giftChatContent(
+            TdApi.MessageUpgradedGift().apply { gift = upgradedGift(number = 42) },
+            visuals,
+            collectibles,
+        )!!
+
+        assertEquals(21, upgraded.visual?.fileId)
+        assertEquals(StickerFileFormat.Webp, upgraded.visual?.format)
+        assertEquals(42, upgraded.collectible?.number)
+        assertEquals(22, upgraded.collectible?.symbol?.fileId)
+        assertEquals(0x112233, upgraded.collectible?.backdropCenterColor)
+        assertEquals(0x445566, upgraded.collectible?.backdropEdgeColor)
+
+        // A regular gift has artwork but nothing collectible.
+        val regular = giftChatContent(messageGift(gift(50L, stickerId = 33)), visuals, collectibles)!!
+        assertEquals(33, regular.visual?.fileId)
+        assertNull(regular.collectible)
+    }
+
+    @Test
+    fun `without a media layer the projection stays textual`() {
+        // The mapping tests and any caller without a media layer keep working: no invented artwork.
+        val mapped = giftChatContent(messageGift(gift(50L, stickerId = 33)))!!
+        assertNull(mapped.visual)
+        assertNull(mapped.collectible)
+        assertEquals(33, mapped.stickerFileId)
     }
 
     @Test
