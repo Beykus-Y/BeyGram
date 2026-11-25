@@ -33,6 +33,7 @@ import androidx.compose.runtime.State
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -57,6 +58,7 @@ import com.beykus.beygram.data.settings.StealthScheduleDelayChoices
 import com.beykus.beygram.data.settings.StealthScheduleDelayRange
 import com.beykus.beygram.data.settings.StealthSettingsStore
 import com.beykus.beygram.data.settings.stealthDelayUsesServer
+import com.beykus.beygram.domain.model.ChatPreview
 import com.beykus.beygram.ui.components.beyGramPalette
 import com.beykus.beygram.ui.components.groupSurfaceColor
 import com.beykus.beygram.ui.design.groupCardShape
@@ -76,8 +78,15 @@ fun StealthSettingsScreen(
     store: StealthSettingsStore?,
     onServerPrivacy: () -> Unit,
     onBack: () -> Unit,
-    delayStore: DelayedSendSettingsStore? = null
+    delayStore: DelayedSendSettingsStore? = null,
+    accountName: String? = null,
+    exceptionChats: List<ChatPreview> = emptyList()
 ) {
+    var showExceptions by rememberSaveable(store) { mutableStateOf(false) }
+    if (store != null && showExceptions) {
+        StealthExceptionsScreen(store, exceptionChats, onBack = { showExceptions = false })
+        return
+    }
     val palette = beyGramPalette()
     val design = LocalDesignSystem.current
     BackHandler(onBack = onBack)
@@ -91,7 +100,13 @@ fun StealthSettingsScreen(
                 modifier = Modifier.padding(horizontal = 20.dp, vertical = 12.dp)
             )
         } else {
-            StealthSettingsBody(store = store, onServerPrivacy = onServerPrivacy, delayStore = delayStore)
+            StealthSettingsBody(
+                store = store,
+                onServerPrivacy = onServerPrivacy,
+                delayStore = delayStore,
+                accountName = accountName,
+                onExceptions = { showExceptions = true }
+            )
         }
     }
 }
@@ -104,7 +119,13 @@ internal fun rememberStealthSettings(store: StealthSettingsStore?): State<Stealt
 }
 
 @Composable
-private fun ColumnScope.StealthSettingsBody(store: StealthSettingsStore, onServerPrivacy: () -> Unit, delayStore: DelayedSendSettingsStore?) {
+private fun ColumnScope.StealthSettingsBody(
+    store: StealthSettingsStore,
+    onServerPrivacy: () -> Unit,
+    delayStore: DelayedSendSettingsStore?,
+    accountName: String?,
+    onExceptions: () -> Unit
+) {
     val palette = beyGramPalette()
     val design = LocalDesignSystem.current
     val settings by store.state.collectAsStateWithLifecycle()
@@ -119,7 +140,7 @@ private fun ColumnScope.StealthSettingsBody(store: StealthSettingsStore, onServe
         Modifier.fillMaxWidth().weight(1f).verticalScroll(rememberScrollState()).padding(horizontal = 16.dp, vertical = 8.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
-        StatusCard(settings, preset, exceptions, saveFailed) { choice ->
+        StatusCard(settings, preset, exceptions, saveFailed, accountName) { choice ->
             update { stealthPreset(choice, it) }
         }
 
@@ -165,14 +186,20 @@ private fun ColumnScope.StealthSettingsBody(store: StealthSettingsStore, onServe
             ) { value -> update { it.copy(warnRiskyActions = value) } }
         }
 
-        Column(
-            Modifier.fillMaxWidth().glassCard(design, groupSurfaceColor(), palette.textSecondary, groupCardShape()).padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(4.dp)
+        Row(
+            Modifier.fillMaxWidth().glassCard(design, groupSurfaceColor(), palette.textSecondary, groupCardShape())
+                .heightIn(min = 48.dp).clickable(role = Role.Button, onClick = onExceptions)
+                .padding(horizontal = 16.dp, vertical = 14.dp),
+            verticalAlignment = Alignment.CenterVertically
         ) {
-            if (exceptions > 0) {
-                Text(stringResource(R.string.stealth_exceptions_count, exceptions), color = palette.textPrimary, fontSize = 15.sp, fontWeight = FontWeight.Medium)
-            }
-            Text(stringResource(R.string.stealth_exceptions_detail), color = palette.textSecondary, fontSize = 13.sp)
+            Text(
+                stringResource(R.string.stealth_exceptions_count, exceptions),
+                color = palette.textPrimary,
+                fontSize = 15.sp,
+                fontWeight = FontWeight.Medium,
+                modifier = Modifier.weight(1f)
+            )
+            Icon(Icons.Rounded.ChevronRight, contentDescription = null, tint = palette.textSecondary, modifier = Modifier.size(22.dp))
         }
 
         ScheduledSendSection(settings = settings, update = ::update)
@@ -324,6 +351,7 @@ private fun StatusCard(
     preset: StealthPresetKind,
     exceptionCount: Int,
     saveFailed: Boolean,
+    accountName: String?,
     onPresetSelected: (StealthPresetKind) -> Unit
 ) {
     val palette = beyGramPalette()
@@ -333,6 +361,7 @@ private fun StatusCard(
         verticalArrangement = Arrangement.spacedBy(8.dp)
     ) {
         Text(stringResource(R.string.stealth_client_state), color = palette.textSecondary, fontSize = 13.sp)
+        accountName?.let { Text(it, color = palette.textSecondary, fontSize = 13.sp) }
         Text(
             stringResource(if (settings.failClosed) R.string.stealth_unavailable else preset.labelRes()),
             color = palette.textPrimary,
@@ -399,7 +428,7 @@ private fun GroupTitle(text: String) {
 
 /** A radio row. Without [onSelect] it only shows its state, as the custom row does. */
 @Composable
-private fun ChoiceRow(title: String, selected: Boolean, onSelect: (() -> Unit)?) {
+internal fun ChoiceRow(title: String, selected: Boolean, onSelect: (() -> Unit)?) {
     val palette = beyGramPalette()
     val base = Modifier.fillMaxWidth().heightIn(min = 48.dp)
     val rowModifier = if (onSelect == null) base else base.selectable(selected = selected, role = Role.RadioButton, onClick = onSelect)

@@ -2,14 +2,22 @@ package com.beykus.beygram.ui.screens.settings
 
 import android.app.Application
 import androidx.compose.ui.test.assertIsSelected
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.ui.test.hasClickAction
+import androidx.compose.ui.test.hasSetTextAction
 import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.isSelected
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
+import androidx.compose.ui.test.performTextInput
 import androidx.test.platform.app.InstrumentationRegistry
 import com.beykus.beygram.R
+import com.beykus.beygram.data.appearance.DesignStyle
+import com.beykus.beygram.domain.UiText
+import com.beykus.beygram.domain.model.ChatPreview
+import com.beykus.beygram.ui.design.designFor
 import com.beykus.beygram.data.settings.ChatStealthMode
 import com.beykus.beygram.data.settings.StealthSettingsStore
 import com.beykus.beygram.data.settings.StealthStorage
@@ -60,13 +68,72 @@ class StealthSettingsUiTest {
         assertTrue(StealthSettingsStore(storage).current.noReadReceipts)
     }
 
+    @Test fun exceptionSearchAndRemovalUseTheCurrentAccount() {
+        val first = StealthSettingsStore(Storage())
+        val second = StealthSettingsStore(Storage())
+        first.update { it.copy(chats = mapOf(42L to ChatStealthMode.Block, 115L to ChatStealthMode.Allow)) }
+        second.update { it.copy(chats = mapOf(42L to ChatStealthMode.Allow)) }
+        val selectedStore = mutableStateOf(first)
+        val testChat = ChatPreview(
+            id = 42L, title = "Alpha chat", initials = "A", lastMessage = UiText.Raw(""),
+            lastMessageTime = "", unreadCount = 0, avatarColorArgb = 0xFF336699
+        )
+        compose.setContent {
+            BeyGramTheme {
+                StealthSettingsScreen(
+                    selectedStore.value,
+                    onServerPrivacy = {},
+                    onBack = {},
+                    exceptionChats = listOf(testChat)
+                )
+            }
+        }
+
+        openExceptions(count = 2)
+        compose.onNode(hasSetTextAction()).performTextInput("Alpha")
+        compose.onNodeWithText(label(R.string.stealth_exceptions_results, 1, 2)).assertExists()
+        compose.onNodeWithText("Alpha chat").performScrollTo().performClick()
+        compose.onNodeWithText(label(R.string.stealth_chat_inherit)).performClick()
+        assertEquals(mapOf(115L to ChatStealthMode.Allow), first.current.chats)
+
+        compose.runOnIdle { selectedStore.value = second }
+        openExceptions(count = 1)
+        compose.onNodeWithText("Alpha chat").assertExists()
+        assertEquals(mapOf(42L to ChatStealthMode.Allow), second.current.chats)
+    }
+
+    @Test fun statusAndPresetsComposeInEveryDesignStyle() {
+        val store = StealthSettingsStore(Storage())
+        val styleState = mutableStateOf(DesignStyle.Default to false)
+        compose.setContent {
+            val (style, glassV2) = styleState.value
+            BeyGramTheme(design = designFor(style, liquidGlassV2 = glassV2)) {
+                StealthSettingsScreen(store, onServerPrivacy = {}, onBack = {})
+            }
+        }
+
+        val styles = DesignStyle.entries.map { it to false } + (DesignStyle.LiquidGlass to true)
+        styles.forEach { style ->
+            compose.runOnIdle { styleState.value = style }
+            compose.onNodeWithText(label(R.string.stealth_client_state)).assertExists()
+            compose.onNodeWithText(label(R.string.stealth_preset_hidden_reading)).assertExists()
+        }
+    }
+
+    private fun openExceptions(count: Int) {
+        compose.onNode(hasText(label(R.string.stealth_exceptions_count, count)) and hasClickAction())
+            .performScrollTo().performClick()
+        compose.onNodeWithText(label(R.string.stealth_exceptions_title)).assertExists()
+    }
+
     private fun render(store: StealthSettingsStore) {
         compose.setContent {
             BeyGramTheme { StealthSettingsScreen(store, onServerPrivacy = {}, onBack = {}) }
         }
     }
 
-    private fun label(id: Int): String = InstrumentationRegistry.getInstrumentation().targetContext.getString(id)
+    private fun label(id: Int, vararg args: Any): String =
+        InstrumentationRegistry.getInstrumentation().targetContext.getString(id, *args)
 
     private class Storage : StealthStorage {
         private var values = emptyMap<String, Any>()
