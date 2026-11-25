@@ -970,6 +970,14 @@
     <string name="lyrics_copy_line">Zeile kopieren</string>
     <string name="lyrics_copied">Zeile kopiert</string>
     <string name="lyrics_line_options_a11y">Textstil und Kopieren</string>
+    <string name="lyrics_external_disabled">Die externe Liedtextsuche (LRCLIB) ist deaktiviert. Aktiviere sie, um nach Titel und Interpret zu suchen, ohne Chatdaten zu teilen.</string>
+    <string name="lyrics_enable_external">LRCLIB-Suche aktivieren</string>
+    <string name="lyrics_restricted_privacy">Die externe Liedtextsuche ist für geschützte oder private Medien deaktiviert</string>
+    <string name="lyrics_source_attribution">Quelle: %1$s</string>
+    <string name="lyrics_sources_section">Quellen</string>
+    <string name="lyrics_external_lrclib_toggle">LRCLIB-Suche</string>
+    <string name="lyrics_clear_cache">Liedtext-Cache leeren</string>
+    <string name="lyrics_cache_cleared">Liedtext-Cache geleert</string>
     <string name="chat_quote_title">Abschnitt zitieren</string>
     <string name="chat_quote_hint">Zitierter Text</string>
     <string name="chat_quote_action">Zitieren</string>
