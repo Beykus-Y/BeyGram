@@ -3367,6 +3367,15 @@ GlobalSearchScreen(
                         AppRoute.MemberProfile -> memberProfileRoute()
                         AppRoute.MyProfile -> {
                             LaunchedEffect(repository) { repository.refreshMyProfile() }
+                            var myShowcaseGifts by remember(selectedAccountId) {
+                                mutableStateOf(emptyList<com.beykus.beygram.domain.model.ReceivedGiftItem>())
+                            }
+                            LaunchedEffect(selectedAccountId, myProfile.info?.id) {
+                                val id = myProfile.info?.id ?: return@LaunchedEffect
+                                repository.receivedGiftsForUser(id, "").onSuccess { page ->
+                                    myShowcaseGifts = page.gifts
+                                }
+                            }
                             ProfileScreen(myProfile, true, repository::observeFile, repository::downloadFile, onOpenMessageEntity = openMessageEntity,
                                 onBack = { routeName = AppRoute.Chats.name }, onRefresh = repository::refreshMyProfile,
                                 onEdit = { routeName = AppRoute.EditProfile.name }, setPhoto = repository::setMyProfilePhoto,
@@ -3383,7 +3392,8 @@ GlobalSearchScreen(
                                 onPremium = { openPremium(AppRoute.MyProfile) },
                                 onStars = { openStars(AppRoute.MyProfile) },
                                 onGifts = { profileId, self, title -> openGifts(profileId, self, title, AppRoute.MyProfile) },
-                                autoDownloadFile = repository::autoDownloadFile)
+                                autoDownloadFile = repository::autoDownloadFile,
+                                profileGifts = myShowcaseGifts)
                         }
                         AppRoute.Premium -> PremiumScreen(
                             accountId = selectedAccountId,
@@ -3419,6 +3429,8 @@ GlobalSearchScreen(
                                 submitBid = repository::submitGiftAuctionBid,
                                 loadResale = repository::resaleGifts,
                                 buyResale = repository::buyResoldGift,
+                                toggleGiftSaved = repository::toggleGiftSaved,
+                                setPinnedGifts = repository::setPinnedGifts,
                                 send = { giftId, text, isPrivate ->
                                     repository.sendGift(giftsProfileId, giftsProfileSelf, giftId, text, isPrivate)
                                 },

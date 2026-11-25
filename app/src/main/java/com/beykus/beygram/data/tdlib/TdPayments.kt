@@ -438,7 +438,9 @@ internal class TdPayments(
     internal fun giftCollectible(upgraded: TdApi.UpgradedGift?): GiftCollectibleDetails? {
         val gift = upgraded ?: return null
         val colors = gift.backdrop?.colors
-        val rarity = gift.model?.rarity
+        val modelRarity = gift.model?.rarity
+        val symbolRarity = gift.symbol?.rarity
+        val backdropRarity = gift.backdrop?.rarity
         return GiftCollectibleDetails(
             number = gift.number,
             symbol = giftVisual(gift.symbol?.sticker),
@@ -446,8 +448,19 @@ internal class TdPayments(
             backdropEdgeColor = colors?.edgeColor,
             backdropSymbolColor = colors?.symbolColor,
             backdropTextColor = colors?.textColor,
-            modelRarityPerMille = (rarity as? TdApi.UpgradedGiftAttributeRarityPerMille)?.perMille,
-            modelRarityTier = rarity.toRarityTier()
+            modelRarityPerMille = (modelRarity as? TdApi.UpgradedGiftAttributeRarityPerMille)?.perMille,
+            modelRarityTier = modelRarity.toRarityTier(),
+            slug = gift.name.orEmpty(),
+            title = gift.title.orEmpty(),
+            totalUpgradedCount = gift.totalUpgradedCount.coerceAtLeast(0),
+            maxUpgradedCount = gift.maxUpgradedCount.coerceAtLeast(0),
+            modelName = gift.model?.name.orEmpty(),
+            symbolName = gift.symbol?.name.orEmpty(),
+            symbolRarityPerMille = (symbolRarity as? TdApi.UpgradedGiftAttributeRarityPerMille)?.perMille,
+            symbolRarityTier = symbolRarity.toRarityTier(),
+            backdropName = gift.backdrop?.name.orEmpty(),
+            backdropRarityPerMille = (backdropRarity as? TdApi.UpgradedGiftAttributeRarityPerMille)?.perMille,
+            backdropRarityTier = backdropRarity.toRarityTier()
         )
     }
 
@@ -525,6 +538,23 @@ internal class TdPayments(
     /** Next page of the signed-in user's received gifts; the screen owns the cursor and the merge. */
     suspend fun receivedGifts(offset: String): Result<ReceivedGiftsPage> = monetizationResult {
         receivedGiftsPage(myUserId(), offset)
+    }
+
+    suspend fun receivedGiftsForUser(userId: Long, offset: String): Result<ReceivedGiftsPage> = monetizationResult {
+        if (userId <= 0L) return@monetizationResult ReceivedGiftsPage(emptyList(), "")
+        receivedGiftsPage(userId, offset)
+    }
+
+    suspend fun toggleGiftSaved(receivedGiftId: String, isSaved: Boolean): Result<Unit> = monetizationResult {
+        if (receivedGiftId.isBlank()) throw IllegalArgumentException("Missing gift id")
+        requests(TdApi.ToggleGiftIsSaved(receivedGiftId, isSaved))
+        Unit
+    }
+
+    suspend fun setPinnedGifts(receivedGiftIds: List<String>): Result<Unit> = monetizationResult {
+        val me = myUserId()
+        requests(TdApi.SetPinnedGifts(TdApi.MessageSenderUser(me), receivedGiftIds.toTypedArray()))
+        Unit
     }
 
     /**
@@ -1112,7 +1142,10 @@ private fun TdApi.ReceivedGift.toReceivedGift(
         wasRefunded = wasRefunded,
         // An upgraded gift is drawn by its model; a regular gift by its own sticker.
         visual = visualOf(regular?.sticker ?: upgraded?.model?.sticker),
-        collectible = collectibleOf(upgraded)
+        collectible = collectibleOf(upgraded),
+        isPinned = isPinned,
+        canBeUpgraded = canBeUpgraded,
+        canBeTransferred = canBeTransferred
     )
 }
 

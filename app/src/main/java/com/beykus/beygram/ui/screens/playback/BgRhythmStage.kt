@@ -54,7 +54,7 @@ internal class BgRhythmSignal {
 /**
  * Evaluates BG Rhythm from the shared [BgBeatManager] analysis and [PlaybackEngine] clock
  * using a single `withFrameNanos` loop when [active], [playing], resumed, analyzed, and enabled.
- * Zero frame loops or subscriptions run when [BgRhythmMode.Off], paused, backgrounded, or off-panel.
+ * Zero frame loops or subscriptions run when [BgRhythmMode.Off], paused, backgrounded, battery saver, or off-panel.
  */
 @Composable
 internal fun rememberBgRhythmSignal(
@@ -81,11 +81,13 @@ internal fun rememberBgRhythmSignal(
         lifecycleOwner.lifecycle.addObserver(observer)
         onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
     }
+    val powerSave = rememberPowerSaveMode(resumed)
 
     val signal = remember(item.key) { BgRhythmSignal() }
 
     val canRun = active &&
         resumed &&
+        !powerSave &&
         mode != BgRhythmMode.Off &&
         playing &&
         !reducedMotion &&

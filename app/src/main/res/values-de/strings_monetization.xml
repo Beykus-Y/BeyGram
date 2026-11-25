@@ -357,4 +357,27 @@
     <string name="gifts_rarity_epic">Episch</string>
     <string name="gifts_rarity_legendary">Legendär</string>
     <string name="gifts_rarity_percent">%1$s%%</string>
+    <string name="gifts_pinned">Angeheftet</string>
+    <string name="gifts_saved">Im Profil sichtbar</string>
+    <string name="gifts_edition_count">%1$d von %2$d ausgegeben</string>
+    <string name="gifts_attr_model">Modell</string>
+    <string name="gifts_attr_symbol">Symbol</string>
+    <string name="gifts_attr_backdrop">Hintergrund</string>
+    <string name="gifts_attr_sender">Absender</string>
+    <string name="gifts_attr_date">Datum</string>
+    <string name="gifts_attr_price">Wert</string>
+    <string name="gifts_attr_status">Status</string>
+    <string name="gifts_detail_toggle_animation">Geschenkanimation umschalten</string>
+    <string name="gifts_filter_all">Alle</string>
+    <string name="gifts_filter_available">Verfügbar</string>
+    <string name="gifts_filter_resale">Weiterverkauf</string>
+    <string name="gifts_filter_auction">Auktion</string>
+    <string name="gifts_filter_limited">Limitiert</string>
+    <string name="gifts_search_hint">Geschenke suchen</string>
+    <string name="gifts_showcase_title">Geschenke</string>
+    <string name="gifts_showcase_all">Alle Geschenke</string>
+    <string name="gifts_action_pin">Im Profil anheften</string>
+    <string name="gifts_action_unpin">Lösen</string>
+    <string name="gifts_action_show_profile">Im Profil anzeigen</string>
+    <string name="gifts_action_hide_profile">Im Profil ausblenden</string>
 </resources>
