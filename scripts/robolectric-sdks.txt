@@ -1,0 +1,6 @@
+# robolectric 4.17
+# android-all jars that the BeyGram unit tests need, for Robolectric 4.17. Format: <api level> <jar file> <sha1>.
+# Every Robolectric test class pins sdk = [34] at class level (23 files); a method-level @Config keeps that SDK.
+# A test without a sdk pin would run at the app targetSdk (36) and needs its jar added here. Until then such a test
+# fails loudly: LocalDependencyResolver throws when the jar is missing, so nothing falls back to a download.
+34 android-all-instrumented-14-robolectric-10818077-i7.jar dd5e1d356107e9d99ebf58beb5329debe2849140

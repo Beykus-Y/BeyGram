@@ -86,6 +86,51 @@ internal class TdConversationActions(
         request(TdApi.GetSupergroupFullInfo(type.supergroupId)).linkedChatId
     }
 
+    /** The oldest unread mention, as Telegram opens it. */
+    suspend fun nextUnreadMention(chatId: Long, forumTopicId: Long = 0L): Result<Long?> = conversationResult {
+        oldestMatch(chatId, forumTopicId, TdApi.SearchMessagesFilterUnreadMention())
+    }
+
+    /** The oldest unread reaction, as Telegram opens it. */
+    suspend fun nextUnreadReaction(chatId: Long, forumTopicId: Long = 0L): Result<Long?> = conversationResult {
+        oldestMatch(chatId, forumTopicId, TdApi.SearchMessagesFilterUnreadReaction())
+    }
+
+    /** Marks every unread mention or reaction of a chat, or of a forum topic, as read. The user confirmed it in a dialog. */
+    suspend fun readAllMarks(chatId: Long, forumTopicId: Long, mentions: Boolean): Result<Unit> = conversationResult {
+        when {
+            forumTopicId > 0L && mentions -> request(TdApi.ReadAllForumTopicMentions(chatId, forumTopicId.toInt()))
+            forumTopicId > 0L -> request(TdApi.ReadAllForumTopicReactions(chatId, forumTopicId.toInt()))
+            mentions -> request(TdApi.ReadAllChatMentions(chatId))
+            else -> request(TdApi.ReadAllChatReactions(chatId))
+        }
+        Unit
+    }
+
+    /**
+     * TDLib pages search results from the newest match backwards, so the oldest one is only on the last page.
+     * Every page is read until TDLib reports no next page; a chat with more than [MAX_MATCH_PAGES] pages is cut there.
+     */
+    private suspend fun oldestMatch(chatId: Long, forumTopicId: Long, searchFilter: TdApi.SearchMessagesFilter): Long? {
+        var from = 0L
+        var oldest: Long? = null
+        repeat(MAX_MATCH_PAGES) {
+            val page = request(TdApi.SearchChatMessages().apply {
+                this.chatId = chatId
+                topicId = if (forumTopicId > 0L) TdApi.MessageTopicForum(forumTopicId.toInt()) else null
+                query = ""
+                fromMessageId = from
+                offset = 0
+                limit = 100
+                filter = searchFilter
+            })
+            page.messages.minOfOrNull { it.id }?.let { id -> oldest = minOf(oldest ?: id, id) }
+            if (page.nextFromMessageId == 0L || page.messages.isEmpty()) return oldest
+            from = page.nextFromMessageId
+        }
+        return oldest
+    }
+
     /**
      * Resolves a channel post to its discussion thread with GetMessageThread. A channel post whose comments were
      * disabled is reported by canGetMessageThread; TDLib errors are translated so hidden/removed threads never look
@@ -575,7 +620,13 @@ internal class TdConversationActions(
                 inputMessageContents = resolved.media.mapIndexed { index, item -> item.toInputContent(if (index == 0) boundedCaption.text else "", if (index == 0) boundedCaption.entities else emptyList()) }.toTypedArray()
                 if (replyTarget != null) {
                     topicId = replySendTopic(replyTarget.topicId)
-                    replyTo = TdApi.InputMessageReplyToMessage().apply { messageId = replyTarget.id; pollOptionId = "" }
+                    replyTo = TdApi.InputMessageReplyToMessage().apply {
+                    messageId = replyTarget.id
+                    pollOptionId = ""
+                    options.replyQuote?.takeIf { it.isNotBlank() }?.let { q ->
+                        quote = TdApi.InputTextQuote(TdApi.FormattedText(q, emptyArray()), options.replyQuotePosition.coerceAtLeast(0))
+                    }
+                }
                 } else if (forumTopicId > 0L) {
                     topicId = TdApi.MessageTopicForum(forumTopicId.toInt())
                 }
@@ -650,7 +701,13 @@ internal class TdConversationActions(
             this.chatId = chatId; inputMessageContent = inputContent; this.options = protocolOptions
             if (replyTarget != null) {
                 topicId = replySendTopic(replyTarget.topicId)
-                replyTo = TdApi.InputMessageReplyToMessage().apply { messageId = replyTarget.id; pollOptionId = "" }
+                replyTo = TdApi.InputMessageReplyToMessage().apply {
+                    messageId = replyTarget.id
+                    pollOptionId = ""
+                    options.replyQuote?.takeIf { it.isNotBlank() }?.let { q ->
+                        quote = TdApi.InputTextQuote(TdApi.FormattedText(q, emptyArray()), options.replyQuotePosition.coerceAtLeast(0))
+                    }
+                }
             } else if (forumTopicId > 0L) {
                 topicId = TdApi.MessageTopicForum(forumTopicId.toInt())
             }
@@ -896,11 +953,31 @@ internal class TdConversationActions(
 
     /**
      * The newest messages for the long-press preview. Only GetChatHistory is sent: no OpenChat and no ViewMessages,
-     * so the chat keeps its unread count. Forum chats or other refusals become an error that the card shows as empty.
+     * so the chat keeps its unread count. Loops up to 3 pages because TDLib's first GetChatHistory call frequently
+     * returns only the single cached lastMessage when local history is not warmed up yet.
      */
     suspend fun peekMessages(chatId: Long): Result<List<ChatMessage>> = conversationResult {
         if (chatId == 0L) throw UserMessageException(UiText.Res(R.string.err_message_original_unavailable))
-        request(peekHistoryRequest(chatId, PEEK_MESSAGE_LIMIT)).messages.orEmpty().filterNotNull().sortedBy { it.id }.map(map)
+        val collected = LinkedHashMap<Long, TdApi.Message>()
+        var fromMessageId = 0L
+        repeat(3) {
+            val remaining = (PEEK_MESSAGE_LIMIT - collected.size).coerceAtLeast(1)
+            val req = if (fromMessageId == 0L) {
+                peekHistoryRequest(chatId, remaining)
+            } else {
+                TdApi.GetChatHistory(chatId, fromMessageId, 0, remaining, false)
+            }
+            val page = request(req).messages.orEmpty().filterNotNull()
+            if (page.isEmpty()) return@repeat
+            val before = collected.size
+            for (msg in page) collected.putIfAbsent(msg.id, msg)
+            val oldest = page.minOf { it.id }
+            if (collected.size >= PEEK_MESSAGE_LIMIT || oldest == fromMessageId || (fromMessageId != 0L && collected.size == before)) {
+                return@repeat
+            }
+            fromMessageId = oldest
+        }
+        collected.values.sortedBy { it.id }.map(map)
     }
 
     /**
@@ -1013,6 +1090,8 @@ internal const val PEEK_MESSAGE_LIMIT = 15
 internal fun peekHistoryRequest(chatId: Long, limit: Int): TdApi.GetChatHistory =
     TdApi.GetChatHistory(chatId, 0L, 0, limit.coerceIn(1, PEEK_MESSAGE_LIMIT), false)
 private const val MAX_FORUM_TOPIC_PAGES = 20
+/** 100 matches a page; this bounds the walk to the oldest match of a chat. */
+private const val MAX_MATCH_PAGES = 1000
 /** Telegram's shortest live-location window offered by the composer. */
 private const val LIVE_LOCATION_PERIOD_SECONDS = 15 * 60
 

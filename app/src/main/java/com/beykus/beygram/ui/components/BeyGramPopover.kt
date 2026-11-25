@@ -24,6 +24,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -45,6 +46,7 @@ import androidx.compose.ui.window.Popup
 import androidx.compose.ui.window.PopupPositionProvider
 import androidx.compose.ui.window.PopupProperties
 import com.beykus.beygram.ui.design.LocalDesignSystem
+import com.beykus.beygram.ui.design.LocalGlassBackdrop
 import com.beykus.beygram.ui.design.glassCard
 import com.beykus.beygram.ui.design.styledShape
 import com.beykus.beygram.ui.design.usesGlassPanels
@@ -83,6 +85,10 @@ fun BeyGramPopover(
     offset: DpOffset = DpOffset.Zero,
     content: @Composable ColumnScope.() -> Unit
 ) {
+    if (com.beykus.beygram.LocalMainTabsCovered.current) {
+        if (expanded) androidx.compose.runtime.LaunchedEffect(Unit) { onDismissRequest() }
+        return
+    }
     val visibleState = remember { MutableTransitionState(false) }
     visibleState.targetState = expanded
     // Keep the popup while its exit animation runs, and leave composition once the exit has finished.
@@ -135,7 +141,8 @@ fun BeyGramPopover(
                     .verticalScroll(rememberScrollState())
                     .padding(vertical = 6.dp)
             ) {
-                content()
+                // Popup coordinates belong to a different window from the host backdrop.
+                CompositionLocalProvider(LocalGlassBackdrop provides null) { content() }
             }
         }
     }

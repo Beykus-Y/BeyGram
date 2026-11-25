@@ -34,6 +34,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.beykus.beygram.R
+import com.beykus.beygram.data.canvas.AppCanvasRepository
 import com.beykus.beygram.data.music.provider.MusicProviderFailure
 import com.beykus.beygram.data.music.provider.MusicProviderState
 import com.beykus.beygram.data.music.provider.MusicProviders
@@ -172,7 +173,12 @@ private fun YandexSignInScreen(onBack: () -> Unit) {
                             onClick = { showDiagnostics = !showDiagnostics }
                         )
                         if (showDiagnostics) {
-                            val summary = listOfNotNull(provider.subscriptionDiagnostics, provider.lyricsDiagnostics)
+                            val summary = listOfNotNull(
+                                provider.subscriptionDiagnostics,
+                                provider.lyricsDiagnostics,
+                                provider.canvasDiagnostics,
+                                AppCanvasRepository.get(context).diagnosticsSummary(),
+                            )
                                 .joinToString("\n")
                                 .takeIf { it.isNotBlank() }
                             Text(

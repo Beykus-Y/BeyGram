@@ -70,7 +70,8 @@ class YandexWaveFeedbackTest {
     fun changeInTheLastSecondsAfterListeningCountsAsFinished() {
         val t = tracker()
         t.play("ym:1", 0L, 190_000L)
-        assertEquals(WaveListenEvent.Finished("ym:1", 200.0), t.onState(state("ym:2"))[0])
+        // The seconds really heard, not the length of the track.
+        assertEquals(WaveListenEvent.Finished("ym:1", 190.0), t.onState(state("ym:2"))[0])
     }
 
     @Test
@@ -78,7 +79,17 @@ class YandexWaveFeedbackTest {
         val t = tracker()
         t.play("ym:1", 0L, 199_000L)
         t.onState(state("ym:1", position = 200_000L, ended = true, playing = false))
-        assertEquals(WaveListenEvent.Finished("ym:1", 200.0), t.onState(state("ym:2"))[0])
+        assertEquals(WaveListenEvent.Finished("ym:1", 199.0), t.onState(state("ym:2"))[0])
+    }
+
+    @Test
+    fun finishedReportsHeardSecondsNotTheTrackLengthAfterASeekToTheEnd() {
+        val t = tracker()
+        // 165 s of real playback (82% of a 200 s track), then a seek to the last seconds with no time passing.
+        t.play("ym:1", 0L, 164_000L)
+        t.onState(state("ym:1", position = 165_000L))
+        t.onState(state("ym:1", position = 199_000L))
+        assertEquals(WaveListenEvent.Finished("ym:1", 165.0), t.onState(state("ym:2"))[0])
     }
 
     @Test
@@ -119,6 +130,7 @@ class YandexWaveFeedbackTest {
         clock.now += 1_000L
         // The counter only grows: the replay carries the count the restart already reached.
         t.play("ym:1", 1_000L, 199_000L, manualSkips = 1L)
+        // Both plays count as heard (100 s + 199 s), capped at the track's length.
         assertEquals(WaveListenEvent.Finished("ym:1", 200.0), t.onState(state("ym:2", manualSkips = 1L))[0])
     }
 

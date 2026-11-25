@@ -43,6 +43,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.gestures.Orientation
 import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.foundation.gestures.draggable
 import androidx.compose.foundation.gestures.rememberDraggableState
 import androidx.compose.foundation.gestures.rememberTransformableState
@@ -69,6 +70,7 @@ import androidx.compose.material.icons.rounded.InsertDriveFile
 import androidx.compose.material.icons.rounded.Lock
 import androidx.compose.material.icons.rounded.MusicNote
 import androidx.compose.material.icons.rounded.Pause
+import androidx.compose.material.icons.rounded.PictureInPictureAlt
 import androidx.compose.material.icons.rounded.PlayArrow
 import androidx.compose.material.icons.rounded.Remove
 import androidx.compose.material.icons.rounded.Replay
@@ -87,6 +89,17 @@ import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.BlurredEdgeTreatment
 import com.beykus.beygram.ui.screens.bgmusic.BgMusicChatDocument
 import com.beykus.beygram.ui.screens.bgmusic.isBgMusicDocument
+import com.beykus.beygram.diagnostics.StructuredEventLog
+import com.beykus.beygram.diagnostics.report.EventKind
+import com.beykus.beygram.playback.UserRangeCoordinator
+import com.beykus.beygram.playback.canPlayProgressively
+import com.beykus.beygram.playback.isPermanentProgressiveRejection
+import com.beykus.beygram.playback.readableBytesAt
+import com.beykus.beygram.playback.VideoPlaybackMetrics
+import com.beykus.beygram.playback.VideoStartBufferSettings
+import com.beykus.beygram.playback.ProgressiveAttemptDiagnostics
+import com.beykus.beygram.playback.loadControlOrNull
+import com.beykus.beygram.playback.nextProgressiveAttemptNumber
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.Color
@@ -144,6 +157,7 @@ import com.beykus.beygram.data.media.Mp4StreamingReason
 import com.beykus.beygram.data.settings.AutoDownloadSettingsStore
 import com.beykus.beygram.domain.model.AutoDownloadRequest
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.coroutines.flow.first
 import com.beykus.beygram.domain.model.MediaFileState
@@ -1027,7 +1041,9 @@ internal fun MediaViewer(
     /** Screen bounds of the tapped thumbnail. When set, the page grows out of it and returns there on close. */
     originBounds: Rect? = null,
     /** Keep the entire viewer window protected, even when every page is ordinary media. */
-    forceSecure: Boolean = false
+    forceSecure: Boolean = false,
+    /** Range-aware playback: verifies bytes per position and points TDLib's window at what the player reads. */
+    playbackCoordinator: UserRangeCoordinator? = null
 ) {
     // The source can shrink asynchronously while LazyLayout still holds indices from the previous frame.
     // Keep the count, keys and content aligned to the same immutable snapshot for this composition.
@@ -1281,7 +1297,7 @@ internal fun MediaViewer(
                         // Compose may request an index belonging to the preceding page count during an update.
                         // Never index the backing list until this page exists in our current snapshot.
                         currentPages.getOrNull(page)?.let { item ->
-                            MediaViewerPage(item, observeFile, downloadFile, autoDownload, canExport = canExport, active = page == safeSettledPage,
+                            MediaViewerPage(item, observeFile, downloadFile, autoDownload, playbackCoordinator, canExport = canExport, active = page == safeSettledPage,
                                 fullFileOnlyWhenActive = fullFileOnlyWhenActive,
                                 revealed = item.messageId in revealedSpoilers, onReveal = { revealedSpoilers += item.messageId },
                                 onOpenFile = { path -> openExternal(item, path) }, onViewed = onViewed,
@@ -1422,11 +1438,13 @@ internal fun MediaViewer(
 private fun MediaViewerPage(
     item: MediaViewerItem, observeFile: (Int) -> StateFlow<MediaFileState>, downloadFile: (Int) -> Unit,
     autoDownloadFile: (AutoDownloadRequest) -> Unit,
+    playbackCoordinator: UserRangeCoordinator?,
     canExport: Boolean, active: Boolean, fullFileOnlyWhenActive: Boolean, revealed: Boolean, onReveal: () -> Unit, onOpenFile: (String) -> Unit, onViewed: (Long) -> Unit,
     onDismiss: () -> Unit, onToggleControls: () -> Unit, onDismissProgress: (Float) -> Unit, showZoomControls: Boolean, zoomControlsBottomPadding: Dp, onUserInteraction: () -> Unit
 ) {
     val media = item.media
     val context = LocalContext.current
+    val scope = rememberCoroutineScope()
     val reduced = systemReducedMotion()
     val accountId = LocalPlaybackAccountId.current
     val policySettings by remember(context, accountId) {
@@ -1478,30 +1496,66 @@ private fun MediaViewerPage(
     var progressiveUnlocked by remember(media.fileId) { mutableStateOf(false) }
     var progressivePath by remember(media.fileId) { mutableStateOf<String?>(null) }
     var progressiveRejected by remember(media.fileId, partialPath) { mutableStateOf(false) }
+    // Диагностика одного открытия страницы (Issue #1174). Пишется при уходе со страницы, даже если воспроизведение не началось.
+    val diagnostics = remember(media.fileId) {
+        ProgressiveAttemptDiagnostics(nextProgressiveAttemptNumber(), senderSupportsStreaming = media.supportsStreaming)
+    }
+    LaunchedEffect(partialPath != null, file.downloadedPrefixBytes, file.size, file.downloadOffset, file.isDownloading, file.localPath != null) {
+        diagnostics.snapshot(
+            partialPath != null, file.downloadedPrefixBytes, file.size, file.downloadOffset, file.isDownloading, completed = file.localPath != null
+        )
+    }
+    DisposableEffect(diagnostics) {
+        onDispose {
+            if (media.mimeType.startsWith("video/") && diagnostics.hasAttempt()) runCatching {
+                diagnostics.finish()?.let { attrs ->
+                    StructuredEventLog.shared.record(kind = EventKind.PERFORMANCE, code = "video_progressive_attempt", attrs = attrs)
+                }
+            }
+        }
+    }
     LaunchedEffect(media.fileId, partialPath, file.downloadedPrefixBytes, file.localPath, progressiveRejected) {
         if (progressiveUnlocked || progressiveRejected) return@LaunchedEffect
         if (file.localPath != null || partialPath == null || file.size <= 0L || file.downloadedPrefixBytes <= 0L) return@LaunchedEffect
-        val info = withContext(Dispatchers.IO) {
-            runCatching { Mp4StreamingProbe.inspect(File(partialPath), file.downloadedPrefixBytes) }.getOrNull()
+        diagnostics.probeStarted()
+        val probe = try {
+            withContext(Dispatchers.IO) {
+                val info = runCatching { Mp4StreamingProbe.inspect(File(partialPath), file.downloadedPrefixBytes) }.getOrNull()
+                info to Mp4StreamingProbe.topLayout(File(partialPath), file.downloadedPrefixBytes)
+            }
+        } catch (cancelled: Throwable) {
+            // Новый прирост префикса отменил пробу: повторные отмены видны в записи как probe=cancelled.
+            diagnostics.probeCancelled()
+            throw cancelled
         }
+        val info = probe.first
         val reason = info?.reason
+        diagnostics.probeFinished(reason?.name ?: "none", probe.second)
         when {
-            info?.streamable == true -> {
+            // A fast-start file starts from the prefix; a file with the index at the end is opened through the
+            // range-aware source, and Media3's own extractor fetches that index by seeking to the end.
+            canPlayProgressively(info, rangesAvailable = playbackCoordinator != null) -> {
                 progressivePath = partialPath
                 progressiveUnlocked = true
+                diagnostics.unlocked()
             }
-            reason != null && reason in setOf(
-                Mp4StreamingReason.NotMp4,
-                Mp4StreamingReason.MoovAfterMediaData,
-                Mp4StreamingReason.MoovTooLarge,
-                Mp4StreamingReason.NoVideoTrack,
-                Mp4StreamingReason.UnsupportedVideoCodec
-            ) -> progressiveRejected = true
+            isPermanentProgressiveRejection(info, rangesAvailable = playbackCoordinator != null) -> {
+                progressiveRejected = true
+                diagnostics.rejected(reason?.name.orEmpty())
+            }
         }
     }
     val unlockedPath = progressivePath
     // The player may keep an earlier source instance, so the lambda reads the latest page state.
     val activeNow by rememberUpdatedState(active)
+    val ranges = playbackCoordinator
+    // Leaving the page (or switching to another video) releases the single TDLib window; a stale request must not keep
+    // a download alive for a screen nobody looks at. The page takes a token: a loader thread that was already inside
+    // Media3 when this screen closed arrives with an older token and cannot request a window for it (#1195).
+    val pageOwner = remember(media.fileId, ranges) { ranges?.owner(media.fileId) }
+    DisposableEffect(media.fileId, ranges, pageOwner) {
+        onDispose { ranges?.reset(media.fileId, pageOwner) }
+    }
     val progressive = if (progressiveUnlocked && unlockedPath != null) {
         ProgressiveVideoSource(
             fileId = media.fileId,
@@ -1509,11 +1563,33 @@ private fun MediaViewerPage(
             totalSize = file.size,
             completed = { observeFile(media.fileId).value.localPath != null },
             downloading = { observeFile(media.fileId).value.isDownloading },
-            readablePrefix = { observeFile(media.fileId).value.downloadedPrefixBytes },
+            // With range support the answer is asked for the exact position the player wants to read: TDLib reports
+            // availability per offset, and a sparse file must never be read outside that answer. The old prefix value
+            // stays only as a fallback for repositories that cannot answer the question.
+            readableAt = { position ->
+                if (ranges != null) {
+                    // The read must never outlive the data source's own stall deadline: a single TDLib request may take
+                    // much longer than a frame budget, so it is bounded here and a timeout is reported as "no bytes
+                    // yet", which keeps the existing wait/abort logic in charge.
+                    runCatching {
+                        runBlocking { withTimeoutOrNull(RANGE_QUERY_TIMEOUT_MS) { ranges.readableFrom(media.fileId, position) } }
+                    }.getOrNull() ?: 0L
+                } else {
+                    (observeFile(media.fileId).value.downloadedPrefixBytes - position).coerceAtLeast(0L)
+                }
+            },
             // The opened page is user-initiated and keeps downloading on any network. A neighbouring
             // page that the player prepares in the background stays under the auto-download policy.
-            onNeedMore = {
-                if (activeNow) downloadFile(media.fileId)
+            onNeedMore = { position ->
+                if (ranges != null) {
+                    // The coordinator keeps the single TDLib window at the playback position and applies the
+                    // user/background priority rules, retries and backoff.
+                    scope.launch {
+                        runCatching {
+                            ranges.ensureReadable(media.fileId, position, RANGE_READ_AHEAD_BYTES, activeNow, owner = pageOwner)
+                        }
+                    }
+                } else if (activeNow) downloadFile(media.fileId)
                 else autoDownloadFile(
                     AutoDownloadRequest(
                         fileId = media.fileId,
@@ -1524,7 +1600,8 @@ private fun MediaViewerPage(
                         hasSpoiler = spoilerHidden
                     )
                 )
-            }
+            },
+            diagnostics = diagnostics
         )
     } else null
     val audioSource = rememberAudioPlaybackSource(media, { file }, observeFile, downloadFile)
@@ -1562,7 +1639,8 @@ private fun MediaViewerPage(
             streamSource != null -> LocalVideo(
                 streamSource.path, loop = media.kind == MediaKind.Animation, active = active,
                 onStarted = { currentOnViewed(item.messageId) }, progressive = streamSource,
-                onManualDownload = { downloadFile(media.fileId) }
+                onManualDownload = { downloadFile(media.fileId) },
+                onOpenPipDismiss = onDismiss
             )
             path == null && media.mimeType.startsWith("image/") -> PhotoPreview(file, thumb.localPath) { downloadFile(media.fileId) }
             path == null && media.mimeType.startsWith("video/") && thumb.localPath != null -> Column(
@@ -1598,7 +1676,7 @@ private fun MediaViewerPage(
                 showZoomControls = showZoomControls, zoomControlsBottomPadding = zoomControlsBottomPadding, onUserInteraction = onUserInteraction,
                 contentDescription = media.kind.label(context))
             media.kind == MediaKind.Video || media.kind == MediaKind.Animation || media.mimeType.startsWith("video/") ->
-                LocalVideo(path, media.kind == MediaKind.Animation, active, onStarted = { currentOnViewed(item.messageId) })
+                LocalVideo(path, media.kind == MediaKind.Animation, active, onStarted = { currentOnViewed(item.messageId) }, onOpenPipDismiss = onDismiss)
             else -> Column(horizontalAlignment = Alignment.CenterHorizontally) {
                 Text(formatMediaSize(file.size), color = Color.LightGray)
                 if (exportable) TextButton(onClick = { onOpenFile(path) }) { Text(stringResource(R.string.media_open_file)) }
@@ -1849,6 +1927,12 @@ internal fun clampImageOffset(offset: Offset, scale: Float, size: IntSize): Offs
 
 private const val VIDEO_PROGRESS_INTERVAL_MS = 250L
 
+/** How far ahead of the read position a playback window is requested. */
+private const val RANGE_READ_AHEAD_BYTES = 2L * 1024 * 1024
+
+/** Upper bound for one availability query; the data source's own stall deadline stays authoritative. */
+private const val RANGE_QUERY_TIMEOUT_MS = 2_000L
+
 /** A partially downloaded fast-start video: [path] grows while TDLib downloads the rest. */
 private data class ProgressiveVideoSource(
     val fileId: Int,
@@ -1856,9 +1940,15 @@ private data class ProgressiveVideoSource(
     val totalSize: Long,
     val completed: () -> Boolean,
     val downloading: () -> Boolean,
-    /** TDLib's contiguous readable prefix; bytes beyond it may be unwritten or garbage. */
-    val readablePrefix: () -> Long,
-    val onNeedMore: () -> Unit
+    /**
+     * Bytes TDLib confirms are readable starting exactly at the given position. When the repository can answer
+     * per offset (range-aware playback), this is the only source of truth; bytes outside the answer are never read.
+     */
+    val readableAt: (Long) -> Long,
+    /** Asks for more data at the position the player is about to read. */
+    val onNeedMore: (Long) -> Unit,
+    /** Диагностика попытки (Issue #1174); пусто, если источник не нужен для записи. */
+    val diagnostics: ProgressiveAttemptDiagnostics? = null
 )
 
 /**
@@ -1873,8 +1963,10 @@ private class ProgressiveFileDataSource(
     private val totalSize: Long,
     private val isComplete: () -> Boolean,
     private val isDownloading: () -> Boolean,
-    private val readablePrefix: () -> Long,
-    private val onNeedMore: () -> Unit
+    private val readableAt: (Long) -> Long,
+    private val onNeedMore: (Long) -> Unit,
+    private val onBytesRead: (Int) -> Unit = {},
+    private val diagnostics: ProgressiveAttemptDiagnostics? = null
 ) : DataSource {
     private var file: RandomAccessFile? = null
     private var position = 0L
@@ -1900,30 +1992,44 @@ private class ProgressiveFileDataSource(
         val opened = file ?: return C.RESULT_END_OF_INPUT
         val startedAt = SystemClock.elapsedRealtime()
         var requestedAt = 0L
+        var waited = false
         while (true) {
-            // TDLib documents that an incomplete file may contain unavailable/garbage regions:
-            // only downloadedPrefixSize is guaranteed readable. Never use file.length() as a boundary
-            // before completion.
-            val readable = if (isComplete()) opened.length() else minOf(readablePrefix(), opened.length())
-            val available = readable - position
+            // TDLib documents that an incomplete file may contain unavailable/garbage regions. Completion makes
+            // the local file authoritative; before that only the range confirmed for this exact position may be
+            // read. A sparse file can contain holes, so file.length() and downloadedSize are never proof.
+            val available = readableBytesAt(
+                position = position,
+                fileLength = opened.length(),
+                complete = isComplete(),
+                confirmedFromPosition = if (isComplete()) 0L else readableAt(position),
+            )
             if (available > 0L) {
                 val toRead = minOf(available, length.toLong()).toInt()
                 val read = opened.read(buffer, offset, toRead)
                 if (read > 0) {
                     position += read
+                    onBytesRead(read)
+                    diagnostics?.onRead(read)
                     return read
                 }
             }
             if (isComplete()) return C.RESULT_END_OF_INPUT
+            if (!waited) {
+                waited = true
+                diagnostics?.onWait()
+            }
             val now = SystemClock.elapsedRealtime()
             if (!isDownloading() && now - startedAt >= NO_TRANSFER_TIMEOUT_MS) {
+                diagnostics?.onStall("no_transfer")
                 throw IOException("Automatic video download was cancelled")
             }
             if (now - requestedAt >= REQUEST_INTERVAL_MS) {
                 requestedAt = now
-                onNeedMore()
+                diagnostics?.onNeedMore()
+                onNeedMore(position)
             }
             if (now - startedAt >= STALL_TIMEOUT_MS) {
+                diagnostics?.onStall("timeout")
                 throw IOException("Timed out waiting for the next video chunk")
             }
             try {
@@ -1958,19 +2064,27 @@ private fun LocalVideo(
     active: Boolean,
     onStarted: () -> Unit,
     progressive: ProgressiveVideoSource? = null,
-    onManualDownload: (() -> Unit)? = null
+    onManualDownload: (() -> Unit)? = null,
+    onOpenPipDismiss: () -> Unit = {}
 ) {
     val context = LocalContext.current
     val lifecycle = LocalLifecycleOwner.current.lifecycle
     val currentOnStarted by rememberUpdatedState(onStarted)
     val currentActive by rememberUpdatedState(active)
     val sourceKey = progressive?.fileId ?: -1
+    // Стартовый буфер: по умолчанию не задан (Media3), выбирается только в диагностическом режиме (Issue #1121).
+    val startBuffer = remember(context) { VideoStartBufferSettings.load(context) }
+    val metrics = remember(path, loop, sourceKey) { VideoPlaybackMetrics() }
+    val diagnostics = progressive?.diagnostics
     val player = remember(path, loop, sourceKey) {
-        ExoPlayer.Builder(context.applicationContext)
+        val builder = ExoPlayer.Builder(context.applicationContext)
             // Звук видео забирает фокус у внешних плееров. У анимации звука нет, поэтому фокус ей не нужен.
             .setAudioAttributes(AudioAttributes.Builder().setUsage(C.USAGE_MEDIA).setContentType(C.AUDIO_CONTENT_TYPE_MOVIE).build(), /* handleAudioFocus = */ !loop)
             .setHandleAudioBecomingNoisy(true)
-            .build()
+        // Диагностический буфер действует только на растущий файл TDLib: там streaming-значения LoadControl
+        // совпадают с дефолтами, меняется лишь стартовый буфер. Полностью скачанный файл остаётся на LoadControl Media3.
+        if (progressive != null) startBuffer.loadControlOrNull()?.let { builder.setLoadControl(it) }
+        builder.build()
     }
     var video by remember(path, loop, sourceKey) { mutableStateOf(VideoPlayerState()) }
     // Просмотр отмечается, когда файл начинает играть после нажатия или открытия. Возврат из буферизации отметку не повторяет.
@@ -1978,14 +2092,30 @@ private fun LocalVideo(
     DisposableEffect(player) {
         val listener = object : Player.Listener {
             override fun onIsPlayingChanged(isPlaying: Boolean) {
+                metrics.onPlayingChanged(isPlaying)
+                if (isPlaying) diagnostics?.onPlaying()
                 video = video.copy(playing = isPlaying)
                 if (isPlaying && startRequested) {
                     startRequested = false
                     currentOnStarted()
                 }
             }
-            override fun onPlaybackStateChanged(playbackState: Int) { video = video.afterPlaybackState(playbackState) }
-            override fun onPlayerError(error: PlaybackException) { video = video.afterFailure() }
+            override fun onPlaybackStateChanged(playbackState: Int) {
+                metrics.onPlaybackState(playbackState, player.playWhenReady)
+                diagnostics?.onMediaState(playbackState)
+                video = video.afterPlaybackState(playbackState)
+            }
+            override fun onPlayWhenReadyChanged(playWhenReady: Boolean, reason: Int) {
+                metrics.onPlayWhenReadyChanged(playWhenReady)
+            }
+            override fun onPositionDiscontinuity(oldPosition: Player.PositionInfo, newPosition: Player.PositionInfo, reason: Int) {
+                if (reason == Player.DISCONTINUITY_REASON_SEEK) metrics.onSeekApplied(player.playbackState == Player.STATE_READY)
+            }
+            override fun onPlayerError(error: PlaybackException) {
+                metrics.onFailed()
+                diagnostics?.onPlayerError(error.errorCodeName)
+                video = video.afterFailure()
+            }
         }
         player.addListener(listener)
         player.repeatMode = if (loop) Player.REPEAT_MODE_ONE else Player.REPEAT_MODE_OFF
@@ -1994,14 +2124,19 @@ private fun LocalVideo(
             player.setMediaItem(MediaItem.fromUri(Uri.fromFile(File(path))))
         } else {
             val factory = object : DataSource.Factory {
-                override fun createDataSource(): DataSource = ProgressiveFileDataSource(
-                    filePath = growth.path,
-                    totalSize = growth.totalSize,
-                    isComplete = growth.completed,
-                    isDownloading = growth.downloading,
-                    readablePrefix = growth.readablePrefix,
-                    onNeedMore = growth.onNeedMore
-                )
+                override fun createDataSource(): DataSource {
+                    growth.diagnostics?.sourceCreated()
+                    return ProgressiveFileDataSource(
+                        filePath = growth.path,
+                        totalSize = growth.totalSize,
+                        isComplete = growth.completed,
+                        isDownloading = growth.downloading,
+                        readableAt = growth.readableAt,
+                        onNeedMore = growth.onNeedMore,
+                        onBytesRead = metrics::onBytesRead,
+                        diagnostics = growth.diagnostics
+                    )
+                }
             }
             player.setMediaSource(
                 ProgressiveMediaSource.Factory(factory)
@@ -2011,10 +2146,20 @@ private fun LocalVideo(
         player.prepare()
         onDispose {
             player.removeListener(listener)
+            // Сводка замеров уходит один раз на просмотр. В ней нет имени файла и содержимого.
+            if (!loop && metrics.hasPlayed()) runCatching {
+                val size = progressive?.totalSize ?: File(path).length()
+                StructuredEventLog.shared.record(
+                    kind = EventKind.PERFORMANCE,
+                    code = "video_playback_summary",
+                    attrs = metrics.summary(startBuffer, size, streaming = progressive != null)
+                )
+            }
             player.release()
         }
     }
     fun play() {
+        metrics.onPlayRequested()
         if (video.ended) player.seekToDefaultPosition()
         // Пока файл уже играет, отметку не ставим: иначе следующий возврат из буферизации снова её отправит.
         if (!player.isPlaying) startRequested = true
@@ -2032,6 +2177,7 @@ private fun LocalVideo(
     }
     fun seek(fraction: Float) {
         val target = seekPositionMs(fraction, video.durationMs) ?: return
+        metrics.onSeek()
         player.seekTo(target)
         video = video.copy(positionMs = target)
     }
@@ -2066,12 +2212,19 @@ private fun LocalVideo(
                 onManualDownload()
                 video = VideoPlayerState()
                 startRequested = true
+                metrics.onRetry()
                 player.prepare()
                 player.play()
             }) { Text(stringResource(R.string.common_retry)) }
         }
     }
     else Box(Modifier.fillMaxSize()) {
+        val haptic = androidx.compose.ui.platform.LocalHapticFeedback.current
+        var boost2x by remember(path) { mutableStateOf(false) }
+        var gestureHud by remember(path) { mutableStateOf<String?>(null) }
+        val brightnessLabel = stringResource(R.string.viewer_brightness)
+        val volumeLabel = stringResource(R.string.viewer_volume)
+        val speed2xLabel = stringResource(R.string.viewer_speed_2x)
         AndroidView(
             factory = { viewContext ->
                 PlayerView(viewContext).apply {
@@ -2081,14 +2234,113 @@ private fun LocalVideo(
             },
             update = { it.player = player },
             onRelease = { it.player = null },
-            modifier = Modifier.fillMaxSize()
+            modifier = Modifier
+                .fillMaxSize()
+                .then(
+                    if (!loop) {
+                        Modifier
+                            .pointerInput(player, path) {
+                                detectTapGestures(
+                                    onPress = {
+                                        val holdJob = kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.Main).launch {
+                                            kotlinx.coroutines.delay(280L)
+                                            boost2x = true
+                                            haptic.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.LongPress)
+                                            player.setPlaybackSpeed(2.0f)
+                                        }
+                                        try {
+                                            tryAwaitRelease()
+                                        } finally {
+                                            holdJob.cancel()
+                                            if (boost2x) {
+                                                boost2x = false
+                                                player.setPlaybackSpeed(1.0f)
+                                            }
+                                        }
+                                    }
+                                )
+                            }
+                            .pointerInput(context, path) {
+                                val audioManager = context.getSystemService(android.content.Context.AUDIO_SERVICE) as? android.media.AudioManager
+                                val maxVol = (audioManager?.getStreamMaxVolume(android.media.AudioManager.STREAM_MUSIC) ?: 15).coerceAtLeast(1)
+                                var mode = 0 // -1 = brightness, 1 = volume
+                                var startLevel = 0.5f
+                                var totalDy = 0f
+                                detectVerticalDragGestures(
+                                    onDragStart = { start ->
+                                        totalDy = 0f
+                                        val fracX = start.x / size.width.toFloat().coerceAtLeast(1f)
+                                        mode = when {
+                                            fracX < 0.35f -> -1
+                                            fracX > 0.65f -> 1
+                                            else -> 0
+                                        }
+                                        if (mode == -1) {
+                                            val window = (context as? android.app.Activity)?.window
+                                            val cur = window?.attributes?.screenBrightness ?: 0.5f
+                                            startLevel = if (cur in 0f..1f) cur else 0.5f
+                                        } else if (mode == 1 && audioManager != null) {
+                                            startLevel = audioManager.getStreamVolume(android.media.AudioManager.STREAM_MUSIC).toFloat() / maxVol
+                                        }
+                                    },
+                                    onDragEnd = { gestureHud = null; mode = 0 },
+                                    onDragCancel = { gestureHud = null; mode = 0 },
+                                    onVerticalDrag = { change, dragAmount ->
+                                        if (mode == 0) return@detectVerticalDragGestures
+                                        change.consume()
+                                        totalDy -= dragAmount
+                                        val range = (size.height * 0.55f).coerceAtLeast(1f)
+                                        val next = (startLevel + totalDy / range).coerceIn(0.05f, 1f)
+                                        val pct = (next * 100f).toInt().coerceIn(0, 100)
+                                        if (mode == -1) {
+                                            val window = (context as? android.app.Activity)?.window
+                                            window?.attributes = window?.attributes?.apply { screenBrightness = next }
+                                            gestureHud = "$brightnessLabel $pct%"
+                                        } else if (mode == 1 && audioManager != null) {
+                                            val targetVol = (next * maxVol).toInt().coerceIn(0, maxVol)
+                                            audioManager.setStreamVolume(android.media.AudioManager.STREAM_MUSIC, targetVol, 0)
+                                            gestureHud = "$volumeLabel $pct%"
+                                        }
+                                    }
+                                )
+                            }
+                    } else Modifier
+                )
         )
+        if (boost2x) {
+            Box(
+                Modifier
+                    .align(Alignment.TopCenter)
+                    .padding(top = 72.dp)
+                    .clip(RoundedCornerShape(50))
+                    .background(Color.Black.copy(alpha = 0.65f))
+                    .padding(horizontal = 14.dp, vertical = 6.dp)
+            ) {
+                Text(speed2xLabel, color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+            }
+        }
+        gestureHud?.let { hud ->
+            Box(
+                Modifier
+                    .align(Alignment.Center)
+                    .clip(RoundedCornerShape(14.dp))
+                    .background(Color.Black.copy(alpha = 0.65f))
+                    .padding(horizontal = 16.dp, vertical = 10.dp)
+            ) {
+                Text(hud, color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
+            }
+        }
         if (video.buffering) CircularProgressIndicator(modifier = Modifier.align(Alignment.Center), color = Color.White)
-        // Анимация играет по кругу без панели управления; обычное видео получает кнопку и ползунок.
+        // Анимация играет по кругу без панели управления; обычное видео получает кнопку, ползунок и PiP.
         if (!loop) VideoControls(
             state = video,
             onAction = { action -> if (action == VideoAction.Pause) player.pause() else play() },
             onSeek = ::seek,
+            onOpenPip = {
+                player.pause()
+                InAppVideoPip.open(path, player.currentPosition)
+                onOpenPipDismiss()
+            },
             modifier = Modifier.align(Alignment.BottomCenter)
         )
     }
@@ -2096,7 +2348,13 @@ private fun LocalVideo(
 
 /** Кнопка и ползунок поверх видео. Ползунок работает, только когда известна длина: перематывать без неё некуда. */
 @Composable
-private fun VideoControls(state: VideoPlayerState, onAction: (VideoAction) -> Unit, onSeek: (Float) -> Unit, modifier: Modifier) {
+private fun VideoControls(
+    state: VideoPlayerState,
+    onAction: (VideoAction) -> Unit,
+    onSeek: (Float) -> Unit,
+    onOpenPip: (() -> Unit)? = null,
+    modifier: Modifier
+) {
     val action = state.primaryAction()
     // Позиция во время перетаскивания живёт в ползунке, а перемотка уходит один раз, когда палец отпущен.
     var dragFraction by remember { mutableStateOf<Float?>(null) }
@@ -2134,6 +2392,15 @@ private fun VideoControls(state: VideoPlayerState, onAction: (VideoAction) -> Un
             fontSize = 12.sp,
             modifier = Modifier.padding(start = 8.dp)
         )
+        if (onOpenPip != null) {
+            IconButton(onClick = onOpenPip) {
+                Icon(
+                    Icons.Rounded.PictureInPictureAlt,
+                    contentDescription = stringResource(R.string.viewer_pip_open),
+                    tint = Color.White
+                )
+            }
+        }
     }
 }
 

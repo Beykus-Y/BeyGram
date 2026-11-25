@@ -1,11 +1,15 @@
 package com.beykus.beygram.ui.screens.chat
 
+import android.os.Build
+
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.fillMaxWidth
+import com.beykus.beygram.ui.design.LocalGlassBackdrop
+import com.beykus.beygram.ui.design.glassCard
 import com.beykus.beygram.ui.design.usesGlassPanels
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
@@ -54,11 +58,17 @@ internal fun RecordingDiscardButton(onClick: () -> Unit) {
 internal fun androidx.compose.foundation.layout.BoxScope.ComposerMaterial(
     fill: androidx.compose.ui.graphics.Color,
     shape: androidx.compose.ui.graphics.Shape,
-    embedded: Boolean = false
+    embedded: Boolean = false,
+    compactControl: Boolean = false
 ) {
     val design = com.beykus.beygram.ui.design.LocalDesignSystem.current
     val palette = beyGramPalette()
-    if (design.usesGlassPanels && !embedded) {
+    val glass = design.surfaces.glass
+    val lightweightControl = compactControl && glass?.lensRefraction == true && glass.samplesBackdrop &&
+        LocalGlassBackdrop.current != null && Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU
+    if (!embedded && (LocalComposerOnGlassPlane.current || lightweightControl)) {
+        Box(Modifier.matchParentSize().glassCard(design, fill, palette.textSecondary, shape))
+    } else if (design.usesGlassPanels && !embedded) {
         com.beykus.beygram.ui.design.GlassPanel(
             design = design, tint = fill, rim = palette.textSecondary,
             backdropBase = palette.screen, shape = shape, modifier = Modifier.matchParentSize()

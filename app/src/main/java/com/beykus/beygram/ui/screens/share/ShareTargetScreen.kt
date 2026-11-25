@@ -4,7 +4,6 @@ import android.content.Context
 import android.net.Uri
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
@@ -12,6 +11,10 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.InsertDriveFile
+import androidx.compose.material3.Icon
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -126,11 +129,18 @@ internal fun ShareTargetScreen(
     val selection = if (session.deliveryStarted) session.pendingDestinations else session.selectedDestinations
     val selectedTargets = selection.map { ForwardTarget(it.chatId, it.title, it.topicId) }
     val stagedPreview: @Composable () -> Unit = { SharePreviewStrip(session, importer, appScope, context) }
+    // Подсказка: неотправленного получателя можно убрать из списка, чтобы ему не слать повторно.
+    val dropHint = session.canDropPending && (session.error != null || session.retryBlocked)
+    val errorText = listOfNotNull(
+        session.error?.resolve(),
+        session.deliveryNote?.resolve(),
+        if (dropHint) stringResource(R.string.share_drop_pending_hint) else null
+    ).joinToString("\n").ifEmpty { null }
 
     ForwardChatDialog(
         chats = chats,
         busy = session.sending,
-        error = session.error?.resolve(),
+        error = errorText,
         observeFile = observeFile,
         downloadFile = downloadFile,
         commentLimit = if (session.staged.isNotEmpty()) captionLimit else IncomingShareParser.MAX_TEXT_LENGTH,
@@ -141,6 +151,10 @@ internal fun ShareTargetScreen(
         selection = selectedTargets,
         onSelectionChange = { next ->
             if (!session.deliveryStarted) session.replaceDestinations(next.map { ShareDestination(it.chatId, it.topicId, it.title) })
+            // После начала отправки убранные из списка получатели больше не получат сообщение.
+            else session.pendingDestinations
+                .filter { destination -> next.none { it.chatId == destination.chatId && it.topicId == destination.topicId } }
+                .forEach { session.dropPending(it, appScope) }
         },
         initialComment = session.draft,
         onCommentChange = { session.draft = it },
@@ -178,17 +192,49 @@ private fun SharePreviewStrip(
                 style = MaterialTheme.typography.labelLarge,
                 color = palette.accentInk
             )
-            if (session.staging) Text(
-                stringResource(R.string.share_preparing),
+            if (session.staged.isNotEmpty()) Text(
+                stringResource(R.string.share_files_count, session.staged.size),
                 style = MaterialTheme.typography.bodySmall,
                 color = palette.textSecondary
             )
+            if (session.staging) {
+                val fraction = if (session.stagingTotal == 0) 0f else session.stagingDone.toFloat() / session.stagingTotal
+                Text(
+                    stringResource(R.string.share_preparing_progress, session.stagingDone, session.stagingTotal),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = palette.textSecondary
+                )
+                // Полоса на фоне accentSoft: её подложка должна отличаться от фона, поэтому берём серый текст.
+                LinearProgressIndicator(
+                    progress = { fraction },
+                    modifier = Modifier.fillMaxWidth(),
+                    color = palette.accent,
+                    trackColor = palette.textSecondary.copy(alpha = 0.2f)
+                )
+            }
             if (session.staged.isNotEmpty()) LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 items(session.staged, key = { it.path }) { item ->
                     Column(Modifier.width(72.dp), horizontalAlignment = Alignment.CenterHorizontally) {
                         val previewPath = item.thumbnailPath ?: item.path.takeIf { item.kind == MediaKind.Photo }
                         if (previewPath != null) LocalMediaImage(previewPath, Modifier.size(56.dp).clip(styledShape(10.dp)), maxDimension = 160, animate = false)
-                        else Box(Modifier.size(56.dp).clip(styledShape(10.dp)).background(palette.accentSoft))
+                        else {
+                            // Документ без превью: значок и расширение вместо картинки, размер плитки тот же.
+                            val extension = item.fileName.substringAfterLast('.', "").takeIf { it.isNotEmpty() }?.uppercase()
+                            Column(
+                                Modifier.size(56.dp).clip(styledShape(10.dp)).background(palette.accentSoft),
+                                horizontalAlignment = Alignment.CenterHorizontally,
+                                verticalArrangement = Arrangement.Center
+                            ) {
+                                Icon(Icons.Rounded.InsertDriveFile, contentDescription = null, tint = palette.accentInk, modifier = Modifier.size(24.dp))
+                                if (extension != null) Text(
+                                    extension,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = palette.accentInk
+                                )
+                            }
+                        }
                         Text(
                             text = item.fileName,
                             maxLines = 1,

@@ -156,7 +156,7 @@ internal fun FolderManagerScreen(
             else -> onBack()
         }
     }
-    BackHandler(onBack = ::back)
+    BackHandler(enabled = !com.beykus.beygram.LocalMainTabsCovered.current, onBack = ::back)
 
     // A timed-out create may already have succeeded. Reconcile a NEW server folder ID;
     // don't resubmit the same ID-less draft while its result is uncertain.

@@ -5,9 +5,12 @@ import com.beykus.beygram.ui.design.LocalDesignSystem
 import com.beykus.beygram.ui.design.glassScreenBackground
 import androidx.annotation.StringRes
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -20,6 +23,8 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.sizeIn
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.ui.draw.clip
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -29,6 +34,7 @@ import androidx.compose.material.icons.rounded.CardGiftcard
 import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.material.icons.rounded.Star
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -53,9 +59,11 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.res.pluralStringResource
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.heading
+import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -63,6 +71,7 @@ import androidx.compose.ui.unit.sp
 import com.beykus.beygram.R
 import com.beykus.beygram.domain.model.GIFT_TEXT_MAX_LENGTH_DEFAULT
 import com.beykus.beygram.domain.model.GiftBlockReason
+import com.beykus.beygram.domain.model.GiftCatalogFilter
 import com.beykus.beygram.domain.model.GiftCatalogItem
 import com.beykus.beygram.domain.model.GiftAuctionQuote
 import com.beykus.beygram.domain.model.GiftAuctionWin
@@ -76,6 +85,7 @@ import com.beykus.beygram.domain.model.GiftSendStep
 import com.beykus.beygram.domain.model.GiftTextValidation
 import com.beykus.beygram.domain.model.GiftsInfo
 import com.beykus.beygram.domain.model.MonetizationUnavailableException
+import com.beykus.beygram.domain.model.GiftRarityTier
 import com.beykus.beygram.domain.model.ReceivedGiftItem
 import com.beykus.beygram.domain.model.ReceivedGiftsPage
 import com.beykus.beygram.domain.model.ResaleGiftItem
@@ -83,13 +93,16 @@ import com.beykus.beygram.domain.model.ResaleGiftsPage
 import com.beykus.beygram.domain.model.resaleCanBuy
 import androidx.compose.runtime.key
 import com.beykus.beygram.domain.model.StarBalance
+import com.beykus.beygram.domain.model.filterGiftCatalog
 import com.beykus.beygram.domain.model.formatStarAmount
 import com.beykus.beygram.domain.model.giftBlockReason
 import com.beykus.beygram.domain.model.mergeReceivedGifts
 import com.beykus.beygram.domain.model.next
 import com.beykus.beygram.domain.model.nextReceivedGiftsOffset
+import com.beykus.beygram.domain.model.togglePinnedGiftIds
 import com.beykus.beygram.domain.model.validateGiftText
 import com.beykus.beygram.ui.accessibility.errorAnnouncement
+import com.beykus.beygram.ui.components.BeyGramPalette
 import com.beykus.beygram.ui.components.beyGramPalette
 import com.beykus.beygram.ui.text.resolve
 import com.beykus.beygram.ui.text.userMessage
@@ -126,13 +139,20 @@ fun GiftsScreen(
     submitBid: suspend (GiftAuctionQuote, Long, Boolean, Long) -> GiftAuctionOutcome =
         { _, _, _, _ -> GiftAuctionOutcome.Changed },
     loadResale: suspend (Long, String) -> Result<ResaleGiftsPage> = { _, _ -> Result.failure(UnsupportedOperationException()) },
-    buyResale: suspend (Long, String, Long) -> GiftSendOutcome = { _, _, _ -> GiftSendOutcome.Blocked(com.beykus.beygram.domain.UiText.Res(R.string.err_gift_unavailable)) }
+    buyResale: suspend (Long, String, Long) -> GiftSendOutcome = { _, _, _ -> GiftSendOutcome.Blocked(com.beykus.beygram.domain.UiText.Res(R.string.err_gift_unavailable)) },
+    toggleGiftSaved: suspend (String, Boolean) -> Result<Unit> = { _, _ -> Result.failure(UnsupportedOperationException()) },
+    setPinnedGifts: suspend (List<String>) -> Result<Unit> = { Result.failure(UnsupportedOperationException()) }
 ) {
     val palette = beyGramPalette()
     val design = LocalDesignSystem.current
     val loadingText = stringResource(R.string.a11y_state_loading)
     val context = LocalContext.current
     var listingGift by remember(accountId, profileId) { mutableStateOf<ReceivedGiftItem?>(null) }
+    var detailTarget by remember(accountId, profileId) { mutableStateOf<GiftDetailTarget?>(null) }
+    var detailBusy by remember { mutableStateOf(false) }
+    var detailError by remember { mutableStateOf<String?>(null) }
+    var catalogFilter by rememberSaveable { mutableStateOf(GiftCatalogFilter.All) }
+    var catalogQuery by rememberSaveable { mutableStateOf("") }
     val listingState by GiftListingStore.state.collectAsState()
     val listingOperation = listingState[accountId]
     var info by remember { mutableStateOf<GiftsInfo?>(null) }
@@ -341,7 +361,8 @@ fun GiftsScreen(
         }
     }
 
-    Column(Modifier.fillMaxSize().glassScreenBackground(design, palette.screen).windowInsetsPadding(WindowInsets.safeDrawing)) {
+    ProvideGiftAnimationBudget {
+        Column(Modifier.fillMaxSize().glassScreenBackground(design, palette.screen).windowInsetsPadding(WindowInsets.safeDrawing)) {
         ProfileToolbar(title, onBack = { if (!sending) onBack() }) {
             IconButton(onClick = { if (!loading && !sending) reload++ }, enabled = !loading && !sending) {
                 Icon(Icons.Rounded.Refresh, stringResource(R.string.common_retry), tint = palette.textPrimary)
@@ -466,7 +487,7 @@ fun GiftsScreen(
                             }
                         } else {
                             items(gifts.received, key = { it.id }) { gift ->
-                                ReceivedGiftRow(gift)
+                                ReceivedGiftRow(gift, onClick = { detailTarget = GiftDetailTarget.Received(gift) })
                                 if (gift.isUpgraded && !gift.wasRefunded && gift.id.isNotBlank()) {
                                     TextButton(
                                         onClick = { listingGift = gift },
@@ -547,16 +568,36 @@ fun GiftsScreen(
                                 )
                             }
                         } else {
-                            items(gifts.catalog, key = { it.id }) { gift ->
-                                GiftCatalogRow(
-                                    gift = gift,
-                                    blockReason = null,
-                                    enabled = false,
-                                    showSend = false,
-                                    onSend = {},
-                                    onAuction = { if (!sending && pendingGiftId == 0L) auctionGift = gift },
-                                    onResale = { resaleCatalog = gift }
+                            item("catalog_filter_own") {
+                                GiftCatalogFilterBar(
+                                    filter = catalogFilter,
+                                    query = catalogQuery,
+                                    onFilter = { catalogFilter = it },
+                                    onQuery = { catalogQuery = it }
                                 )
+                            }
+                            val filteredCatalog = filterGiftCatalog(gifts.catalog, catalogFilter, catalogQuery)
+                            if (filteredCatalog.isEmpty()) {
+                                item("catalog_filtered_empty") {
+                                    Text(
+                                        stringResource(R.string.gifts_catalog_empty),
+                                        color = palette.textSecondary,
+                                        fontSize = 14.sp,
+                                        modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 6.dp)
+                                    )
+                                }
+                            } else {
+                                items(filteredCatalog, key = { it.id }) { gift ->
+                                    GiftCatalogRow(
+                                        gift = gift,
+                                        blockReason = null,
+                                        enabled = false,
+                                        showSend = false,
+                                        onSend = {},
+                                        onAuction = { if (!sending && pendingGiftId == 0L) auctionGift = gift },
+                                        onResale = { resaleCatalog = gift }
+                                    )
+                                }
                             }
                         }
                     } else {
@@ -573,22 +614,42 @@ fun GiftsScreen(
                                 )
                             }
                         } else {
-                            items(gifts.catalog, key = { it.id }) { gift ->
-                                val blockReason = giftBlockReason(
-                                    gift = gift,
-                                    isSelf = false,
-                                    isPremium = gifts.isPremium,
-                                    balanceStars = gifts.balance?.starCount,
-                                    busy = sending
+                            item("catalog_filter") {
+                                GiftCatalogFilterBar(
+                                    filter = catalogFilter,
+                                    query = catalogQuery,
+                                    onFilter = { catalogFilter = it },
+                                    onQuery = { catalogQuery = it }
                                 )
-                                GiftCatalogRow(
-                                    gift = gift,
-                                    blockReason = blockReason,
-                                    enabled = !sending && pendingGiftId == 0L,
-                                    onSend = { chooseGift(gift) },
-                                    onAuction = { if (!sending && pendingGiftId == 0L) auctionGift = gift },
-                                    onResale = { if (!sending && pendingGiftId == 0L) resaleCatalog = gift }
-                                )
+                            }
+                            val filteredCatalog = filterGiftCatalog(gifts.catalog, catalogFilter, catalogQuery)
+                            if (filteredCatalog.isEmpty()) {
+                                item("catalog_filtered_empty") {
+                                    Text(
+                                        stringResource(R.string.gifts_catalog_empty),
+                                        color = palette.textSecondary,
+                                        fontSize = 14.sp,
+                                        modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 6.dp)
+                                    )
+                                }
+                            } else {
+                                items(filteredCatalog, key = { it.id }) { gift ->
+                                    val blockReason = giftBlockReason(
+                                        gift = gift,
+                                        isSelf = false,
+                                        isPremium = gifts.isPremium,
+                                        balanceStars = gifts.balance?.starCount,
+                                        busy = sending
+                                    )
+                                    GiftCatalogRow(
+                                        gift = gift,
+                                        blockReason = blockReason,
+                                        enabled = !sending && pendingGiftId == 0L,
+                                        onSend = { chooseGift(gift) },
+                                        onAuction = { if (!sending && pendingGiftId == 0L) auctionGift = gift },
+                                        onResale = { if (!sending && pendingGiftId == 0L) resaleCatalog = gift }
+                                    )
+                                }
                             }
                         }
                     }
@@ -656,7 +717,9 @@ fun GiftsScreen(
             content = {
                 Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
-                        Text(dialogGift.emoji.ifBlank { "🎁" }, fontSize = 30.sp)
+                        GiftVisualImage(dialogGift.visual, 30.dp) {
+                            Text(dialogGift.emoji.ifBlank { "🎁" }, fontSize = 30.sp)
+                        }
                         Spacer(Modifier.size(10.dp))
                         Text(
                             stringResource(R.string.gifts_cost, formatStarAmount(dialogGift.starCount)),
@@ -722,6 +785,57 @@ fun GiftsScreen(
             onDismiss = ::dismissDialog
         )
     }
+    detailTarget?.let { target ->
+        val receivedTarget = (target as? GiftDetailTarget.Received)?.gift
+        val canManageOwn = isSelf && receivedTarget != null && receivedTarget.id.isNotBlank() && !receivedTarget.wasRefunded
+        GiftDetailSheet(
+            target = target,
+            actionBusy = detailBusy,
+            actionError = detailError,
+            onToggleSaved = if (canManageOwn) ({
+                val g = receivedTarget!!
+                if (!detailBusy) {
+                    detailBusy = true
+                    detailError = null
+                    scope.launch {
+                        toggleGiftSaved(g.id, !g.isSaved).fold(
+                            onSuccess = {
+                                detailTarget = null
+                                reload++
+                            },
+                            onFailure = { detailError = it.userMessage(context, R.string.feature_action_failed) }
+                        )
+                        detailBusy = false
+                    }
+                }
+            }) else null,
+            onTogglePinned = if (canManageOwn) ({
+                val g = receivedTarget!!
+                if (!detailBusy) {
+                    detailBusy = true
+                    detailError = null
+                    val nextPinned = togglePinnedGiftIds(info?.received.orEmpty(), g.id)
+                    scope.launch {
+                        setPinnedGifts(nextPinned).fold(
+                            onSuccess = {
+                                detailTarget = null
+                                reload++
+                            },
+                            onFailure = { detailError = it.userMessage(context, R.string.feature_action_failed) }
+                        )
+                        detailBusy = false
+                    }
+                }
+            }) else null,
+            onDismiss = {
+                if (!detailBusy) {
+                    detailError = null
+                    detailTarget = null
+                }
+            }
+        )
+    }
+    }
 }
 
 @Composable
@@ -782,6 +896,45 @@ private fun GiftPrivacyRow(checked: Boolean, enabled: Boolean, onCheckedChange: 
     }
 }
 
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun GiftCatalogFilterBar(
+    filter: GiftCatalogFilter,
+    query: String,
+    onFilter: (GiftCatalogFilter) -> Unit,
+    onQuery: (String) -> Unit
+) {
+    Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 6.dp)) {
+        OutlinedTextField(
+            value = query,
+            onValueChange = onQuery,
+            singleLine = true,
+            label = { Text(stringResource(R.string.gifts_search_hint)) },
+            modifier = Modifier.fillMaxWidth()
+        )
+        Spacer(Modifier.height(6.dp))
+        FlowRow(
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalArrangement = Arrangement.spacedBy(4.dp)
+        ) {
+            GiftCatalogFilter.entries.forEach { option ->
+                val labelRes = when (option) {
+                    GiftCatalogFilter.All -> R.string.gifts_filter_all
+                    GiftCatalogFilter.Available -> R.string.gifts_filter_available
+                    GiftCatalogFilter.Resale -> R.string.gifts_filter_resale
+                    GiftCatalogFilter.Auction -> R.string.gifts_filter_auction
+                    GiftCatalogFilter.Limited -> R.string.gifts_filter_limited
+                }
+                FilterChip(
+                    selected = filter == option,
+                    onClick = { onFilter(option) },
+                    label = { Text(stringResource(labelRes)) }
+                )
+            }
+        }
+    }
+}
+
 @Composable
 private fun GiftCatalogRow(
     gift: GiftCatalogItem,
@@ -800,7 +953,13 @@ private fun GiftCatalogRow(
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
             // The gift and its text read as one item; the buttons beside them stay separate controls for TalkBack.
             Row(Modifier.weight(1f).semantics(mergeDescendants = true) {}, verticalAlignment = Alignment.CenterVertically) {
-                Text(gift.emoji.ifBlank { "🎁" }, fontSize = 32.sp)
+                GiftArtworkFrame(
+                    visual = gift.visual,
+                    emoji = gift.emoji,
+                    frameSize = 52.dp,
+                    stickerSize = 36.dp,
+                    cornerRadius = 12.dp
+                )
                 Column(Modifier.weight(1f).padding(start = 12.dp)) {
                     Text(
                         if (gift.auctionId.isNullOrBlank()) stringResource(R.string.gifts_cost, formatStarAmount(gift.starCount)) else stringResource(R.string.gift_auction_title),
@@ -858,26 +1017,43 @@ private fun GiftCatalogRow(
 }
 
 @Composable
-private fun ReceivedGiftRow(gift: ReceivedGiftItem) {
+internal fun ReceivedGiftRow(gift: ReceivedGiftItem, onClick: (() -> Unit)? = null) {
     val palette = beyGramPalette()
+    val cardModifier = Modifier.fillMaxWidth().profileCardSurface().let { base ->
+        if (onClick != null) base.clickable(role = Role.Button, onClick = onClick) else base
+    }
     Column(
-        Modifier.fillMaxWidth().profileCardSurface()
+        cardModifier
             .padding(horizontal = 16.dp, vertical = 12.dp)
             .semantics(mergeDescendants = true) {}
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             // The gift itself is the main visual, so the emoji gets a larger slot than the text around it.
-            Box(Modifier.sizeIn(minWidth = 48.dp, minHeight = 48.dp), contentAlignment = Alignment.Center) {
-                Text(gift.emoji.ifBlank { "🎁" }, fontSize = 36.sp)
-            }
+            // An upgraded gift shows its backdrop behind the model and its symbol in the corner; a regular gift has neither.
+            GiftArtworkFrame(
+                visual = gift.visual,
+                emoji = gift.emoji,
+                collectible = gift.collectible,
+                frameSize = 52.dp,
+                stickerSize = 36.dp,
+                symbolSize = 18.dp,
+                cornerRadius = 12.dp,
+                modifier = Modifier.sizeIn(minWidth = 48.dp, minHeight = 48.dp)
+            )
             Column(Modifier.weight(1f).padding(start = 12.dp)) {
                 // Regular gifts have no title from Telegram, so they show a generic name rather than the list heading.
+                val displayTitle = gift.name.ifBlank {
+                    gift.collectible?.title.orEmpty().ifBlank { stringResource(R.string.gifts_gift_generic) }
+                }
                 Text(
-                    gift.name.ifBlank { stringResource(R.string.gifts_gift_generic) },
+                    displayTitle,
                     color = palette.textPrimary,
                     fontSize = 15.sp,
                     fontWeight = FontWeight.SemiBold
                 )
+                gift.collectible?.modelName?.takeIf { it.isNotBlank() && it != displayTitle }?.let { model ->
+                    Text(model, color = palette.textSecondary, fontSize = 12.sp)
+                }
                 Text(
                     stringResource(R.string.gifts_from, gift.senderName ?: stringResource(R.string.gifts_sender_unknown)),
                     color = palette.textSecondary,
@@ -889,6 +1065,34 @@ private fun ReceivedGiftRow(gift: ReceivedGiftItem) {
                     color = palette.textSecondary,
                     fontSize = 12.sp
                 )
+                // An upgraded gift names its number and the model's rarity; a regular gift names neither.
+                gift.collectible?.let { details ->
+                    Text(
+                        stringResource(R.string.gifts_collectible_number, details.number),
+                        color = palette.textSecondary,
+                        fontSize = 12.sp
+                    )
+                    // A tier is named and coloured per level, with the exact share as a fallback when TDLib sends
+                    // only the per-mille value, which is when the tier is null.
+                    val rarityLabel = when {
+                        details.modelRarityTier != null ->
+                            stringResource(giftRarityLabelRes(details.modelRarityTier))
+                        details.modelRarityPerMille != null ->
+                            stringResource(
+                                R.string.gifts_rarity_percent,
+                                String.format(java.util.Locale.getDefault(), "%.1f", details.modelRarityPerMille / 10.0)
+                            )
+                        else -> null
+                    }
+                    rarityLabel?.let { label ->
+                        Text(
+                            label,
+                            color = giftRarityColor(details.modelRarityTier, palette),
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.SemiBold
+                        )
+                    }
+                }
             }
             gift.starCount?.let { stars ->
                 Text(
@@ -904,6 +1108,7 @@ private fun ReceivedGiftRow(gift: ReceivedGiftItem) {
             Text(gift.text, color = palette.textPrimary, fontSize = 14.sp)
         }
         val badges = mutableListOf<String>()
+        if (gift.isPinned) badges += stringResource(R.string.gifts_pinned)
         if (gift.isUpgraded) badges += stringResource(R.string.gifts_upgraded)
         if (gift.isPrivate) badges += stringResource(R.string.gifts_private)
         if (gift.wasRefunded) badges += stringResource(R.string.gifts_refunded)
@@ -1010,4 +1215,21 @@ private object RetainedGiftSendStore {
     private fun update(accountId: String, value: RetainedGiftSend) {
         _states.value = _states.value + (accountId to value)
     }
+}
+
+/** The label of a model's rarity tier, shown under an upgraded gift's number. */
+internal fun giftRarityLabelRes(tier: GiftRarityTier): Int = when (tier) {
+    GiftRarityTier.Uncommon -> R.string.gifts_rarity_uncommon
+    GiftRarityTier.Rare -> R.string.gifts_rarity_rare
+    GiftRarityTier.Epic -> R.string.gifts_rarity_epic
+    GiftRarityTier.Legendary -> R.string.gifts_rarity_legendary
+}
+
+/** Each rarity tier has its own colour from the theme palette, so the levels read apart without the label. */
+internal fun giftRarityColor(tier: GiftRarityTier?, palette: BeyGramPalette): Color = when (tier) {
+    GiftRarityTier.Uncommon -> palette.textSecondary
+    GiftRarityTier.Rare -> palette.accentInk
+    GiftRarityTier.Epic -> palette.warningText
+    GiftRarityTier.Legendary -> palette.accent
+    null -> palette.textSecondary
 }

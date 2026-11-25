@@ -31,6 +31,7 @@ internal fun OutgoingMedia.toInputContent(
             }
             this.caption = formattedCaption
             this.selfDestructType = selfDestructType
+            this.hasSpoiler = this@toInputContent.hasSpoiler && selfDestructType == null
         }
         MediaKind.Video -> TdApi.InputMessageVideo().apply {
             video = TdApi.InputVideo().apply {
@@ -39,13 +40,14 @@ internal fun OutgoingMedia.toInputContent(
                 width = this@toInputContent.width
                 height = this@toInputContent.height
                 duration = durationSeconds
-                // Only a fast-start MP4 can be played before the recipient downloads the whole file.
-                // A container with moov at the end keeps the flag false instead of promising streaming.
-                supportsStreaming = runCatching { Mp4StreamingProbe.supportsStreaming(File(path)) }.getOrDefault(false)
+                // Only a fast-start MP4 can be played before the recipient downloads the whole file. The flag describes
+                // the container structure, not the codec: a fast-start HEVC file is streamable by clients that decode it.
+                supportsStreaming = runCatching { Mp4StreamingProbe.supportsOutgoingStreaming(File(path)) }.getOrDefault(false)
                 addedStickerFileIds = intArrayOf()
             }
             this.caption = formattedCaption
             this.selfDestructType = selfDestructType
+            this.hasSpoiler = this@toInputContent.hasSpoiler && selfDestructType == null
         }
         MediaKind.VideoNote -> TdApi.InputMessageVideoNote().apply {
             videoNote = local
@@ -78,7 +80,7 @@ internal fun OutgoingMedia.toInputContent(
             )
             this.caption = formattedCaption
             showCaptionAboveMedia = false
-            hasSpoiler = false
+            hasSpoiler = this@toInputContent.hasSpoiler
         }
         // Music keeps its player bubble and tags; only the music picker produces this kind.
         MediaKind.Audio -> TdApi.InputMessageAudio().apply {

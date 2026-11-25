@@ -35,6 +35,18 @@ enum class InstallNotice { LaunchFailed, NotInstalledYet, PermissionGranted }
 /** A verified APK kept on disk, with the release it was verified for. */
 data class ReadyApk(val release: StableRelease, val file: File)
 
+/**
+ * What one unattended check produced. Deliberately not a UI state: the scheduler needs the outcome to decide about
+ * backoff, notification and banner, while [UpdateUiState] keeps describing what the user sees.
+ */
+sealed interface AutomaticCheckOutcome {
+    data class Available(val release: StableRelease) : AutomaticCheckOutcome
+    data object Current : AutomaticCheckOutcome
+    /** A user operation held the updater, or the current state does not allow a check. Nothing was asked. */
+    data object Skipped : AutomaticCheckOutcome
+    data class Failed(val reason: StableUpdateReason?) : AutomaticCheckOutcome
+}
+
 data class UpdateUiState(
     val status: UpdateStatus = UpdateStatus.Idle,
     val ready: ReadyApk? = null,

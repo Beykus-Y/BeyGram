@@ -1,6 +1,7 @@
 package com.beykus.beygram.ui.screens.playback
 
 import androidx.activity.compose.PredictiveBackHandler
+import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.Orientation
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
@@ -13,9 +14,10 @@ import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.offset
+import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBars
-import androidx.compose.material3.BottomSheetDefaults
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.MaterialTheme
@@ -32,6 +34,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.drawscope.ContentDrawScope
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.draw.drawWithContent
@@ -248,8 +251,19 @@ private fun PlayerOverlay(
                         onDragStopped = { velocity -> PlayerExpansion.endDrag(velocity) }
                     )
             ) {
-                Box(Modifier.fillMaxWidth().clearAndSetSemantics {}, contentAlignment = Alignment.Center) {
-                    BottomSheetDefaults.DragHandle(color = cover.tokens.muted)
+                Box(
+                    Modifier
+                        .fillMaxWidth()
+                        .padding(top = 10.dp, bottom = 2.dp)
+                        .clearAndSetSemantics {},
+                    contentAlignment = Alignment.Center
+                ) {
+                    Box(
+                        Modifier
+                            .size(width = 34.dp, height = 3.5.dp)
+                            .clip(RoundedCornerShape(50))
+                            .background(cover.tokens.muted.copy(alpha = 0.42f))
+                    )
                 }
                 MusicPlayerContent(
                     player = player,
@@ -260,6 +274,7 @@ private fun PlayerOverlay(
                     onOpenEqualizer = onOpenEqualizer,
                     onOpenMusicSearch = onOpenMusicSearch,
                     onOpenMyMusic = onOpenMyMusic,
+                    ambientAccent = cover.ambientAccent,
                     modifier = Modifier.weight(1f)
                 )
             }

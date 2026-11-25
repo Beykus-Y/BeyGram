@@ -2,6 +2,7 @@ package com.beykus.beygram.data.yandex
 
 import com.beykus.beygram.data.music.provider.MusicProviderFailure
 import com.beykus.beygram.data.music.provider.ProviderResult
+import java.io.IOException
 import java.net.URLEncoder
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
@@ -9,14 +10,20 @@ import org.junit.Test
 
 class YandexLyricsRequestTest {
 
-    /** Answers the queued responses in order and records every requested URL. No network. */
-    private class ScriptedHttp(vararg responses: YandexResponse) : YandexHttp() {
+    /**
+     * Answers the queued entries in order and records every requested URL. No network. An entry is either a
+     * [YandexResponse] or an [IOException], which is thrown for that request.
+     */
+    private class ScriptedHttp(vararg responses: Any) : YandexHttp() {
         val urls = mutableListOf<String>()
         private val queue = ArrayDeque(responses.toList())
 
         override fun get(url: String, token: String?, paced: Boolean): YandexResponse {
             urls += url
-            return queue.removeFirst()
+            return when (val next = queue.removeFirst()) {
+                is IOException -> throw next
+                else -> next as YandexResponse
+            }
         }
     }
 
@@ -107,6 +114,57 @@ class YandexLyricsRequestTest {
 
         assertEquals(ProviderResult.Failure(MusicProviderFailure.SessionExpired), result)
         assertEquals(1, http.urls.size)
+    }
+
+    @Test
+    fun authFailureOnTextAfterLrcNotFoundIsReportedNotHidden() {
+        val http = ScriptedHttp(
+            response(404, """{"error": "not-found"}"""),
+            response(401, "{}"),
+        )
+        val (result, report) = api(http).lyricsWithReport("token", "12345678")
+
+        assertEquals(ProviderResult.Failure(YandexAuth.failureForCode(401)), result)
+        assertEquals(MusicProviderFailure.SessionExpired, (result as ProviderResult.Failure).failure)
+        assertEquals(2, http.urls.size)
+        assertTrue(report.contains("fallback=TEXT"))
+    }
+
+    @Test
+    fun serverFailureOnTextAfterLrcNotFoundIsReportedNotHidden() {
+        val http = ScriptedHttp(
+            response(404, """{"error": "not-found"}"""),
+            response(503, "{}"),
+        )
+        val (result, _) = api(http).lyricsWithReport("token", "12345678")
+
+        assertEquals(ProviderResult.Failure(YandexAuth.failureForCode(503)), result)
+        assertEquals(MusicProviderFailure.Unavailable, (result as ProviderResult.Failure).failure)
+        assertEquals(2, http.urls.size)
+    }
+
+    @Test
+    fun networkFailureOnTextAfterLrcNotFoundIsReportedNotHidden() {
+        val http = ScriptedHttp(
+            response(404, """{"error": "not-found"}"""),
+            IOException("unreachable"),
+        )
+        val (result, _) = api(http).lyricsWithReport("token", "12345678")
+
+        assertEquals(ProviderResult.Failure(MusicProviderFailure.Network), result)
+        assertEquals(2, http.urls.size)
+    }
+
+    @Test
+    fun notFoundOnTextAfterLrcNotFoundStaysNotFound() {
+        val http = ScriptedHttp(
+            response(404, """{"error": "not-found"}"""),
+            response(404, """{"error": "not-found"}"""),
+        )
+        val (result, _) = api(http).lyricsWithReport("token", "12345678")
+
+        assertEquals(ProviderResult.Failure(MusicProviderFailure.NotFound), result)
+        assertEquals(2, http.urls.size)
     }
 
     @Test

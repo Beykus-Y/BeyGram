@@ -34,4 +34,11 @@
     <string name="design_style_liquid_glass_detail">Paneles de cristal flotantes con desenfoque del fondo y bordes de luz</string>
     <string name="design_style_signature">BeyGram Signature</string>
     <string name="design_style_signature_detail">El lenguaje propio de BeyGram: el chat primero, profundidad serena y su propio dock</string>
+    <string name="appearance_style_v2_title">Lente Liquid Glass V2 (experimental)</string>
+    <string name="appearance_style_v2_detail">Refracta el cristal en los bordes de los paneles en Android 13 y posteriores con calidad completa. Desactivada por defecto; el cristal actual sigue como alternativa.</string>
+    <string name="appearance_style_lens_title">Variante de lente</string>
+    <string name="appearance_style_lens_standard">Estándar</string>
+    <string name="appearance_style_lens_clear">Clara</string>
+    <string name="appearance_style_lens_bold">Intensa</string>
+    <string name="appearance_style_lens_detail">Estándar es equilibrada. Clara tiene menos desenfoque y tinte. Intensa tiene una banda más ancha y una refracción más fuerte.</string>
 </resources>

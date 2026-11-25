@@ -4,7 +4,7 @@
     <string name="stealth_status_on">Aktiviert</string>
     <string name="stealth_status_off">Deaktiviert</string>
     <string name="stealth_unavailable">Für dieses Konto gerade nicht verfügbar</string>
-    <string name="stealth_fail_closed">Die gespeicherten Einstellungen konnten nicht gelesen werden. Bis Sie die Einstellungen erneut speichern, sind alle Signale blockiert. Jede Änderung speichert sie.</string>
+    <string name="stealth_fail_closed">Die Einstellungen konnten nicht gelesen werden. Bis zum erfolgreichen Speichern schränkt BeyGram die von diesem Modus gesteuerten Signale ein.</string>
     <string name="stealth_save_failed">Einstellung konnte nicht gespeichert werden</string>
 
     <string name="stealth_group_presets">Schutzstufe</string>
@@ -15,15 +15,15 @@
 
     <string name="stealth_group_switches">Was verborgen wird</string>
     <string name="stealth_hide_typing_title">Nicht anzeigen, dass ich schreibe</string>
-    <string name="stealth_hide_typing_detail">Verbirgt auch das Aufnehmen von Sprach- und Videonachrichten sowie das Hochladen von Dateien.</string>
+    <string name="stealth_hide_typing_detail">BeyGram nutzt die Chat-Einstellungen, um Tipp-, Aufnahme- und Upload-Anzeigen einzuschränken.</string>
     <string name="stealth_no_read_receipts_title">Nachrichten nicht als gelesen markieren</string>
-    <string name="stealth_no_read_receipts_detail">Chats bleiben für die Gegenseite ungelesen. Öffnen und Scrollen eines Chats senden keine Lesemarkierung. Die Schaltfläche „%1$s“ fragt vorher nach.</string>
+    <string name="stealth_no_read_receipts_detail">BeyGram prüft vor Lesebestätigungen die Chat-Einstellungen. „%1$s“ fragt nach Zustimmung, wenn Lesebestätigungen eingeschränkt sind.</string>
     <string name="stealth_no_content_open_title">Öffnen von Medien nicht melden</string>
-    <string name="stealth_no_content_open_detail">Sprach- und Videonachrichten werden nicht als angehört oder angesehen markiert. Einmalige Medien fragen vor dem Öffnen nach.</string>
+    <string name="stealth_no_content_open_detail">BeyGram prüft die Chat-Einstellungen, bevor das Öffnen von Medien gemeldet wird. Einmalmedien können eine Zustimmung erfordern.</string>
     <string name="stealth_no_story_views_title">Storys unbemerkt ansehen</string>
-    <string name="stealth_no_story_views_detail">Storys öffnen sich, ohne dass Sie in der Liste der Betrachter erscheinen, und bleiben ungelesen.</string>
+    <string name="stealth_no_story_views_detail">BeyGram prüft die Einstellungen, bevor Story-Aufrufe gemeldet werden.</string>
     <string name="stealth_hide_online_title">Online-Status verbergen</string>
-    <string name="stealth_hide_online_detail">Die App meldet nicht, dass Sie online sind. Telegram zeigt Sie trotzdem etwa 30 Sekunden lang als online, wenn Sie eine Nachricht senden, eine Privatnachricht lesen oder schreiben.</string>
+    <string name="stealth_hide_online_detail">BeyGram berücksichtigt die Einstellung zum Online-Status dieses Kontos. Telegram kann dich nach dem Senden, Lesen einer privaten Nachricht oder Tippen online anzeigen.</string>
     <string name="stealth_warn_risky_title">Vor Aktionen warnen, die Aktivität zeigen können</string>
     <string name="stealth_warn_risky_detail">Fragt vor dem Senden einer Nachricht, einer Reaktion, einer Abstimmung oder einem Bot-Button nach. Telegram zeigt Sie möglicherweise etwa 30 Sekunden lang als online.</string>
 
@@ -51,4 +51,23 @@
         <item quantity="one">Gesprächspartner in %1$d Chat sehen, dass die Nachrichten gelesen wurden.</item>
         <item quantity="other">Gesprächspartner in %1$d Chats sehen, dass die Nachrichten gelesen wurden.</item>
     </plurals>
+
+    <string name="stealth_client_state">Client-Einstellungen</string>
+    <string name="stealth_group_reading">Lesen und Ansehen</string>
+    <string name="stealth_group_activity">Online-Status und Aktionen</string>
+    <string name="stealth_active_parameters">Aktive Einstellungen</string>
+    <string name="stealth_no_active_parameters">Standardverhalten der App</string>
+    <string name="stealth_server_visibility_unknown">Die Sichtbarkeit deiner Aktivitäten in Telegram ist unbekannt.</string>
+    <string name="stealth_quick_presets">Modus schnell auswählen</string>
+
+    <string name="stealth_summary_typing">Tippen und Aufnehmen</string>
+    <string name="stealth_summary_reads">Lesebestätigungen</string>
+    <string name="stealth_summary_media">Medien öffnen</string>
+    <string name="stealth_summary_stories">Story-Aufrufe</string>
+    <string name="stealth_summary_presence">Online-Status</string>
+    <string name="stealth_summary_warnings">Warnungen</string>
+    <string name="stealth_summary_scheduled">Geplantes Senden</string>
+    <string name="stealth_summary_scope">Andere Telegram-Sitzungen arbeiten unabhängig.</string>
+    <string name="stealth_show_limits">Einschränkungen anzeigen</string>
+    <string name="stealth_hide_limits">Einschränkungen ausblenden</string>
 </resources>

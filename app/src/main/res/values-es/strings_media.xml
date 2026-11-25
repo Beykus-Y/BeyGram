@@ -50,6 +50,13 @@
     <string name="recorder_preview_previous">Atrás</string>
     <string name="recorder_preview_size">Tamaño total: %1$s</string>
     <string name="recorder_preview_title">Vista previa de la grabación</string>
+    <!-- P0 #1228: el motivo del fallo de envío se ve en la vista previa. -->
+    <string name="recorder_send_in_progress">Enviando…</string>
+    <!-- P0 #1228: por qué no se pudo procesar un vídeo. -->
+    <string name="recorder_unreadable_video">La grabación está dañada: su vídeo no se puede leer</string>
+    <string name="recorder_unsupported_codec">El códec de la grabación no es compatible</string>
+    <string name="recorder_retry_send">Reintentar envío</string>
+    <string name="recorder_preview_unavailable">No se pudo reproducir la grabación</string>
     <string name="recorder_processing_busy">La grabación anterior aún se está procesando</string>
     <string name="recorder_queue_progress">Enviando %1$d de %2$d</string>
     <string name="recorder_queue_sent">Aceptados para enviar: %1$d de %2$d</string>

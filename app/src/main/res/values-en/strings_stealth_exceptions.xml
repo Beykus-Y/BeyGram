@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="stealth_exceptions_title">Chat exceptions</string>
+    <string name="stealth_exceptions_inheritance">Chats without an exception inherit the account settings. Exceptions affect reads, media opens, typing and story views. Presence, warnings and scheduling apply to the whole account.</string>
+    <string name="stealth_exceptions_results">%1$d of %2$d shown</string>
+    <string name="stealth_exceptions_empty">No matching exceptions</string>
+    <string name="stealth_exceptions_unknown_chat">Chat · %1$d</string>
+    <string name="stealth_exceptions_reset">Reset all exceptions</string>
+    <string name="stealth_exceptions_all">All</string>
+    <string name="stealth_exceptions_allow">Allowed</string>
+    <string name="stealth_exceptions_block">Blocked</string>
+    <string name="stealth_exceptions_private">Private</string>
+</resources>

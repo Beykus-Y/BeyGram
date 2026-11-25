@@ -11,6 +11,7 @@ import androidx.compose.ui.unit.dp
 import com.beykus.beygram.data.appearance.DesignStyle
 import com.beykus.beygram.data.appearance.GlassQuality
 import com.beykus.beygram.data.appearance.NavigationPlacement
+import com.beykus.beygram.data.appearance.LiquidGlassLensPreset
 
 /**
  * The resolved design system of the interface in effect: one immutable set of semantic tokens produced from the
@@ -277,7 +278,14 @@ data class GlassStyle(
      */
     val outlineTopAlpha: Float = 0.18f,
     /** Opacity of the outer stroke at its bottom edge, see [outlineTopAlpha]. */
-    val outlineBottomAlpha: Float = 0.10f
+    val outlineBottomAlpha: Float = 0.10f,
+    /**
+     * Liquid Glass V2 (experimental): the sampled backdrop is refracted at the panel edge by the lens shader. Only
+     * effective at [samplesBackdrop] on API 33+; everywhere else the panel is the unchanged material. Off by default.
+     */
+    val lensRefraction: Boolean = false,
+    /** The lens constants (see [LensTuning]); used only when [lensRefraction] is on. */
+    val lensTuning: LensTuning = DefaultLensTuning
 ) {
     /** The backdrop is sampled and blurred only at the full level; lower levels keep the layout and the tint. */
     val samplesBackdrop: Boolean get() = quality == GlassQuality.High && blurRadiusDp > 0.dp
@@ -337,13 +345,15 @@ fun resolveNavigationFloating(placement: NavigationPlacement, naturalFloating: B
 fun designFor(
     style: DesignStyle,
     glassQuality: GlassQuality = GlassQuality.Auto,
-    navigationPlacement: NavigationPlacement = NavigationPlacement.Auto
+    navigationPlacement: NavigationPlacement = NavigationPlacement.Auto,
+    liquidGlassV2: Boolean = true,
+    liquidGlassPreset: LiquidGlassLensPreset = LiquidGlassLensPreset.Clear
 ): DesignSystem {
     val base = when (style) {
         DesignStyle.Default -> DefaultDesignSystem
         DesignStyle.Material2 -> Material2DesignSystem
         DesignStyle.Material3 -> Material3DesignSystem
-        DesignStyle.LiquidGlass -> liquidGlassDesign(resolveGlassQuality(glassQuality))
+        DesignStyle.LiquidGlass -> liquidGlassDesign(resolveGlassQuality(glassQuality), liquidGlassV2, liquidGlassPreset)
         DesignStyle.Signature -> SignatureDesignSystem
     }
     val floating = resolveNavigationFloating(navigationPlacement, base.components.floatingNavigation)

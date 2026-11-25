@@ -160,6 +160,26 @@ class BgMixPlayer(private val cacheDir: File) {
     /** Starts the planned smooth transition to the next queue item. */
     fun next() = transport(BgMixNative.ACTION_NEXT)
 
+    /**
+     * Immediate manual switch to [queueItemId] with no crossfade. Returns [BgMixNative.MANUAL_ACCEPTED] when scheduled.
+     * Any other code, including a busy control lock, means the caller must play the track on its own player.
+     */
+    fun manualSelect(queueItemId: Long): Int = manualCall { h -> BgMixNative.nativeManualSelect(h, queueItemId) }
+
+    /** Immediate manual switch to the next item after the logical target. Same result codes as [manualSelect]. */
+    fun manualNext(): Int = manualCall { h -> BgMixNative.nativeManualNext(h) }
+
+    // Never blocks the caller: a tap on the main thread must not wait behind native work.
+    private inline fun manualCall(block: (Long) -> Int): Int {
+        if (!lock.tryLock()) return BgMixNative.MANUAL_NOT_READY
+        return try {
+            val h = handle
+            if (!running || h == 0L) BgMixNative.MANUAL_NOT_READY else block(h)
+        } finally {
+            lock.unlock()
+        }
+    }
+
     fun stopAll() = transport(BgMixNative.ACTION_STOP)
 
     /** Stop asking the render thread for new frames without waiting on the control lock. */

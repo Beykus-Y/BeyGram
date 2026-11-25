@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.WindowInsetsSides
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.only
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawing
@@ -60,7 +61,7 @@ import com.beykus.beygram.ui.design.glassScreenBackground
 import com.beykus.beygram.ui.design.groupCardShape
 import com.beykus.beygram.ui.components.listRowTitleWeight
 import com.beykus.beygram.ui.components.StyledListDivider
-import com.beykus.beygram.ui.components.MainTabHeader
+import com.beykus.beygram.ui.components.MainTabLayout
 import com.beykus.beygram.ui.components.MainTabTitle
 import com.beykus.beygram.ui.components.LocalNavigationDock
 import com.beykus.beygram.ui.components.scrollClearance
@@ -106,28 +107,31 @@ fun CallsScreen(
     LaunchedEffect(Unit) { load("") }
 
     // The same screen and group surfaces as Settings: the glass style gets its glow, the others the plain screen colour.
-    Column(
-        Modifier.fillMaxSize().glassScreenBackground(design, palette.screen)
-            .mainTabInsets()
-    ) {
-        MainTabHeader {
+    MainTabLayout(
+        modifier = Modifier.fillMaxSize().glassScreenBackground(design, palette.screen).mainTabInsets(),
+        header = {
             MainTabTitle(
                 stringResource(R.string.calls_title),
                 Modifier.fillMaxWidth().padding(start = 20.dp, end = 20.dp, top = 8.dp, bottom = 8.dp)
             )
         }
-        if (loading) LinearProgressIndicator(Modifier.fillMaxWidth(), color = palette.accent)
+    ) { headerInset ->
+        if (loading) {
+            Spacer(Modifier.height(headerInset))
+            LinearProgressIndicator(Modifier.fillMaxWidth(), color = palette.accent)
+        }
+        val topInset = if (loading) 0.dp else headerInset
         when {
             calls.isEmpty() && loading -> Spacer(Modifier.weight(1f))
             calls.isEmpty() && error != null -> Column(
-                Modifier.weight(1f).fillMaxWidth().padding(24.dp),
+                Modifier.weight(1f).fillMaxWidth().padding(top = topInset).padding(24.dp),
                 horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.Center
             ) {
                 Text(error.orEmpty(), color = palette.danger, textAlign = TextAlign.Center)
                 TextButton(onClick = { load("") }) { Text(stringResource(R.string.common_retry)) }
             }
-            calls.isEmpty() -> Box(Modifier.weight(1f).fillMaxWidth().padding(24.dp), contentAlignment = Alignment.Center) {
+            calls.isEmpty() -> Box(Modifier.weight(1f).fillMaxWidth().padding(top = topInset).padding(24.dp), contentAlignment = Alignment.Center) {
                 Text(stringResource(R.string.calls_empty), color = palette.textSecondary)
             }
             else -> Box(
@@ -135,7 +139,7 @@ fun CallsScreen(
                 Modifier.weight(1f).fillMaxWidth().padding(start = 16.dp, end = 16.dp, bottom = if (dockInset > 0.dp) 0.dp else 16.dp)
                     .glassCard(design, groupSurfaceColor(), palette.textSecondary, groupCardShape())
             ) {
-                LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(top = 4.dp, bottom = 4.dp + dockInset)) {
+                LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(top = 4.dp + topInset, bottom = 4.dp + dockInset)) {
                     items(calls, key = { "${it.chatId}:${it.messageId}" }) { call ->
                         CallRow(call, observeFile, downloadFile)
                         StyledListDivider()

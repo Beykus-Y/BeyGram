@@ -68,7 +68,8 @@ internal fun updateCardModel(state: UpdateUiState): UpdateCardModel {
         is UpdateStatus.PreparingInstall -> null
         is UpdateStatus.PermissionRequired -> UpdateAction.AllowInstall
         is UpdateStatus.AwaitingInstaller -> null
-        is UpdateStatus.Installed -> null
+        // After a successful install the card still offers a re-check: the next build must be reachable without a restart.
+        is UpdateStatus.Installed -> UpdateAction.Check
         is UpdateStatus.Failure -> when {
             verifiedForRelease -> UpdateAction.Install
             status.release == null -> UpdateAction.RetryCheck

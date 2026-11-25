@@ -298,7 +298,8 @@ fun ThemeSettingsScreen(
                                 draft = draft,
                                 systemDark = systemDark,
                                 onOpenPage = ::openPage,
-                                onOpenPreview = { openPage(AppearancePage.Preview) }
+                                onOpenPreview = { openPage(AppearancePage.Preview) },
+                                onApplyPreset = { presetConfig -> changeDraft(presetConfig) }
                             )
                             AppearancePage.Style -> AppearanceStylePage(
                                 draft = draft,
