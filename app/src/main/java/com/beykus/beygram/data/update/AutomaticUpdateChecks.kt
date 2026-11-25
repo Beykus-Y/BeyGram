@@ -31,6 +31,9 @@ fun interface AutomaticCheckSource {
 internal interface UpdateNoticeStorage {
     fun attempts(): UpdateAutoCheckPolicy.Attempts
     fun recordAttempt(now: Long)
+
+    /** Forgets an attempt that was skipped before it reached the network. */
+    fun undoAttempt(previousLastAttemptAt: Long?)
     fun recordSuccess(now: Long)
     fun recordFailure(now: Long, rateLimited: Boolean)
     fun notifiedVersionCode(): Long?
@@ -153,6 +156,7 @@ class AutomaticUpdateChecks internal constructor(
      */
     internal suspend fun attempt(now: Long = clock()): AutomaticCheckOutcome {
         // Recorded before the request leaves, so a crash inside the call cannot become a retry loop.
+        val previousAttemptAt = storage.attempts().lastAttemptAt
         storage.recordAttempt(now)
         val outcome = source.checkAutomatically()
         when (outcome) {
@@ -165,8 +169,9 @@ class AutomaticUpdateChecks internal constructor(
                 storage.recordSuccess(clock())
                 withdraw()
             }
-            // A user was working with the updater. Nothing was asked, so nothing may be counted.
-            AutomaticCheckOutcome.Skipped -> Unit
+            // A user was working with the updater. Nothing was asked, so the attempt is rolled back: it must not
+            // push the next resume/periodic trigger out by a full interval.
+            AutomaticCheckOutcome.Skipped -> storage.undoAttempt(previousAttemptAt)
             is AutomaticCheckOutcome.Failed -> {
                 storage.recordFailure(clock(), rateLimited = outcome.reason == StableUpdateReason.RateLimited)
                 log("Automatic update check failed: ${outcome.reason ?: "unclassified"}")

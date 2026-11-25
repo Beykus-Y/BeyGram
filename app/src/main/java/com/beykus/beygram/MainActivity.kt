@@ -100,7 +100,6 @@ class MainActivity : FragmentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         acceptOpenPlayerIntent(intent)
-        acceptOpenUpdatesIntent(intent)
         // Restore the window-privacy policy before the first frame. Rotation of a secret chat
         // must not produce an unprotected frame just because the new composition has not run yet.
         screenSecure = savedInstanceState?.getBoolean("secure_screen", false) ?: false
@@ -126,6 +125,9 @@ class MainActivity : FragmentActivity() {
                 incomingShare = IncomingShare(restoredShareId, restoredText, restoredFiles, savedInstanceState.getLong("share_chat_id"))
             }
         } else {
+            // Only a genuinely new launch consumes the intent. A recreated Activity restores the pending request from
+            // its saved state, so a re-delivered or already-handled intent cannot open the screen twice.
+            acceptOpenUpdatesIntent(intent)
             acceptNotificationIntent(intent)
             acceptShareIntent(intent)
         }

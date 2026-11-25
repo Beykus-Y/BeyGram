@@ -114,8 +114,9 @@ class UpdateCoordinator private constructor(context: Context) {
                     )
                 }
             } else {
-                // An unattended failure confirms nothing: keep the status and the known offer, only mark them stale.
-                mutableState.update { it.copy(checkStale = it.knownRelease != null) }
+                // An unattended failure confirms nothing and must not leave the card on "Checking": the previous
+                // status is restored and the known offer is only marked as unconfirmed.
+                mutableState.update { restoreAfterAutomaticFailure(it, statusBeforeAutomaticCheck) }
             }
             return AutomaticCheckOutcome.Failed(updateErrorReason(error))
         }
@@ -410,4 +411,18 @@ class UpdateCoordinator private constructor(context: Context) {
             file.isFile && file.length() == stored.release.size &&
             sha256Of(file) == stored.release.sha256
     }
+}
+
+
+/**
+ * State after an unattended check failed. The card must not stay on [UpdateStatus.Checking] (that would be a spinner
+ * with no request behind it), and an already confirmed offer is kept but marked as not confirmed any more.
+ */
+internal fun restoreAfterAutomaticFailure(state: UpdateUiState, previous: UpdateStatus?): UpdateUiState {
+    val restored = when {
+        state.status != UpdateStatus.Checking -> state.status
+        previous != null && previous != UpdateStatus.Checking -> previous
+        else -> UpdateStatus.Idle
+    }
+    return state.copy(status = restored, checkStale = state.knownRelease != null)
 }

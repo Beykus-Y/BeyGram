@@ -24,6 +24,10 @@ class AutomaticUpdateChecksTest {
             state = state.copy(lastAttemptAt = now)
         }
 
+        override fun undoAttempt(previousLastAttemptAt: Long?) {
+            state = state.copy(lastAttemptAt = previousLastAttemptAt)
+        }
+
         override fun recordSuccess(now: Long) {
             state = state.copy(lastSuccessAt = now, consecutiveFailures = 0, rateLimitedUntil = null)
         }
@@ -123,15 +127,27 @@ class AutomaticUpdateChecksTest {
     }
 
     @Test
-    fun `a skipped check is not counted as a failure`() = runTest {
+    fun `a skipped check is not counted as a failure and does not delay the next trigger`() = runTest {
+        val storage = FakeStorage().apply { state = UpdateAutoCheckPolicy.Attempts(lastAttemptAt = 500L) }
+        val subject = checks(storage, this, { 1_000L }, { AutomaticCheckOutcome.Skipped })
+
+        subject.attempt(1_000L)
+
+        assertEquals(0, storage.state.consecutiveFailures)
+        assertNull(storage.state.lastSuccessAt)
+        // The request never reached the network, so the previous attempt time is restored: a user action must not
+        // push the next resume/periodic trigger out by a full interval (Codex review, #1166).
+        assertEquals(500L, storage.state.lastAttemptAt)
+    }
+
+    @Test
+    fun `a skipped first attempt leaves no attempt behind`() = runTest {
         val storage = FakeStorage()
         val subject = checks(storage, this, { 1_000L }, { AutomaticCheckOutcome.Skipped })
 
         subject.attempt(1_000L)
-        assertEquals(0, storage.state.consecutiveFailures)
-        assertNull(storage.state.lastSuccessAt)
-        // The attempt itself is still remembered, so a user action cannot turn into a request per resume.
-        assertEquals(1_000L, storage.state.lastAttemptAt)
+
+        assertNull(storage.state.lastAttemptAt)
     }
 
     @Test

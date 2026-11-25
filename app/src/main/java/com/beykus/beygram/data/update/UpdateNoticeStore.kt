@@ -25,6 +25,20 @@ internal class UpdateNoticeStore(context: Context) : UpdateNoticeStorage {
         prefs.edit().putLong("$KEY_LAST_ATTEMPT:$scope", now).apply()
     }
 
+    /**
+     * The attempt was skipped because the user was already working with the updater: it never reached the network, so
+     * it must not delay the next unattended trigger. Restores the value that was stored before the attempt.
+     */
+    override fun undoAttempt(previousLastAttemptAt: Long?) {
+        val editor = prefs.edit()
+        if (previousLastAttemptAt == null) {
+            editor.remove("$KEY_LAST_ATTEMPT:$scope")
+        } else {
+            editor.putLong("$KEY_LAST_ATTEMPT:$scope", previousLastAttemptAt)
+        }
+        editor.apply()
+    }
+
     override fun recordSuccess(now: Long) {
         prefs.edit()
             .putLong("$KEY_LAST_SUCCESS:$scope", now)
