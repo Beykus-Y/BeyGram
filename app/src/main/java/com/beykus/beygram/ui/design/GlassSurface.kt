@@ -152,8 +152,10 @@ fun GlassPanel(
     val samplesFrosted = !samplesBackdrop && glass != null && glass.samplesFrosted && backdrop != null
     val frostLayer = rememberGraphicsLayer()
     // Liquid Glass V2: the lens shader exists only where the style asks for it and the device has API 33+.
-    val lensShader = remember(glass?.lensRefraction) {
-        if (glass?.lensRefraction == true) newLensShader() else null
+    // Only the floating pane gets the lens: full-width chrome meets the screen edges, where a bevel would show as a
+    // border on the sides.
+    val lensShader = remember(glass?.lensRefraction, edge) {
+        if (glass?.lensRefraction == true && edge == GlassEdge.Rim) newLensShader() else null
     }
     var panelSize by remember { mutableStateOf(IntSize.Zero) }
     val lensThicknessPx = with(density) { LensEdgeThickness.toPx() }

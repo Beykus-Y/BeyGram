@@ -196,10 +196,13 @@ internal fun AppearanceStylePage(
                         )
                     }
                 }
-                LiquidGlassV2Row(
-                    enabled = draft.liquidGlassV2,
-                    onChange = { onDraftChange(draft.copy(liquidGlassV2 = it)) }
-                )
+                // The lens needs API 33+; below that the switch would do nothing, so it is not offered.
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                    LiquidGlassV2Row(
+                        enabled = draft.liquidGlassV2,
+                        onChange = { onDraftChange(draft.copy(liquidGlassV2 = it)) }
+                    )
+                }
             }
         }
 

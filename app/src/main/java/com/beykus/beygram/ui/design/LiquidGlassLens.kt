@@ -46,6 +46,10 @@ private val LensShaderSource = """
         float2 halfSize = size * 0.5;
         float2 p = coord - halfSize;
         float d = sdRoundedBox(p, halfSize, radius);
+        // Deep inside the panel the lens does nothing: return the sample without the extra distance taps.
+        if (d < -thickness) {
+            return img.eval(coord);
+        }
         // Outward normal from the gradient of the distance field (negative inside, positive outside).
         float e = 0.75;
         float dx = sdRoundedBox(p + float2(e, 0.0), halfSize, radius) - sdRoundedBox(p - float2(e, 0.0), halfSize, radius);
@@ -65,9 +69,18 @@ private val LensShaderSource = """
     }
 """.trimIndent()
 
-/** The lens shader, or null below API 33 where RuntimeShader does not exist. */
-internal fun newLensShader(): RuntimeShader? =
-    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) RuntimeShader(LensShaderSource) else null
+/**
+ * The lens shader, or null below API 33 where RuntimeShader does not exist. A driver that refuses to compile the
+ * source gets null too, so the panel falls back to the plain blur instead of crashing on every glass surface.
+ */
+internal fun newLensShader(): RuntimeShader? {
+    if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) return null
+    return try {
+        RuntimeShader(LensShaderSource)
+    } catch (error: IllegalArgumentException) {
+        null
+    }
+}
 
 /**
  * The blurred backdrop of a panel run through the lens. The blur runs first, then the saturation lift, then the
