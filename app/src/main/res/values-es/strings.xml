@@ -439,8 +439,8 @@
     <string name="a11y_chat_muted">Silenciado</string>
     <string name="a11y_chat_info">Información del chat</string>
     <string name="a11y_profile_photo_open">Abrir foto de perfil</string>
-    <string name="a11y_profile_photo_expand">Ampliar la foto de perfil</string>
     <string name="a11y_profile_photo_expanded_state">Foto ampliada</string>
+    <string name="a11y_profile_photo_collapse">Contraer foto</string>
     <string name="a11y_media_open">Abrir: %1$s</string>
     <string name="a11y_media_download">Descargar: %1$s</string>
     <string name="a11y_voice_message">Mensaje de voz, %1$s</string>
@@ -1001,6 +1001,11 @@
     <string name="audio_details_channels_stereo">Estéreo</string>
     <string name="audio_details_channels_multi">%1$d can.</string>
     <string name="audio_details_streaming">En streaming — los detalles técnicos aparecerán cuando el archivo esté en caché</string>
+    <string name="queue_search_action">Buscar en la cola</string>
+    <string name="queue_search_hint">Buscar canción o artista</string>
+    <string name="queue_search_clear">Limpiar búsqueda</string>
+    <string name="queue_search_empty">No hay coincidencias en la cola</string>
+    <string name="queue_jump_to_current">Ir a la actual</string>
     <string name="chat_quote_title">Citar fragmento</string>
     <string name="chat_quote_hint">Texto citado</string>
     <string name="chat_quote_action">Citar</string>

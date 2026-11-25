@@ -136,3 +136,20 @@ BEYGRAM_STEALTH_CAPTURE_STAGE=after BEYGRAM_STEALTH_CAPTURE_MATRIX=review \
 ```
 
 Матрица `review` добавляет маленький светлый телефон с Normal, большой тёмный телефон с Custom, альбомное окно с HiddenReading и планшет с FailClosed. Базовая серия снимает Maximum во всех стилях.
+
+## Кадры адаптивной сцены профиля
+
+`ProfileSceneUiCapture` открывает настоящий `ProfileScreen` на синтетическом профиле. Сценарий сохраняет кадры до
+раскрытия, в процессе раскрытия, после него, при pull-down, во время сворачивания прокруткой, в компактном состоянии и после Back.
+Последний PNG показывает стабильный Profile A при выключенном эксперименте. Для захвата на PR используйте метку
+`capture-profile` существующего workflow и скачайте одноимённый артефакт.
+
+```bash
+BEYGRAM_PROFILE_CAPTURE_DIR="$PWD/app/build/visual-captures" \
+./gradlew :app:testDevDebugUnitTest -Pscreenshots=record --tests '*ProfileSceneUiCapture' --rerun
+```
+
+```powershell
+$env:BEYGRAM_PROFILE_CAPTURE_DIR = Join-Path (Get-Location) 'app/build/visual-captures'
+.\gradlew.bat :app:testDevDebugUnitTest -Pscreenshots=record --tests '*ProfileSceneUiCapture' --rerun
+```

@@ -441,8 +441,8 @@
     <string name="a11y_chat_muted">Muted</string>
     <string name="a11y_chat_info">Chat info</string>
     <string name="a11y_profile_photo_open">Open profile photo</string>
-    <string name="a11y_profile_photo_expand">Expand profile photo</string>
     <string name="a11y_profile_photo_expanded_state">Photo expanded</string>
+    <string name="a11y_profile_photo_collapse">Collapse photo</string>
     <string name="a11y_media_open">Open: %1$s</string>
     <string name="a11y_media_download">Download: %1$s</string>
     <string name="a11y_voice_message">Voice message, %1$s</string>
@@ -1001,6 +1001,11 @@
     <string name="audio_details_channels_stereo">Stereo</string>
     <string name="audio_details_channels_multi">%1$d ch</string>
     <string name="audio_details_streaming">Streaming — technical details appear once the file is cached locally</string>
+    <string name="queue_search_action">Search queue</string>
+    <string name="queue_search_hint">Find track or artist</string>
+    <string name="queue_search_clear">Clear search</string>
+    <string name="queue_search_empty">No matching tracks in queue</string>
+    <string name="queue_jump_to_current">Jump to current</string>
     <string name="chat_quote_title">Quote fragment</string>
     <string name="chat_quote_hint">Quoted text</string>
     <string name="chat_quote_action">Quote</string>
