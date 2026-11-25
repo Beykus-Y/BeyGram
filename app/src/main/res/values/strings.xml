@@ -2795,4 +2795,14 @@
     <string name="report_step_send">Отправка</string>
     <string name="report_step_result">Результат</string>
     <string name="report_result_pending">Статус появится здесь после отправки</string>
+    <!-- Автопроверка обновлений (#1148): канал уведомлений и плашка на экране чатов. -->
+    <string name="updates_channel_name">Обновления BeyGram</string>
+    <string name="updates_channel_description">Сообщение о доступной новой версии BeyGram.</string>
+    <string name="updates_notification_title">Доступно обновление BeyGram</string>
+    <string name="updates_notification_text">Версия %1$s. Нажмите, чтобы открыть экран обновлений.</string>
+    <string name="updates_banner_title">Доступно обновление</string>
+    <string name="updates_banner_text">Версия %1$s уже опубликована.</string>
+    <string name="updates_banner_text_unconfirmed">Версия %1$s: последняя проверка не удалась, сведения могут быть устаревшими.</string>
+    <string name="updates_banner_open">Открыть</string>
+    <string name="updates_banner_later">Позже</string>
 </resources>

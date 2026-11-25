@@ -1041,4 +1041,14 @@
     <string name="diag_video_buffer_title">Búfer inicial de vídeo</string>
     <string name="diag_video_buffer_value_default">Predeterminado de Media3</string>
     <string name="diag_video_buffer_value_ms">%1$d ms</string>
+    <!-- Автопроверка обновлений (#1148): канал уведомлений и плашка на экране чатов. -->
+    <string name="updates_channel_name">Actualizaciones de BeyGram</string>
+    <string name="updates_channel_description">Avisa cuando hay una nueva versión de BeyGram.</string>
+    <string name="updates_notification_title">Hay una actualización de BeyGram</string>
+    <string name="updates_notification_text">Versión %1$s. Toca para abrir la pantalla de actualizaciones.</string>
+    <string name="updates_banner_title">Actualización disponible</string>
+    <string name="updates_banner_text">La versión %1$s ya está publicada.</string>
+    <string name="updates_banner_text_unconfirmed">Versión %1$s: la última comprobación falló, los datos pueden estar desactualizados.</string>
+    <string name="updates_banner_open">Abrir</string>
+    <string name="updates_banner_later">Más tarde</string>
 </resources>

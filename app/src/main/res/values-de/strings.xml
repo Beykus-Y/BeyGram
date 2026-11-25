@@ -1041,4 +1041,14 @@
     <string name="diag_video_buffer_title">Video-Startpuffer</string>
     <string name="diag_video_buffer_value_default">Media3-Standard</string>
     <string name="diag_video_buffer_value_ms">%1$d ms</string>
+    <!-- Автопроверка обновлений (#1148): канал уведомлений и плашка на экране чатов. -->
+    <string name="updates_channel_name">BeyGram-Updates</string>
+    <string name="updates_channel_description">Meldet, wenn eine neue BeyGram-Version verfügbar ist.</string>
+    <string name="updates_notification_title">Ein BeyGram-Update ist verfügbar</string>
+    <string name="updates_notification_text">Version %1$s. Tippen, um den Update-Bildschirm zu öffnen.</string>
+    <string name="updates_banner_title">Update verfügbar</string>
+    <string name="updates_banner_text">Version %1$s wurde veröffentlicht.</string>
+    <string name="updates_banner_text_unconfirmed">Version %1$s: Die letzte Prüfung ist fehlgeschlagen, die Angabe kann veraltet sein.</string>
+    <string name="updates_banner_open">Öffnen</string>
+    <string name="updates_banner_later">Später</string>
 </resources>

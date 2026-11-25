@@ -1067,4 +1067,14 @@
     <string name="diag_video_buffer_title">Tampon de démarrage vidéo</string>
     <string name="diag_video_buffer_value_default">Valeur par défaut de Media3</string>
     <string name="diag_video_buffer_value_ms">%1$d ms</string>
+    <!-- Автопроверка обновлений (#1148): канал уведомлений и плашка на экране чатов. -->
+    <string name="updates_channel_name">Mises à jour BeyGram</string>
+    <string name="updates_channel_description">Signale la disponibilité d\'une nouvelle version de BeyGram.</string>
+    <string name="updates_notification_title">Une mise à jour BeyGram est disponible</string>
+    <string name="updates_notification_text">Version %1$s. Touchez pour ouvrir l\'écran des mises à jour.</string>
+    <string name="updates_banner_title">Mise à jour disponible</string>
+    <string name="updates_banner_text">La version %1$s est publiée.</string>
+    <string name="updates_banner_text_unconfirmed">Version %1$s : la dernière vérification a échoué, ces informations peuvent être obsolètes.</string>
+    <string name="updates_banner_open">Ouvrir</string>
+    <string name="updates_banner_later">Plus tard</string>
 </resources>

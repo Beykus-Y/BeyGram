@@ -62,6 +62,8 @@ import com.beykus.beygram.data.appearance.DesignStartupGuard
 import com.beykus.beygram.data.appearance.DesignStyle
 import com.beykus.beygram.data.appearance.MAX_UNFINISHED_STARTS
 import com.beykus.beygram.data.appearance.shouldFallBackToDefault
+import com.beykus.beygram.data.update.AutomaticUpdateChecks
+import com.beykus.beygram.data.update.UpdateNotifications
 import com.beykus.beygram.ui.design.rememberDesign
 import com.beykus.beygram.ui.design.rememberGlassBackdrop
 import com.beykus.beygram.ui.screens.chat.LocalBubbleMetrics
@@ -88,6 +90,8 @@ class MainActivity : FragmentActivity() {
     }
     private var notificationRequest by mutableStateOf<NotificationOpenRequest?>(null)
     private var incomingShare by mutableStateOf<IncomingShare?>(null)
+    /** Bumped by the update notification; the Compose tree opens Updates once and clears it. */
+    private var openUpdatesRequest by mutableIntStateOf(0)
     private val deepLinkInbox by lazy {
         PendingDeepLinkInbox(SharedPreferencesPendingDeepLinkStorage(this))
     }
@@ -96,6 +100,7 @@ class MainActivity : FragmentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         acceptOpenPlayerIntent(intent)
+        acceptOpenUpdatesIntent(intent)
         // Restore the window-privacy policy before the first frame. Rotation of a secret chat
         // must not produce an unprotected frame just because the new composition has not run yet.
         screenSecure = savedInstanceState?.getBoolean("secure_screen", false) ?: false
@@ -106,6 +111,7 @@ class MainActivity : FragmentActivity() {
         // of a previous, already authenticated session.
         applyWindowPrivacy()
         if (savedInstanceState != null) {
+            openUpdatesRequest = savedInstanceState.getInt("open_updates_request", 0)
             if (savedInstanceState.getBoolean("notification_pending")) notificationRequest = NotificationOpenRequest(savedInstanceState.getLong("notification_token"),
                 savedInstanceState.getLong("notification_chat").takeIf { it != 0L }, savedInstanceState.getBoolean("notification_settings"), savedInstanceState.getBoolean("notification_proxy"), savedInstanceState.getLong("notification_topic"),
                 savedInstanceState.getString("notification_account") ?: "legacy")
@@ -289,6 +295,8 @@ class MainActivity : FragmentActivity() {
                                         },
                                         appearance = config,
                                         onAppearanceChange = appearance::save,
+                                        openUpdates = !gateLocked && openUpdatesRequest > 0,
+                                        onOpenUpdatesHandled = { openUpdatesRequest = 0 },
                                         onSecureScreenChange = { secureScreen = it },
                                         locked = gateLocked
                                     )
@@ -338,6 +346,9 @@ class MainActivity : FragmentActivity() {
         super.onResume()
         windowResumed = true
         applyWindowPrivacy()
+        // A return to the app is one of the three moments the updater may check. The gate inside decides whether the
+        // previous attempt is recent enough, so a rotation or a quick tab switch costs nothing.
+        AutomaticUpdateChecks.get(this, (application as BeyGramApplication).applicationScope).onForeground()
     }
 
     override fun onPause() {
@@ -389,10 +400,22 @@ class MainActivity : FragmentActivity() {
         super.onNewIntent(intent)
         setIntent(intent)
         acceptNotificationIntent(intent)
+        acceptOpenUpdatesIntent(intent)
         acceptShareIntent(intent)
         acceptDeepLinkIntent(intent)
         pendingDeepLink = deepLinkInbox.restore()
         acceptOpenPlayerIntent(intent)
+    }
+
+    /**
+     * The update notification carries its own action, so it is handled without the Telegram notification token: it may
+     * arrive before login and has nothing to do with a TDLib session. The action is cleared on the delivered intent so a
+     * re-delivery (Recents, rotation) cannot reopen the screen a second time.
+     */
+    private fun acceptOpenUpdatesIntent(intent: Intent?) {
+        if (intent?.action != UpdateNotifications.ACTION_OPEN_UPDATES) return
+        intent.action = null
+        openUpdatesRequest++
     }
 
     /** A tap on the playback notification opens the full player once the screen has been composed. */
@@ -404,6 +427,7 @@ class MainActivity : FragmentActivity() {
 
     override fun onSaveInstanceState(outState: Bundle) {
         outState.putBoolean("notification_pending", notificationRequest != null)
+        outState.putInt("open_updates_request", openUpdatesRequest)
         notificationRequest?.let { outState.putLong("notification_token", it.token); outState.putLong("notification_chat", it.chatId ?: 0L); outState.putBoolean("notification_settings", it.settings); outState.putBoolean("notification_proxy", it.proxy); outState.putLong("notification_topic", it.topicId); outState.putString("notification_account", it.accountId) }
         incomingShare?.let {
             outState.putLong("share_id", it.requestId)

@@ -73,6 +73,10 @@ import com.beykus.beygram.data.tdlib.TdLibTelegramRepository
 import com.beykus.beygram.data.tdlib.TdSecondaryAccountController
 import com.beykus.beygram.data.tdlib.TdAccountRegistry
 import com.beykus.beygram.data.tdlib.TdAccountStorageLayout
+import com.beykus.beygram.data.update.AutomaticUpdateChecks
+import com.beykus.beygram.data.update.UpdateCoordinator
+import com.beykus.beygram.data.update.UpdateNoticeStore
+import com.beykus.beygram.data.update.updateBannerState
 import com.beykus.beygram.data.unavailable.UnavailableTelegramRepository
 import com.beykus.beygram.deeplink.MessageEntityLink
 import com.beykus.beygram.deeplink.YandexMusicTarget
@@ -315,7 +319,10 @@ fun BeyGramApp(
     onDeepLinkBound: (Long, String) -> Unit = { _, _ -> },
     onDeepLinkHandled: (Long) -> Unit = {},
     onSecureScreenChange: (Boolean) -> Unit = {},
-    locked: Boolean = false
+    locked: Boolean = false,
+    /** A tap on the update notification. Consumed only once the Updates screen is actually shown. */
+    openUpdates: Boolean = false,
+    onOpenUpdatesHandled: () -> Unit = {}
 ) {
     val context = LocalContext.current
     val videoMessageSettings = remember(context) { VideoMessageSettingsStore(context) }
@@ -362,7 +369,9 @@ fun BeyGramApp(
         onDeepLinkBound = onDeepLinkBound,
         onDeepLinkHandled = onDeepLinkHandled,
         onSecureScreenChange = onSecureScreenChange,
-        locked = locked
+        locked = locked,
+        openUpdates = openUpdates,
+        onOpenUpdatesHandled = onOpenUpdatesHandled
     )
 }
 
@@ -384,7 +393,9 @@ private fun BeyGramAppContent(
     onDeepLinkBound: (Long, String) -> Unit,
     onDeepLinkHandled: (Long) -> Unit,
     onSecureScreenChange: (Boolean) -> Unit,
-    locked: Boolean
+    locked: Boolean,
+    openUpdates: Boolean,
+    onOpenUpdatesHandled: () -> Unit
 ) {
     val context = LocalContext.current
     // ---- Реактивное состояние ------------------------------------------------
@@ -444,6 +455,27 @@ private fun BeyGramAppContent(
     val repository = repositorySelection ?: unavailableAccountRepository
     val authState by repository.authState.collectAsStateWithLifecycle()
     val legacyAuthState by legacyRepository.authState.collectAsStateWithLifecycle()
+    // ---- Автопроверка обновлений ---------------------------------------------
+    // One process-wide coordinator, one stored release, one snooze record. The banner is a projection of that state,
+    // it never creates a second source of "an update is available".
+    val updateCoordinator = remember(context) { UpdateCoordinator.get(context) }
+    val updateUiState by updateCoordinator.state.collectAsStateWithLifecycle()
+    val updateNoticeStore = remember(context) { UpdateNoticeStore(context) }
+    var updateSnoozeRevision by remember { mutableIntStateOf(0) }
+    // The installed version decides whether an offer is still an offer; it changes only after an install.
+    val installedUpdateCode = remember(updateUiState.status) {
+        runCatching { context.packageManager.getPackageInfo(context.packageName, 0).longVersionCode }
+            .getOrDefault(0L)
+    }
+    val updateBanner = remember(updateUiState, installedUpdateCode, updateSnoozeRevision) {
+        updateBannerState(
+            state = updateUiState,
+            installedCode = installedUpdateCode,
+            now = System.currentTimeMillis(),
+            snoozedCode = updateNoticeStore.snoozedVersionCode(),
+            snoozedUntil = updateNoticeStore.snoozedUntil(),
+        )
+    }
     // Keyed by the account's repository: a question asked for one account is dropped when the user switches to another.
     val markReadConfirmation = remember(repository) { MarkReadConfirmationState() }
     val stealthSettings by rememberStealthSettings((repository as? TdLibTelegramRepository)?.stealthSettings)
@@ -1386,6 +1418,19 @@ private fun BeyGramAppContent(
             deepLinkProxy = null
         }
     }
+    // A tap on the update notification opens the existing Updates screen. Until the account is ready and the app lock is
+    // gone the request stays pending, so the screen is never opened behind a lock or before login.
+    LaunchedEffect(openUpdates, authState, locked) {
+        if (!openUpdates || locked) return@LaunchedEffect
+        if (authState != AuthState.Ready) return@LaunchedEffect
+        routeName = AppRoute.Updates.name
+        onOpenUpdatesHandled()
+    }
+    // The first drawn frame is the user's own launch: the one moment a check may ignore how recent the last one was.
+    LaunchedEffect(Unit) {
+        AutomaticUpdateChecks.get(context, (context.applicationContext as BeyGramApplication).applicationScope)
+            .onLaunch()
+    }
     if (authState == AuthState.Ready && !locked) NotificationPermissionCoordinator(notificationRuntime)
     LaunchedEffect(authState, legacyAuthState, notificationRequest?.token, accountRegistryReady) {
         if (!accountRegistryReady || accountRegistryError) return@LaunchedEffect
@@ -1873,6 +1918,17 @@ private fun BeyGramAppContent(
                 linkReturnChatId = 0L
                 chatBackRouteName = AppRoute.Chats.name
                 routeName = AppRoute.Chat.name
+            },
+            updateBanner = updateBanner,
+            onUpdateBannerOpen = { routeName = AppRoute.Updates.name },
+            onUpdateBannerSnooze = {
+                updateBanner?.let { banner ->
+                    updateNoticeStore.snoozeBanner(
+                        banner.versionCode,
+                        System.currentTimeMillis() + UpdateNoticeStore.BANNER_SNOOZE_MS,
+                    )
+                    updateSnoozeRevision++
+                }
             },
             highlightedChatId = chatListHighlightedId(
                 showChat = twoPane && chatOpen,
