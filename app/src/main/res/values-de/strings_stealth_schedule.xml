@@ -9,7 +9,7 @@
         <item quantity="one">%1$d Min.</item>
         <item quantity="other">%1$d Min.</item>
     </plurals>
-    <string name="stealth_schedule_done">Auf dem Telegram-Server geplant. Die Nachricht erscheint zur festgelegten Zeit im Chat.</string>
+    <string name="stealth_schedule_done">Prüfe den Status unter „Geplante Nachrichten“.</string>
     <string name="stealth_schedule_failed">Die Nachricht konnte auf dem Telegram-Server nicht geplant werden.</string>
     <string name="stealth_schedule_unavailable_secret">Telegram unterstützt in geheimen Chats keine geplanten Nachrichten.</string>
     <string name="stealth_schedule_unavailable_paid">Telegram unterstützt in Chats mit kostenpflichtigen Nachrichten keine geplanten Nachrichten.</string>

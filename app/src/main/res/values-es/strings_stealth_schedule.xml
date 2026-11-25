@@ -9,7 +9,7 @@
         <item quantity="one">%1$d min</item>
         <item quantity="other">%1$d min</item>
     </plurals>
-    <string name="stealth_schedule_done">Programado en el servidor de Telegram. El mensaje aparecerá en el chat a la hora fijada.</string>
+    <string name="stealth_schedule_done">Consulta el estado en «Mensajes programados».</string>
     <string name="stealth_schedule_failed">No se pudo programar el mensaje en el servidor de Telegram.</string>
     <string name="stealth_schedule_unavailable_secret">Telegram no admite mensajes programados en chats secretos.</string>
     <string name="stealth_schedule_unavailable_paid">Telegram no admite mensajes programados en chats con mensajes de pago.</string>

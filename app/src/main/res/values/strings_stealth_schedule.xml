@@ -11,7 +11,7 @@
         <item quantity="many">%1$d мин</item>
         <item quantity="other">%1$d мин</item>
     </plurals>
-    <string name="stealth_schedule_done">Запланировано на сервере Telegram. Сообщение появится в чате в назначенное время.</string>
+    <string name="stealth_schedule_done">Проверьте статус в списке запланированных сообщений.</string>
     <string name="stealth_schedule_failed">Не удалось запланировать отправку на сервере Telegram.</string>
     <string name="stealth_schedule_unavailable_secret">В секретных чатах Telegram не поддерживает отложенные сообщения.</string>
     <string name="stealth_schedule_unavailable_paid">В чатах с платными сообщениями Telegram не поддерживает отложенные сообщения.</string>
