@@ -49,7 +49,6 @@ internal class ProfileSceneHeights {
 internal fun ProfileSceneStage(
     heights: ProfileSceneHeights,
     scrollPx: () -> Float,
-    hasPhoto: Boolean,
     modifier: Modifier = Modifier,
     content: @Composable () -> Unit,
 ) {

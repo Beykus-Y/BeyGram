@@ -384,7 +384,7 @@ fun ProfileScreen(
                     }
                     }
                     if (sceneC) {
-                        ProfileSceneStage(heights = sceneHeights, scrollPx = { scrollState.value.toFloat() }, hasPhoto = info.photo != null, modifier = Modifier.fillMaxWidth()) {
+                        ProfileSceneStage(heights = sceneHeights, scrollPx = { scrollState.value.toFloat() }, modifier = Modifier.fillMaxWidth()) {
                             avatarSlot(); titleSlot(); statusSlot(); badgesSlot()
                         }
                     } else {
@@ -543,7 +543,9 @@ fun ProfileScreen(
             ) {
                 Column(Modifier.fillMaxWidth().verticalScroll(scrollState).padding(bottom = 28.dp)) {
                     // The content is at least the viewport plus the stage travel, so short profiles can still reach full collapse.
-                    Column(Modifier.fillMaxWidth().heightIn(min = with(LocalDensity.current) { (sceneHeights.viewportHeightPx + sceneHeights.stageHeightPx).toDp() })) {
+                    Column(Modifier.fillMaxWidth().heightIn(min = with(LocalDensity.current) {
+                        profileSceneMinContentHeightPx(sceneHeights.viewportHeightPx.toFloat(), sceneHeights.stageHeightPx.toFloat()).toDp()
+                    })) {
                         scrollBody()
                     }
                 }

@@ -179,5 +179,13 @@ private fun stageHeightFor(i: ProfileSceneInputs, avatarBlock: Float): Float =
         gapBefore(i.statusHeightPx, i.gapTitleStatusPx) + i.statusHeightPx +
         gapBefore(i.badgesHeightPx, i.gapStatusBadgesPx) + i.badgesHeightPx
 
+/**
+ * Minimum height of the scroll content. The content must exceed the viewport by at least the stage travel, or a short
+ * profile can never scroll far enough to reach full collapse (the invariant that broke before P2b-2). Scrollable
+ * range is `result - viewportHeightPx`, which is therefore always at least [travelPx].
+ */
+internal fun profileSceneMinContentHeightPx(viewportHeightPx: Float, travelPx: Float): Float =
+    max(0f, viewportHeightPx) + max(0f, travelPx)
+
 /** Parallax shift per px of scroll: the photo moves slower than the page. */
 internal const val PARALLAX_FACTOR = 0.2f
