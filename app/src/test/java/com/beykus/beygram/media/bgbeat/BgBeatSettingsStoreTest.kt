@@ -31,11 +31,11 @@ class BgBeatSettingsStoreTest {
     }
 
     @Test
-    fun defaultEnabledIsFalse() {
+    fun defaultEnabledIsTrue() {
         val storage = FakePreferenceStorage()
         val store = BgBeatSettingsStore(storage) { tempFolder.root }
 
-        assertFalse(store.enabled.value)
+        assertTrue(store.enabled.value)
     }
 
     @Test
@@ -58,17 +58,17 @@ class BgBeatSettingsStoreTest {
         val store1 = BgBeatSettingsStore(sharedStorage) { tempFolder.root }
         val store2 = BgBeatSettingsStore(sharedStorage) { tempFolder.root }
 
-        assertFalse(store1.enabled.value)
-        assertFalse(store2.enabled.value)
+        assertTrue(store1.enabled.value)
+        assertTrue(store2.enabled.value)
 
         // Toggling store1 must immediately propagate to store2's StateFlow without app restart
-        store1.setEnabled(true)
-        assertTrue("Store1 flow must be true", store1.enabled.value)
-        assertTrue("Store2 flow must immediately be true via storage listener", store2.enabled.value)
+        store1.setEnabled(false)
+        assertFalse("Store1 flow must be false", store1.enabled.value)
+        assertFalse("Store2 flow must immediately be false via storage listener", store2.enabled.value)
 
-        store2.setEnabled(false)
-        assertFalse("Store1 flow must immediately be false via storage listener", store1.enabled.value)
-        assertFalse("Store2 flow must be false", store2.enabled.value)
+        store2.setEnabled(true)
+        assertTrue("Store1 flow must immediately be true via storage listener", store1.enabled.value)
+        assertTrue("Store2 flow must be true", store2.enabled.value)
     }
 
     @Test

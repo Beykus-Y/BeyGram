@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="stealth_exceptions_title">Chat-Ausnahmen</string>
+    <string name="stealth_exceptions_inheritance">Chats ohne Ausnahme übernehmen die Kontoeinstellungen. Ausnahmen betreffen Lesebestätigungen, das Öffnen von Medien, Tippstatus und Story-Aufrufe. Online-Status, Warnungen und Planung gelten für das gesamte Konto.</string>
+    <string name="stealth_exceptions_results">%1$d von %2$d angezeigt</string>
+    <string name="stealth_exceptions_empty">Keine passenden Ausnahmen</string>
+    <string name="stealth_exceptions_unknown_chat">Chat · %1$d</string>
+    <string name="stealth_exceptions_reset">Alle Ausnahmen zurücksetzen</string>
+    <string name="stealth_exceptions_all">Alle</string>
+    <string name="stealth_exceptions_allow">Erlaubt</string>
+    <string name="stealth_exceptions_block">Blockiert</string>
+    <string name="stealth_exceptions_private">Privat</string>
+</resources>

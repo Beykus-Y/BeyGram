@@ -11,7 +11,7 @@ object TrackTransitionSettings {
     private const val KEY_SKIP_SILENCE = "skip_silence"
     private const val DEFAULT_SKIP_SILENCE = true
     private const val KEY_CROSSFADE = "crossfade"
-    private const val DEFAULT_CROSSFADE = false
+    private const val DEFAULT_CROSSFADE = true
     private const val KEY_CROSSFADE_SECONDS = "crossfade_seconds"
     const val DEFAULT_CROSSFADE_SECONDS = 4
     const val MIN_CROSSFADE_SECONDS = 1
@@ -24,7 +24,7 @@ object TrackTransitionSettings {
     /** Skips the silence at the end of a track and at the start of the next one. On by default. */
     val skipSilence: StateFlow<Boolean> = _skipSilence.asStateFlow()
 
-    /** Overlaps the end of a music track with the start of the next one. Off by default. */
+    /** Overlaps the end of a music track with the start of the next one. On by default. */
     val crossfade: StateFlow<Boolean> = _crossfade.asStateFlow()
 
     /** Length of the overlap in seconds, from [MIN_CROSSFADE_SECONDS] to [MAX_CROSSFADE_SECONDS]. */
@@ -69,6 +69,15 @@ object TrackTransitionSettings {
                 .edit().putInt(KEY_CROSSFADE_SECONDS, value).apply()
         } catch (_: RuntimeException) {
             // The in-memory value still applies for this process.
+        }
+    }
+
+    internal fun resetForTests() {
+        synchronized(this) {
+            loaded = false
+            _skipSilence.value = DEFAULT_SKIP_SILENCE
+            _crossfade.value = DEFAULT_CROSSFADE
+            _crossfadeSeconds.value = DEFAULT_CROSSFADE_SECONDS
         }
     }
 

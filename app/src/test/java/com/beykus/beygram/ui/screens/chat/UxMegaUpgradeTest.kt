@@ -70,17 +70,28 @@ class UxMegaUpgradeTest {
     }
 
     @Test
-    fun appearanceUserPresetWithoutTheLensPresetReadsAsStandard() {
+    fun appearanceUserPresetWithoutTheLensPresetReadsAsClear() {
         val legacy = AppearanceUserPresetStore.encode(AppearanceConfig(liquidGlassV2 = true))
             .replace(Regex(",\"liquidGlassPreset\":\"[A-Za-z]+\"|\"liquidGlassPreset\":\"[A-Za-z]+\","), "")
-        assertEquals(com.beykus.beygram.data.appearance.LiquidGlassLensPreset.Standard, AppearanceUserPresetStore.decode(legacy)?.liquidGlassPreset)
+        assertEquals(com.beykus.beygram.data.appearance.LiquidGlassLensPreset.Clear, AppearanceUserPresetStore.decode(legacy)?.liquidGlassPreset)
     }
 
     @Test
-    fun appearanceUserPresetWithoutTheSwitchReadsAsOff() {
+    fun appearanceUserPresetWithoutTheSwitchReadsAsOn() {
         // A preset saved before the switch was stored has no "liquidGlassV2" key.
         val legacy = AppearanceUserPresetStore.encode(AppearanceConfig(designStyle = DesignStyle.LiquidGlass))
             .replace(Regex(",\"liquidGlassV2\":(true|false)|\"liquidGlassV2\":(true|false),"), "")
-        assertEquals(false, AppearanceUserPresetStore.decode(legacy)?.liquidGlassV2)
+        assertEquals(true, AppearanceUserPresetStore.decode(legacy)?.liquidGlassV2)
+    }
+
+    @Test
+    fun appearanceUserPresetPreservesExplicitOffAndStandard() {
+        val saved = AppearanceConfig(
+            designStyle = DesignStyle.LiquidGlass,
+            liquidGlassV2 = false,
+            liquidGlassPreset = com.beykus.beygram.data.appearance.LiquidGlassLensPreset.Standard
+        )
+        val decoded = AppearanceUserPresetStore.decode(AppearanceUserPresetStore.encode(saved))
+        assertEquals(saved, decoded)
     }
 }

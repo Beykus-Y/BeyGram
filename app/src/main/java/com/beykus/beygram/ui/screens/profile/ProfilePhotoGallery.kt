@@ -7,7 +7,6 @@ import androidx.compose.material3.Text
 import com.beykus.beygram.ui.components.BeyGramDialog
 import com.beykus.beygram.ui.components.TextButton
 import androidx.compose.runtime.*
-import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
@@ -19,16 +18,12 @@ import com.beykus.beygram.domain.model.MediaKind
 import com.beykus.beygram.domain.model.MessageMedia
 import com.beykus.beygram.domain.model.ProfilePhotoMedia
 import com.beykus.beygram.domain.model.ProfilePhotosPage
-import com.beykus.beygram.domain.model.ProfilePhotosWindow
 import com.beykus.beygram.ui.screens.chat.MediaViewer
 import com.beykus.beygram.ui.screens.chat.MediaViewerActions
 import com.beykus.beygram.ui.screens.chat.MediaViewerItem
 import com.beykus.beygram.ui.text.userMessage
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
-
-private const val PHOTOS_PAGE_SIZE = 24
-private const val PHOTOS_PREFETCH_DISTANCE = 2
 
 /** Photos use TDLib photo IDs; they are never treated as chat messages. */
 private fun ProfilePhotoMedia.viewerItem(title: String): MediaViewerItem {
@@ -59,54 +54,25 @@ internal fun ProfilePhotoGallery(
     onChanged: () -> Unit,
     onClose: () -> Unit,
     /** Repository-backed automatic download; keeps gallery preview/full requests cancellable by policy. */
-    autoDownloadFile: ((AutoDownloadRequest) -> Unit)? = null
+    autoDownloadFile: ((AutoDownloadRequest) -> Unit)? = null,
+    sharedHistory: ProfilePhotoHistory? = null
 ) {
     val context = LocalContext.current
     val title = stringResource(R.string.profile_photo_title)
-    // A negative fallback key is stable for older/group avatars without a known photo ID.
-    val currentId = avatar.photoId.takeIf { it > 0L } ?: -avatar.bigFileId.toLong()
-    val initial = remember(currentId, avatar.smallFileId, avatar.bigFileId) {
-        ProfilePhotosWindow(
-            photos = listOf(ProfilePhotoMedia(currentId, avatar.smallFileId, avatar.bigFileId)),
-            totalCount = 1
-        )
-    }
-    var window by remember(profileId, currentId) { mutableStateOf(initial) }
-    var selectedId by rememberSaveable(profileId, currentId) { mutableLongStateOf(currentId) }
-    var loading by remember(profileId, currentId) { mutableStateOf(false) }
-    var error by remember(profileId, currentId) { mutableStateOf<String?>(null) }
-    var retry by remember(profileId, currentId) { mutableIntStateOf(0) }
-    var deleteTarget by remember(profileId, currentId) { mutableStateOf<Long?>(null) }
-    var deleting by remember(profileId, currentId) { mutableStateOf(false) }
-    var settingMain by remember(profileId, currentId) { mutableStateOf(false) }
-    val latestLoader by rememberUpdatedState(loadPhotos)
+    val history = sharedHistory ?: rememberProfilePhotoHistory(profileId, avatar, active = true, loadPhotos)
+    val selectedId = history.selected.photoId
+    var deleteTarget by remember(history) { mutableStateOf<Long?>(null) }
+    var deleting by remember(history) { mutableStateOf(false) }
+    var settingMain by remember(history) { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
-
-    // One sequential request loop per selected avatar. Incrementing the raw TDLib offset does not
-    // launch a competing coroutine; switching profile or photo cancels the previous request.
-    LaunchedEffect(profileId, currentId, selectedId, retry) {
-        while (window.hasMore && error == null) {
-            val selectedIndex = window.photos.indexOfFirst { it.photoId == selectedId }.coerceAtLeast(0)
-            if (selectedIndex < window.photos.size - 1 - PHOTOS_PREFETCH_DISTANCE) break
-            loading = true
-            try {
-                latestLoader(profileId, window.offset, PHOTOS_PAGE_SIZE).fold(
-                    onSuccess = { window = window.append(it) },
-                    onFailure = { error = it.userMessage(context, R.string.feature_action_failed) }
-                )
-            } finally {
-                loading = false
-            }
-        }
-    }
-
-    val pages = window.photos.map { it.viewerItem(title) }
-    val index = window.photos.indexOfFirst { it.photoId == selectedId }.coerceAtLeast(0)
-    val subtitle = stringResource(R.string.profile_gallery_position, index + 1, window.totalCount.coerceAtLeast(window.photos.size))
+    val pages = history.window.photos.map { it.viewerItem(title) }
+    val subtitle = if (sharedHistory == null || history.totalCount > pages.size) {
+        stringResource(R.string.profile_gallery_position, history.selectedIndex + 1, history.totalCount)
+    } else null
     MediaViewer(
         pages = pages,
         selectedId = selectedId,
-        onSelect = { selectedId = it },
+        onSelect = history::select,
         observeFile = observeFile,
         downloadFile = downloadFile,
         autoDownloadFile = autoDownloadFile,
@@ -120,14 +86,14 @@ internal fun ProfilePhotoGallery(
             onForward = {}, onEdit = {}, onDelete = { deleteTarget = selectedId }
         ) else null,
         extraFooter = {
-            if (own && selectedId > 0L && selectedId != currentId) {
+            if (own && selectedId > 0L && selectedId != history.currentId) {
                 TextButton(enabled = !settingMain, onClick = {
                     scope.launch {
                         settingMain = true
                         try {
                             setAsMain(selectedId).fold(
                                 onSuccess = { onChanged(); onClose() },
-                                onFailure = { error = it.userMessage(context, R.string.feature_action_failed) }
+                                onFailure = { history.error = it.userMessage(context, R.string.feature_action_failed) }
                             )
                         } finally { settingMain = false }
                     }
@@ -136,9 +102,9 @@ internal fun ProfilePhotoGallery(
                     else Text(stringResource(R.string.profile_gallery_set_main))
                 }
             }
-            if (loading) LinearProgressIndicator()
-            error?.let {
-                TextButton(onClick = { error = null; retry++ }) {
+            if (history.loading) LinearProgressIndicator()
+            if (history.error != null) {
+                TextButton(onClick = history::retryLoad) {
                     Text(stringResource(R.string.profile_gallery_retry))
                 }
             }
@@ -160,7 +126,7 @@ internal fun ProfilePhotoGallery(
                     try {
                         deletePhoto(id).fold(
                             onSuccess = { deleteTarget = null; onChanged(); onClose() },
-                            onFailure = { error = it.userMessage(context, R.string.feature_action_failed); deleteTarget = null }
+                            onFailure = { history.error = it.userMessage(context, R.string.feature_action_failed); deleteTarget = null }
                         )
                     } finally { deleting = false }
                 }
