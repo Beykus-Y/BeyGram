@@ -943,6 +943,8 @@
     <string name="settings_experiments_group_profile">Perfil</string>
     <string name="settings_profile_scene_title">Perfil 2.0: escena adaptativa (beta)</string>
     <string name="settings_profile_scene_desc">Vista experimental del perfil con una escena por capas. Desactivada por defecto; al desactivarla vuelve el perfil estándar.</string>
+    <string name="settings_profile_cover_title">Portada expresiva</string>
+    <string name="settings_profile_cover_desc">Más color y profundidad en la vista de perfil</string>
     <string name="lyrics_show">Mostrar letra</string>
     <string name="lyrics_hide">Ocultar letra</string>
     <string name="lyrics_none_for_track">No hay letra para esta pista</string>

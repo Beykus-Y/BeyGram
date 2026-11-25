@@ -943,6 +943,8 @@
     <string name="settings_experiments_group_profile">Profile</string>
     <string name="settings_profile_scene_title">Profile 2.0: adaptive scene (beta)</string>
     <string name="settings_profile_scene_desc">Experimental profile layout with a layered scene. Off by default; turning it off returns the standard profile.</string>
+    <string name="settings_profile_cover_title">Expressive cover</string>
+    <string name="settings_profile_cover_desc">More color and depth in the profile scene</string>
     <string name="lyrics_show">Show lyrics</string>
     <string name="lyrics_hide">Hide lyrics</string>
     <string name="lyrics_none_for_track">There are no lyrics for this track</string>
