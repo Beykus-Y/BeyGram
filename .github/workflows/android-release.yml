@@ -47,7 +47,7 @@ jobs:
   build:
     name: Build APKs
     env:
-      BEYGRAM_ROBOLECTRIC_DIR: ${{ github.workspace }}/../robolectric-deps
+      BEYGRAM_ROBOLECTRIC_DIR: ${{ github.workspace }}-robolectric-deps
     # Tags never build: publishing reuses the main build of the tagged commit.
     if: >-
       github.event_name == 'pull_request' ||
@@ -140,7 +140,7 @@ jobs:
         id: robolectric-cache
         uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
         with:
-          path: ${{ github.workspace }}/../robolectric-deps
+          path: ${{ github.workspace }}-robolectric-deps
           key: ${{ steps.robolectric-key.outputs.key }}
 
       - name: Fill the Robolectric dependency directory
@@ -148,6 +148,17 @@ jobs:
         # retries with backoff on HTTP 429. The tests then read them from this directory and never ask Maven for an SDK.
         # An incomplete directory stops this step, so the tests do not fall back to downloads and nothing partial is saved.
         run: scripts/robolectric-prefetch.sh "$BEYGRAM_ROBOLECTRIC_DIR"
+
+      - name: Save Robolectric artifact cache
+        # Right after the prefetch, not after the tests: the prefetch checks every jar's SHA-1 and fails without leaving a
+        # partial directory, so a finished directory is safe to cache even if a later test fails. Saving only after green
+        # tests meant a Maven 429 on a cache miss was never seeded, so every later run downloaded again. Every event saves
+        # it: a pull request's save stays in that pull request's scope, so a rerun of the same run finds it.
+        if: success() && steps.robolectric-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: ${{ github.workspace }}-robolectric-deps
+          key: ${{ steps.robolectric-cache.outputs.cache-primary-key }}
 
       - name: Install Android platform 36.1
         # The runner image ships the Android SDK but not sdkmanager on PATH.
@@ -191,21 +202,18 @@ jobs:
         # JVM tests of the dev debug variant. They run before the APKs are built, so a failing test fails this job,
         # and a failed main build cannot be published. A rerun happens only when every failure is a Robolectric
         # download failure (scripts/gradle-test-retry.sh).
+        env:
+          # Only the test steps resolve Robolectric through the mirror; the APK steps keep Maven Central only.
+          BEYGRAM_MAVEN_CENTRAL_MIRROR: https://maven-central.storage-download.googleapis.com/maven2
         run: scripts/gradle-test-retry.sh app/build/test-results/testDevDebugUnitTest :app:testDevDebugUnitTest
 
       - name: Verify Yandex Music in the Stable variant
         # The shared provider tests must also pass against prod; PR builds use blank OAuth configuration.
+        env:
+          BEYGRAM_MAVEN_CENTRAL_MIRROR: https://maven-central.storage-download.googleapis.com/maven2
         run: >-
           scripts/gradle-test-retry.sh app/build/test-results/testProdDebugUnitTest
           :app:testProdDebugUnitTest --tests 'com.beykus.beygram.data.yandex.*'
-
-      - name: Save Robolectric artifact cache
-        # Only a push saves it, and only after the tests passed, so a partial download is never cached.
-        if: success() && github.event_name == 'push' && steps.robolectric-cache.outputs.cache-hit != 'true'
-        uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
-        with:
-          path: ${{ github.workspace }}/../robolectric-deps
-          key: ${{ steps.robolectric-cache.outputs.cache-primary-key }}
 
       - name: Upload unit test reports
         # A failed run keeps the report, so the exact failing assertion can be read after the job ends.

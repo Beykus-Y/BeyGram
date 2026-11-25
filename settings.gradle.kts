@@ -18,6 +18,14 @@ dependencyResolutionManagement {
     repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS)
     repositories {
         google()
+        // CI only: Google's mirror of Maven Central, tried before repo1.maven.org, which answers GitHub runners with
+        // HTTP 429. Only the org.robolectric group comes from it; every other artifact still comes from Maven Central.
+        System.getenv("BEYGRAM_MAVEN_CENTRAL_MIRROR")?.takeIf { it.isNotBlank() }?.let { mirror ->
+            maven {
+                setUrl(mirror)
+                content { includeGroup("org.robolectric") }
+            }
+        }
         mavenCentral()
     }
 }
