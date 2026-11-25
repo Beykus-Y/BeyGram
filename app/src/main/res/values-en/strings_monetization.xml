@@ -357,4 +357,15 @@
     <string name="gifts_rarity_epic">Epic</string>
     <string name="gifts_rarity_legendary">Legendary</string>
     <string name="gifts_rarity_percent">%1$s%%</string>
+    <string name="gifts_pinned">Pinned</string>
+    <string name="gifts_saved">Visible on profile</string>
+    <string name="gifts_edition_count">%1$d of %2$d issued</string>
+    <string name="gifts_attr_model">Model</string>
+    <string name="gifts_attr_symbol">Symbol</string>
+    <string name="gifts_attr_backdrop">Backdrop</string>
+    <string name="gifts_attr_sender">Sender</string>
+    <string name="gifts_attr_date">Date</string>
+    <string name="gifts_attr_price">Value</string>
+    <string name="gifts_attr_status">Status</string>
+    <string name="gifts_detail_toggle_animation">Toggle gift animation</string>
 </resources>

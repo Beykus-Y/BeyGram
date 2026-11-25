@@ -5,10 +5,13 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.size
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.compositionLocalOf
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
@@ -26,6 +29,7 @@ import com.beykus.beygram.domain.model.MediaFileState
 import com.beykus.beygram.domain.model.MediaKind
 import com.beykus.beygram.domain.model.StickerFileFormat
 import com.beykus.beygram.playback.LocalPlaybackAccountId
+import com.beykus.beygram.ui.accessibility.rememberSystemReducedMotion
 import com.beykus.beygram.ui.motion.rememberAutoplayEligible
 import com.beykus.beygram.ui.screens.chat.LocalAutoDownloadFile
 import com.beykus.beygram.ui.screens.chat.LocalMediaImage
@@ -96,11 +100,31 @@ internal fun GiftVisualImage(
         val id = thumbnailId ?: return@LaunchedEffect
         if (!thumbnail.isDownloading && thumbnail.localPath == null) access.downloadFile(id)
     }
-    val animated = !staticOnly && (visual.format == StickerFileFormat.Tgs || visual.format == StickerFileFormat.Webp)
-    val autoplay = rememberAutoplayEligible(enabled = animated)
-    val description = stringResource(R.string.gifts_gift_generic)
     val path = file.localPath
     val thumbnailPath = if (thumbnailId != null) thumbnail.localPath else null
+    val reducedMotion = rememberSystemReducedMotion()
+    val animated = !staticOnly && !reducedMotion &&
+        (visual.format == StickerFileFormat.Tgs || visual.format == StickerFileFormat.Webp)
+    val autoplay = rememberAutoplayEligible(enabled = animated)
+    val budget = LocalGiftAnimationBudget.current
+    val budgetKey = remember { Any() }
+    var budgetGranted by remember(budget, budgetKey) { mutableStateOf(budget == null) }
+    val wantsPlay = animated && autoplay.eligible.value
+    DisposableEffect(budget, budgetKey, wantsPlay, path) {
+        if (budget == null) {
+            budgetGranted = true
+        } else if (wantsPlay && path != null) {
+            budgetGranted = budget.tryAcquire(budgetKey)
+        } else {
+            budget.release(budgetKey)
+            budgetGranted = false
+        }
+        onDispose {
+            budget?.release(budgetKey)
+        }
+    }
+    val shouldPlay = wantsPlay && budgetGranted
+    val description = stringResource(R.string.gifts_gift_generic)
     // What the cell shows until the sticker can be drawn: the thumbnail, or the emoji when there is none.
     val preview: @Composable () -> Unit = {
         if (thumbnailPath != null) {
@@ -116,9 +140,9 @@ internal fun GiftVisualImage(
         when {
             // With animation off, TgsSticker shows the poster and never parses the file.
             path != null && !staticOnly && visual.format == StickerFileFormat.Tgs ->
-                TgsSticker(path, Modifier.fillMaxSize(), playing = autoplay.eligible.value, poster = preview, fallback = preview)
+                TgsSticker(path, Modifier.fillMaxSize(), playing = shouldPlay, poster = preview, fallback = preview)
             path != null && !staticOnly && visual.format == StickerFileFormat.Webp ->
-                LocalMediaImage(path, Modifier.fillMaxSize(), fit = true, animate = autoplay.eligible.value)
+                LocalMediaImage(path, Modifier.fillMaxSize(), fit = true, animate = shouldPlay)
             else -> preview()
         }
     }

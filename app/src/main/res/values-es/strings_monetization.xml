@@ -346,4 +346,15 @@
     <string name="gifts_rarity_epic">Épica</string>
     <string name="gifts_rarity_legendary">Legendaria</string>
     <string name="gifts_rarity_percent">%1$s%%</string>
+    <string name="gifts_pinned">Fijado</string>
+    <string name="gifts_saved">Visible en el perfil</string>
+    <string name="gifts_edition_count">%1$d de %2$d emitidos</string>
+    <string name="gifts_attr_model">Modelo</string>
+    <string name="gifts_attr_symbol">Símbolo</string>
+    <string name="gifts_attr_backdrop">Fondo</string>
+    <string name="gifts_attr_sender">Remitente</string>
+    <string name="gifts_attr_date">Fecha</string>
+    <string name="gifts_attr_price">Valor</string>
+    <string name="gifts_attr_status">Estado</string>
+    <string name="gifts_detail_toggle_animation">Alternar animación del regalo</string>
 </resources>
