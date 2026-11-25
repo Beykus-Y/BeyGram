@@ -346,8 +346,8 @@ fun designFor(
     style: DesignStyle,
     glassQuality: GlassQuality = GlassQuality.Auto,
     navigationPlacement: NavigationPlacement = NavigationPlacement.Auto,
-    liquidGlassV2: Boolean = false,
-    liquidGlassPreset: LiquidGlassLensPreset = LiquidGlassLensPreset.Standard
+    liquidGlassV2: Boolean = true,
+    liquidGlassPreset: LiquidGlassLensPreset = LiquidGlassLensPreset.Clear
 ): DesignSystem {
     val base = when (style) {
         DesignStyle.Default -> DefaultDesignSystem

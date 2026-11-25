@@ -118,7 +118,7 @@ internal object AppearanceUserPresetStore {
             messageAnimations = messageAnimationConfigFromStored(o.optString("messageAnimations")),
             designStyle = designStyleFromStored(o.optString("designStyle")),
             glassQuality = glassQualityFromStored(o.optString("glassQuality")),
-            liquidGlassV2 = o.optBoolean("liquidGlassV2", false),
+            liquidGlassV2 = o.optBoolean("liquidGlassV2", true),
             liquidGlassPreset = liquidGlassLensPresetFromStored(o.optString("liquidGlassPreset")),
             navigationPlacement = navigationPlacementFromStored(o.optString("navigationPlacement"))
         )

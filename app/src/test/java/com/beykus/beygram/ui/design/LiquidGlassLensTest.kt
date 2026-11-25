@@ -11,19 +11,22 @@ import org.junit.Test
 
 class LiquidGlassLensTest {
     @Test
-    fun lensIsOffByDefault() {
-        assertFalse(designFor(DesignStyle.LiquidGlass, GlassQuality.High).surfaces.glass!!.lensRefraction)
+    fun lensIsOnWithClearByDefault() {
+        val glass = designFor(DesignStyle.LiquidGlass, GlassQuality.High).surfaces.glass!!
+        assertTrue(glass.lensRefraction)
+        assertEquals(LensTuningPresets.Clear, glass.lensTuning)
     }
 
     @Test
     fun lensFollowsTheExperimentalSwitchOnlyForLiquidGlass() {
         assertTrue(designFor(DesignStyle.LiquidGlass, GlassQuality.High, liquidGlassV2 = true).surfaces.glass!!.lensRefraction)
+        assertFalse(designFor(DesignStyle.LiquidGlass, GlassQuality.High, liquidGlassV2 = false).surfaces.glass!!.lensRefraction)
         assertNull(designFor(DesignStyle.Default, liquidGlassV2 = true).surfaces.glass)
     }
 
     @Test
     fun lensChangesOnlyTheRefractionFlag() {
-        val plain = designFor(DesignStyle.LiquidGlass, GlassQuality.High).surfaces.glass!!
+        val plain = designFor(DesignStyle.LiquidGlass, GlassQuality.High, liquidGlassV2 = false).surfaces.glass!!
         val lens = designFor(DesignStyle.LiquidGlass, GlassQuality.High, liquidGlassV2 = true).surfaces.glass!!
         assertEquals(plain, lens.copy(lensRefraction = false))
     }
