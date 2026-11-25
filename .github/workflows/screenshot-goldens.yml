@@ -104,14 +104,20 @@ jobs:
         run: |
           set -euo pipefail
           printf 'telegramApiId=0\ntelegramApiHash=\n' > secrets.properties
-          if [ "$VISUAL_LABEL" = capture-stealth ]; then
-            mkdir -p "$BEYGRAM_STEALTH_CAPTURE_DIR"
-            test_pattern='*StealthUiCapture'
-          else
-            # The visual fixture is opt-in and the regular suite uses its tracked goldens.
-            unset BEYGRAM_STEALTH_CAPTURE_DIR BEYGRAM_PROFILE_CAPTURE_DIR
-            test_pattern='com.beykus.beygram.ui.screenshots.*'
-          fi
+          case "$VISUAL_LABEL" in
+            capture-stealth)
+              mkdir -p "$BEYGRAM_STEALTH_CAPTURE_DIR"
+              test_pattern='*StealthUiCapture'
+              ;;
+            capture-profile)
+              mkdir -p "$BEYGRAM_PROFILE_CAPTURE_DIR"
+              test_pattern='*ProfileSceneUiCapture'
+              ;;
+            *)
+              unset BEYGRAM_STEALTH_CAPTURE_DIR BEYGRAM_PROFILE_CAPTURE_DIR
+              test_pattern='com.beykus.beygram.ui.screenshots.*'
+              ;;
+          esac
           scripts/gradle-test-retry.sh app/build/test-results/testDevDebugUnitTest \
             :app:testDevDebugUnitTest -Pscreenshots=record --tests "$test_pattern"
 
