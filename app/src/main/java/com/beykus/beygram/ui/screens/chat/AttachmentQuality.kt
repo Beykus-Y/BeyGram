@@ -66,7 +66,9 @@ internal enum class MediaPreparationHint {
     NotWorthIt,
     MetadataPreserved,
     TooLongAsFile,
-    TooLargeAsFile
+    TooLargeAsFile,
+    /// The codec is not confirmed to play in a Telegram video message; only a transcode can send it as video.
+    CodecNeedsConversion
 }
 
 /**
@@ -85,9 +87,12 @@ internal data class MediaPreparation(
     val error: String? = null
 ) : Serializable
 
-/** Quality applies only to videos sent as media and to plain audio documents. */
+/** Quality applies to videos sent as media, to MP4 documents whose codec needs conversion, and to plain audio documents. */
 internal fun OutgoingMedia.qualityKind(): MediaQualityKind? = when {
     kind == MediaKind.Video -> MediaQualityKind.Video
+    // An AV1/VP9 MP4 is imported as a document because its playback is not confirmed; the composer still offers a
+    // transcode, and a successful one turns the attachment into a video message.
+    kind == MediaKind.Document && mimeType == "video/mp4" -> MediaQualityKind.Video
     kind == MediaKind.Document && mimeType.startsWith("audio/") -> MediaQualityKind.Audio
     else -> null
 }
@@ -184,6 +189,7 @@ internal fun MediaPreparationHint.messageRes(): Int = when (this) {
     MediaPreparationHint.MetadataPreserved -> R.string.audio_metadata_kept
     MediaPreparationHint.TooLongAsFile -> R.string.video_too_long_as_file
     MediaPreparationHint.TooLargeAsFile -> R.string.video_too_large_as_file
+    MediaPreparationHint.CodecNeedsConversion -> R.string.composer_quality_hint_codec
 }
 
 /**
