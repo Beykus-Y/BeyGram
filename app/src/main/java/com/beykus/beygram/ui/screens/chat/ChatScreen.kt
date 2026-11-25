@@ -2492,6 +2492,14 @@ fun ChatScreen(
                                 ?.takeIf { it.serverFailureAtStart == media?.transcriptionError }
                                 ?.failure
                             if (message.isCallEvent && message.serviceText != null) CallMessageChip(message.serviceText, message.time)
+                            // A gift keeps the same text (search, previews and the screen reader use it) and gains the
+                            // artwork, number and title that a plain chip cannot show.
+                            else if (message.gift != null && message.serviceText != null) GiftChatCard(
+                                gift = message.gift,
+                                caption = message.serviceText,
+                                observeFile = observeFile,
+                                downloadFile = onDownloadFile
+                            )
                             else if (message.serviceText != null) ServiceMessageChip(message.serviceText, message.serviceUserId, onServiceUser)
                             else {
                                 val localAttempt = localTextAttemptIds[message.id]
