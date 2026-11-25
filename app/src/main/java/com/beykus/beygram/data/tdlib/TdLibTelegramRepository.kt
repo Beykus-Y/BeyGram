@@ -1841,6 +1841,12 @@ class TdLibTelegramRepository private constructor(
     override suspend fun submitGiftAuctionBid(quote: GiftAuctionQuote, profileId: Long, isSelf: Boolean, total: Long) =
         payments.submitGiftAuctionBid(quote, profileId, isSelf, total)
     override suspend fun receivedGifts(offset: String): Result<ReceivedGiftsPage> = payments.receivedGifts(offset)
+    override suspend fun receivedGiftsForUser(userId: Long, offset: String): Result<ReceivedGiftsPage> =
+        payments.receivedGiftsForUser(userId, offset)
+    override suspend fun toggleGiftSaved(receivedGiftId: String, isSaved: Boolean): Result<Unit> =
+        payments.toggleGiftSaved(receivedGiftId, isSaved)
+    override suspend fun setPinnedGifts(receivedGiftIds: List<String>): Result<Unit> =
+        payments.setPinnedGifts(receivedGiftIds)
     override suspend fun resaleGifts(giftId: Long, offset: String) = payments.resaleGifts(giftId, offset)
     override suspend fun buyResoldGift(profileId: Long, name: String, confirmedStars: Long) =
         payments.buyResoldGift(profileId, name, confirmedStars)
@@ -3791,6 +3797,7 @@ class TdLibTelegramRepository private constructor(
         val secretChat = isSecretChat(chatId)
         val event = serviceMessages.event(this) { profiles.senderName(TdApi.MessageSenderUser(it)) }
         val service = event?.text
+        val gift = giftChatContent(content, payments::giftVisual, payments::giftCollectible)
         val special = mediaMapper.special(content)?.takeIf { attachment == null && service == null && content !is TdApi.MessageText }
         val scheduledAt = (schedulingState as? TdApi.MessageSchedulingStateSendAtDate)?.sendDate?.takeIf { it > 0 }?.toLong()
         if (event != null) hydrateServiceMember(this, event.userId)
@@ -3823,6 +3830,7 @@ class TdLibTelegramRepository private constructor(
         inlineKeyboard = inlineKeyboard(replyMarkup),
         reactions = messageReactions(interactionInfo),
         serviceText = service,
+        gift = gift,
         isCallEvent = content is TdApi.MessageCall,
         serviceUserId = event?.userId ?: 0L,
         forumTopicId = forumId(this),

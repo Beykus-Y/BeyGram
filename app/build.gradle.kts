@@ -175,6 +175,21 @@ android {
                 enable = false
             }
         }
+        /**
+         * Release-like build for Macrobenchmark and Baseline Profile generation (#1119). Never published: it is
+         * signed with the debug key, keeps R8 and resource shrinking exactly as release (both off), and is only
+         * reachable through `:macrobenchmark` and `scripts/baseline-profile.ps1`.
+         */
+        create("benchmark") {
+            initWith(getByName("release"))
+            signingConfig = signingConfigs.getByName("debug")
+            isDebuggable = false
+            matchingFallbacks += listOf("release")
+            // A benchmark build must never share the application id with Dev or Stable: installing it would
+            // overwrite the owner's signed app and, with a debug key, could not even update it. Its own id also gives
+            // the benchmarks isolated data and an uninstall that cannot touch the real account.
+            applicationIdSuffix = ".benchmark"
+        }
     }
     // libmihomo-android loads libclash.so from ApplicationInfo.nativeLibraryDir
     // by absolute path, so require PackageManager to extract JNI libs on install.

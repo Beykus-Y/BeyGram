@@ -86,8 +86,14 @@ class TdGiftVisualTest {
     @Test
     fun anUpgradedGiftKeepsItsNumberBackdropSymbolAndRarity() {
         val gift = TdApi.UpgradedGift().apply {
+            name = "PlushPepe-7"
+            title = "Plush Pepe"
             number = 7
+            totalUpgradedCount = 1200
+            maxUpgradedCount = 5000
             backdrop = TdApi.UpgradedGiftBackdrop().apply {
+                name = "Midnight Blue"
+                rarity = TdApi.UpgradedGiftAttributeRarityRare()
                 colors = TdApi.UpgradedGiftBackdropColors().apply {
                     centerColor = 0x112233
                     edgeColor = 0x445566
@@ -96,9 +102,12 @@ class TdGiftVisualTest {
                 }
             }
             model = TdApi.UpgradedGiftModel().apply {
+                name = "Emerald Frog"
                 rarity = TdApi.UpgradedGiftAttributeRarityPerMille().apply { perMille = 40 }
             }
             symbol = TdApi.UpgradedGiftSymbol().apply {
+                name = "Crown"
+                rarity = TdApi.UpgradedGiftAttributeRarityEpic()
                 sticker = TdApi.Sticker().apply {
                     sticker = TdApi.File().apply { id = 33 }
                     format = TdApi.StickerFormatWebp()
@@ -107,6 +116,15 @@ class TdGiftVisualTest {
         }
         val details = payments().giftCollectible(gift)
         assertEquals(7, details?.number)
+        assertEquals("PlushPepe-7", details?.slug)
+        assertEquals("Plush Pepe", details?.title)
+        assertEquals(1200, details?.totalUpgradedCount)
+        assertEquals(5000, details?.maxUpgradedCount)
+        assertEquals("Emerald Frog", details?.modelName)
+        assertEquals("Crown", details?.symbolName)
+        assertEquals(GiftRarityTier.Epic, details?.symbolRarityTier)
+        assertEquals("Midnight Blue", details?.backdropName)
+        assertEquals(GiftRarityTier.Rare, details?.backdropRarityTier)
         assertEquals(0x112233, details?.backdropCenterColor)
         assertEquals(0x445566, details?.backdropEdgeColor)
         assertEquals(40, details?.modelRarityPerMille)
