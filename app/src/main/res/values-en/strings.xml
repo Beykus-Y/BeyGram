@@ -1001,6 +1001,11 @@
     <string name="audio_details_channels_stereo">Stereo</string>
     <string name="audio_details_channels_multi">%1$d ch</string>
     <string name="audio_details_streaming">Streaming — technical details appear once the file is cached locally</string>
+    <string name="queue_search_action">Search queue</string>
+    <string name="queue_search_hint">Find track or artist</string>
+    <string name="queue_search_clear">Clear search</string>
+    <string name="queue_search_empty">No matching tracks in queue</string>
+    <string name="queue_jump_to_current">Jump to current</string>
     <string name="chat_quote_title">Quote fragment</string>
     <string name="chat_quote_hint">Quoted text</string>
     <string name="chat_quote_action">Quote</string>
