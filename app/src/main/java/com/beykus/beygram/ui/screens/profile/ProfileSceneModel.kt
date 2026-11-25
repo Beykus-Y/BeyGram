@@ -61,8 +61,14 @@ internal data class ProfileSceneInputs(
     val titleHeightPx: Float,
     val statusHeightPx: Float,
     val badgesHeightPx: Float,
-    /** One vertical gap between identity elements. */
-    val gapPx: Float,
+    /**
+     * Separate gaps, as in the screen: avatar to name (16 dp), name to status (4 dp), status to badges (0 dp).
+     * A gap is applied only when the element below it has height, so a missing status or badges row leaves no
+     * empty space (zero height means no element and no gap).
+     */
+    val gapAvatarTitlePx: Float,
+    val gapTitleStatusPx: Float,
+    val gapStatusBadgesPx: Float,
     val hasPhoto: Boolean,
     val compactAvatar: SceneRect,
     val compactTitle: SceneRect,
@@ -81,6 +87,9 @@ internal data class ProfileSceneFrame(
     val stageHeightPx: Float,
     /** Window y of the identity block bottom at the current scroll. */
     val stageBottomPx: Float,
+    /** Window y of the name and the status at rest (reveal and scroll 0 state). */
+    val titleTopPx: Float,
+    val statusTopPx: Float,
     /** Window y where the badges row starts at rest (below the status, at the current reveal). */
     val badgesTopPx: Float,
     val photoWidthPx: Float,
@@ -121,11 +130,11 @@ internal fun profileSceneFrame(inputs: ProfileSceneInputs): ProfileSceneFrame {
     val restAvatar = SceneRect(centerX - i.avatarPx / 2f, i.stageTopPx, centerX + i.avatarPx / 2f, i.stageTopPx + i.avatarPx)
     val photoAtRest = SceneRect(centerX - photoW / 2f, i.stageTopPx, centerX + photoW / 2f, i.stageTopPx + photoH)
     val avatarZero = lerpSceneRect(restAvatar, photoAtRest, reveal)
-    val titleTop = i.stageTopPx + blockNow + i.gapPx
+    val titleTop = i.stageTopPx + blockNow + gapBefore(i.titleHeightPx, i.gapAvatarTitlePx)
     val titleZero = SceneRect(i.contentLeftPx + i.marginPx, titleTop, i.contentRightPx - i.marginPx, titleTop + i.titleHeightPx)
-    val statusTop = titleZero.bottom + i.gapPx
+    val statusTop = titleZero.bottom + gapBefore(i.statusHeightPx, i.gapTitleStatusPx)
     val statusZero = SceneRect(titleZero.left, statusTop, titleZero.right, statusTop + i.statusHeightPx)
-    val badgesTop = statusZero.bottom + i.gapPx
+    val badgesTop = statusZero.bottom + gapBefore(i.badgesHeightPx, i.gapStatusBadgesPx)
 
     val avatarRect = lerpSceneRect(avatarZero, i.compactAvatar, collapse)
     val titleRect = lerpSceneRect(titleZero, i.compactTitle, collapse)
@@ -147,6 +156,8 @@ internal fun profileSceneFrame(inputs: ProfileSceneInputs): ProfileSceneFrame {
         travelPx = travel,
         stageHeightPx = stageHeight,
         stageBottomPx = i.stageTopPx + stageHeight - scroll,
+        titleTopPx = titleZero.top,
+        statusTopPx = statusZero.top,
         badgesTopPx = badgesTop,
         photoWidthPx = photoW,
         photoHeightPx = photoH,
@@ -159,9 +170,15 @@ internal fun profileSceneFrame(inputs: ProfileSceneInputs): ProfileSceneFrame {
     )
 }
 
-/** Avatar block, then gap, title, gap, status, gap, badges. */
+/** The gap above an element, or none when the element has no height. */
+private fun gapBefore(elementHeightPx: Float, gapPx: Float): Float = if (elementHeightPx > 0f) gapPx else 0f
+
+/** Avatar block, then each element with its own gap (none for a zero-height element). */
 private fun stageHeightFor(i: ProfileSceneInputs, avatarBlock: Float): Float =
-    avatarBlock + 3f * i.gapPx + i.titleHeightPx + i.statusHeightPx + i.badgesHeightPx
+    avatarBlock +
+        gapBefore(i.titleHeightPx, i.gapAvatarTitlePx) + i.titleHeightPx +
+        gapBefore(i.statusHeightPx, i.gapTitleStatusPx) + i.statusHeightPx +
+        gapBefore(i.badgesHeightPx, i.gapStatusBadgesPx) + i.badgesHeightPx
 
 /** Parallax shift per px of scroll: the photo moves slower than the page. */
 internal const val PARALLAX_FACTOR = 0.2f
