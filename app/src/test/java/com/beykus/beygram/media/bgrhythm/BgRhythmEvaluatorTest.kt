@@ -56,5 +56,20 @@ class BgRhythmEvaluatorTest {
         // Seeking before first beat clears beat pulse
         val afterSeekBack = BgRhythmEvaluator.evaluate(analysis, 200L, playing = true, mode = BgRhythmMode.Dynamic)
         assertFalse(afterSeekBack.beatPulse > 0f)
+
+        // Calm mode scales intensity below Dynamic
+        val calmDownbeat = BgRhythmEvaluator.evaluate(analysis, 1_050L, playing = true, mode = BgRhythmMode.Calm)
+        assertTrue(calmDownbeat.beatPulse > 0f)
+        assertTrue(calmDownbeat.beatPulse < atDownbeat.beatPulse)
+        assertTrue(calmDownbeat.phraseEnergy < atDownbeat.phraseEnergy)
+
+        // Low-confidence beat is suppressed gracefully
+        val lowConf = analysis.copy(
+            beats = listOf(
+                BgBeatBeat(time = 1.0, strength = 1.0f, confidence = 0.05f, beatInBar = 1, barIndex = 0, downbeat = true, extrapolated = false),
+            )
+        )
+        val lowConfFrame = BgRhythmEvaluator.evaluate(lowConf, 1_050L, playing = true, mode = BgRhythmMode.Dynamic)
+        assertEquals(0f, lowConfFrame.beatPulse, 0.001f)
     }
 }
