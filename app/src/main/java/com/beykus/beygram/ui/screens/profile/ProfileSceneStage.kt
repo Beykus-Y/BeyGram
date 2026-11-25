@@ -19,6 +19,9 @@ private const val SceneAvatarDp = 112f
 private const val SceneGapAvatarTitleDp = 16f
 private const val SceneGapTitleStatusDp = 4f
 private const val SceneGapStatusBadgesDp = 0f
+/** Upper bound of the revealed photo width, and its share of the viewport height (as in the model). */
+private const val SceneMaxPhotoDp = 420f
+private const val ScenePhotoHeightFraction = 0.42f
 
 /**
  * Heights measured by [ProfileSceneStage] and read by the screen (P2b, #1138). Written in the layout pass only,
@@ -41,14 +44,18 @@ internal class ProfileSceneHeights {
 }
 
 /**
- * The identity stage for variant C (P2b, #1138). It measures the avatar, name, status and badges in one pass, asks
- * the scene model for the rest rectangles, and places every child at its rectangle. The stage height is the model's
- * height, so the block has no empty gap. The children must be given in this order: avatar, name, status, badges.
+ * The identity stage for variant C (P2b, #1138; P3b reveal). It measures the avatar, name, status and badges in one
+ * pass, asks the scene model for the rectangles at the current reveal, and places every child at its rectangle. The
+ * stage height is the model's height, so the block has no empty gap. [reveal] is read in the layout pass only, so a
+ * reveal animation re-lays out the stage without recomposing the screen. The children must be given in this order:
+ * avatar, name, status, badges.
  */
 @Composable
 internal fun ProfileSceneStage(
     heights: ProfileSceneHeights,
     scrollPx: () -> Float,
+    hasPhoto: Boolean,
+    reveal: () -> Float,
     modifier: Modifier = Modifier,
     content: @Composable () -> Unit,
 ) {
@@ -62,24 +69,24 @@ internal fun ProfileSceneStage(
         // The stage sits inside the identity column, which already has the 20 dp side padding: no margin here.
         val width = constraints.maxWidth
         val avatarPx = SceneAvatarDp * density
-        val avatar = measurables[0].measure(Constraints.fixed(avatarPx.roundToInt(), avatarPx.roundToInt()))
+        val revealNow = if (hasPhoto) reveal().coerceIn(0f, 1f) else 0f
         // Texts take their natural width (up to the stage width) and are centred, as in the screen.
         val title = measurables[1].measure(Constraints(maxWidth = width))
         val status = measurables[2].measure(Constraints(maxWidth = width))
         val badges = measurables[3].measure(Constraints(maxWidth = width))
 
-        // Rest geometry relative to the stage top (the stage starts at 0, at scroll 0, reveal off).
-        val rest = profileSceneFrame(
+        // Geometry at scroll 0 for the current reveal: the photo grows the avatar block, and the texts move down with it.
+        val frame = profileSceneFrame(
             ProfileSceneInputs(
                 scrollPx = 0f,
-                revealFraction = 0f,
+                revealFraction = revealNow,
                 viewportWidthPx = width.toFloat(),
-                viewportHeightPx = 0f,
+                viewportHeightPx = heights.viewportHeightPx.toFloat(),
                 contentLeftPx = 0f,
                 contentRightPx = width.toFloat(),
                 marginPx = 0f,
-                maxPhotoWidthPx = 0f,
-                photoHeightFraction = 0f,
+                maxPhotoWidthPx = SceneMaxPhotoDp * density,
+                photoHeightFraction = ScenePhotoHeightFraction,
                 stageTopPx = 0f,
                 toolbarBottomPx = 0f,
                 avatarPx = avatarPx,
@@ -89,25 +96,28 @@ internal fun ProfileSceneStage(
                 gapAvatarTitlePx = SceneGapAvatarTitleDp * density,
                 gapTitleStatusPx = SceneGapTitleStatusDp * density,
                 gapStatusBadgesPx = SceneGapStatusBadgesDp * density,
-                hasPhoto = false,
+                hasPhoto = hasPhoto,
                 compactAvatar = SceneRect(0f, 0f, 0f, 0f),
                 compactTitle = SceneRect(0f, 0f, 0f, 0f),
                 compactStatus = SceneRect(0f, 0f, 0f, 0f),
                 reduceMotion = true,
             )
         )
-        val stageHeight = rest.stageHeightPx.roundToInt()
+        val avatarRect = frame.avatarRect
+        val avatar = measurables[0].measure(
+            Constraints.fixed(avatarRect.width.roundToInt().coerceAtLeast(0), avatarRect.height.roundToInt().coerceAtLeast(0))
+        )
+        val stageHeight = frame.stageHeightPx.roundToInt()
         heights.titleHeightPx = title.height
         heights.statusHeightPx = status.height
         heights.badgesHeightPx = badges.height
         heights.stageHeightPx = stageHeight
 
         layout(width, stageHeight) {
-            val centre = width / 2f
-            avatar.placeRelative((centre - avatarPx / 2f).roundToInt(), rest.avatarRect.top.roundToInt())
-            title.placeRelative(((width - title.width) / 2f).roundToInt(), rest.titleRect.top.roundToInt())
-            status.placeRelative(((width - status.width) / 2f).roundToInt(), rest.statusRect.top.roundToInt())
-            badges.placeRelative(((width - badges.width) / 2f).roundToInt(), rest.badgesRect.top.roundToInt())
+            avatar.placeRelative(avatarRect.left.roundToInt(), avatarRect.top.roundToInt())
+            title.placeRelative(((width - title.width) / 2f).roundToInt(), frame.titleRect.top.roundToInt())
+            status.placeRelative(((width - status.width) / 2f).roundToInt(), frame.statusRect.top.roundToInt())
+            badges.placeRelative(((width - badges.width) / 2f).roundToInt(), frame.badgesRect.top.roundToInt())
         }
     }
 }
@@ -131,18 +141,19 @@ internal fun profileSceneScreenInputs(
     compactAvatar: SceneRect,
     compactTitle: SceneRect,
     compactStatus: SceneRect,
+    revealFraction: Float = 0f,
 ): ProfileSceneInputs {
     val sidePx = SceneMarginDp * density
     return ProfileSceneInputs(
         scrollPx = scrollPx,
-        revealFraction = 0f,
+        revealFraction = revealFraction,
         viewportWidthPx = windowWidthPx,
         viewportHeightPx = windowHeightPx,
         contentLeftPx = sidePx,
         contentRightPx = windowWidthPx - sidePx,
         marginPx = 0f,
-        maxPhotoWidthPx = 420f * density,
-        photoHeightFraction = 0.42f,
+        maxPhotoWidthPx = SceneMaxPhotoDp * density,
+        photoHeightFraction = ScenePhotoHeightFraction,
         stageTopPx = stageTopPx,
         toolbarBottomPx = toolbarBottomPx,
         avatarPx = SceneAvatarDp * density,
