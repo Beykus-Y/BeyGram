@@ -5,8 +5,16 @@ import java.util.concurrent.atomic.AtomicLong
 
 /**
  * Замеры одного просмотра видео в чате (Issue #1121). Объект живёт вместе с плеером, а сводка
- * уходит в журнал диагностики один раз при освобождении плеера, и только если видео играло или
- * перематывалось. Имён файлов и содержимого в сводке нет.
+ * уходит в журнал диагностики один раз при освобождении плеера, и только если видео начинало
+ * играть или перематывалось. Имён файлов и содержимого в сводке нет.
+ *
+ * Определения:
+ * - `ttff_ms`: от запроса воспроизведения до первого момента, когда плеер сообщил «играет».
+ *   Кадр, отрисованный на паузе до запроса, на это значение не влияет и его не теряет.
+ * - `last_seek_to_ready_ms`: от перемотки до готовности. Готовность наступает либо по переходу в READY
+ *   после буферизации, либо сразу, если перемотка применилась без смены состояния (READY не потерян).
+ * - Ребуферизация: вход в буферизацию во время воспроизведения (запрос play активен), не во время
+ *   перемотки и не до первого старта. Повторные сигналы одного и того же состояния не считаются заново.
  *
  * Время берётся по [now], поэтому логику можно проверить тестом без плеера.
  */
@@ -15,14 +23,21 @@ class VideoPlaybackMetrics(
     private val heapUsedKb: () -> Long = ::currentHeapUsedKb
 ) {
     private var playRequestedAt: Long? = null
-    private var firstFrameMs: Long? = null
-    private var heapAtFirstFrameKb: Long? = null
+    private var started = false
+    private var ttffMs: Long? = null
+    private var heapAtStartKb: Long? = null
+
     private var bufferingSince: Long? = null
+    /** Текущая буферизация засчитана как ребуферизация (нужна, чтобы не считать её дважды и не учесть не по месту). */
+    private var bufferingCounted = false
     private var rebufferCount = 0
     private var rebufferTotalMs = 0L
+
     private var seekCount = 0
+    private var seekPending = false
     private var seekSentAt: Long? = null
     private var lastSeekToReadyMs: Long? = null
+
     private val bytesRead = AtomicLong(0L)
 
     /** Пользователь (или автостарт страницы) попросил воспроизведение. От этого момента считается TTFF. */
@@ -31,42 +46,53 @@ class VideoPlaybackMetrics(
     }
 
     /**
-     * Первый кадр после запроса воспроизведения (TTFF). Кадр до запроса ничего не меняет, повторные
-     * вызовы тоже. Так страница, созданная заранее и открытая позже, не получит завышенного значения.
+     * Плеер сообщил, играет он или нет. Первое «играет» после запроса даёт TTFF. Кадр, который был
+     * готов до запроса, на TTFF не влияет: до «играет» он не нужен.
      */
-    fun onFirstFrame() {
-        if (firstFrameMs != null) return
+    fun onPlayingChanged(isPlaying: Boolean) {
+        if (!isPlaying || started) return
+        started = true
         val requested = playRequestedAt ?: return
-        firstFrameMs = now() - requested
-        heapAtFirstFrameKb = heapUsedKb()
+        ttffMs = now() - requested
+        heapAtStartKb = heapUsedKb()
     }
 
     /**
-     * Состояние буферизации из Media3 (`Player.STATE_*`). Буферизация до первого кадра — это старт,
-     * а не ребуферизация, поэтому в счётчик она не попадает.
+     * Состояние буферизации из Media3 (`Player.STATE_*`) и `playWhenReady`. Буферизация, которая
+     * пришла на паузе или до первого старта, в ребуферизации не учитывается.
      */
-    fun onBufferingChanged(buffering: Boolean) {
+    fun onPlaybackState(state: Int, playWhenReady: Boolean) {
         val t = now()
-        if (buffering) {
-            if (bufferingSince == null) bufferingSince = t
-            // Переход в буферизацию во время перемотки относится к перемотке, а не к ребуферизации.
-            if (firstFrameMs != null && seekSentAt == null) rebufferCount++
-        } else {
-            bufferingSince?.let { since ->
-                if (firstFrameMs != null && seekSentAt == null) rebufferTotalMs += t - since
-            }
-            bufferingSince = null
-            seekSentAt?.let { sent ->
-                lastSeekToReadyMs = t - sent
-                seekSentAt = null
-            }
+        if (state == BUFFERING_STATE) {
+            // Повторный сигнал буферизации ничего не меняет: вход в неё учитывается один раз.
+            if (bufferingSince != null) return
+            bufferingSince = t
+            bufferingCounted = started && !seekPending && playWhenReady
+            if (bufferingCounted) rebufferCount++
+            return
         }
+        bufferingSince?.let { since ->
+            if (bufferingCounted) rebufferTotalMs += t - since
+        }
+        bufferingSince = null
+        bufferingCounted = false
+        if (state == READY_STATE) completeSeekIfPending(t)
     }
 
-    /** Пользователь перематывает. Время до готовности считается по [onBufferingChanged]. */
+    /** Пользователь перематывает. */
     fun onSeek() {
         seekCount++
+        seekPending = true
         seekSentAt = now()
+    }
+
+    /**
+     * Перемотка применилась (`onPositionDiscontinuity` с причиной SEEK). Если плеер уже готов и
+     * буферизации нет, перемотка без смены состояния завершена сразу. Иначе ждём перехода в READY.
+     */
+    fun onSeekApplied(ready: Boolean) {
+        if (!seekPending) return
+        if (ready && bufferingSince == null) completeSeekIfPending(now())
     }
 
     /** Байты, которые источник отдал плееру. Вызывается из потока загрузки, поэтому счётчик атомарный. */
@@ -74,13 +100,12 @@ class VideoPlaybackMetrics(
         if (count > 0) bytesRead.addAndGet(count.toLong())
     }
 
-    /** Сводка пишется только для просмотров, где было воспроизведение или перемотка. Страницы без них не занимают журнал. */
-    fun hasPlayed(): Boolean = firstFrameMs != null || seekCount > 0
+    /** Сводка пишется только для просмотров, где видео начинало играть или перематывалось. */
+    fun hasPlayed(): Boolean = started || seekCount > 0
 
     /**
      * Итоговая сводка для журнала. [streaming] = true, если видео шло из растущего файла TDLib (там
-     * действует стартовый буфер), false для полностью скачанного файла (стартовый буфер не применяется).
-     * Значения без измерения пропускаются.
+     * действует стартовый буфер), false для полностью скачанного файла. Значения без измерения пропускаются.
      */
     fun summary(startBuffer: VideoStartBuffer, fileSizeBytes: Long, streaming: Boolean): Map<String, String> {
         val result = linkedMapOf(
@@ -93,10 +118,24 @@ class VideoPlaybackMetrics(
             "seek_count" to seekCount.toString(),
             "heap_used_kb_end" to heapUsedKb().toString()
         )
-        firstFrameMs?.let { result["ttff_ms"] = it.toString() }
-        heapAtFirstFrameKb?.let { result["heap_used_kb_first_frame"] = it.toString() }
+        ttffMs?.let { result["ttff_ms"] = it.toString() }
+        heapAtStartKb?.let { result["heap_used_kb_at_start"] = it.toString() }
         lastSeekToReadyMs?.let { result["last_seek_to_ready_ms"] = it.toString() }
         return result
+    }
+
+    private fun completeSeekIfPending(t: Long) {
+        if (!seekPending) return
+        seekPending = false
+        seekSentAt?.let { lastSeekToReadyMs = t - it }
+        seekSentAt = null
+    }
+
+    private companion object {
+        // Значения совпадают с Player.STATE_BUFFERING и Player.STATE_READY из Media3; константы нужны,
+        // чтобы логику можно было проверить на JVM без Media3.
+        const val BUFFERING_STATE = 2
+        const val READY_STATE = 3
     }
 }
 

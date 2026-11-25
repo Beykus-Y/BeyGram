@@ -1995,6 +1995,7 @@ private fun LocalVideo(
     DisposableEffect(player) {
         val listener = object : Player.Listener {
             override fun onIsPlayingChanged(isPlaying: Boolean) {
+                metrics.onPlayingChanged(isPlaying)
                 video = video.copy(playing = isPlaying)
                 if (isPlaying && startRequested) {
                     startRequested = false
@@ -2002,10 +2003,12 @@ private fun LocalVideo(
                 }
             }
             override fun onPlaybackStateChanged(playbackState: Int) {
-                metrics.onBufferingChanged(playbackState == Player.STATE_BUFFERING)
+                metrics.onPlaybackState(playbackState, player.playWhenReady)
                 video = video.afterPlaybackState(playbackState)
             }
-            override fun onRenderedFirstFrame() { metrics.onFirstFrame() }
+            override fun onPositionDiscontinuity(oldPosition: Player.PositionInfo, newPosition: Player.PositionInfo, reason: Int) {
+                if (reason == Player.DISCONTINUITY_REASON_SEEK) metrics.onSeekApplied(player.playbackState == Player.STATE_READY)
+            }
             override fun onPlayerError(error: PlaybackException) { video = video.afterFailure() }
         }
         player.addListener(listener)

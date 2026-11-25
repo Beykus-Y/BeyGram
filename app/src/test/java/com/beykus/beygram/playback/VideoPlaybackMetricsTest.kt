@@ -11,103 +11,171 @@ class VideoPlaybackMetricsTest {
         fun advance(ms: Long) { nowMs += ms }
     }
 
+    private val BUFFERING = 2
+    private val READY = 3
+
     private fun metrics(clock: FakeClock) = VideoPlaybackMetrics(now = { clock.nowMs }, heapUsedKb = { 4_096L })
 
-    @Test fun ttffIsMeasuredFromPlayRequestAndOnlyOnce() {
+    private fun summary(m: VideoPlaybackMetrics) = m.summary(VideoStartBuffer.DEFAULT, 1L, streaming = true)
+
+    // --- TTFF ---
+
+    @Test fun ttffIsMeasuredFromPlayRequestToPlayingAndOnlyOnce() {
         val clock = FakeClock()
         val m = metrics(clock)
-        clock.advance(500) // страница создана заранее, но play нажат позже
+        clock.advance(500) // страница создана заранее, play нажат позже
         m.onPlayRequested()
         clock.advance(320)
-        m.onFirstFrame()
+        m.onPlayingChanged(true)
         clock.advance(900)
-        m.onFirstFrame()
-        assertEquals("320", m.summary(VideoStartBuffer.MS_250, 2_000L, streaming = true)["ttff_ms"])
+        m.onPlayingChanged(false)
+        m.onPlayingChanged(true)
+        assertEquals("320", summary(m)["ttff_ms"])
     }
 
-    @Test fun firstFrameBeforePlayRequestDoesNotSetTtff() {
+    @Test fun frameRenderedBeforePlayRequestDoesNotLoseTtff() {
+        // Первый кадр готов на паузе до запроса play: раньше TTFF терялся. Теперь он считается от запроса до «играет».
         val clock = FakeClock()
         val m = metrics(clock)
-        m.onFirstFrame()
         clock.advance(200)
         m.onPlayRequested()
         clock.advance(150)
-        m.onFirstFrame()
-        assertEquals("150", m.summary(VideoStartBuffer.DEFAULT, 1L, streaming = true)["ttff_ms"])
+        m.onPlayingChanged(true)
+        assertEquals("150", summary(m)["ttff_ms"])
     }
 
-    @Test fun startupBufferingBeforeFirstFrameIsNotARebuffer() {
-        val clock = FakeClock()
-        val m = metrics(clock)
-        m.onPlayRequested()
-        m.onBufferingChanged(true)
-        clock.advance(700)
-        m.onBufferingChanged(false)
-        val summary = m.summary(VideoStartBuffer.DEFAULT, 1L, streaming = true)
-        assertEquals("0", summary["rebuffer_count"])
-        assertEquals("0", summary["rebuffer_total_ms"])
+    @Test fun playingWithoutRequestGivesNoTtffButStillCountsAsPlayed() {
+        val m = metrics(FakeClock())
+        m.onPlayingChanged(true)
+        assertNull(summary(m)["ttff_ms"])
+        assertTrue(m.hasPlayed())
     }
 
-    @Test fun rebufferAfterFirstFrameCountsCountAndDuration() {
+    @Test fun pageWithoutPlayingOrSeekIsNotReported() {
         val clock = FakeClock()
         val m = metrics(clock)
+        assertFalse(m.hasPlayed())
         m.onPlayRequested()
-        m.onFirstFrame()
-        clock.advance(100)
-        m.onBufferingChanged(true)
-        clock.advance(400)
-        m.onBufferingChanged(false)
         clock.advance(50)
-        m.onBufferingChanged(true)
-        clock.advance(250)
-        m.onBufferingChanged(false)
-        val summary = m.summary(VideoStartBuffer.MS_100, 1L, streaming = true)
-        assertEquals("2", summary["rebuffer_count"])
-        assertEquals("650", summary["rebuffer_total_ms"])
+        assertFalse(m.hasPlayed())
+        m.onPlayingChanged(true)
+        assertTrue(m.hasPlayed())
     }
 
-    @Test fun bufferingDuringSeekIsNotARebufferAndSeekLatencyIsRecorded() {
+    // --- Seek-to-ready ---
+
+    @Test fun seekWithoutStateChangeCompletesAtDiscontinuityAndDoesNotBlockLaterRebuffers() {
+        // Перемотка внутри буфера: состояние остаётся READY. Раньше seek оставался открытым навсегда,
+        // и следующая реальная ребуферизация не засчитывалась.
         val clock = FakeClock()
         val m = metrics(clock)
         m.onPlayRequested()
-        m.onFirstFrame()
+        m.onPlayingChanged(true)
+        m.onPlaybackState(READY, playWhenReady = true)
         clock.advance(500)
         m.onSeek()
-        m.onBufferingChanged(true)
-        clock.advance(180)
-        m.onBufferingChanged(false)
-        val summary = m.summary(VideoStartBuffer.DEFAULT, 1L, streaming = true)
-        assertEquals("1", summary["seek_count"])
-        assertEquals("0", summary["rebuffer_count"])
-        assertEquals("180", summary["last_seek_to_ready_ms"])
+        clock.advance(5)
+        m.onSeekApplied(ready = true)
+        assertEquals("5", summary(m)["last_seek_to_ready_ms"])
+        clock.advance(1_000)
+        m.onPlaybackState(BUFFERING, playWhenReady = true)
+        clock.advance(300)
+        m.onPlaybackState(READY, playWhenReady = true)
+        val s = summary(m)
+        assertEquals("1", s["rebuffer_count"])
+        assertEquals("300", s["rebuffer_total_ms"])
     }
 
-    @Test fun seekWithoutBufferingStillMeasuresLatency() {
+    @Test fun seekWithBufferingCompletesOnReadyNotAtDiscontinuity() {
         val clock = FakeClock()
         val m = metrics(clock)
         m.onPlayRequested()
-        m.onFirstFrame()
+        m.onPlayingChanged(true)
+        m.onPlaybackState(READY, playWhenReady = true)
+        clock.advance(100)
         m.onSeek()
-        clock.advance(60)
-        m.onBufferingChanged(false)
-        assertEquals("60", m.summary(VideoStartBuffer.DEFAULT, 1L, streaming = true)["last_seek_to_ready_ms"])
+        m.onSeekApplied(ready = false) // плеер ждёт данных
+        clock.advance(40)
+        m.onPlaybackState(BUFFERING, playWhenReady = true)
+        clock.advance(260)
+        m.onPlaybackState(READY, playWhenReady = true)
+        val s = summary(m)
+        assertEquals("300", s["last_seek_to_ready_ms"])
+        assertEquals("0", s["rebuffer_count"]) // буферизация во время перемотки не ребуферизация
     }
 
-    @Test fun pageWithoutPlaybackOrSeekIsNotReported() {
+    @Test fun seekAppliedWhileBufferingDoesNotCompleteEarly() {
         val clock = FakeClock()
         val m = metrics(clock)
-        assertFalse(m.hasPlayed())
         m.onPlayRequested()
+        m.onPlayingChanged(true)
+        m.onPlaybackState(READY, playWhenReady = true)
+        m.onSeek()
+        m.onPlaybackState(BUFFERING, playWhenReady = true)
+        m.onSeekApplied(ready = true) // READY сообщён, но буферизация ещё идёт
+        assertNull(summary(m)["last_seek_to_ready_ms"])
+    }
+
+    // --- Rebuffering ---
+
+    @Test fun startupBufferingBeforePlayingIsNotARebuffer() {
+        val clock = FakeClock()
+        val m = metrics(clock)
+        m.onPlayRequested()
+        m.onPlaybackState(BUFFERING, playWhenReady = true)
+        clock.advance(700)
+        m.onPlaybackState(READY, playWhenReady = true)
+        val s = summary(m)
+        assertEquals("0", s["rebuffer_count"])
+        assertEquals("0", s["rebuffer_total_ms"])
+    }
+
+    @Test fun rebufferCountsAndDurationWhilePlaying() {
+        val clock = FakeClock()
+        val m = metrics(clock)
+        m.onPlayRequested()
+        m.onPlayingChanged(true)
+        m.onPlaybackState(READY, playWhenReady = true)
+        clock.advance(100)
+        m.onPlaybackState(BUFFERING, playWhenReady = true)
+        clock.advance(400)
+        m.onPlaybackState(READY, playWhenReady = true)
         clock.advance(50)
-        assertFalse(m.hasPlayed())
-        m.onFirstFrame()
-        assertTrue(m.hasPlayed())
+        m.onPlaybackState(BUFFERING, playWhenReady = true)
+        clock.advance(250)
+        m.onPlaybackState(READY, playWhenReady = true)
+        val s = summary(m)
+        assertEquals("2", s["rebuffer_count"])
+        assertEquals("650", s["rebuffer_total_ms"])
     }
 
-    @Test fun seekAloneCountsAsPlayed() {
-        val m = metrics(FakeClock())
-        m.onSeek()
-        assertTrue(m.hasPlayed())
+    @Test fun repeatedBufferingSignalsCountOnce() {
+        // Раньше каждое повторное BUFFERING увеличивало счётчик.
+        val clock = FakeClock()
+        val m = metrics(clock)
+        m.onPlayRequested()
+        m.onPlayingChanged(true)
+        m.onPlaybackState(BUFFERING, playWhenReady = true)
+        m.onPlaybackState(BUFFERING, playWhenReady = true)
+        m.onPlaybackState(BUFFERING, playWhenReady = true)
+        clock.advance(200)
+        m.onPlaybackState(READY, playWhenReady = true)
+        val s = summary(m)
+        assertEquals("1", s["rebuffer_count"])
+        assertEquals("200", s["rebuffer_total_ms"])
+    }
+
+    @Test fun bufferingWhilePausedIsNotARebuffer() {
+        val clock = FakeClock()
+        val m = metrics(clock)
+        m.onPlayRequested()
+        m.onPlayingChanged(true)
+        m.onPlaybackState(READY, playWhenReady = true)
+        clock.advance(100)
+        m.onPlaybackState(BUFFERING, playWhenReady = false) // предзагрузка на паузе
+        clock.advance(300)
+        m.onPlaybackState(READY, playWhenReady = false)
+        assertEquals("0", summary(m)["rebuffer_count"])
     }
 
     @Test fun bytesReadAreAccumulatedAndNegativeCountsIgnored() {
@@ -120,14 +188,14 @@ class VideoPlaybackMetricsTest {
 
     @Test fun summaryHasConfigurationSourceAndNoUnmeasuredValues() {
         val m = metrics(FakeClock())
-        val summary = m.summary(VideoStartBuffer.MS_1000, 7_000L, streaming = true)
-        assertEquals("1000", summary["start_buffer"])
-        assertEquals("growing_file", summary["source"])
-        assertEquals("7000", summary["file_size_bytes"])
-        assertNull(summary["ttff_ms"])
-        assertNull(summary["last_seek_to_ready_ms"])
-        assertEquals("4096", summary["heap_used_kb_end"])
+        val s = m.summary(VideoStartBuffer.MS_1000, 7_000L, streaming = true)
+        assertEquals("1000", s["start_buffer"])
+        assertEquals("growing_file", s["source"])
+        assertEquals("7000", s["file_size_bytes"])
+        assertNull(s["ttff_ms"])
+        assertNull(s["last_seek_to_ready_ms"])
+        assertEquals("4096", s["heap_used_kb_end"])
         assertEquals("complete_file", m.summary(VideoStartBuffer.DEFAULT, 1L, streaming = false)["source"])
-        assertFalse(summary.keys.any { it.contains("name") || it.contains("path") })
+        assertFalse(s.keys.any { it.contains("name") || it.contains("path") })
     }
 }
