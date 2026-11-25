@@ -1053,4 +1053,7 @@
     <string name="updates_banner_text_unconfirmed">Versión %1$s: la última comprobación falló, los datos pueden estar desactualizados.</string>
     <string name="updates_banner_open">Abrir</string>
     <string name="updates_banner_later">Más tarde</string>
+    <string name="updates_group_auto_check">Comprobación automática</string>
+    <string name="updates_auto_check_title">Buscar actualizaciones automáticamente</string>
+    <string name="updates_auto_check_detail">Al iniciar, al volver a la app y aproximadamente cada 30 minutos. La comprobación manual siempre funciona.</string>
 </resources>

@@ -1053,4 +1053,7 @@
     <string name="updates_banner_text_unconfirmed">Version %1$s: Die letzte Prüfung ist fehlgeschlagen, die Angabe kann veraltet sein.</string>
     <string name="updates_banner_open">Öffnen</string>
     <string name="updates_banner_later">Später</string>
+    <string name="updates_group_auto_check">Automatische Prüfung</string>
+    <string name="updates_auto_check_title">Automatisch nach Updates suchen</string>
+    <string name="updates_auto_check_detail">Beim Start, bei der Rückkehr in die App und etwa alle 30 Minuten. Die manuelle Prüfung funktioniert immer.</string>
 </resources>

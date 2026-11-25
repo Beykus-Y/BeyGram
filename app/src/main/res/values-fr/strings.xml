@@ -1079,4 +1079,7 @@
     <string name="updates_banner_text_unconfirmed">Version %1$s : la dernière vérification a échoué, ces informations peuvent être obsolètes.</string>
     <string name="updates_banner_open">Ouvrir</string>
     <string name="updates_banner_later">Plus tard</string>
+    <string name="updates_group_auto_check">Vérification automatique</string>
+    <string name="updates_auto_check_title">Rechercher les mises à jour automatiquement</string>
+    <string name="updates_auto_check_detail">Au démarrage, au retour dans l\'app et environ toutes les 30 minutes. La vérification manuelle fonctionne toujours.</string>
 </resources>

@@ -2807,4 +2807,7 @@
     <string name="updates_banner_text_unconfirmed">Версия %1$s: последняя проверка не удалась, сведения могут быть устаревшими.</string>
     <string name="updates_banner_open">Открыть</string>
     <string name="updates_banner_later">Позже</string>
+    <string name="updates_group_auto_check">Автоматическая проверка</string>
+    <string name="updates_auto_check_title">Проверять обновления автоматически</string>
+    <string name="updates_auto_check_detail">При запуске, при возврате в приложение и примерно каждые 30 минут. Ручная проверка работает всегда.</string>
 </resources>

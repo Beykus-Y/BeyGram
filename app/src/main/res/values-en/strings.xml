@@ -1053,4 +1053,7 @@
     <string name="updates_banner_text_unconfirmed">Version %1$s: the last check failed, so this may be out of date.</string>
     <string name="updates_banner_open">Open</string>
     <string name="updates_banner_later">Later</string>
+    <string name="updates_group_auto_check">Automatic checks</string>
+    <string name="updates_auto_check_title">Check for updates automatically</string>
+    <string name="updates_auto_check_detail">On launch, on return to the app, and about every 30 minutes. Manual checks always work.</string>
 </resources>

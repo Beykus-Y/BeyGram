@@ -39,6 +39,9 @@ internal interface UpdateNoticeStorage {
     fun snoozedUntil(): Long?
     fun snoozeBanner(code: Long, until: Long)
     fun clearSnooze()
+    /** The user's switch for unattended checks. Manual checks never depend on it. */
+    fun autoCheckEnabled(): Boolean
+    fun setAutoCheckEnabled(enabled: Boolean)
 }
 
 /**
@@ -79,6 +82,16 @@ class AutomaticUpdateChecks internal constructor(
         request(UpdateCheckTrigger.Resume)
     }
 
+    /**
+     * The user's switch. Turning it off stops every unattended trigger at the gate; an already visible offer and its
+     * alert stay, because the user asked to stop checking, not to hide what was already found.
+     */
+    fun setAutoCheckEnabled(enabled: Boolean) {
+        storage.setAutoCheckEnabled(enabled)
+    }
+
+    fun isAutoCheckEnabled(): Boolean = storage.autoCheckEnabled()
+
     /** Starts the periodic ticker and the status observer once per process. Repeated calls are cheap and safe. */
     fun start() {
         if (ticker?.isActive != true) {
@@ -116,6 +129,8 @@ class AutomaticUpdateChecks internal constructor(
     }
 
     private suspend fun gateAndAttempt(trigger: UpdateCheckTrigger) {
+        // The user can switch unattended checks off; a manual check on the Updates screen stays available.
+        if (!storage.autoCheckEnabled()) return
         val now = clock()
         if (trigger == UpdateCheckTrigger.Resume) {
             if (lastForegroundRequest != 0L && now - lastForegroundRequest < RESUME_DEBOUNCE_MS) return

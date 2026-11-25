@@ -17,6 +17,7 @@ class AutomaticUpdateChecksTest {
         var notified: Long? = null
         var snoozedCode: Long? = null
         var snoozedUntil: Long? = null
+        var autoCheck = true
 
         override fun attempts() = state
         override fun recordAttempt(now: Long) {
@@ -40,6 +41,8 @@ class AutomaticUpdateChecksTest {
         override fun snoozedUntil() = snoozedUntil
         override fun snoozeBanner(code: Long, until: Long) { snoozedCode = code; snoozedUntil = until }
         override fun clearSnooze() { snoozedCode = null; snoozedUntil = null }
+        override fun autoCheckEnabled() = autoCheck
+        override fun setAutoCheckEnabled(enabled: Boolean) { autoCheck = enabled }
     }
 
     private val release = StableRelease(
@@ -158,6 +161,37 @@ class AutomaticUpdateChecksTest {
         advanceUntilIdle()
         assertEquals(1, checked)
         assertNotNull(storage.state.lastAttemptAt)
+    }
+
+    @Test
+    fun `disabled unattended checks never reach the source`() = runTest {
+        val storage = FakeStorage().apply { autoCheck = false }
+        var checked = 0
+        val subject = checks(storage, this, { 1_000L }, { checked++; AutomaticCheckOutcome.Current })
+
+        // onForeground, not onLaunch: launching would start the 30-minute ticker inside the test scheduler.
+        subject.onForeground()
+        advanceUntilIdle()
+        assertEquals(0, checked)
+        // Nothing was attempted, so nothing is counted as an attempt either.
+        assertNull(storage.state.lastAttemptAt)
+    }
+
+    @Test
+    fun `switching unattended checks back on resumes them`() = runTest {
+        val storage = FakeStorage().apply { autoCheck = false }
+        var checked = 0
+        val subject = checks(storage, this, { 1_000L }, { checked++; AutomaticCheckOutcome.Current })
+
+        subject.onForeground()
+        advanceUntilIdle()
+        assertEquals(0, checked)
+
+        subject.setAutoCheckEnabled(true)
+        assertTrue(subject.isAutoCheckEnabled())
+        subject.onForeground()
+        advanceUntilIdle()
+        assertEquals(1, checked)
     }
 
     @Test

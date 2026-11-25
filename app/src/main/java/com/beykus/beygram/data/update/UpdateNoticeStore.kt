@@ -62,6 +62,12 @@ internal class UpdateNoticeStore(context: Context) : UpdateNoticeStorage {
         remove("$KEY_SNOOZED_UNTIL:$scope")
     }
 
+    /** Unattended checks are on by default. The manual check on the Updates screen never consults this value. */
+    override fun autoCheckEnabled(): Boolean = prefs.getBoolean("$KEY_AUTO_CHECK:$scope", true)
+
+    override fun setAutoCheckEnabled(enabled: Boolean) =
+        prefs.edit().putBoolean("$KEY_AUTO_CHECK:$scope", enabled).apply()
+
     private fun edit(block: android.content.SharedPreferences.Editor.() -> Unit) {
         prefs.edit().apply(block).apply()
     }
@@ -79,6 +85,7 @@ internal class UpdateNoticeStore(context: Context) : UpdateNoticeStorage {
         private const val KEY_NOTIFIED_CHANNEL = "notifiedChannel"
         private const val KEY_SNOOZED_CODE = "snoozedVersionCode"
         private const val KEY_SNOOZED_UNTIL = "snoozedUntil"
+        private const val KEY_AUTO_CHECK = "autoCheckEnabled"
 
         /** How long "РџРѕР·Р¶Рµ" hides the banner. A different build appears immediately. */
         const val BANNER_SNOOZE_MS = 24L * 60 * 60 * 1000
