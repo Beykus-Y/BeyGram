@@ -20,8 +20,9 @@ class GlassLensRulesTest {
         assertTrue(glassLensWanted(true, GlassEdge.BottomHairline, samplesBackdrop = true, lensOnFreeEdge = true))
     }
 
-    @Test fun bottomComposerChromeNeverGetsTheLensThroughThisRule() {
-        assertFalse(glassLensWanted(true, GlassEdge.TopHairline, samplesBackdrop = true, lensOnFreeEdge = true))
+    @Test fun bottomComposerChromeGetsTheLensOnlyWhenItOptsIn() {
+        assertFalse(glassLensWanted(true, GlassEdge.TopHairline, samplesBackdrop = true, lensOnFreeEdge = false))
+        assertTrue(glassLensWanted(true, GlassEdge.TopHairline, samplesBackdrop = true, lensOnFreeEdge = true))
     }
 
     @Test fun rimLeavesEverySideClosed() {

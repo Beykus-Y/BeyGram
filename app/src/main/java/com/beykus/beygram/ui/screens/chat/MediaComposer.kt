@@ -1258,7 +1258,12 @@ internal fun AttachmentButton(state: AttachmentState, enabled: Boolean = true, e
             .semantics { contentDescription = context.getString(R.string.composer_attach_description) }
     ) {
         Box(Modifier.size(ComposerButtonSize), contentAlignment = Alignment.Center) {
-            ComposerMaterial(if (tonal) palette.accentSoft else palette.surface2, CircleShape, embedded)
+            ComposerMaterial(
+                if (tonal) palette.accentSoft else palette.surface2,
+                CircleShape,
+                embedded = embedded,
+                compactControl = true
+            )
             Icon(
                 Icons.Rounded.AttachFile,
                 contentDescription = null,
