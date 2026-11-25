@@ -13,6 +13,7 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
+import com.beykus.beygram.data.appearance.LiquidGlassLensPreset
 
 /*
  * Liquid Glass V2 (experimental): a refracting lens for one floating glass panel, written for this app from scratch.
@@ -61,6 +62,13 @@ internal val DefaultLensTuning = LensTuning()
 object LensTuningPresets {
     /** The starting point. */
     val Default = LensTuning()
+
+    /** The tuning behind a variant the user picked in the Appearance screen. */
+    fun forPreset(preset: LiquidGlassLensPreset): LensTuning = when (preset) {
+        LiquidGlassLensPreset.Standard -> Default
+        LiquidGlassLensPreset.Clear -> Clear
+        LiquidGlassLensPreset.Bold -> Bold
+    }
 
     /** Clearer glass: the least blur on the lens path and the lightest tint. */
     val Clear = LensTuning(blurScale = 0.1f, tintScale = 0.6f)

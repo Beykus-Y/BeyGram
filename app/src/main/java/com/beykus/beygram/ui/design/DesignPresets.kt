@@ -5,6 +5,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.beykus.beygram.data.appearance.DesignStyle
 import com.beykus.beygram.data.appearance.GlassQuality
+import com.beykus.beygram.data.appearance.LiquidGlassLensPreset
 
 /**
  * The original BeyGram design. Every value here reproduces what the app draws before the design system existed:
@@ -151,7 +152,11 @@ val Material3DesignSystem = DesignSystem(
  * level; lower levels keep the geometry, the tint and the light rim but skip the blur pass, so the interface stays
  * readable and cheap on weak hardware.
  */
-fun liquidGlassDesign(quality: GlassQuality, liquidGlassV2: Boolean = false): DesignSystem {
+fun liquidGlassDesign(
+    quality: GlassQuality,
+    liquidGlassV2: Boolean = false,
+    liquidGlassPreset: LiquidGlassLensPreset = LiquidGlassLensPreset.Standard
+): DesignSystem {
     val resolved = if (quality == GlassQuality.Auto) GlassQuality.High else quality
     val glass = when (resolved) {
         // Real glass: a lighter tint over a saturated blur lets the content behind the pane carry the colour, while the
@@ -170,7 +175,7 @@ fun liquidGlassDesign(quality: GlassQuality, liquidGlassV2: Boolean = false): De
             quality = GlassQuality.Lite, blurRadiusDp = 0.dp, tintAlpha = 0.96f,
             rimAlpha = 0.40f, highlightAlpha = 0.08f, shadowElevation = 2.dp
         )
-    }.copy(lensRefraction = liquidGlassV2)
+    }.copy(lensRefraction = liquidGlassV2, lensTuning = LensTuningPresets.forPreset(liquidGlassPreset))
     return DesignSystem(
         style = DesignStyle.LiquidGlass,
         shapes = DesignShapes(

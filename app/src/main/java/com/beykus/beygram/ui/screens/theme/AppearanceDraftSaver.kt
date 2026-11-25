@@ -17,6 +17,7 @@ import com.beykus.beygram.data.appearance.themePresetFromStored
 import com.beykus.beygram.data.appearance.DEFAULT_MESSAGE_TEXT_SIZE_SP
 import com.beykus.beygram.data.appearance.validBubbleCornerRadius
 import com.beykus.beygram.data.appearance.validMessageTextSize
+import com.beykus.beygram.data.appearance.liquidGlassLensPresetFromStored
 
 /**
  * Keeps the unsaved theme draft through Activity recreation. Values are written the way DataStore writes them,
@@ -47,6 +48,7 @@ internal fun encodeAppearanceDraft(draft: AppearanceConfig?): List<String> = dra
         it.glassQuality.name,
         it.navigationPlacement.name,
         it.liquidGlassV2.toString(),
+        it.liquidGlassPreset.name,
         APPEARANCE_DRAFT_VERSION.toString()
     )
 }.orEmpty()
@@ -60,16 +62,20 @@ private const val APPEARANCE_DRAFT_V4_SIZE = 17
 /** Size of the draft that also carries the Liquid Glass V2 switch, which was inserted before the version. */
 private const val APPEARANCE_DRAFT_V5_SIZE = 18
 
+/** Size of the draft that also carries the lens variant, which was inserted after the V2 switch. */
+private const val APPEARANCE_DRAFT_V6_SIZE = 19
+
 /**
  * Reads a draft written by [encodeAppearanceDraft]. Older drafts are shorter: the design style, the glass quality, the
  * bar placement and the Liquid Glass V2 switch were added at the end, so a draft saved by an earlier build still
  * restores with the defaults for the new choices (the V2 switch is off). Damaged values fall back the same way DataStore does.
  */
 internal fun decodeAppearanceDraft(parts: List<String>): AppearanceConfig? {
-    if (parts.size !in 7..APPEARANCE_DRAFT_V5_SIZE) return null
+    if (parts.size !in 7..APPEARANCE_DRAFT_V6_SIZE) return null
     val hasDesignChoices = parts.size >= APPEARANCE_DRAFT_V3_SIZE
     val hasNavigationPlacement = parts.size >= APPEARANCE_DRAFT_V4_SIZE
     val hasLiquidGlassV2 = parts.size >= APPEARANCE_DRAFT_V5_SIZE
+    val hasLiquidGlassPreset = parts.size >= APPEARANCE_DRAFT_V6_SIZE
     return AppearanceConfig(
         preset = themePresetFromStored(parts[0]),
         mode = themeModeFromStored(parts[1]),
@@ -87,10 +93,11 @@ internal fun decodeAppearanceDraft(parts: List<String>): AppearanceConfig? {
         designStyle = designStyleFromStored(parts.getOrNull(13)?.takeIf { hasDesignChoices }),
         glassQuality = glassQualityFromStored(parts.getOrNull(14)?.takeIf { hasDesignChoices }),
         liquidGlassV2 = parts.getOrNull(16)?.takeIf { hasLiquidGlassV2 }?.toBooleanStrictOrNull() ?: false,
+        liquidGlassPreset = liquidGlassLensPresetFromStored(parts.getOrNull(17)?.takeIf { hasLiquidGlassPreset }),
         navigationPlacement = navigationPlacementFromStored(
             parts.getOrNull(15)?.takeIf { hasNavigationPlacement }
         )
     )
 }
 
-private const val APPEARANCE_DRAFT_VERSION = 5
+private const val APPEARANCE_DRAFT_VERSION = 6

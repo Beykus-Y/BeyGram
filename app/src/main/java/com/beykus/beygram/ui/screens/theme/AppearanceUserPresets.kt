@@ -51,6 +51,7 @@ import com.beykus.beygram.ui.components.beyGramPalette
 import com.beykus.beygram.ui.design.styledShape
 import com.beykus.beygram.ui.theme.resolveTokens
 import org.json.JSONObject
+import com.beykus.beygram.data.appearance.liquidGlassLensPresetFromStored
 
 internal const val APPEARANCE_PRESET_SLOTS = 3
 
@@ -95,6 +96,7 @@ internal object AppearanceUserPresetStore {
         put("designStyle", config.designStyle.name)
         put("glassQuality", config.glassQuality.name)
         put("liquidGlassV2", config.liquidGlassV2)
+        put("liquidGlassPreset", config.liquidGlassPreset.name)
         put("navigationPlacement", config.navigationPlacement.name)
     }.toString()
 
@@ -117,6 +119,7 @@ internal object AppearanceUserPresetStore {
             designStyle = designStyleFromStored(o.optString("designStyle")),
             glassQuality = glassQualityFromStored(o.optString("glassQuality")),
             liquidGlassV2 = o.optBoolean("liquidGlassV2", false),
+            liquidGlassPreset = liquidGlassLensPresetFromStored(o.optString("liquidGlassPreset")),
             navigationPlacement = navigationPlacementFromStored(o.optString("navigationPlacement"))
         )
     }.getOrNull()

@@ -5,6 +5,7 @@ import com.beykus.beygram.data.appearance.BubbleStyle
 import com.beykus.beygram.data.appearance.ChatWallpaper
 import com.beykus.beygram.data.appearance.DesignStyle
 import com.beykus.beygram.data.appearance.GlassQuality
+import com.beykus.beygram.data.appearance.LiquidGlassLensPreset
 import com.beykus.beygram.data.appearance.ListDensity
 import com.beykus.beygram.data.appearance.encode
 import com.beykus.beygram.data.appearance.MessageAnimationConfig
@@ -68,7 +69,7 @@ class AppearanceDraftSaverTest {
         val draft = completeDraft()
         val restored = decodeAppearanceDraft(encodeAppearanceDraft(draft))
         assertEquals(draft, restored)
-        assertEquals(18, encodeAppearanceDraft(draft).size)
+        assertEquals(19, encodeAppearanceDraft(draft).size)
     }
 
     @Test fun liquidGlassV2SwitchSurvivesActivityRecreation() {
@@ -81,6 +82,25 @@ class AppearanceDraftSaverTest {
             encodeAppearanceDraft(completeDraft().copy(liquidGlassV2 = false))
         )
         assertEquals(false, off?.liquidGlassV2)
+    }
+
+    @Test fun liquidGlassLensPresetSurvivesActivityRecreation() {
+        for (preset in LiquidGlassLensPreset.entries) {
+            val restored = decodeAppearanceDraft(
+                encodeAppearanceDraft(completeDraft().copy(liquidGlassV2 = true, liquidGlassPreset = preset))
+            )
+            assertEquals(preset, restored?.liquidGlassPreset)
+        }
+    }
+
+    @Test fun draftSavedBeforeTheLensPresetRestoresAsStandard() {
+        // A version-5 draft: the V2 switch was stored with the lens preset not yet existing. It restores as Standard.
+        val legacy = encodeAppearanceDraft(completeDraft().copy(liquidGlassV2 = true, liquidGlassPreset = LiquidGlassLensPreset.Bold))
+            .take(17) + "5"
+        assertEquals(18, legacy.size)
+        val restored = decodeAppearanceDraft(legacy)
+        assertEquals(true, restored?.liquidGlassV2)
+        assertEquals(LiquidGlassLensPreset.Standard, restored?.liquidGlassPreset)
     }
 
     @Test fun draftSavedBeforeTheLiquidGlassV2SwitchRestoresWithItOff() {

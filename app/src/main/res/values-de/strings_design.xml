@@ -36,4 +36,8 @@
     <string name="design_style_signature_detail">BeyGrams eigene Sprache: Chat zuerst, ruhige Tiefe und eigenes Dock</string>
     <string name="appearance_style_v2_title">Liquid-Glass-V2-Linse (experimentell)</string>
     <string name="appearance_style_v2_detail">Bricht das Glas am Panelrand auf Android 13 und neuer bei voller Qualität. Standardmäßig aus; das bisherige Glas bleibt als Ersatz.</string>
+    <string name="appearance_style_lens_title">Linsenvariante</string>
+    <string name="appearance_style_lens_standard">Standard</string>
+    <string name="appearance_style_lens_clear">Klar</string>
+    <string name="appearance_style_lens_bold">Kräftig</string>
 </resources>

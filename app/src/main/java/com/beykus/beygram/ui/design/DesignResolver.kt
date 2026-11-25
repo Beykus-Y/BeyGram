@@ -87,12 +87,13 @@ private fun rememberGlassCapabilities(): GlassCapabilities {
 @Composable
 fun rememberDesign(config: AppearanceConfig): DesignSystem {
     val capabilities = rememberGlassCapabilities()
-    return remember(config.designStyle, config.glassQuality, config.navigationPlacement, config.liquidGlassV2, capabilities) {
+    return remember(config.designStyle, config.glassQuality, config.navigationPlacement, config.liquidGlassV2, config.liquidGlassPreset, capabilities) {
         designFor(
             config.designStyle,
             effectiveGlassQuality(config.glassQuality, capabilities),
             config.navigationPlacement,
-            liquidGlassV2 = config.liquidGlassV2
+            liquidGlassV2 = config.liquidGlassV2,
+            liquidGlassPreset = config.liquidGlassPreset
         )
     }
 }

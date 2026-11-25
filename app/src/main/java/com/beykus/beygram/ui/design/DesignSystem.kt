@@ -11,6 +11,7 @@ import androidx.compose.ui.unit.dp
 import com.beykus.beygram.data.appearance.DesignStyle
 import com.beykus.beygram.data.appearance.GlassQuality
 import com.beykus.beygram.data.appearance.NavigationPlacement
+import com.beykus.beygram.data.appearance.LiquidGlassLensPreset
 
 /**
  * The resolved design system of the interface in effect: one immutable set of semantic tokens produced from the
@@ -345,13 +346,14 @@ fun designFor(
     style: DesignStyle,
     glassQuality: GlassQuality = GlassQuality.Auto,
     navigationPlacement: NavigationPlacement = NavigationPlacement.Auto,
-    liquidGlassV2: Boolean = false
+    liquidGlassV2: Boolean = false,
+    liquidGlassPreset: LiquidGlassLensPreset = LiquidGlassLensPreset.Standard
 ): DesignSystem {
     val base = when (style) {
         DesignStyle.Default -> DefaultDesignSystem
         DesignStyle.Material2 -> Material2DesignSystem
         DesignStyle.Material3 -> Material3DesignSystem
-        DesignStyle.LiquidGlass -> liquidGlassDesign(resolveGlassQuality(glassQuality), liquidGlassV2)
+        DesignStyle.LiquidGlass -> liquidGlassDesign(resolveGlassQuality(glassQuality), liquidGlassV2, liquidGlassPreset)
         DesignStyle.Signature -> SignatureDesignSystem
     }
     val floating = resolveNavigationFloating(navigationPlacement, base.components.floatingNavigation)

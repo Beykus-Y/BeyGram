@@ -36,4 +36,8 @@
     <string name="design_style_signature_detail">Le langage propre de BeyGram : la discussion d\'abord, une profondeur calme et son propre dock</string>
     <string name="appearance_style_v2_title">Lentille Liquid Glass V2 (expérimentale)</string>
     <string name="appearance_style_v2_detail">Réfracte le verre le long des bords des panneaux sur Android 13 et plus récent en qualité maximale. Désactivée par défaut ; le verre actuel reste en secours.</string>
+    <string name="appearance_style_lens_title">Variante de lentille</string>
+    <string name="appearance_style_lens_standard">Standard</string>
+    <string name="appearance_style_lens_clear">Claire</string>
+    <string name="appearance_style_lens_bold">Marquée</string>
 </resources>

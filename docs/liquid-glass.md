@@ -96,5 +96,6 @@ High really blurs (text behind the dock is unreadable but coloured), then Balanc
 - `blurScale` 0.2: the lens reads the sharp layer, then the output is blurred at a fifth of the style's blur.
 - `tintScale` 0.87: the tint is lightened only while the lens is on screen, for legibility of dock labels.
 - `crossfadeMillis` 240: the lens fades in once a settled size is known. It drops out at once when the size changes, so it never draws at a stale size.
-- Presets in `LensTuningPresets`: `Default`, `Clear` (less blur, lighter tint), `Bold` (wider band, stronger bend). Switch by pointing the Liquid Glass design's `lensTuning` in DesignPresets.kt at one of them.
+- Presets in `LensTuningPresets`: `Default` (Standard), `Clear` (less blur, lighter tint), `Bold` (wider band, stronger bend).
+- The user picks one under «Оформление ▸ Liquid Glass» next to the V2 switch (API 33+, quality High or Auto). The choice is stored as `LiquidGlassLensPreset` (`liquid_glass_lens_preset`), kept in user presets and in drafts (draft version 6; older drafts restore as Standard). `DesignPresets.liquidGlassDesign` maps it through `LensTuningPresets.forPreset`.
 - Not verified on a device: legibility of labels over the lens, frame cost, and how the switch looks at the end of a size change.
