@@ -1012,6 +1012,10 @@
     <string name="rhythm_mode_dynamic">Dynamique</string>
     <string name="rhythm_needs_bgbeat_hint">BG Rhythm utilise l’analyse BG Beat. Activez BG Beat pour des effets synchronisés au rythme.</string>
     <string name="rhythm_enable_bgbeat">Activer BG Beat</string>
+    <string name="canvas_section_title">BG Canvas</string>
+    <string name="canvas_mode_off">Désactivé</string>
+    <string name="canvas_mode_card">Pochette</string>
+    <string name="canvas_mode_fullscreen">Plein écran</string>
     <string name="chat_quote_title">Citer un extrait</string>
     <string name="chat_quote_hint">Texte cité</string>
     <string name="chat_quote_action">Citer</string>
