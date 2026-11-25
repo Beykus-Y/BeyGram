@@ -441,8 +441,8 @@
     <string name="a11y_chat_muted">En sourdine</string>
     <string name="a11y_chat_info">Informations de la discussion</string>
     <string name="a11y_profile_photo_open">Ouvrir la photo de profil</string>
-    <string name="a11y_profile_photo_expand">Agrandir la photo de profil</string>
     <string name="a11y_profile_photo_expanded_state">Photo agrandie</string>
+    <string name="a11y_profile_photo_collapse">Réduire la photo</string>
     <string name="a11y_media_open">Ouvrir : %1$s</string>
     <string name="a11y_media_download">Télécharger : %1$s</string>
     <string name="a11y_voice_message">Message vocal, %1$s</string>
