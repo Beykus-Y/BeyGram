@@ -57,6 +57,47 @@ class StartupBenchmark {
         startActivityAndWait()
     }
 
+    /**
+     * Warm start: the process is alive but the Activity is not, which is what a user gets after switching away and
+     * coming back. It is a different number from cold start and must never be reported as one.
+     */
+    @Test
+    fun warmStartup() = benchmarkRule.measureRepeated(
+        packageName = packageName,
+        metrics = listOf(StartupTimingMetric()),
+        compilationMode = CompilationMode.Partial(),
+        startupMode = StartupMode.WARM,
+        iterations = ITERATIONS,
+        // WARM expects the activity to be created already: the setup opens and closes it once.
+        setupBlock = {
+            startActivityAndWait()
+            pressHome()
+            device.waitForIdle()
+        },
+    ) {
+        pressHome()
+        startActivityAndWait()
+    }
+
+    /**
+     * Hot start: the Activity is still alive in the background. Measures only bringing it to the foreground.
+     */
+    @Test
+    fun hotStartup() = benchmarkRule.measureRepeated(
+        packageName = packageName,
+        metrics = listOf(StartupTimingMetric()),
+        compilationMode = CompilationMode.Partial(),
+        startupMode = StartupMode.HOT,
+        iterations = ITERATIONS,
+        setupBlock = {
+            startActivityAndWait()
+            device.waitForIdle()
+        },
+    ) {
+        pressHome()
+        startActivityAndWait()
+    }
+
     private companion object {
         /** The issue requires at least five comparable runs per variant. */
         const val ITERATIONS = 5
