@@ -5,6 +5,7 @@ import androidx.datastore.core.DataMigration
 import androidx.datastore.core.handlers.ReplaceFileCorruptionHandler
 import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.edit
+import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.intPreferencesKey
 import androidx.datastore.preferences.core.emptyPreferences
 import androidx.datastore.preferences.core.stringPreferencesKey
@@ -33,6 +34,7 @@ private val MessageTimeColorKey = intPreferencesKey("message_time_color")
 private val MessageAnimationsKey = stringPreferencesKey("message_animations")
 private val DesignStyleKey = stringPreferencesKey("design_style")
 private val GlassQualityKey = stringPreferencesKey("glass_quality")
+private val LiquidGlassV2Key = booleanPreferencesKey("liquid_glass_v2")
 private val NavigationPlacementKey = stringPreferencesKey("navigation_placement")
 
 private val Context.appearanceDataStore by preferencesDataStore(
@@ -64,6 +66,7 @@ class AppearanceSettingsStore(context: Context) {
                 messageAnimations = messageAnimationConfigFromStored(preferences[MessageAnimationsKey]),
                 designStyle = designStyleFromStored(preferences[DesignStyleKey]),
                 glassQuality = glassQualityFromStored(preferences[GlassQualityKey]),
+                liquidGlassV2 = preferences[LiquidGlassV2Key] ?: false,
                 navigationPlacement = navigationPlacementFromStored(preferences[NavigationPlacementKey])
             )
         }
@@ -90,6 +93,7 @@ class AppearanceSettingsStore(context: Context) {
             preferences[MessageAnimationsKey] = config.messageAnimations.encode()
             preferences[DesignStyleKey] = config.designStyle.name
             preferences[GlassQualityKey] = config.glassQuality.name
+            preferences[LiquidGlassV2Key] = config.liquidGlassV2
             preferences[NavigationPlacementKey] = config.navigationPlacement.name
         }
     }

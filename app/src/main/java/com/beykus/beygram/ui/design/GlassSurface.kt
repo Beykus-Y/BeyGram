@@ -40,6 +40,7 @@ import androidx.compose.ui.graphics.layer.GraphicsLayer
 import androidx.compose.ui.graphics.layer.drawLayer
 import androidx.compose.ui.graphics.rememberGraphicsLayer
 import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.layout.positionInWindow
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.dp
@@ -150,9 +151,19 @@ fun GlassPanel(
         backdrop != null && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S
     val samplesFrosted = !samplesBackdrop && glass != null && glass.samplesFrosted && backdrop != null
     val frostLayer = rememberGraphicsLayer()
+    // Liquid Glass V2: the lens shader exists only where the style asks for it and the device has API 33+.
+    // Only the floating pane gets the lens: full-width chrome meets the screen edges, where a bevel would show as a
+    // border on the sides.
+    val lensShader = remember(glass?.lensRefraction, edge) {
+        if (glass?.lensRefraction == true && edge == GlassEdge.Rim) newLensShader() else null
+    }
+    var panelSize by remember { mutableStateOf(IntSize.Zero) }
+    val lensThicknessPx = with(density) { LensEdgeThickness.toPx() }
+    val lensMaxRadiusPx = with(density) { LensMaxCornerRadius.toPx() }
     Box(
         modifier
             .onGloballyPositioned { originInWindow = it.positionInWindow() }
+            .then(if (lensShader != null) Modifier.onSizeChanged { panelSize = it } else Modifier)
             .clip(shape)
     ) {
         if (samplesFrosted) {
@@ -193,9 +204,23 @@ fun GlassPanel(
             // The opaque floor of the sampled pane: a list without its own background records transparent gaps, and
             // those must show this colour, not the sharp content drawn underneath.
             val base = if (backdropBase != Color.Unspecified) backdropBase else tint.copy(alpha = 1f)
+            val lens = lensShader
+            val surfaceEffect = if (lens != null) {
+                Modifier.graphicsLayerWithLens(
+                    shader = lens,
+                    sizePx = panelSize,
+                    thicknessPx = lensThicknessPx,
+                    maxRadiusPx = lensMaxRadiusPx,
+                    blurPx = blurPx,
+                    shape = shape,
+                    darkSurface = tint.luminance() < 0.5f
+                )
+            } else {
+                Modifier.graphicsLayerWithBlur(blurPx, shape, darkSurface = tint.luminance() < 0.5f)
+            }
             Box(
                 Modifier.matchParentSize()
-                    .graphicsLayerWithBlur(blurPx, shape, darkSurface = tint.luminance() < 0.5f)
+                    .then(surfaceEffect)
                     .drawBehind {
                         drawRect(base)
                         val sampled = backdrop
@@ -244,7 +269,7 @@ fun GlassPanel(
 }
 
 /** Render-effect wrapper, kept separate so an unsupported API level simply draws nothing instead of failing. */
-private fun Modifier.graphicsLayerWithBlur(radiusPx: Float, shape: Shape, darkSurface: Boolean): Modifier =
+internal fun Modifier.graphicsLayerWithBlur(radiusPx: Float, shape: Shape, darkSurface: Boolean): Modifier =
     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
         graphicsLayer {
             clip = true
@@ -333,7 +358,7 @@ fun Modifier.glassSheet(design: DesignSystem, fill: Color, rim: Color): Modifier
  * one pulled towards white, so a bright photo or avatar behind the pane can never push labels below readable contrast
  * while the tint stays light and the colours stay alive.
  */
-private fun vibrancyMatrix(darkSurface: Boolean): ColorMatrix {
+internal fun vibrancyMatrix(darkSurface: Boolean): ColorMatrix {
     val matrix = ColorMatrix().apply { setSaturation(GlassSampleSaturation) }
     val k = GlassSampleLuminanceScale
     val offset = if (darkSurface) 0f else 255f * (1f - k)
