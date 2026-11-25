@@ -969,6 +969,8 @@
     <string name="settings_experiments_group_profile">Profil</string>
     <string name="settings_profile_scene_title">Profil 2.0 : scène adaptative (bêta)</string>
     <string name="settings_profile_scene_desc">Aperçu expérimental du profil avec une scène en couches. Désactivé par défaut ; le désactiver rétablit le profil standard.</string>
+    <string name="settings_profile_cover_title">Couverture expressive</string>
+    <string name="settings_profile_cover_desc">Plus de couleur et de profondeur dans le profil</string>
     <string name="lyrics_show">Afficher les paroles</string>
     <string name="lyrics_hide">Masquer les paroles</string>
     <string name="lyrics_none_for_track">Il n’y a pas de paroles pour ce titre</string>

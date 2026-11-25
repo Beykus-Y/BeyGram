@@ -2683,6 +2683,8 @@
     <string name="settings_experiments_group_profile">Профиль</string>
     <string name="settings_profile_scene_title">Профиль 2.0: адаптивная сцена (бета)</string>
     <string name="settings_profile_scene_desc">Экспериментальный вид профиля с многослойной сценой. Выключено по умолчанию; выключение возвращает стандартный профиль.</string>
+    <string name="settings_profile_cover_title">Выразительная обложка</string>
+    <string name="settings_profile_cover_desc">Больше цвета и глубины в сцене профиля</string>
     <string name="lyrics_show">Показать текст</string>
     <string name="lyrics_hide">Скрыть текст</string>
     <string name="lyrics_none_for_track">Для этого трека нет текста</string>

@@ -54,6 +54,36 @@ object ReportPrivacy {
         return result
     }
 
+    /**
+     * Доверенные числовые метрики: значения этих ключей сохраняются как есть, если это чистое число.
+     * Список закрытый и проверяется **только по ключу структурированного атрибута**, а не по подстроке в тексте:
+     * свободный текст всегда проходит полную редакцию через [redact], поэтому длинный номер в сообщении остаётся
+     * скрытым, даже если рядом стоит похожее имя поля.
+     */
+    private val numericDiagnosticKeys = setOf(
+        "attempt", "bytes_read", "count", "download_ms", "download_offset", "duration_ms", "duration_s",
+        "duration_sec", "elapsed_ms", "file_size_bytes", "first_read_ms", "first_ready_ms", "frames",
+        "heap_used_kb_at_start", "heap_used_kb_end", "kbps", "link_ms", "moov_bytes", "offsets_ms",
+        "playing_ms", "prefix_bytes", "rate", "rebuffer_count", "rebuffer_total_ms", "seek_count",
+        "size_bytes", "size_kb", "total_bytes", "total_ms", "tries", "underruns", "unlock_ms", "waited_s",
+    )
+    private val pureNumber = Regex("-?[0-9]{1,18}")
+
+    /**
+     * Подготовка значения структурированного атрибута, где ключ известен.
+     *
+     * Для доверенного числового ключа чистое число сохраняется: это метрика (размер, смещение, счётчик, тайминг), а не
+     * персональные данные. Во всех остальных случаях применяется обычная строгая редакция [sanitize], поэтому
+     * произвольный текст, ссылки, адреса и номера телефонов скрываются как раньше.
+     */
+    fun sanitizeAttribute(key: String, value: String, maxChars: Int): String {
+        val cleaned = stripControls(value).trim()
+        if (key.lowercase() in numericDiagnosticKeys && pureNumber.matches(cleaned)) {
+            return if (cleaned.length <= maxChars) cleaned else cleaned.substring(0, maxChars)
+        }
+        return sanitize(value, maxChars)
+    }
+
     /** Убирает управляющие символы, кроме \n и \t, как ожидает сервер (`_strip_controls`). */
     fun stripControls(value: String): String =
         buildString(value.length) {

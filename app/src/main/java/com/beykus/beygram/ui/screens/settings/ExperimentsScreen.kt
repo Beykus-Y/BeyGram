@@ -60,6 +60,7 @@ fun ExperimentsScreen(onBack: () -> Unit, onMusicAccount: () -> Unit = {}) {
     remember(context) { TrackTransitionSettings.load(context) }
     remember(context) { ProfileSceneSettings.load(context) }
     val profileScene by ProfileSceneSettings.enabled.collectAsStateWithLifecycle()
+    val expressiveProfileCover by ProfileSceneSettings.expressiveCover.collectAsStateWithLifecycle()
     val skipSilence by TrackTransitionSettings.skipSilence.collectAsStateWithLifecycle()
     val crossfade by TrackTransitionSettings.crossfade.collectAsStateWithLifecycle()
     Column(Modifier.fillMaxSize().glassScreenBackground(design, palette.screen).windowInsetsPadding(WindowInsets.safeDrawing)) {
@@ -116,6 +117,16 @@ fun ExperimentsScreen(onBack: () -> Unit, onMusicAccount: () -> Unit = {}) {
                     checked = profileScene,
                     onCheckedChange = { ProfileSceneSettings.setEnabled(context, it) }
                 )
+                if (profileScene) {
+                    SettingsRowDivider()
+                    SettingsToggle(
+                        icon = Icons.Rounded.Person,
+                        title = stringResource(R.string.settings_profile_cover_title),
+                        subtitle = stringResource(R.string.settings_profile_cover_desc),
+                        checked = expressiveProfileCover,
+                        onCheckedChange = { ProfileSceneSettings.setExpressiveCover(context, it) }
+                    )
+                }
             }
             SettingsGroup(stringResource(R.string.settings_experiments_group_transitions)) {
                 SettingsToggle(
