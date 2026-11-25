@@ -1001,6 +1001,11 @@
     <string name="audio_details_channels_stereo">Stereo</string>
     <string name="audio_details_channels_multi">%1$d Kan.</string>
     <string name="audio_details_streaming">Streaming — technische Details erscheinen nach dem Laden der Datei</string>
+    <string name="queue_search_action">Warteschlange durchsuchen</string>
+    <string name="queue_search_hint">Titel oder Künstler suchen</string>
+    <string name="queue_search_clear">Suche löschen</string>
+    <string name="queue_search_empty">Keine passenden Titel in der Warteschlange</string>
+    <string name="queue_jump_to_current">Zum aktuellen Titel</string>
     <string name="chat_quote_title">Abschnitt zitieren</string>
     <string name="chat_quote_hint">Zitierter Text</string>
     <string name="chat_quote_action">Zitieren</string>

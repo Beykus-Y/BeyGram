@@ -2741,6 +2741,11 @@
     <string name="audio_details_channels_stereo">Стерео</string>
     <string name="audio_details_channels_multi">%1$d к.</string>
     <string name="audio_details_streaming">Потоковое воспроизведение — технические детали появятся после загрузки файла</string>
+    <string name="queue_search_action">Поиск в очереди</string>
+    <string name="queue_search_hint">Найти трек или исполнителя</string>
+    <string name="queue_search_clear">Очистить поиск</string>
+    <string name="queue_search_empty">В очереди ничего не найдено</string>
+    <string name="queue_jump_to_current">К текущему</string>
     <string name="chat_quote_title">Цитировать фрагмент</string>
     <string name="chat_quote_hint">Текст цитаты</string>
     <string name="chat_quote_action">Цитировать</string>
