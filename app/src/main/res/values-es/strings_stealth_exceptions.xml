@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="stealth_exceptions_title">Excepciones de chats</string>
+    <string name="stealth_exceptions_inheritance">Los chats sin excepción heredan los ajustes de la cuenta. Las excepciones afectan a la lectura, la apertura de archivos, la escritura y las vistas de historias. La presencia, los avisos y la programación se aplican a toda la cuenta.</string>
+    <string name="stealth_exceptions_results">%1$d de %2$d visibles</string>
+    <string name="stealth_exceptions_empty">No hay excepciones que coincidan</string>
+    <string name="stealth_exceptions_unknown_chat">Chat · %1$d</string>
+    <string name="stealth_exceptions_reset">Restablecer todas las excepciones</string>
+    <string name="stealth_exceptions_all">Todos</string>
+    <string name="stealth_exceptions_allow">Permitidos</string>
+    <string name="stealth_exceptions_block">Bloqueados</string>
+    <string name="stealth_exceptions_private">Privados</string>
+</resources>

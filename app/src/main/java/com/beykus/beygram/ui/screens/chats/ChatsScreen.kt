@@ -1117,6 +1117,7 @@ fun ChatsScreen(
                   backdropBase = palette.screen,
                   shape = RectangleShape,
                   edge = GlassEdge.BottomHairline,
+                  lensOnFreeEdge = true,
                   // The pane is hit-tested as a whole: a tap on the title or a gap must not reach a chat row
                   // scrolled underneath. Its own buttons and the search field still receive input first.
                   modifier = Modifier.fillMaxWidth().onSizeChanged {
