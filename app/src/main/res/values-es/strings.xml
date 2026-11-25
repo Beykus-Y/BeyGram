@@ -440,6 +440,7 @@
     <string name="a11y_chat_info">Información del chat</string>
     <string name="a11y_profile_photo_open">Abrir foto de perfil</string>
     <string name="a11y_profile_photo_expanded_state">Foto ampliada</string>
+    <string name="a11y_profile_photo_collapse">Contraer foto</string>
     <string name="a11y_media_open">Abrir: %1$s</string>
     <string name="a11y_media_download">Descargar: %1$s</string>
     <string name="a11y_voice_message">Mensaje de voz, %1$s</string>

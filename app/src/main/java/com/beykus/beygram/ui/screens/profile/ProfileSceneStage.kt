@@ -7,7 +7,7 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.layout.Layout
-import androidx.compose.ui.layout.boundsInWindow
+import androidx.compose.ui.layout.positionInWindow
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.Constraints
@@ -31,6 +31,8 @@ internal class ProfileSceneHeights {
     var stageHeightPx by mutableIntStateOf(0)
     /** Window y of the stage top at scroll 0 (the window top plus the current scroll). */
     var stageTopPx by mutableIntStateOf(0)
+    var stageLeftPx by mutableIntStateOf(0)
+    var stageWidthPx by mutableIntStateOf(0)
     var titleHeightPx by mutableIntStateOf(0)
     var statusHeightPx by mutableIntStateOf(0)
     var badgesHeightPx by mutableIntStateOf(0)
@@ -63,7 +65,10 @@ internal fun ProfileSceneStage(
     Layout(
         content = content,
         modifier = modifier.onGloballyPositioned { coordinates ->
-            heights.stageTopPx = (coordinates.boundsInWindow().top + scrollPx()).roundToInt()
+            val origin = coordinates.positionInWindow()
+            heights.stageTopPx = (origin.y + scrollPx()).roundToInt()
+            heights.stageLeftPx = origin.x.roundToInt()
+            heights.stageWidthPx = coordinates.size.width
         },
     ) { measurables, constraints ->
         // The stage sits inside the identity column, which already has the 20 dp side padding: no margin here.

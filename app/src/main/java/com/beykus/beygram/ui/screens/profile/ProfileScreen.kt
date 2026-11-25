@@ -9,6 +9,8 @@ import com.beykus.beygram.ui.design.styledShape
 import com.beykus.beygram.ui.design.glassCard
 import com.beykus.beygram.ui.design.glassScreenBackground
 import androidx.activity.compose.BackHandler
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.tween
 import androidx.activity.compose.PredictiveBackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
@@ -90,7 +92,10 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.CustomAccessibilityAction
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.customActions
+import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.heading
@@ -201,8 +206,6 @@ fun ProfileScreen(
             }
         }
     }
-    // Profile 2.0 C1: while a photo is revealed, Back folds it first. Registered after the handlers above so it
-    // takes priority, and disabled otherwise so Back keeps its usual behaviour (including after a rotation).
     val groupInfo = state.info?.takeIf { it.kind == ProfileKind.Group }
     if (pendingPhoto == null && groupInfo != null) GroupProfileScreen(
         info = groupInfo, state = state, lastSeenStyle = lastSeenStyle, observeFile = observeFile, downloadFile = downloadFile,
@@ -225,36 +228,92 @@ fun ProfileScreen(
         val sceneDensity = LocalDensity.current.density
         val sceneWindow = LocalWindowInfo.current.containerSize
         val sceneReduceMotion = rememberSystemReducedMotion()
-        // Variant A keeps the scroll-offset fraction. C takes the scene model's collapse once the stage is measured
-        // and the compact toolbar geometry is known; before that it stays at rest, so nothing jumps on the first frame.
-        val collapse = remember(sceneC, sceneDensity, sceneWindow, sceneReduceMotion, state.info?.id) {
+        val scenePhoto = state.info?.photo
+        var photoExpanded by rememberSaveable(state.info?.id, sceneC) { mutableStateOf(false) }
+        val reveal = remember(state.info?.id, sceneC) { Animatable(if (photoExpanded) 1f else 0f) }
+        val sceneFrame by remember(sceneC, sceneDensity, sceneWindow, scenePhoto, state.info?.id) {
             derivedStateOf {
-                if (!sceneC) {
-                    com.beykus.beygram.ui.motion.collapseFractionForScroll(scrollState.value, identityHeightPx)
+                val compactAvatar = collapseGeometry.compactAvatar
+                val compactTitle = collapseGeometry.compactTitle
+                if (!sceneC || !sceneHeights.measured || compactAvatar == null || compactTitle == null) {
+                    null
                 } else {
-                    val compactA = collapseGeometry.compactAvatar
-                    val compactT = collapseGeometry.compactTitle
-                    val compactS = collapseGeometry.compactStatus
-                    if (!sceneHeights.measured || compactA == null || compactT == null || compactS == null) 0f
-                    else profileSceneFrame(
-                        profileSceneScreenInputs(
-                            density = sceneDensity,
-                            windowWidthPx = sceneWindow.width.toFloat(),
-                            windowHeightPx = sceneWindow.height.toFloat(),
-                            scrollPx = scrollState.value.toFloat(),
-                            stageTopPx = sceneHeights.stageTopPx.toFloat(),
-                            toolbarBottomPx = sceneHeights.toolbarBottomPx.toFloat(),
-                            titleHeightPx = sceneHeights.titleHeightPx.toFloat(),
-                            statusHeightPx = sceneHeights.statusHeightPx.toFloat(),
-                            badgesHeightPx = sceneHeights.badgesHeightPx.toFloat(),
-                            hasPhoto = state.info?.photo != null,
-                            reduceMotion = sceneReduceMotion,
-                            compactAvatar = compactA.toSceneRect(),
-                            compactTitle = compactT.toSceneRect(),
-                            compactStatus = compactS.toSceneRect(),
-                        )
-                    ).collapse
+                    val compactStatus = collapseGeometry.compactStatus ?: Rect(
+                        compactTitle.left, compactTitle.bottom, compactTitle.left, compactTitle.bottom
+                    )
+                    val inputs = profileSceneScreenInputs(
+                        density = sceneDensity,
+                        windowWidthPx = sceneWindow.width.toFloat(),
+                        windowHeightPx = sceneHeights.viewportHeightPx.toFloat(),
+                        scrollPx = scrollState.value.toFloat(),
+                        stageTopPx = sceneHeights.stageTopPx.toFloat(),
+                        toolbarBottomPx = sceneHeights.toolbarBottomPx.toFloat(),
+                        titleHeightPx = sceneHeights.titleHeightPx.toFloat(),
+                        statusHeightPx = sceneHeights.statusHeightPx.toFloat(),
+                        badgesHeightPx = sceneHeights.badgesHeightPx.toFloat(),
+                        hasPhoto = scenePhoto != null,
+                        reduceMotion = true,
+                        compactAvatar = compactAvatar.toSceneRect(),
+                        compactTitle = compactTitle.toSceneRect(),
+                        compactStatus = compactStatus.toSceneRect(),
+                        revealFraction = reveal.value
+                    )
+                    profileSceneFrame(inputs.copy(
+                        contentLeftPx = sceneHeights.stageLeftPx.toFloat(),
+                        contentRightPx = (sceneHeights.stageLeftPx + sceneHeights.stageWidthPx).toFloat(),
+                        overscale = 1f
+                    ))
                 }
+            }
+        }
+        val collapse = remember(sceneC, state.info?.id, sceneDensity, sceneWindow, scenePhoto) {
+            derivedStateOf {
+                if (sceneC) sceneFrame?.collapse ?: 0f
+                else com.beykus.beygram.ui.motion.collapseFractionForScroll(scrollState.value, identityHeightPx)
+            }
+        }
+        val revealAvailable by remember(sceneC, state.info?.id, sceneDensity, sceneWindow, scenePhoto) {
+            derivedStateOf { sceneFrame?.revealEnabled == true }
+        }
+        val revealActive by remember(reveal) { derivedStateOf { reveal.value > 0f || photoExpanded } }
+        var foldingPhoto by remember(reveal) { mutableStateOf(false) }
+        suspend fun animateReveal(target: Float) {
+            if (sceneReduceMotion) reveal.snapTo(target)
+            else reveal.animateTo(target, tween(250))
+        }
+        fun closeProfilePhoto() {
+            if (foldingPhoto) return
+            foldingPhoto = true
+            scope.launch {
+                try {
+                    if (scrollState.value > 0) {
+                        if (sceneReduceMotion) scrollState.scrollTo(0)
+                        else scrollState.animateScrollTo(0, tween(220))
+                    }
+                    animateReveal(0f)
+                    photoExpanded = false
+                } finally {
+                    foldingPhoto = false
+                }
+            }
+        }
+        LaunchedEffect(revealAvailable, sceneHeights.measured) {
+            if (sceneC && sceneHeights.measured && sceneFrame != null && !revealAvailable) {
+                photoExpanded = false
+                reveal.snapTo(0f)
+            }
+        }
+        PredictiveBackHandler(enabled = sceneC && revealActive && !showPhoto) { progress ->
+            val start = reveal.value
+            try {
+                progress.collect { event ->
+                    if (!foldingPhoto && !sceneReduceMotion && scrollState.value == 0) {
+                        reveal.snapTo(start * (1f - event.progress.coerceIn(0f, 1f)))
+                    }
+                }
+                closeProfilePhoto()
+            } catch (_: CancellationException) {
+                if (!foldingPhoto && photoExpanded) scope.launch { animateReveal(1f) }
             }
         }
         val transitionTarget = profileTransition
@@ -271,19 +330,33 @@ fun ProfileScreen(
                 .distinctUntilChanged()
                 .collect { transitionTarget.reportCollapsed(it) }
         }
+        LaunchedEffect(sceneC, transitionTarget, transitionFingerprint) {
+            if (!sceneC || transitionTarget == null || transitionFingerprint == null) return@LaunchedEffect
+            snapshotFlow { sceneFrame?.avatarRect }.distinctUntilChanged().collect { rect ->
+                if (rect != null) transitionTarget.reportAvatar(
+                    Rect(rect.left, rect.top, rect.right, rect.bottom), transitionFingerprint
+                )
+            }
+        }
         val compactTitle = state.info?.profileTitleText()
         val compactStatus = state.info?.let { info -> info.profileSubtitleLine(lastSeenStyle) }
         Box(Modifier.fillMaxSize().glassScreenBackground(design, palette.screen).windowInsetsPadding(WindowInsets.safeDrawing)) {
         Column(Modifier.fillMaxSize()) {
         ProfileToolbar(
             if (isOwnProfile) stringResource(R.string.profile_title_own) else stringResource(R.string.profile_title_chat),
-            { if (!saving && !preparing) profileTransition?.back() ?: onBack() },
+            {
+                if (!saving && !preparing) {
+                    if (sceneC && revealActive) closeProfilePhoto()
+                    else profileTransition?.back() ?: onBack()
+                }
+            },
             collapse = if (state.info != null) collapse else null,
             compactTitle = compactTitle,
             compactStatus = compactStatus,
             compactAvatar = state.info?.let { info ->
                 {
-                    TelegramAvatar(info.initials, palette.accent, 40.dp, info.photo, observeFile, downloadFile,
+                    if (sceneC) Spacer(Modifier.size(40.dp))
+                    else TelegramAvatar(info.initials, palette.accent, 40.dp, info.photo, observeFile, downloadFile,
                         Modifier.clearAndSetSemantics {})
                 }
             },
@@ -304,6 +377,41 @@ fun ProfileScreen(
                 Column(Modifier.fillMaxWidth().padding(start = 20.dp, end = 20.dp, top = 12.dp, bottom = 16.dp), horizontalAlignment = Alignment.CenterHorizontally) {
                     val avatarAtRest by remember { derivedStateOf { collapse.value <= 0f } }
                     val avatarSlot: @Composable () -> Unit = {
+                    if (sceneC) {
+                        val expandedLabel = stringResource(R.string.a11y_profile_photo_expanded_state)
+                        val closeLabel = stringResource(R.string.a11y_profile_photo_collapse)
+                        Box(
+                            (if (info.photo != null && avatarAtRest && profileTransition?.flightActive() != true) {
+                                Modifier.clickable(role = Role.Button) {
+                                    if (!reveal.isRunning && !foldingPhoto) {
+                                        if (revealAvailable && !photoExpanded && scrollState.value == 0) {
+                                            photoExpanded = true
+                                            scope.launch { animateReveal(1f) }
+                                        } else {
+                                            showPhoto = true
+                                        }
+                                    }
+                                }.semantics {
+                                    contentDescription = context.getString(R.string.a11y_profile_photo_open)
+                                    if (photoExpanded) {
+                                        stateDescription = expandedLabel
+                                        customActions = listOf(CustomAccessibilityAction(closeLabel) {
+                                            closeProfilePhoto()
+                                            true
+                                        })
+                                    }
+                                }
+                            } else Modifier).onGloballyPositioned { coordinates ->
+                                val origin = coordinates.positionInWindow()
+                                collapseGeometry.expandedAvatarAtZero = Rect(
+                                    origin.x,
+                                    origin.y + scrollState.value,
+                                    origin.x + coordinates.size.width,
+                                    origin.y + scrollState.value + coordinates.size.height
+                                )
+                            }
+                        )
+                    } else {
                     // Only an avatar with a photo is a control; without one there is nothing to open and nothing to announce.
                     // While a flight or mid-scroll collapse carries the avatar it is invisible, so it must not be tappable either.
                     Box(
@@ -332,6 +440,7 @@ fun ProfileScreen(
                     ) {
                         TelegramAvatar(info.initials, palette.accent, 112.dp, info.photo, observeFile, downloadFile,
                             Modifier.clearAndSetSemantics {})
+                    }
                     }
                     }
                     val titleSlot: @Composable () -> Unit = {
@@ -388,7 +497,7 @@ fun ProfileScreen(
                             heights = sceneHeights,
                             scrollPx = { scrollState.value.toFloat() },
                             hasPhoto = info.photo != null,
-                            reveal = { 0f },
+                            reveal = { reveal.value },
                             modifier = Modifier.fillMaxWidth()
                         ) {
                             avatarSlot(); titleSlot(); statusSlot(); badgesSlot()
@@ -550,7 +659,10 @@ fun ProfileScreen(
                 Column(Modifier.fillMaxWidth().verticalScroll(scrollState).padding(bottom = 28.dp)) {
                     // The content is at least the viewport plus the stage travel, so short profiles can still reach full collapse.
                     Column(Modifier.fillMaxWidth().heightIn(min = with(LocalDensity.current) {
-                        profileSceneMinContentHeightPx(sceneHeights.viewportHeightPx.toFloat(), sceneHeights.stageHeightPx.toFloat()).toDp()
+                        profileSceneMinContentHeightPx(
+                            sceneHeights.viewportHeightPx.toFloat(),
+                            (sceneHeights.stageHeightPx + sceneHeights.stageTopPx - sceneHeights.toolbarBottomPx).toFloat()
+                        ).toDp()
                     })) {
                         scrollBody()
                     }
@@ -564,7 +676,25 @@ fun ProfileScreen(
 
         }
         state.info?.let { info ->
-            if (collapsingOverlayActive(collapse.value) && collapseGeometry.overlayReady &&
+            if (sceneC) {
+                ProfileSceneAvatarLayer(
+                    initials = info.initials,
+                    color = palette.accent,
+                    photo = info.photo,
+                    frame = { sceneFrame },
+                    reveal = { if (revealAvailable) reveal.value else 0f },
+                    visibility = {
+                        if (profileTransition?.flightActive() == true) 0f
+                        else profileTransition?.headerVisibility() ?: 1f
+                    },
+                    loadLargePhoto = revealActive && revealAvailable,
+                    observeFile = observeFile,
+                    downloadFile = downloadFile,
+                    modifier = Modifier.matchParentSize()
+                )
+            }
+            val overlayActive by remember(collapse) { derivedStateOf { collapsingOverlayActive(collapse.value) } }
+            if (overlayActive && collapseGeometry.overlayReady &&
                 (profileTransition == null || !profileTransition.flightActive())
             ) {
                 ProfileCollapsingOverlay(
@@ -572,10 +702,11 @@ fun ProfileScreen(
                     geometry = collapseGeometry,
                     title = info.profileTitleText(),
                     status = compactStatus.orEmpty(),
-                    avatar = {
+                    singleTitle = sceneC,
+                    avatar = if (sceneC) null else ({
                         TelegramAvatar(info.initials, palette.accent, 112.dp, info.photo, observeFile, downloadFile,
                             Modifier.clearAndSetSemantics {})
-                    }
+                    })
                 )
             }
         }
@@ -909,7 +1040,8 @@ internal fun ProfileCollapsingOverlay(
     geometry: ProfileCollapseGeometry,
     title: String,
     status: String,
-    avatar: @Composable () -> Unit
+    singleTitle: Boolean = false,
+    avatar: (@Composable () -> Unit)?
 ) {
     val palette = beyGramPalette()
     val density = LocalDensity.current
@@ -926,7 +1058,7 @@ internal fun ProfileCollapsingOverlay(
             .onGloballyPositioned { overlayOrigin = it.positionInWindow() }
             .clearAndSetSemantics {}
     ) {
-        if (expandedAvatar != null && compactAvatar != null) {
+        if (avatar != null && expandedAvatar != null && compactAvatar != null) {
             val avatarLayoutPx = with(density) { 112.dp.toPx() }
             Box(
                 Modifier
@@ -944,7 +1076,7 @@ internal fun ProfileCollapsingOverlay(
             }
         }
         if (expandedTitle != null && compactTitle != null && title.isNotBlank()) {
-            val crossfade = collapsingTextCrossfade(collapse)
+            val crossfade = if (singleTitle) 0f else collapsingTextCrossfade(collapse)
             val expandedWidthDp = with(density) { expandedTitle.width.toDp() }
             val compactWidthDp = with(density) { compactTitle.width.toDp() }
             if (crossfade < 1f) {
@@ -991,7 +1123,10 @@ internal fun ProfileCollapsingOverlay(
             }
         }
         if (expandedStatus != null && compactStatus != null && status.isNotBlank()) {
-            val compactWidthDp = with(density) { compactStatus.width.toDp() }
+            val statusWidthDp = with(density) {
+                if (singleTitle) maxOf(expandedStatus.width, compactStatus.width * (14f / 13f)).toDp()
+                else compactStatus.width.toDp() * (14f / 13f)
+            }
             Text(
                 text = status,
                 color = palette.textSecondary,
@@ -999,7 +1134,7 @@ internal fun ProfileCollapsingOverlay(
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
                 modifier = Modifier
-                    .widthIn(max = compactWidthDp * (14f / 13f))
+                    .widthIn(max = statusWidthDp)
                     .graphicsLayer {
                         val scale = 1f + (13f / 14f - 1f) * collapse
                         translationX = expandedStatus.left + (compactStatus.left - expandedStatus.left) * collapse - overlayOrigin.x
