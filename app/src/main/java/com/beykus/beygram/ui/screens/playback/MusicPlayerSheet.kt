@@ -1580,6 +1580,7 @@ internal fun resolvePlayerActionKinds(
         }
         else -> {
             add(PlayerActionKind.AddToPlaylist)
+            if (lyricsEnabled) add(PlayerActionKind.Lyrics)
         }
     }
     add(PlayerActionKind.Queue)
@@ -1631,7 +1632,7 @@ private fun PlayerActions(
     val kinds = resolvePlayerActionKinds(
         isProviderTrack = isProviderKey,
         isEndlessRadio = isEndlessRadio,
-        lyricsEnabled = YANDEX_LYRICS_ENABLED
+        lyricsEnabled = if (isProviderKey) YANDEX_LYRICS_ENABLED else (item.isMusic && !item.systemPrivate)
     )
     val actions = kinds.map { kind ->
         when (kind) {
