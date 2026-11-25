@@ -51,4 +51,12 @@
         <item quantity="one">Gesprächspartner in %1$d Chat sehen, dass die Nachrichten gelesen wurden.</item>
         <item quantity="other">Gesprächspartner in %1$d Chats sehen, dass die Nachrichten gelesen wurden.</item>
     </plurals>
+
+    <string name="stealth_client_state">Client-Einstellungen</string>
+    <string name="stealth_group_reading">Lesen und Ansehen</string>
+    <string name="stealth_group_activity">Online-Status und Aktionen</string>
+    <string name="stealth_active_parameters">Aktive Einstellungen</string>
+    <string name="stealth_no_active_parameters">Standardverhalten der App</string>
+    <string name="stealth_server_visibility_unknown">Die Sichtbarkeit deiner Aktivitäten in Telegram ist unbekannt.</string>
+    <string name="stealth_quick_presets">Modus schnell auswählen</string>
 </resources>

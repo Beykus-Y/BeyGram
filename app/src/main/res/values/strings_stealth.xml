@@ -53,4 +53,12 @@
         <item quantity="many">Собеседники в %1$d чатах увидят, что сообщения прочитаны.</item>
         <item quantity="other">Собеседники в %1$d чатах увидят, что сообщения прочитаны.</item>
     </plurals>
+
+    <string name="stealth_client_state">Настройки клиента</string>
+    <string name="stealth_group_reading">Чтение и просмотр</string>
+    <string name="stealth_group_activity">Присутствие и действия</string>
+    <string name="stealth_active_parameters">Активные параметры</string>
+    <string name="stealth_no_active_parameters">Обычные правила клиента</string>
+    <string name="stealth_server_visibility_unknown">Видимость активности в Telegram неизвестна.</string>
+    <string name="stealth_quick_presets">Быстрый выбор режима</string>
 </resources>
