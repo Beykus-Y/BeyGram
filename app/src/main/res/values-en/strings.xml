@@ -1079,4 +1079,17 @@
     <string name="diag_video_buffer_title">Video start buffer</string>
     <string name="diag_video_buffer_value_default">Media3 default</string>
     <string name="diag_video_buffer_value_ms">%1$d ms</string>
+    <!-- Автопроверка обновлений (#1148): канал уведомлений и плашка на экране чатов. -->
+    <string name="updates_channel_name">BeyGram updates</string>
+    <string name="updates_channel_description">Tells you when a new BeyGram version is available.</string>
+    <string name="updates_notification_title">A BeyGram update is available</string>
+    <string name="updates_notification_text">Version %1$s. Tap to open the updates screen.</string>
+    <string name="updates_banner_title">Update available</string>
+    <string name="updates_banner_text">Version %1$s has been published.</string>
+    <string name="updates_banner_text_unconfirmed">Version %1$s: the last check failed, so this may be out of date.</string>
+    <string name="updates_banner_open">Open</string>
+    <string name="updates_banner_later">Later</string>
+    <string name="updates_group_auto_check">Automatic checks</string>
+    <string name="updates_auto_check_title">Check for updates automatically</string>
+    <string name="updates_auto_check_detail">On launch, on return to the app, and about every 30 minutes. Manual checks always work.</string>
 </resources>
