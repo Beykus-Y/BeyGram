@@ -153,6 +153,12 @@ fun ProfileScreen(
     val context = LocalContext.current
     val importer = remember { OutgoingMediaImporter(context) }
     var showPhoto by rememberSaveable(state.info?.id) { mutableStateOf(false) }
+    // Profile 2.0 C1 (#1138): experimental, off by default. A reveals the avatar's gallery directly.
+    remember(context) { ProfileSceneSettings.load(context) }
+    val sceneEnabled by ProfileSceneSettings.enabled.collectAsState()
+    val sceneC = ProfileSceneSettings.variantFor(sceneEnabled) == ProfileVariant.C
+    var photoExpanded by rememberSaveable(state.info?.id) { mutableStateOf(false) }
+    if (sceneC && photoExpanded) BackHandler { photoExpanded = false }
     var pendingPhoto by rememberSaveable { mutableStateOf<OutgoingMedia?>(null) }
     var preparing by remember { mutableStateOf(false) }
     var saving by remember { mutableStateOf(false) }
@@ -268,7 +274,7 @@ fun ProfileScreen(
                     // While a flight or mid-scroll collapse carries the avatar it is invisible, so it must not be tappable either.
                     Box(
                         (if (info.photo != null && collapse.value <= 0f && (profileTransition == null || !profileTransition.flightActive())) {
-                            Modifier.clickable(role = Role.Button) { showPhoto = true }
+                            Modifier.clickable(role = Role.Button) { if (sceneC && !photoExpanded) photoExpanded = true else showPhoto = true }
                                 .semantics { contentDescription = context.getString(R.string.a11y_profile_photo_open) }
                         } else {
                             Modifier
@@ -290,6 +296,13 @@ fun ProfileScreen(
                     ) {
                         TelegramAvatar(info.initials, palette.accent, 112.dp, info.photo, observeFile, downloadFile,
                             Modifier.clearAndSetSemantics {})
+                    }
+                    if (sceneC && photoExpanded && info.photo != null) {
+                        Spacer(Modifier.height(12.dp))
+                        ProfileExpandedPhoto(
+                            photo = info.photo, color = palette.accent, observeFile = observeFile, downloadFile = downloadFile,
+                            onOpenGallery = { showPhoto = true }
+                        )
                     }
                     Spacer(Modifier.height(16.dp))
                     Text(info.profileTitleText(), color = palette.textPrimary, fontSize = 26.sp, fontWeight = FontWeight.Bold, textAlign = TextAlign.Center,
