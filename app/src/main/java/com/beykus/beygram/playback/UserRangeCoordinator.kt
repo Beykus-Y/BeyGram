@@ -64,6 +64,17 @@ class UserRangeCoordinator(
 
     private val states = HashMap<Int, FileState>()
 
+    /**
+     * Guards the state map and every decision that sends or cancels a window.
+     *
+     * The coordinator is reached from two threads: the page scope that asks for playback bytes and the main thread that
+     * disposes the page. Without one lock, an ownership check and the following `requestWindow` could be split by a
+     * `reset` from the other thread, and a `DownloadFile` would be sent for a screen that no longer exists (after its
+     * `CancelDownloadFile`). The lock is never held across a suspending call, so a slow TDLib query cannot delay closing
+     * the page.
+     */
+    private val lock = Any()
+
     /** Bytes readable from [offset], without asking TDLib for anything. */
     suspend fun readableFrom(fileId: Int, offset: Long): Long = ranges.readableFrom(fileId, offset)
 
@@ -72,33 +83,35 @@ class UserRangeCoordinator(
      * Returns the number of bytes readable at [offset] right now; the caller polls and calls this again.
      */
     suspend fun ensureReadable(fileId: Int, offset: Long, needed: Long, urgent: Boolean): Long {
-        val state = states.getOrPut(fileId) { FileState() }
+        val state = synchronized(lock) { states.getOrPut(fileId) { FileState() } }
         val now = clock()
         val available = ranges.readableFrom(fileId, offset)
-        // The page may have been closed while the query was in flight: `reset` removes the state, and a request must not
-        // be sent for a screen that no longer owns this file.
-        if (states[fileId] !== state) return 0L
-        state.onAvailable(offset, available, now)
-        if (available >= needed) return available
+        // Everything from here on runs under the same lock as `reset`: the page may have been closed while the query was
+        // in flight, and neither a request nor a state update may follow the cancellation.
+        return synchronized(lock) {
+            if (states[fileId] !== state) return 0L
+            state.onAvailable(offset, available, now)
+            if (available >= needed) return available
 
-        val wanted = RangeWindow(offset, 0L, urgent)
-        val pending = state.window
-        if (pending != null && pending.urgent == urgent && pendingServes(pending, offset, needed, now, state)) {
-            // The pending window is expected to deliver these bytes; re-sending would only restart it.
-            return available
+            val wanted = RangeWindow(offset, 0L, urgent)
+            val pending = state.window
+            if (pending != null && pending.urgent == urgent && pendingServes(pending, offset, needed, now, state)) {
+                // The pending window is expected to deliver these bytes; re-sending would only restart it.
+                return available
+            }
+            if (!urgent && state.userOwned) {
+                // A background preload must not steal the user's window.
+                return available
+            }
+            if (state.waitingForBackoff(now, maxAttemptsWithoutProgress, retryBackoffMs)) return available
+            if (state.attemptsWithoutProgress >= maxAttemptsWithoutProgress) {
+                // Backoff elapsed: allow a fresh series of attempts.
+                state.attemptsWithoutProgress = 0
+            }
+            state.startWindow(wanted, now, urgent, available)
+            ranges.requestWindow(fileId, offset, 0L, urgent)
+            available
         }
-        if (!urgent && state.userOwned) {
-            // A background preload must not steal the user's window.
-            return available
-        }
-        if (state.waitingForBackoff(now, maxAttemptsWithoutProgress, retryBackoffMs)) return available
-        if (state.attemptsWithoutProgress >= maxAttemptsWithoutProgress) {
-            // Backoff elapsed: allow a fresh series of attempts.
-            state.attemptsWithoutProgress = 0
-        }
-        state.startWindow(wanted, now, urgent, available)
-        ranges.requestWindow(fileId, offset, 0L, urgent)
-        return available
     }
 
     /**
@@ -107,30 +120,32 @@ class UserRangeCoordinator(
      */
     suspend fun ensureTail(fileId: Int, start: Long, length: Long, urgent: Boolean = true): Long {
         if (start < 0L || length <= 0L) return 0L
-        val state = states.getOrPut(fileId) { FileState() }
+        val state = synchronized(lock) { states.getOrPut(fileId) { FileState() } }
         val now = clock()
         val available = ranges.readableFrom(fileId, start)
-        if (states[fileId] !== state) return 0L
-        state.onAvailable(start, available, now)
-        if (available >= length) return available
+        return synchronized(lock) {
+            if (states[fileId] !== state) return 0L
+            state.onAvailable(start, available, now)
+            if (available >= length) return available
 
-        val pending = state.window
-        // A tail window is reused only while it is still alive; a stalled or rejected one gets a new request.
-        if (pending != null && pending.offset == start && pending.limit == length &&
-            pending.urgent == urgent && isAlive(pending, now, state)
-        ) {
-            return available
+            val pending = state.window
+            // A tail window is reused only while it is still alive; a stalled or rejected one gets a new request.
+            if (pending != null && pending.offset == start && pending.limit == length &&
+                pending.urgent == urgent && isAlive(pending, now, state)
+            ) {
+                return available
+            }
+            if (state.waitingForBackoff(now, maxAttemptsWithoutProgress, retryBackoffMs)) return available
+            if (state.attemptsWithoutProgress >= maxAttemptsWithoutProgress) state.attemptsWithoutProgress = 0
+            state.startWindow(RangeWindow(start, length, urgent), now, urgent, available)
+            ranges.requestWindow(fileId, start, length, urgent)
+            available
         }
-        if (state.waitingForBackoff(now, maxAttemptsWithoutProgress, retryBackoffMs)) return available
-        if (state.attemptsWithoutProgress >= maxAttemptsWithoutProgress) state.attemptsWithoutProgress = 0
-        state.startWindow(RangeWindow(start, length, urgent), now, urgent, available)
-        ranges.requestWindow(fileId, start, length, urgent)
-        return available
     }
 
     /** The file is fully local now: no window is needed and the state is dropped. */
     fun onCompleted(fileId: Int) {
-        states.remove(fileId)
+        synchronized(lock) { states.remove(fileId) }
     }
 
     /**
@@ -155,15 +170,19 @@ class UserRangeCoordinator(
 
     /** The page was closed or TDLib moved the file: forget the window and cancel it. */
     fun reset(fileId: Int) {
-        val state = states.remove(fileId) ?: return
-        if (state.window != null) ranges.cancelWindow(fileId)
+        synchronized(lock) {
+            val state = states.remove(fileId) ?: return
+            if (state.window != null) ranges.cancelWindow(fileId)
+        }
     }
 
     /** Drops every tracked file; used when the account or the session changes. */
     fun resetAll() {
-        val ids = states.keys.toList()
-        states.clear()
-        ids.forEach(ranges::cancelWindow)
+        synchronized(lock) {
+            val ids = states.keys.toList()
+            states.clear()
+            ids.forEach(ranges::cancelWindow)
+        }
     }
 
     companion object {
