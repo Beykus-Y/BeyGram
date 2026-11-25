@@ -2,8 +2,10 @@ package com.beykus.beygram.ui.screens.profile
 
 import android.app.Application
 import androidx.compose.ui.test.assertCountEquals
+import androidx.compose.ui.test.assertHasClickAction
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onAllNodesWithContentDescription
+import androidx.compose.ui.test.onNodeWithContentDescription
 import com.beykus.beygram.R
 import com.beykus.beygram.domain.model.MediaFileState
 import com.beykus.beygram.domain.model.ProfileAudio
@@ -54,6 +56,9 @@ class ProfileMusicBarSemanticsTest {
             )
         }
         val playLabel = RuntimeEnvironment.getApplication().getString(R.string.profile_music_play)
-        compose.onAllNodesWithContentDescription(playLabel).assertCountEquals(1)
+        // Unmerged tree: the disc's own node is checked, not the row's merged summary.
+        compose.onAllNodesWithContentDescription(playLabel, useUnmergedTree = true)
+            .assertCountEquals(1)
+        compose.onNodeWithContentDescription(playLabel, useUnmergedTree = true).assertHasClickAction()
     }
 }

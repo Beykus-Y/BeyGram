@@ -114,7 +114,8 @@ internal fun ProfileMusicBar(
             .padding(horizontal = 8.dp, vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        // A direct target for Voice Access and Switch Access: the disc is the play/pause control with its own name.
+        // A named child of the row: it has its own label and click action in the unmerged semantics tree. The row merges
+        // its descendants for TalkBack, so TalkBack reaches play/pause through the row's custom action instead.
         Box(
             Modifier
                 // The drawn disc stays 44 dp; the touch target grows to the 48 dp minimum (Material accessibility).
