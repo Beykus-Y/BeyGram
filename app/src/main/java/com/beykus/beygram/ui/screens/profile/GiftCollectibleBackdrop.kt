@@ -3,6 +3,11 @@ package com.beykus.beygram.ui.screens.profile
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
+import androidx.compose.foundation.layout.padding
+import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.semantics.clearAndSetSemantics
+import androidx.compose.ui.unit.dp
+import com.beykus.beygram.domain.model.GiftVisual
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
@@ -45,3 +50,23 @@ internal fun backdropEndpoints(details: GiftCollectibleDetails?): Pair<Long, Lon
 }
 
 private fun opaqueArgb(rgb: Int): Long = 0xFF000000L or (rgb.toLong() and 0xFFFFFFL)
+
+/** How faint the repeated symbol pattern is: visible on the backdrop, quiet behind the model. */
+private const val GIFT_PATTERN_ALPHA = 0.28f
+
+/**
+ * The backdrop's pattern: the symbol sticker repeated in three corners, faint and static. It reuses the symbol's
+ * thumbnail, so no animation decoder runs for it. Nothing is drawn while the symbol has no thumbnail.
+ */
+@Composable
+internal fun BoxScope.GiftPatternLayer(symbol: GiftVisual?) {
+    if (symbol?.thumbnailFileId == null) return
+    val corners = listOf(Alignment.TopStart, Alignment.TopEnd, Alignment.BottomStart)
+    corners.forEach { corner ->
+        Box(
+            Modifier.align(corner).padding(4.dp).alpha(GIFT_PATTERN_ALPHA).clearAndSetSemantics {}
+        ) {
+            GiftVisualImage(symbol, 12.dp, staticOnly = true) {}
+        }
+    }
+}
