@@ -65,6 +65,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.beykus.beygram.R
+import com.beykus.beygram.data.settings.StealthSettingsStore
 import com.beykus.beygram.data.tdlib.TdAccountStorageLayout
 import com.beykus.beygram.data.tdlib.TdSecondaryAccountController
 import com.beykus.beygram.data.tdlib.TdSecondaryAccountsSnapshot
@@ -98,7 +99,9 @@ internal fun AccountSwitcherSheet(
     onSwitch: suspend (String) -> Result<Unit>,
     onAccountReady: (String) -> Unit,
     onAccountDeleted: (String) -> Unit,
-    onDismiss: () -> Unit
+    onDismiss: () -> Unit,
+    stealthStore: StealthSettingsStore? = null,
+    onOpenStealth: () -> Unit = {}
 ) {
     if (!visible) return
     val palette = beyGramPalette()
@@ -474,7 +477,12 @@ internal fun AccountSwitcherSheet(
                 onConfigureRoute = { routeAccountId = it },
                 onDisconnect = { confirmDisconnectId = it },
                 onLogout = { confirmLogoutId = it },
-                onDeleteIncomplete = { confirmDiscardId = it }
+                onDeleteIncomplete = { confirmDiscardId = it },
+                stealthStore = stealthStore,
+                onOpenStealth = {
+                    dismissSheet()
+                    onOpenStealth()
+                }
             )
         }
     }
@@ -602,7 +610,9 @@ internal fun AccountSwitcherContent(
     onConfigureRoute: (String) -> Unit,
     onDisconnect: (String) -> Unit,
     onLogout: (String) -> Unit,
-    onDeleteIncomplete: (String) -> Unit
+    onDeleteIncomplete: (String) -> Unit,
+    stealthStore: StealthSettingsStore? = null,
+    onOpenStealth: () -> Unit = {}
 ) {
     val palette = beyGramPalette()
     Column(Modifier.fillMaxWidth()) {
@@ -642,6 +652,9 @@ internal fun AccountSwitcherContent(
             }
         }
         LazyColumn(Modifier.fillMaxWidth().heightIn(max = 520.dp)) {
+            if (!busy && stealthStore != null) {
+                item(key = "stealth") { StealthQuickAccess(stealthStore, onOpenStealth) }
+            }
             items(rows, key = { it.accountId }) { row ->
                 AccountSwitcherRowItem(
                     row = row,

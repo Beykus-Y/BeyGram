@@ -3705,6 +3705,8 @@ GlobalSearchScreen(
     }
     AccountSwitcherSheet(
         visible = accountSwitcherVisible && !locked,
+        stealthStore = (repository as? TdLibTelegramRepository)?.stealthSettings.takeIf { authState == AuthState.Ready },
+        onOpenStealth = { routeName = AppRoute.StealthSettings.name },
         currentAccountId = selectedAccountId,
         legacyReady = legacyAuthState == AuthState.Ready,
         snapshot = accountChoice,

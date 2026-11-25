@@ -380,11 +380,7 @@ private fun StatusCard(
         }
 
         GroupTitle(stringResource(R.string.stealth_quick_presets))
-        Column(Modifier.selectableGroup()) {
-            listOf(StealthPresetKind.Normal, StealthPresetKind.HiddenReading, StealthPresetKind.Maximum).forEach { choice ->
-                ChoiceRow(stringResource(choice.labelRes()), selected = !settings.failClosed && preset == choice) { onPresetSelected(choice) }
-            }
-        }
+        StealthPresetChoices(preset.takeUnless { settings.failClosed }, onPresetSelected)
 
         GroupTitle(stringResource(R.string.stealth_active_parameters))
         val activeLabels = buildList {
@@ -421,7 +417,16 @@ private fun StatusCard(
     }
 }
 
-private fun StealthPresetKind.labelRes(): Int = when (this) {
+@Composable
+internal fun StealthPresetChoices(selected: StealthPresetKind?, onSelected: (StealthPresetKind) -> Unit) {
+    Column(Modifier.selectableGroup()) {
+        listOf(StealthPresetKind.Normal, StealthPresetKind.HiddenReading, StealthPresetKind.Maximum).forEach { choice ->
+            ChoiceRow(stringResource(choice.labelRes()), selected = selected == choice) { onSelected(choice) }
+        }
+    }
+}
+
+internal fun StealthPresetKind.labelRes(): Int = when (this) {
     StealthPresetKind.Normal -> R.string.stealth_preset_normal
     StealthPresetKind.HiddenReading -> R.string.stealth_preset_hidden_reading
     StealthPresetKind.Maximum -> R.string.stealth_preset_maximum

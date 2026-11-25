@@ -120,6 +120,23 @@ class StealthSettingsUiTest {
         }
     }
 
+    @Test fun quickAccessEditsSharedSettingsAndOpensFullSettings() {
+        val store = StealthSettingsStore(Storage())
+        store.update { it.copy(chats = mapOf(42L to ChatStealthMode.Block)) }
+        var settingsOpened = false
+        compose.setContent {
+            BeyGramTheme { StealthQuickAccess(store, onOpenSettings = { settingsOpened = true }) }
+        }
+
+        compose.onNodeWithText(label(R.string.stealth_preset_hidden_reading)).assertDoesNotExist()
+        compose.onNodeWithText(label(R.string.stealth_title)).performClick()
+        compose.onNodeWithText(label(R.string.stealth_preset_hidden_reading)).performClick()
+        assertEquals(StealthPresetKind.HiddenReading, matchingPreset(store.current))
+        assertEquals(mapOf(42L to ChatStealthMode.Block), store.current.chats)
+        compose.onNodeWithText(label(R.string.settings_title)).performClick()
+        assertTrue(settingsOpened)
+    }
+
     private fun openExceptions(count: Int) {
         compose.onNode(hasText(label(R.string.stealth_exceptions_count, count)) and hasClickAction())
             .performScrollTo().performClick()
