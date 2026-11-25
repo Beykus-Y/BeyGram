@@ -9,6 +9,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -49,7 +50,10 @@ internal fun GiftChatCard(
     downloadFile: (Int) -> Unit,
     modifier: Modifier = Modifier
 ) {
-    ProvideGiftFileAccess(GiftFileAccess(observeFile, downloadFile)) {
+    // One access object for the lifetime of the card: the composition local would otherwise change identity on every
+    // recomposition and re-subscribe every artwork file.
+    val access = remember(observeFile, downloadFile) { GiftFileAccess(observeFile, downloadFile) }
+    ProvideGiftFileAccess(access) {
         val number = if (gift.number > 0) stringResource(R.string.gifts_collectible_number, gift.number) else null
         val generic = stringResource(R.string.gifts_gift_generic)
         val description = listOfNotNull(
