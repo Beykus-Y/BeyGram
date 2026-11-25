@@ -17,13 +17,30 @@ import androidx.test.uiautomator.Until
  */
 internal object Benchmarks {
     /**
-     * The package the benchmark runs against. The module self-instruments the app under test, so the instrumentation
-     * target already carries the flavour and the `.benchmark` id suffix; nothing is hardcoded. An explicit
-     * `-e targetPackage ...` still wins for one-off runs.
+     * The package the benchmark runs against, passed explicitly:
+     * `-Pandroid.testInstrumentationRunnerArguments.targetPackage=com.beykus.beygram.dev.benchmark`.
+     *
+     * Neither the Gradle runner nor `targetContext` is trusted for this: a self-instrumenting `com.android.test`
+     * module can resolve them to the test APK, and a wrong value would silently measure the owner's Dev or Stable
+     * build. The argument is therefore mandatory and must name an isolated benchmark package; anything else fails
+     * before a single frame is measured.
      */
-    fun targetPackage(): String =
-        InstrumentationRegistry.getArguments().getString("targetPackage")
-            ?: InstrumentationRegistry.getInstrumentation().targetContext.packageName
+    fun targetPackage(): String {
+        val explicit = InstrumentationRegistry.getArguments().getString("targetPackage")
+            ?.takeIf { it.isNotBlank() }
+            ?: error(
+                "targetPackage is required: pass " +
+                    "-Pandroid.testInstrumentationRunnerArguments.targetPackage=com.beykus.beygram.dev.benchmark " +
+                    "(or the .benchmark package of the product flavour under test)."
+            )
+        require(explicit.endsWith(BENCHMARK_PACKAGE_SUFFIX)) {
+            "Refusing to benchmark '$explicit': only the isolated '*$BENCHMARK_PACKAGE_SUFFIX' package may be measured."
+        }
+        return explicit
+    }
+
+    /** The suffix every benchmark build type carries; Dev and Stable never have it. */
+    const val BENCHMARK_PACKAGE_SUFFIX = ".benchmark"
 
     /** The chat list: the first scrollable container on screen. */
     fun chatList(device: UiDevice): UiObject2? = device.findObject(By.scrollable(true))

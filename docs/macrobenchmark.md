@@ -67,22 +67,28 @@ adb shell dumpsys package com.beykus.beygram.dev.benchmark | Select-String "prof
 телефон не на зарядке или на зарядке — одинаково для всех прогонов; температура корпуса комнатная, между блоками
 пауза 5 минут.
 
+`targetPackage` передаётся явно и обязателен: раннер и `targetContext` не используются, потому что
+self-instrumenting модуль может указать на тестовый APK. Любой пакет, не оканчивающийся на `.benchmark`, отвергается
+до первого кадра — так замер не может случайно попасть в Dev или Stable.
+
 ```powershell
-# Холодный старт: 5 прогонов, StartupTimingMetric
+# Холодный старт: 5 прогонов, StartupTimingMetric (DEV benchmark)
 ./gradlew :macrobenchmark:connectedDevBenchmarkAndroidTest `
-  -Pandroid.testInstrumentationRunnerArguments.class=com.beykus.beygram.macrobenchmark.StartupBenchmark
+  -Pandroid.testInstrumentationRunnerArguments.class=com.beykus.beygram.macrobenchmark.StartupBenchmark `
+  -Pandroid.testInstrumentationRunnerArguments.targetPackage=com.beykus.beygram.dev.benchmark
 
 # Навигация и скролл: 5 прогонов, FrameTimingMetric
 ./gradlew :macrobenchmark:connectedDevBenchmarkAndroidTest `
-  -Pandroid.testInstrumentationRunnerArguments.class=com.beykus.beygram.macrobenchmark.ChatNavigationBenchmark
+  -Pandroid.testInstrumentationRunnerArguments.class=com.beykus.beygram.macrobenchmark.ChatNavigationBenchmark `
+  -Pandroid.testInstrumentationRunnerArguments.targetPackage=com.beykus.beygram.dev.benchmark
 
-# Stable-канал вместо DEV: свой пакет com.beykus.beygram.benchmark
+# Stable-канал: com.beykus.beygram.benchmark
 ./gradlew :macrobenchmark:connectedProdBenchmarkAndroidTest `
-  -Pandroid.testInstrumentationRunnerArguments.class=com.beykus.beygram.macrobenchmark.StartupBenchmark
+  -Pandroid.testInstrumentationRunnerArguments.class=com.beykus.beygram.macrobenchmark.StartupBenchmark `
+  -Pandroid.testInstrumentationRunnerArguments.targetPackage=com.beykus.beygram.benchmark
 ```
 
-Пакет под тестом определяется автоматически (instrumentation target, то есть фактический flavor + суффикс
-`.benchmark`), поэтому `targetPackage` вручную указывать не нужно.
+Пакет под тестом всегда указывается явно (см. команды выше) и обязан оканчиваться на `.benchmark`.
 
 Методика: `setupBlock` останавливает приложение и доводит его до нужного экрана (список чатов или конкретный чат), а
 измеряемый блок содержит только действие — открытие чата, возврат или скролл. Каждый такой сценарий проверяет, что
