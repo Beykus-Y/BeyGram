@@ -104,6 +104,8 @@ internal fun ProfileMusicBar(
     ) {
         Box(
             Modifier
+                // The drawn disc stays 44 dp; the touch target grows to the 48 dp minimum (Material accessibility).
+                .minimumInteractiveComponentSize()
                 .size(44.dp)
                 .clip(CircleShape)
                 .background(palette.accent)
