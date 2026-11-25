@@ -40,9 +40,15 @@ class CanvasDiskCache(
     private val now: () -> Long = { System.currentTimeMillis() },
     private val downloader: CanvasDownloader = DEFAULT_DOWNLOADER,
 ) {
+    private class LockEntry(
+        val mutex: Mutex = Mutex(),
+        var waiters: Int = 0,
+    )
+
     private val downloads = Semaphore(maxConcurrentDownloads.coerceAtLeast(1))
-    private val locks = HashMap<String, Mutex>()
+    private val locks = HashMap<String, LockEntry>()
     private val publishLock = Any()
+    private val lruAccessMs = HashMap<String, Long>()
 
     @Volatile
     private var generation = 0
@@ -53,12 +59,16 @@ class CanvasDiskCache(
         val target = entryFile(cacheKey)
         synchronized(publishLock) {
             if (!target.isFile || target.length() <= 0L) return@withContext null
-            val age = now() - target.lastModified()
-            if (age >= positiveTtlMs) {
+            val createdAt = readCreatedAtMs(target)
+            val currentNow = now()
+            if (currentNow - createdAt >= positiveTtlMs) {
                 target.delete()
+                metaFile(target).delete()
+                lruAccessMs.remove(target.name)
                 return@withContext null
             }
-            target.setLastModified(now())
+            lruAccessMs[target.name] = currentNow
+            target.setLastModified(currentNow)
             target
         }
     }
@@ -71,9 +81,11 @@ class CanvasDiskCache(
         if (!remoteUrl.startsWith("https://", ignoreCase = true)) return@withContext null
         getIfFresh(cacheKey)?.let { return@withContext it }
 
-        val lock = synchronized(locks) { locks.getOrPut(cacheKey) { Mutex() } }
+        val entry = synchronized(locks) {
+            locks.getOrPut(cacheKey) { LockEntry() }.also { it.waiters += 1 }
+        }
         try {
-            lock.withLock {
+            entry.mutex.withLock {
                 getIfFresh(cacheKey)?.let { return@withLock it }
                 downloads.withPermit {
                     coroutineContext.ensureActive()
@@ -90,7 +102,15 @@ class CanvasDiskCache(
                         val published = synchronized(publishLock) {
                             if (generation == expectedGeneration) {
                                 if (target.exists()) target.delete()
-                                partial.renameTo(target)
+                                val renamed = partial.renameTo(target)
+                                if (renamed) {
+                                    val createdAt = now()
+                                    writeCreatedAtMs(target, createdAt)
+                                    lruAccessMs[target.name] = createdAt
+                                    target.setLastModified(createdAt)
+                                    trimLocked()
+                                }
+                                renamed
                             } else {
                                 false
                             }
@@ -99,8 +119,6 @@ class CanvasDiskCache(
                             partial.delete()
                             return@withPermit null
                         }
-                        target.setLastModified(now())
-                        trimLocked()
                         target
                     } catch (cancelled: CancellationException) {
                         partial.delete()
@@ -112,26 +130,51 @@ class CanvasDiskCache(
                 }
             }
         } finally {
-            synchronized(locks) { if (!lock.isLocked) locks.remove(cacheKey) }
+            synchronized(locks) {
+                entry.waiters -= 1
+                if (entry.waiters <= 0 && locks[cacheKey] === entry) {
+                    locks.remove(cacheKey)
+                }
+            }
         }
     }
 
     suspend fun clear() = withContext(Dispatchers.IO) {
         synchronized(publishLock) {
             generation += 1
+            lruAccessMs.clear()
             rootDir.listFiles()?.forEach { it.delete() }
         }
     }
 
     private fun trimLocked() {
-        val files = rootDir.listFiles()?.filter { it.isFile && !it.name.endsWith(".part") } ?: return
+        val files = rootDir.listFiles()?.filter { it.isFile && it.name.endsWith(".mp4") } ?: return
         var total = files.sumOf { it.length() }
         if (total <= maxTotalBytes) return
-        for (file in files.sortedBy { it.lastModified() }) {
+        for (file in files.sortedBy { lruAccessMs[it.name] ?: it.lastModified() }) {
             if (total <= maxTotalBytes) break
             val size = file.length()
-            if (file.delete()) total -= size
+            if (file.delete()) {
+                metaFile(file).delete()
+                lruAccessMs.remove(file.name)
+                total -= size
+            }
         }
+    }
+
+    private fun metaFile(target: File): File = File(rootDir, target.name + ".meta")
+
+    private fun readCreatedAtMs(target: File): Long {
+        val meta = metaFile(target)
+        if (meta.isFile) {
+            val parsed = runCatching { meta.readText().trim().toLong() }.getOrNull()
+            if (parsed != null && parsed > 0L) return parsed
+        }
+        return target.lastModified()
+    }
+
+    private fun writeCreatedAtMs(target: File, createdAtMs: Long) {
+        runCatching { metaFile(target).writeText(createdAtMs.toString()) }
     }
 
     private fun entryFile(cacheKey: String): File {
@@ -145,31 +188,76 @@ class CanvasDiskCache(
         const val MAX_TOTAL_BYTES = 48L * 1024 * 1024
         const val MAX_FILE_BYTES = 12L * 1024 * 1024
         const val POSITIVE_TTL_MS = 24L * 60 * 60 * 1000L
+        internal const val MAX_REDIRECTS = 5
         private const val CONNECT_TIMEOUT_MS = 10_000
         private const val READ_TIMEOUT_MS = 15_000
 
         val DEFAULT_DOWNLOADER = CanvasDownloader { url, target, maxBytes ->
-            val connection = MihomoProxyClient.openConnection(URL(url), proxy = null)
-            connection.connectTimeout = CONNECT_TIMEOUT_MS
-            connection.readTimeout = READ_TIMEOUT_MS
-            connection.instanceFollowRedirects = true
-            val cancelHook = coroutineContext.job.invokeOnCompletion { cause ->
-                if (cause != null) runCatching { connection.disconnect() }
+            downloadWithHttpsRedirects(
+                initialUrl = url,
+                target = target,
+                maxBytes = maxBytes,
+                openConnection = { targetUrl -> MihomoProxyClient.openConnection(targetUrl, proxy = null) },
+            )
+        }
+
+        internal suspend fun downloadWithHttpsRedirects(
+            initialUrl: String,
+            target: File,
+            maxBytes: Long,
+            openConnection: (URL) -> HttpURLConnection,
+        ): Long {
+            var currentUrl = URL(initialUrl)
+            if (!currentUrl.protocol.equals("https", ignoreCase = true)) {
+                throw IOException("Non-HTTPS canvas URL rejected")
             }
-            try {
-                if (connection.responseCode !in 200..299) {
-                    throw IOException("HTTP ${connection.responseCode}")
+
+            var redirects = 0
+            while (true) {
+                coroutineContext.ensureActive()
+                val connection = openConnection(currentUrl)
+                connection.connectTimeout = CONNECT_TIMEOUT_MS
+                connection.readTimeout = READ_TIMEOUT_MS
+                connection.instanceFollowRedirects = false
+                val cancelHook = coroutineContext.job.invokeOnCompletion { cause ->
+                    if (cause != null) runCatching { connection.disconnect() }
                 }
-                val contentLength = connection.contentLengthLong
-                if (contentLength > maxBytes) {
-                    throw IOException("Canvas exceeds max bytes")
+                try {
+                    val code = connection.responseCode
+                    if (code == HttpURLConnection.HTTP_MOVED_PERM ||
+                        code == HttpURLConnection.HTTP_MOVED_TEMP ||
+                        code == HttpURLConnection.HTTP_SEE_OTHER ||
+                        code == 307 ||
+                        code == 308
+                    ) {
+                        if (redirects >= MAX_REDIRECTS) {
+                            throw IOException("Too many redirects")
+                        }
+                        val location = connection.getHeaderField("Location")
+                            ?.takeIf { it.isNotBlank() }
+                            ?: throw IOException("Missing redirect location")
+                        val nextUrl = URL(currentUrl, location)
+                        if (!nextUrl.protocol.equals("https", ignoreCase = true)) {
+                            throw IOException("Non-HTTPS redirect rejected")
+                        }
+                        currentUrl = nextUrl
+                        redirects += 1
+                        continue
+                    }
+                    if (code !in 200..299) {
+                        throw IOException("HTTP $code")
+                    }
+                    val contentLength = connection.contentLengthLong
+                    if (contentLength > maxBytes) {
+                        throw IOException("Canvas exceeds max bytes")
+                    }
+                    return connection.inputStream.use { input ->
+                        copyBounded(input, target, maxBytes)
+                    }
+                } finally {
+                    cancelHook.dispose()
+                    connection.disconnect()
                 }
-                connection.inputStream.use { input ->
-                    copyBounded(input, target, maxBytes)
-                }
-            } finally {
-                cancelHook.dispose()
-                connection.disconnect()
             }
         }
 
