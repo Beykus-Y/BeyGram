@@ -17,11 +17,15 @@ those facts), **Assumption**, **Unknown**.
 
 | Question | Answer |
 | --- | --- |
-| Can BeyGram dictate into the composer with the shipped TDLib `1.8.65`? | **No.** The file-based recognition request does not exist in this version. |
+| Can BeyGram dictate into the composer with the shipped TDLib `1.8.65`? | **No, not through TDLib.** The file-based recognition request does not exist in this version. This says nothing about Android's own `SpeechRecognizer` / on-device recognition API, which is a separate option outside this research. |
 | Can the shipped version recognize anything at all? | **Yes**, but only a *voice note or video note message that is already in a chat* (`recognizeSpeech`), not a local file. |
 | Does dictation therefore require sending a voice message? | **Yes, with the current library.** That is the only input the shipped API accepts. |
 | Is an update required? | **Yes** — at least to the TDLib version that added `recognizeSpeechInFile`, `getSpeechRecognitionLanguages` (both 2026-10-29) and `updateSpeechRecognitionInFile` (2026-10-29). That is TDLib **1.8.69 or newer**; BeyGram ships 1.8.65. |
 | Is the work blocked? | **Not on research.** Blocked on an owner decision to update TDLib, which the current rules forbid without separate approval. |
+
+**Scope note.** The verdict covers TDLib only. Android offers its own `SpeechRecognizer` (including on-device
+recognition where the service is available), which needs no TDLib update and no Telegram servers; choosing it is a
+separate product decision with its own privacy and language-coverage trade-offs, and it is not evaluated here.
 
 ## 2. Verified API signatures in the current library
 
