@@ -61,4 +61,15 @@
     <string name="stealth_no_active_parameters">Обычные правила клиента</string>
     <string name="stealth_server_visibility_unknown">Видимость активности в Telegram неизвестна.</string>
     <string name="stealth_quick_presets">Быстрый выбор режима</string>
+
+    <string name="stealth_summary_typing">Набор и запись</string>
+    <string name="stealth_summary_reads">Квитанции прочтения</string>
+    <string name="stealth_summary_media">Открытие медиа</string>
+    <string name="stealth_summary_stories">Просмотры историй</string>
+    <string name="stealth_summary_presence">Присутствие</string>
+    <string name="stealth_summary_warnings">Предупреждения</string>
+    <string name="stealth_summary_scheduled">Отправка по расписанию</string>
+    <string name="stealth_summary_scope">Другие сессии Telegram действуют отдельно.</string>
+    <string name="stealth_show_limits">Показать ограничения</string>
+    <string name="stealth_hide_limits">Скрыть ограничения</string>
 </resources>

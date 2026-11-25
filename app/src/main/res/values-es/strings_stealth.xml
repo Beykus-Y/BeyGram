@@ -59,4 +59,15 @@
     <string name="stealth_no_active_parameters">Comportamiento normal del cliente</string>
     <string name="stealth_server_visibility_unknown">Se desconoce la visibilidad de tu actividad en Telegram.</string>
     <string name="stealth_quick_presets">Selección rápida de modo</string>
+
+    <string name="stealth_summary_typing">Escritura y grabación</string>
+    <string name="stealth_summary_reads">Confirmaciones de lectura</string>
+    <string name="stealth_summary_media">Apertura de archivos</string>
+    <string name="stealth_summary_stories">Vistas de historias</string>
+    <string name="stealth_summary_presence">Presencia</string>
+    <string name="stealth_summary_warnings">Avisos</string>
+    <string name="stealth_summary_scheduled">Envío programado</string>
+    <string name="stealth_summary_scope">Las demás sesiones de Telegram funcionan de forma independiente.</string>
+    <string name="stealth_show_limits">Mostrar limitaciones</string>
+    <string name="stealth_hide_limits">Ocultar limitaciones</string>
 </resources>
