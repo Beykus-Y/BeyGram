@@ -11,8 +11,9 @@ private val progressiveAttemptCounter = AtomicInteger(0)
 fun nextProgressiveAttemptNumber(): Int = progressiveAttemptCounter.incrementAndGet()
 
 /**
- * Диагностика прогрессивного пути воспроизведения (Issue #1174). Одна запись на открытие страницы: она
- * пишется и тогда, когда воспроизведение не началось. В записи нет имён файлов, путей, id чатов и сообщений,
+ * Диагностика прогрессивного пути воспроизведения (Issue #1174). Одна запись на фактическую попытку прогрессивного
+ * старта (проба, источник или воспроизведение), в том числе без старта. Страницы без такой попытки не пишутся
+ * (см. [hasAttempt]). В записи нет имён файлов, путей, id чатов и сообщений,
  * содержимого. Ключей не больше 24, потому что журнал отчётов обрезает лишние атрибуты.
  *
  * Поток: главный поток меняет состояние страницы и пробы, поток загрузки ([onRead], [onWait], [onNeedMore],
@@ -32,6 +33,8 @@ internal class ProgressiveAttemptDiagnostics(
     private var totalBytes = 0L
     private var downloadOffset = 0L
     private var downloading = false
+    // Файл уже полностью на диске: прогрессивный путь для него не нужен.
+    private var completed = false
 
     // Проба: запуски, отмены перезапуском, суммарное время, последний результат и раскладка боксов.
     private var probeRuns = 0
@@ -60,13 +63,28 @@ internal class ProgressiveAttemptDiagnostics(
     private var playerError: String? = null
 
     /** Текущий снимок файла. Вызывается при каждом изменении прогресса. */
-    fun snapshot(hasPartialPath: Boolean, prefixBytes: Long, totalBytes: Long, downloadOffset: Long, downloading: Boolean) {
+    fun snapshot(
+        hasPartialPath: Boolean,
+        prefixBytes: Long,
+        totalBytes: Long,
+        downloadOffset: Long,
+        downloading: Boolean,
+        completed: Boolean = false
+    ) {
         this.hasPartialPath = hasPartialPath
         this.prefixBytes = prefixBytes
         this.totalBytes = totalBytes
         this.downloadOffset = downloadOffset
         this.downloading = downloading
+        this.completed = completed
     }
+
+    /**
+     * Была ли фактическая работа прогрессивного пути: проба, источник, состояние или воспроизведение.
+     * Полностью скачанный файл без пробы не считается попыткой, поэтому его запись не пишется.
+     */
+    fun hasAttempt(): Boolean =
+        probeRuns > 0 || sourceCreated || playingMs != null || stateMarks.isNotEmpty() || (hasPartialPath && !completed)
 
     fun probeStarted() {
         probeRuns++
@@ -142,6 +160,8 @@ internal class ProgressiveAttemptDiagnostics(
      */
     fun cause(): String {
         if (unlockedMs != null) return "none"
+        // Файл полностью на диске: проба не нужна, и это не «неизвестная» причина.
+        if (completed) return "complete"
         val types = layout?.boxTypes.orEmpty()
         return when {
             downloadOffset != 0L -> "offset_nonzero"

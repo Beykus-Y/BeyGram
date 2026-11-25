@@ -165,6 +165,22 @@ class ProgressiveAttemptDiagnosticsTest {
         assertEquals("ERROR_CODE_IO_NETWORK_CONNECTION_FAILED", d.finish()!!["player_error"])
     }
 
+    @Test fun completedFileIsNotAnAttemptAndNotUnknown() {
+        val d = attempt(FakeClock())
+        d.snapshot(hasPartialPath = true, prefixBytes = 40_000_000, totalBytes = 40_000_000, downloadOffset = 0, downloading = false, completed = true)
+        assertFalse(d.hasAttempt())
+        assertEquals("complete", d.cause())
+    }
+
+    @Test fun onlyRealProgressiveWorkCountsAsAttempt() {
+        val d = attempt(FakeClock())
+        d.snapshot(hasPartialPath = false, prefixBytes = 0, totalBytes = 40_000_000, downloadOffset = 0, downloading = false)
+        assertFalse(d.hasAttempt())
+        d.probeStarted()
+        d.probeFinished("NotMp4", null)
+        assertTrue(d.hasAttempt())
+    }
+
     @Test fun recordIsCompactAndHasNoFileOrChatIdentifiers() {
         val clock = FakeClock()
         val d = attempt(clock)

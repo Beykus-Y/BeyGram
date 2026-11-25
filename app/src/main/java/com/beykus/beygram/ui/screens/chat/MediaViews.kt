@@ -1491,12 +1491,14 @@ private fun MediaViewerPage(
     val diagnostics = remember(media.fileId) {
         ProgressiveAttemptDiagnostics(nextProgressiveAttemptNumber(), senderSupportsStreaming = media.supportsStreaming)
     }
-    LaunchedEffect(partialPath != null, file.downloadedPrefixBytes, file.size, file.downloadOffset, file.isDownloading) {
-        diagnostics.snapshot(partialPath != null, file.downloadedPrefixBytes, file.size, file.downloadOffset, file.isDownloading)
+    LaunchedEffect(partialPath != null, file.downloadedPrefixBytes, file.size, file.downloadOffset, file.isDownloading, file.localPath != null) {
+        diagnostics.snapshot(
+            partialPath != null, file.downloadedPrefixBytes, file.size, file.downloadOffset, file.isDownloading, completed = file.localPath != null
+        )
     }
     DisposableEffect(diagnostics) {
         onDispose {
-            if (media.mimeType.startsWith("video/")) runCatching {
+            if (media.mimeType.startsWith("video/") && diagnostics.hasAttempt()) runCatching {
                 diagnostics.finish()?.let { attrs ->
                     StructuredEventLog.shared.record(kind = EventKind.PERFORMANCE, code = "video_progressive_attempt", attrs = attrs)
                 }
