@@ -136,6 +136,7 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.LayoutCoordinates
 import androidx.compose.ui.text.TextStyle
@@ -182,6 +183,10 @@ import com.beykus.beygram.R
 import com.beykus.beygram.data.canvas.BgCanvasMode
 import com.beykus.beygram.data.canvas.CanvasLoadState
 import com.beykus.beygram.media.bgbeat.BgBeatSection
+import com.beykus.beygram.ui.accessibility.rememberSystemReducedMotion
+import com.beykus.beygram.ui.motion.LocalMotionSettings
+import com.beykus.beygram.ui.motion.MotionCategory
+import com.beykus.beygram.ui.screens.music.PlayerWaveBackdrop
 import com.beykus.beygram.media.bgwave.BgWaveHub
 import androidx.compose.material.icons.rounded.GraphicEq
 import com.beykus.beygram.playback.PLAYBACK_SPEED_OPTIONS
@@ -257,7 +262,6 @@ internal fun MusicPlayerContent(
     BackHandler(enabled = panel != PlayerPanel.Player) { onPanel(PlayerPanel.Player) }
     // The endless radio (a wave) gets soft drifting ribbons behind the player while it is audible.
     val endless = PlaybackEngine.activeRadio != null && PlaybackEngine.currentQueueIsEndless()
-    val waveRibbons = endless && player.playing
     val palette = beyGramPalette()
     val queueSpec = rememberMotionSpec(MotionToken.PlayerExpand)
     val risePx = with(LocalDensity.current) { QUEUE_RISE_DP.toPx() }
@@ -348,37 +352,86 @@ internal fun MusicPlayerContent(
         active = panel == PlayerPanel.Player,
     )
     val cardCanvasState = if (canvasMode == BgCanvasMode.Card) canvasState else CanvasLoadState.Idle
+    var fullscreenCanvasVisualState by remember(player.item.key, canvasMode) {
+        mutableStateOf(CanvasVisualState.Inactive)
+    }
+    var cardCanvasVisualState by remember(player.item.key, canvasMode) {
+        mutableStateOf(CanvasVisualState.Inactive)
+    }
+    val activeCanvasVisualState = when (canvasMode) {
+        BgCanvasMode.Fullscreen -> fullscreenCanvasVisualState
+        BgCanvasMode.Card -> cardCanvasVisualState
+        BgCanvasMode.Off -> CanvasVisualState.Inactive
+    }
+    val resumed = rememberLifecycleResumed()
+    val powerSave = rememberPowerSaveMode(resumed)
+    val reducedMotion = rememberSystemReducedMotion()
+    val motionSettings = LocalMotionSettings.current
+    val mediaMotionAllowed = motionSettings.enabled && MotionCategory.Media !in motionSettings.disabledCategories
+    val backdropPolicy = resolvePlayerBackdropPolicy(
+        waveEligible = endless,
+        canvasMode = canvasMode,
+        canvasLoadState = canvasState,
+        canvasVisualState = activeCanvasVisualState,
+        panel = panel,
+        playing = player.playing,
+        resumed = resumed,
+        reducedMotion = reducedMotion,
+        mediaMotionAllowed = mediaMotionAllowed,
+        powerSave = powerSave,
+    )
+    val animatedWaveAlpha by animateFloatAsState(
+        targetValue = backdropPolicy.waveAlpha,
+        animationSpec = queueSpec.animationSpec(),
+        label = "playerWaveAlpha",
+    )
+    val animatedScrimAlpha by animateFloatAsState(
+        targetValue = backdropPolicy.fullscreenScrimAlpha,
+        animationSpec = queueSpec.animationSpec(),
+        label = "playerCanvasScrimAlpha",
+    )
+    val darkBackdrop = remember(palette.surface) { palette.surface.luminance() < 0.5f }
+    val wavePrimary = if (ambientAccent != palette.surface) ambientAccent else palette.accent
     Box(
         modifier
             .fillMaxWidth()
             .then(if (ambientBrush != null) Modifier.drawBehind { drawRect(ambientBrush) } else Modifier)
             .drawBehind {
-                if (rhythmSignal.isActive && rhythmSignal.phraseEnergy > 0f) {
+                val glowScale = backdropPolicy.rhythmGlowScale
+                if (glowScale > 0f && rhythmSignal.isActive && rhythmSignal.phraseEnergy > 0f) {
                     drawRect(
                         brush = rhythmGlowBrush,
-                        alpha = (rhythmSignal.phraseEnergy * 0.16f).coerceIn(0f, 0.16f),
+                        alpha = (rhythmSignal.phraseEnergy * 0.16f * glowScale).coerceIn(0f, 0.16f),
                     )
                 }
             }
             .onGloballyPositioned { contentCoords = it }
     ) {
-        if (canvasMode == BgCanvasMode.Fullscreen && canvasState is CanvasLoadState.Ready) {
+        if (backdropPolicy.fullscreenCanvasVisible) {
             BgCanvasOverlay(
                 state = canvasState,
                 playing = player.playing,
                 modifier = Modifier.matchParentSize(),
+                onVisualStateChange = { fullscreenCanvasVisualState = it },
             )
             Box(
                 Modifier
                     .matchParentSize()
-                    .background(Color.Black.copy(alpha = 0.48f))
+                    .graphicsLayer { alpha = animatedScrimAlpha }
+                    .background(Color.Black)
             )
         }
-        if (waveRibbons) {
-            WaveBackdrop(
-                color = palette.accent,
-                secondary = palette.accentSoft,
-                modifier = Modifier.matchParentSize().alpha(0.5f),
+        if (endless || animatedWaveAlpha > 0.005f) {
+            PlayerWaveBackdrop(
+                primary = wavePrimary,
+                secondary = palette.accent,
+                tertiary = palette.accentSoft,
+                darkTheme = darkBackdrop,
+                trackKey = player.item.key,
+                animate = backdropPolicy.waveAnimate,
+                alphaProvider = { animatedWaveAlpha },
+                rhythmSignalProvider = { rhythmSignal },
+                modifier = Modifier.matchParentSize(),
             )
         }
         Box(
@@ -431,6 +484,7 @@ internal fun MusicPlayerContent(
                         player = player,
                         rhythmSignal = rhythmSignal,
                         cardCanvasState = cardCanvasState,
+                        onCardCanvasVisualStateChange = { cardCanvasVisualState = it },
                         onOpenQueue = { onPanel(PlayerPanel.Queue) },
                         onOpenLyrics = { onPanel(PlayerPanel.Lyrics) },
                         onOpenEqualizer = onOpenEqualizer?.let { open ->
@@ -728,6 +782,7 @@ private fun PlayerBody(
     player: MusicPlayerUi,
     rhythmSignal: BgRhythmSignal,
     cardCanvasState: CanvasLoadState,
+    onCardCanvasVisualStateChange: (CanvasVisualState) -> Unit,
     onOpenQueue: () -> Unit,
     onOpenLyrics: () -> Unit,
     onOpenEqualizer: (() -> Unit)?,
@@ -743,7 +798,7 @@ private fun PlayerBody(
                 Modifier.fillMaxSize().padding(horizontal = 20.dp, vertical = 4.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                PlayerArtwork(player, artwork, mediaMotion, rhythmSignal, cardCanvasState)
+                PlayerArtwork(player, artwork, mediaMotion, rhythmSignal, cardCanvasState, onCardCanvasVisualStateChange)
                 Spacer(Modifier.width(28.dp))
                 Column(
                     Modifier
@@ -778,7 +833,7 @@ private fun PlayerBody(
                         .padding(top = 4.dp, bottom = 12.dp),
                     horizontalAlignment = Alignment.CenterHorizontally
                 ) {
-                    PlayerArtwork(player, artwork, mediaMotion, rhythmSignal, cardCanvasState)
+                    PlayerArtwork(player, artwork, mediaMotion, rhythmSignal, cardCanvasState, onCardCanvasVisualStateChange)
                     Spacer(Modifier.height(18.dp))
                     PlayerDetails(
                         player = player,
@@ -847,6 +902,7 @@ private fun PlayerArtwork(
     mediaMotion: MotionSpec,
     rhythmSignal: BgRhythmSignal,
     cardCanvasState: CanvasLoadState = CanvasLoadState.Idle,
+    onCardCanvasVisualStateChange: (CanvasVisualState) -> Unit = {},
 ) {
     val palette = beyGramPalette()
     val density = LocalDensity.current
@@ -974,7 +1030,8 @@ private fun PlayerArtwork(
             playing = player.playing,
             modifier = Modifier
                 .fillMaxSize()
-                .clip(styledShape(20.dp))
+                .clip(styledShape(20.dp)),
+            onVisualStateChange = onCardCanvasVisualStateChange,
         )
         MascotOverlay(
             item = player.item,
