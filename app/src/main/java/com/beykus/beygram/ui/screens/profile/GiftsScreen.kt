@@ -882,7 +882,7 @@ private fun ReceivedGiftRow(gift: ReceivedGiftItem) {
                 gift.collectible,
                 Modifier.sizeIn(minWidth = 48.dp, minHeight = 48.dp).clip(RoundedCornerShape(12.dp))
             ) {
-                gift.collectible?.symbol?.let { GiftPatternLayer(it) }
+                GiftPatternLayer(gift.collectible?.symbol, hasBackdrop = backdropEndpoints(gift.collectible) != null)
                 GiftVisualImage(gift.visual, 36.dp) {
                     Text(gift.emoji.ifBlank { "🎁" }, fontSize = 36.sp)
                 }
