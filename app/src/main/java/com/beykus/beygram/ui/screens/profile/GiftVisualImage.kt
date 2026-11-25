@@ -37,35 +37,47 @@ internal fun ProvideGiftFileAccess(access: GiftFileAccess, content: @Composable 
 }
 
 /**
- * The real gift sticker in a square of [size]: a TGS plays as an animation, a WebP shows as an image. A WebM, a gift
- * without a visual, a sticker that is not downloaded yet and a failed file all show [fallback], the emoji. The file
- * downloads once it is needed, through the same auto-download policy the emoji stickers use.
+ * The real gift sticker in a square of [size]. A TGS plays as an animation and a WebP shows as an image once the file
+ * is on the device. Until then, and for a WebM (which is not drawn), the sticker's thumbnail shows, and with no
+ * thumbnail the emoji [fallback] does. The sticker downloads on demand under the emoji auto-download policy; the
+ * thumbnail downloads straight away because it is small.
  */
 @Composable
 internal fun GiftVisualImage(visual: GiftVisual?, size: Dp, fallback: @Composable () -> Unit) {
     val access = LocalGiftFileAccess.current
-    if (visual == null || access == null || visual.format == StickerFileFormat.Webm) {
+    if (visual == null || access == null) {
         Box(Modifier.size(size), contentAlignment = Alignment.Center) { fallback() }
         return
     }
-    val file by remember(visual.fileId, access) { access.observeFile(visual.fileId) }.collectAsStateWithLifecycle()
     val autoDownload = LocalAutoDownloadFile.current
-    LaunchedEffect(visual.fileId, file.size, file.localPath) {
-        if (!file.isDownloading && file.localPath == null) {
+    val file by remember(visual.fileId, access) { access.observeFile(visual.fileId) }.collectAsStateWithLifecycle()
+    // Without a thumbnail id the observed state is the sticker itself, which is never used as a thumbnail below.
+    val thumbnailId = visual.thumbnailFileId
+    val thumbnail by remember(thumbnailId, visual.fileId, access) {
+        access.observeFile(thumbnailId ?: visual.fileId)
+    }.collectAsStateWithLifecycle()
+    val isWebm = visual.format == StickerFileFormat.Webm
+    LaunchedEffect(visual.fileId, file.size, file.localPath, isWebm) {
+        if (!isWebm && !file.isDownloading && file.localPath == null) {
             val request = AutoDownloadRequest(fileId = visual.fileId, kind = MediaKind.Sticker, sizeBytes = file.size)
             if (autoDownload != null) autoDownload(request) else access.downloadFile(visual.fileId)
         }
     }
+    LaunchedEffect(thumbnailId, thumbnail.size, thumbnail.localPath) {
+        val id = thumbnailId ?: return@LaunchedEffect
+        if (!thumbnail.isDownloading && thumbnail.localPath == null) access.downloadFile(id)
+    }
     val animated = visual.format == StickerFileFormat.Tgs || visual.format == StickerFileFormat.Webp
     val autoplay = rememberAutoplayEligible(enabled = animated)
     val path = file.localPath
-    val modifier = Modifier.size(size).then(autoplay.modifier)
-    Box(modifier, contentAlignment = Alignment.Center) {
+    val thumbnailPath = if (thumbnailId != null) thumbnail.localPath else null
+    Box(Modifier.size(size).then(autoplay.modifier), contentAlignment = Alignment.Center) {
         when {
             path != null && visual.format == StickerFileFormat.Tgs ->
-                TgsSticker(path, Modifier.size(size), playing = autoplay.eligible.value, fallback = fallback)
+                TgsSticker(path, Modifier.fillMaxSize(), playing = autoplay.eligible.value, fallback = fallback)
             path != null && visual.format == StickerFileFormat.Webp ->
-                LocalMediaImage(path, Modifier.size(size), fit = true, animate = autoplay.eligible.value)
+                LocalMediaImage(path, Modifier.fillMaxSize(), fit = true, animate = autoplay.eligible.value)
+            thumbnailPath != null -> LocalMediaImage(thumbnailPath, Modifier.fillMaxSize(), fit = true, animate = false)
             else -> fallback()
         }
     }
