@@ -19,6 +19,8 @@ class ProfileSceneModelTest {
         hasPhoto: Boolean = true,
         titleHeight: Float = 34f,
         statusHeight: Float = 20f,
+        badgesHeight: Float = 0f,
+        gapStatusBadges: Float = 0f,
         reduceMotion: Boolean = false,
     ) = ProfileSceneInputs(
         scrollPx = scroll,
@@ -35,8 +37,10 @@ class ProfileSceneModelTest {
         avatarPx = 112f,
         titleHeightPx = titleHeight,
         statusHeightPx = statusHeight,
-        badgesHeightPx = 0f,
-        gapPx = 8f,
+        badgesHeightPx = badgesHeight,
+        gapAvatarTitlePx = 16f,
+        gapTitleStatusPx = 4f,
+        gapStatusBadgesPx = gapStatusBadges,
         hasPhoto = hasPhoto,
         compactAvatar = SceneRect(20f, 10f, 60f, 50f),
         compactTitle = SceneRect(70f, 12f, 300f, 36f),
@@ -216,5 +220,50 @@ class ProfileSceneModelTest {
             assertClose(1f, frame.collapse, 0f)
             assertTrue("bottom ${frame.displayedBottomPx} inside toolbar", frame.displayedBottomPx <= toolbarBottom + 0.01f)
         }
+    }
+
+    @Test
+    fun missingStatusAddsNoGapAndNoSpace() {
+        // 112 avatar + 16 gap + 34 name, no status and no badges: 162 px at rest.
+        val frame = profileSceneFrame(inputs(statusHeight = 0f, reveal = 0f))
+        assertClose(162f, frame.stageHeightPx, 0.0001f)
+    }
+
+    @Test
+    fun separateGapsAreAppliedBetweenNameAndStatus() {
+        val frame = profileSceneFrame(inputs(reveal = 0f))
+        // Name top at the stage top plus the avatar block and the 16 dp gap; status 4 dp below the name's bottom.
+        assertClose(56f + 112f + 16f, frame.titleRect.top, 0.01f)
+        assertClose(frame.titleRect.bottom + 4f, frame.statusRect.top, 0.01f)
+    }
+
+    @Test
+    fun badgesGapAppliesOnlyWhenBadgesHaveHeight() {
+        val without = profileSceneFrame(inputs(reveal = 0f, badgesHeight = 0f, gapStatusBadges = 6f))
+        val with = profileSceneFrame(inputs(reveal = 0f, badgesHeight = 20f, gapStatusBadges = 6f))
+        assertClose(6f + 20f, with.stageHeightPx - without.stageHeightPx, 0.0001f)
+    }
+
+    @Test
+    fun zeroHeightNameAddsNoGapAboveIt() {
+        // No name: the stage is the avatar block only, and the name rect is empty.
+        val frame = profileSceneFrame(inputs(titleHeight = 0f, statusHeight = 0f, reveal = 0f))
+        assertClose(112f, frame.stageHeightPx, 0.0001f)
+        assertClose(0f, frame.titleRect.height, 0f)
+    }
+
+    @Test
+    fun badgesTopFollowsTheStatusWithoutStatus() {
+        // No status: the badges sit under the name with the status-to-badges gap, and no status gap is used.
+        val frame = profileSceneFrame(inputs(statusHeight = 0f, badgesHeight = 20f, gapStatusBadges = 6f, reveal = 0f))
+        assertClose(frame.titleRect.bottom + 6f, frame.badgesRect.top, 0.01f)
+        assertClose(20f, frame.badgesRect.height, 0.01f)
+    }
+
+    @Test
+    fun travelEqualsStageHeightWithoutStatus() {
+        val frame = profileSceneFrame(inputs(statusHeight = 0f, reveal = 0f))
+        assertClose(frame.stageHeightPx, frame.travelPx, 0.0001f)
+        assertClose(1f, profileSceneFrame(inputs(statusHeight = 0f, reveal = 0f, scroll = frame.stageHeightPx)).collapse, 0f)
     }
 }
