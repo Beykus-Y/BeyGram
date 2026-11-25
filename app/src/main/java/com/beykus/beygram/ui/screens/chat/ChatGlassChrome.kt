@@ -106,6 +106,8 @@ internal fun ChatChromeHost(
                 backdropBase = palette.screen,
                 shape = RectangleShape,
                 edge = edge,
+                // The chat header (top chrome) gets the lens along its bottom side; the composer does not.
+                lensOnFreeEdge = edge == GlassEdge.BottomHairline,
                 // A tap on the pane must not reach a message scrolled underneath; its own buttons still get input first.
                 modifier = Modifier.fillMaxWidth()
                     .pointerInput(Unit) { awaitPointerEventScope { while (true) awaitPointerEvent() } }
