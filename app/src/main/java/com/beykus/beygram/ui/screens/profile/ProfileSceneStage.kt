@@ -7,6 +7,7 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.layout.Layout
+import androidx.compose.ui.layout.boundsInWindow
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.Constraints
@@ -30,6 +31,8 @@ internal class ProfileSceneHeights {
     var titleHeightPx by mutableIntStateOf(0)
     var statusHeightPx by mutableIntStateOf(0)
     var badgesHeightPx by mutableIntStateOf(0)
+    /** Window y of the bottom of the toolbar: the top of the scroll column, which does not scroll itself. */
+    var toolbarBottomPx by mutableIntStateOf(0)
 
     /** True once the stage has been laid out at least once; until then the screen must not report or collapse. */
     val measured: Boolean get() = stageHeightPx > 0
@@ -55,14 +58,14 @@ internal fun ProfileSceneStage(
             heights.stageTopPx = (coordinates.boundsInWindow().top + scrollPx()).roundToInt()
         },
     ) { measurables, constraints ->
+        // The stage sits inside the identity column, which already has the 20 dp side padding: no margin here.
         val width = constraints.maxWidth
-        val marginPx = SceneMarginDp * density
         val avatarPx = SceneAvatarDp * density
-        val textWidth = (width - 2f * marginPx).coerceAtLeast(0f).roundToInt()
         val avatar = measurables[0].measure(Constraints.fixed(avatarPx.roundToInt(), avatarPx.roundToInt()))
-        val title = measurables[1].measure(Constraints(minWidth = textWidth, maxWidth = textWidth))
-        val status = measurables[2].measure(Constraints(minWidth = textWidth, maxWidth = textWidth))
-        val badges = measurables[3].measure(Constraints(maxWidth = textWidth))
+        // Texts take their natural width (up to the stage width) and are centred, as in the screen.
+        val title = measurables[1].measure(Constraints(maxWidth = width))
+        val status = measurables[2].measure(Constraints(maxWidth = width))
+        val badges = measurables[3].measure(Constraints(maxWidth = width))
 
         // Rest geometry relative to the stage top (the stage starts at 0, at scroll 0, reveal off).
         val rest = profileSceneFrame(
@@ -73,7 +76,7 @@ internal fun ProfileSceneStage(
                 viewportHeightPx = 0f,
                 contentLeftPx = 0f,
                 contentRightPx = width.toFloat(),
-                marginPx = marginPx,
+                marginPx = 0f,
                 maxPhotoWidthPx = 0f,
                 photoHeightFraction = 0f,
                 stageTopPx = 0f,
@@ -99,8 +102,9 @@ internal fun ProfileSceneStage(
         heights.stageHeightPx = stageHeight
 
         layout(width, stageHeight) {
-            avatar.placeRelative(rest.avatarRect.left.roundToInt(), rest.avatarRect.top.roundToInt())
-            title.placeRelative(rest.titleRect.left.roundToInt(), rest.titleRect.top.roundToInt())
+            val centre = width / 2f
+            avatar.placeRelative((centre - avatarPx / 2f).roundToInt(), rest.avatarRect.top.roundToInt())
+            title.placeRelative(((width - title.width) / 2f).roundToInt(), rest.titleRect.top.roundToInt())
             status.placeRelative(((width - status.width) / 2f).roundToInt(), rest.statusRect.top.roundToInt())
             badges.placeRelative(((width - badges.width) / 2f).roundToInt(), rest.badgesRect.top.roundToInt())
         }
@@ -108,45 +112,52 @@ internal fun ProfileSceneStage(
 }
 
 /**
- * Inputs for the screen's collapse in C, from the measured stage and the compact toolbar geometry. The stage top is
- * also taken as the toolbar bottom: the scroll content starts right below the toolbar.
+ * Inputs for the screen's collapse in C, from the measured stage and the compact toolbar geometry. The stage sits in
+ * the identity column, whose 20 dp side padding gives the content edges; the margin is therefore zero.
  */
 internal fun profileSceneScreenInputs(
     density: Float,
     windowWidthPx: Float,
     windowHeightPx: Float,
     scrollPx: Float,
-    heights: ProfileSceneHeights,
+    stageTopPx: Float,
+    toolbarBottomPx: Float,
+    titleHeightPx: Float,
+    statusHeightPx: Float,
+    badgesHeightPx: Float,
     hasPhoto: Boolean,
     reduceMotion: Boolean,
     compactAvatar: SceneRect,
     compactTitle: SceneRect,
     compactStatus: SceneRect,
-): ProfileSceneInputs = ProfileSceneInputs(
-    scrollPx = scrollPx,
-    revealFraction = 0f,
-    viewportWidthPx = windowWidthPx,
-    viewportHeightPx = windowHeightPx,
-    contentLeftPx = 0f,
-    contentRightPx = windowWidthPx,
-    marginPx = SceneMarginDp * density,
-    maxPhotoWidthPx = 420f * density,
-    photoHeightFraction = 0.42f,
-    stageTopPx = heights.stageTopPx.toFloat(),
-    toolbarBottomPx = heights.stageTopPx.toFloat(),
-    avatarPx = SceneAvatarDp * density,
-    titleHeightPx = heights.titleHeightPx.toFloat(),
-    statusHeightPx = heights.statusHeightPx.toFloat(),
-    badgesHeightPx = heights.badgesHeightPx.toFloat(),
-    gapAvatarTitlePx = SceneGapAvatarTitleDp * density,
-    gapTitleStatusPx = SceneGapTitleStatusDp * density,
-    gapStatusBadgesPx = SceneGapStatusBadgesDp * density,
-    hasPhoto = hasPhoto,
-    compactAvatar = compactAvatar,
-    compactTitle = compactTitle,
-    compactStatus = compactStatus,
-    reduceMotion = reduceMotion,
-)
+): ProfileSceneInputs {
+    val sidePx = SceneMarginDp * density
+    return ProfileSceneInputs(
+        scrollPx = scrollPx,
+        revealFraction = 0f,
+        viewportWidthPx = windowWidthPx,
+        viewportHeightPx = windowHeightPx,
+        contentLeftPx = sidePx,
+        contentRightPx = windowWidthPx - sidePx,
+        marginPx = 0f,
+        maxPhotoWidthPx = 420f * density,
+        photoHeightFraction = 0.42f,
+        stageTopPx = stageTopPx,
+        toolbarBottomPx = toolbarBottomPx,
+        avatarPx = SceneAvatarDp * density,
+        titleHeightPx = titleHeightPx,
+        statusHeightPx = statusHeightPx,
+        badgesHeightPx = badgesHeightPx,
+        gapAvatarTitlePx = SceneGapAvatarTitleDp * density,
+        gapTitleStatusPx = SceneGapTitleStatusDp * density,
+        gapStatusBadgesPx = SceneGapStatusBadgesDp * density,
+        hasPhoto = hasPhoto,
+        compactAvatar = compactAvatar,
+        compactTitle = compactTitle,
+        compactStatus = compactStatus,
+        reduceMotion = reduceMotion,
+    )
+}
 
 /** Converts a window rectangle from the compact toolbar geometry into the model's rectangle. */
 internal fun Rect.toSceneRect(): SceneRect = SceneRect(left, top, right, bottom)
