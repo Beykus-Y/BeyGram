@@ -360,4 +360,32 @@ class VideoNoteDeliveryStateTest {
         }
         Unit
     }
+
+    @Test fun switchingToAnAccountWithoutARepositoryStopsThePreviousDelivery() = runBlocking {
+        // While the newly selected account has no repository yet, the app detaches delivery entirely: the previous
+        // account's drafts must not keep sending in the background.
+        val accountA = "account-a-switch"
+        val delivered = java.util.concurrent.atomic.AtomicInteger()
+        VideoNoteExportCenter.bindDelivery(VideoNoteDelivery(accountA) { _, _, _, _ ->
+            delivered.incrementAndGet()
+            Result.success(Unit)
+        })
+        VideoNoteExportCenter.unbindDelivery()
+        val item = VideoNoteExportResult(
+            chatId = 1_622L,
+            media = listOf(media("switch")),
+            previewFirst = false,
+            sessionName = "test-account-switch",
+            accountId = accountA
+        )
+        VideoNoteExportCenter.publish(item)
+        try {
+            kotlinx.coroutines.delay(200)
+            assertEquals(0, delivered.get())
+            assertTrue(VideoNoteExportCenter.results.value.any { it.sessionName == item.sessionName })
+        } finally {
+            VideoNoteExportCenter.discard(item.chatId, item.sessionName)
+        }
+        Unit
+    }
 }

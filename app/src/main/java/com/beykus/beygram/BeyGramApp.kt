@@ -467,7 +467,8 @@ internal fun BeyGramAppContent(
     LaunchedEffect(repositorySelection, selectedAccountId) {
         val active = repositorySelection
         if (active == null) {
-            VideoNoteExportCenter.unbindDelivery(selectedAccountId)
+            // No repository yet for the newly selected account: never keep delivering the previous one.
+            VideoNoteExportCenter.unbindDelivery()
         } else {
             VideoNoteExportCenter.bindDelivery(
                 VideoNoteDelivery(selectedAccountId) { chatId, topicId, media, reply ->

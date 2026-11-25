@@ -246,9 +246,12 @@ internal object VideoNoteExportCenter {
         }
     }
 
-    /** Stops delivering for an account that is no longer active; its drafts stay queued. */
-    fun unbindDelivery(accountId: String) {
-        if (delivery.value?.accountId == accountId) delivery.value = null
+    /**
+     * Stops delivering for an account that is no longer active; its drafts stay queued. A null [accountId] detaches
+     * whatever is bound, which is what the app does while the newly selected account has no repository yet.
+     */
+    fun unbindDelivery(accountId: String? = null) {
+        if (accountId == null || delivery.value?.accountId == accountId) delivery.value = null
     }
 
     /** Used both by the real exporter and deterministic queue tests. */
