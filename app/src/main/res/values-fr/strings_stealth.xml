@@ -51,4 +51,12 @@
         <item quantity="one">Vos correspondants dans %1$d discussion verront que les messages ont été lus.</item>
         <item quantity="other">Vos correspondants dans %1$d discussions verront que les messages ont été lus.</item>
     </plurals>
+
+    <string name="stealth_client_state">Paramètres du client</string>
+    <string name="stealth_group_reading">Lecture et consultation</string>
+    <string name="stealth_group_activity">Présence et actions</string>
+    <string name="stealth_active_parameters">Paramètres actifs</string>
+    <string name="stealth_no_active_parameters">Comportement standard du client</string>
+    <string name="stealth_server_visibility_unknown">La visibilité de votre activité dans Telegram est inconnue.</string>
+    <string name="stealth_quick_presets">Sélection rapide du mode</string>
 </resources>
