@@ -17,10 +17,10 @@ The native build scripts use [OpenSSL 3.3.0](https://github.com/openssl/openssl/
 
 Every build variant (dev and prod) resolves `libmihomo-android` **v0.3.11**, bundling Mihomo **v1.19.32**, from the upstream GitHub Release during Gradle builds. The AAR is pinned by SHA-256 `01bc41748840c8200bbaf08c044ba8704e35303a3179b75a3cce8517c8944251` and cached under `app/build/`; it is not committed as a binary. The bridge and core are licensed under GPL-3.0. See [LICENSES/libmihomo-GPL-3.0.txt](LICENSES/libmihomo-GPL-3.0.txt) and the copy included in the APK at `assets/licenses/libmihomo-GPL-3.0.txt`.
 
-Upstream sources: [libmihomo-android v0.3.11](https://github.com/oviron/libmihomo-android/tree/v0.3.11) and [mihomo v1.19.32](https://github.com/MetaCubeX/mihomo/tree/v1.19.32). Before distributing an APK that contains this linked native core, prepare the corresponding source and satisfy the GPL-3.0 terms for the combined work. This project currently does not declare a license for BeyGram's original code.
+Upstream sources: [libmihomo-android v0.3.11](https://github.com/oviron/libmihomo-android/tree/v0.3.11) and [mihomo v1.19.32](https://github.com/MetaCubeX/mihomo/tree/v1.19.32). Before distributing an APK that contains this linked native core, prepare the corresponding source and satisfy the GPL-3.0 terms for the combined work. BeyGram's original code is licensed under GPL-3.0; see [LICENSE](LICENSE).
 
 ## Other build/runtime dependencies
 
 AndroidX/Jetpack Compose, Kotlin, coroutines and the Android Gradle tooling are resolved through Gradle. Their versions and repositories are declared in `gradle/libs.versions.toml`, the Gradle build scripts and the wrapper configuration; they retain their respective upstream licenses.
 
-These notices describe third-party components and do not assign a license to BeyGram's original application code.
+These notices describe third-party components only. BeyGram's own application code is licensed under GPL-3.0; see [LICENSE](LICENSE).
