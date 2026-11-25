@@ -80,7 +80,10 @@ import com.beykus.beygram.ui.screens.profile.ProfileToolbar
 import com.beykus.beygram.ui.screens.proxy.label
 import com.beykus.beygram.ui.screens.settings.SettingsGroup
 import com.beykus.beygram.ui.screens.settings.SettingsRowDivider
+import com.beykus.beygram.ui.screens.settings.SettingsLink
 import com.beykus.beygram.ui.screens.settings.SettingsToggle
+import com.beykus.beygram.playback.VideoStartBuffer
+import com.beykus.beygram.playback.VideoStartBufferSettings
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -217,6 +220,8 @@ fun DiagnosticsScreen(
                 AnalyticsToggle()
                 SettingsRowDivider()
                 MultiAccountTraceToggle()
+                SettingsRowDivider()
+                VideoStartBufferRow()
             }
             Text(
                 stringResource(R.string.diagnostics_settings_note),
@@ -409,6 +414,31 @@ private fun AnalyticsToggle() {
         subtitle = stringResource(R.string.analytics_description),
         checked = enabled,
         onCheckedChange = { enabled = it; AnalyticsSync.setEnabled(it) }
+    )
+}
+
+/**
+ * Выбор стартового буфера для замеров (Issue #1121). Каждое нажатие переключает вариант; новый вариант
+ * применяется к следующему открытому видео. Значение по умолчанию не меняется, пока замеры не закрыты.
+ */
+@Composable
+private fun VideoStartBufferRow() {
+    val context = LocalContext.current
+    var mode by remember { mutableStateOf(VideoStartBufferSettings.load(context)) }
+    val value = when (mode) {
+        VideoStartBuffer.DEFAULT -> stringResource(R.string.diag_video_buffer_value_default)
+        else -> stringResource(R.string.diag_video_buffer_value_ms, mode.bufferForPlaybackMs ?: 0)
+    }
+    SettingsLink(
+        icon = Icons.Rounded.History,
+        title = stringResource(R.string.diag_video_buffer_title),
+        subtitle = value,
+        onClick = {
+            val all = VideoStartBuffer.entries
+            val next = all[(all.indexOf(mode) + 1) % all.size]
+            mode = next
+            VideoStartBufferSettings.save(context, next)
+        }
     )
 }
 
