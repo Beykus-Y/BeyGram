@@ -50,7 +50,7 @@ fetch() { # path under the repository, sha1, destination
   while :; do
     reason=""
     for mirror in "${mirrors[@]}"; do
-      status=$(curl -sS --connect-timeout 30 --max-time 600 -L -D "$headers" -o "$dest.part" -w '%{http_code}' "$mirror/$rel") || status=000
+      status=$(curl -sS --proto '=https' --proto-redir '=https' --connect-timeout 30 --max-time 600 -L -D "$headers" -o "$dest.part" -w '%{http_code}' "$mirror/$rel") || status=000
       if [ "$status" = 200 ]; then
         # A checksum mismatch is not retried or failed over: the content is wrong, so the step stops at once.
         if verify "$dest.part" "$sha"; then
