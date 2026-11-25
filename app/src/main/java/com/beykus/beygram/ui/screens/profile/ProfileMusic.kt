@@ -19,11 +19,11 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.CustomAccessibilityAction
-import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.customActions
 import androidx.compose.ui.semantics.semantics
@@ -99,37 +99,39 @@ internal fun ProfileMusicBar(
     }
 
     val design = LocalDesignSystem.current
+    val cardShape = RoundedCornerShape(design.shapes.groupCard)
+    val cardElevation = design.surfaces.cardElevation
     Row(
         Modifier
             .fillMaxWidth()
-            // Same glass-card fill and corner tokens as the profile cards, without their 16 dp side inset,
-            // so the bar keeps its place under the header.
-            .glassCard(design, palette.accentSoft.copy(alpha = 0.6f), palette.textSecondary, RoundedCornerShape(design.shapes.groupCard))
+            // Same glass-card fill, corner and depth tokens as the neighbouring profile cards, without their 16 dp side
+            // inset, so the bar keeps its place under the header.
+            .then(if (cardElevation > 0.dp) Modifier.shadow(cardElevation, cardShape, clip = false) else Modifier)
+            .glassCard(design, palette.accentSoft.copy(alpha = 0.6f), palette.textSecondary, cardShape)
             .clickable(role = Role.Button) { if (canOpenList) listOpen = true else togglePlayback() }
             // One focus target for TalkBack: play/pause is offered as a custom action on the row.
             .semantics { customActions = listOf(CustomAccessibilityAction(if (isPlaying) pauseLabel else playLabel) { togglePlayback(); true }) }
             .padding(horizontal = 8.dp, vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        // Hidden from TalkBack (the row's custom action speaks for it); the tap target stays for touch.
-        Box(Modifier.clearAndSetSemantics { }) {
-            Box(
-                Modifier
-                    // The drawn disc stays 44 dp; the touch target grows to the 48 dp minimum (Material accessibility).
-                    .minimumInteractiveComponentSize()
-                    .size(44.dp)
-                    .clip(CircleShape)
-                    .background(palette.accent)
-                    .clickable(role = Role.Button) { togglePlayback() },
-                contentAlignment = Alignment.Center
-            ) {
-                Icon(
-                    if (isPlaying) Icons.Rounded.Pause else Icons.Rounded.PlayArrow,
-                    contentDescription = null,
-                    tint = palette.onAccent,
-                    modifier = Modifier.size(26.dp)
-                )
-            }
+        // A direct target for Voice Access and Switch Access: the disc is the play/pause control with its own name.
+        Box(
+            Modifier
+                // The drawn disc stays 44 dp; the touch target grows to the 48 dp minimum (Material accessibility).
+                .minimumInteractiveComponentSize()
+                .size(44.dp)
+                .clip(CircleShape)
+                .background(palette.accent)
+                .clickable(role = Role.Button) { togglePlayback() }
+                .semantics { contentDescription = if (isPlaying) pauseLabel else playLabel },
+            contentAlignment = Alignment.Center
+        ) {
+            Icon(
+                if (isPlaying) Icons.Rounded.Pause else Icons.Rounded.PlayArrow,
+                contentDescription = null,
+                tint = palette.onAccent,
+                modifier = Modifier.size(26.dp)
+            )
         }
         Spacer(Modifier.width(12.dp))
         Column(Modifier.weight(1f)) {
