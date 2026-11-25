@@ -938,6 +938,9 @@
     <string name="settings_experiments_group_music">Music</string>
     <string name="settings_experiments_group_transitions">Gaps and transitions</string>
     <string name="settings_experiments_transitions_note">Skip silence and crossfade belong to the regular player and do not depend on BG Mix. While music plays through BG Mix, it uses its own smooth transitions and these two settings do not apply to it.</string>
+    <string name="settings_experiments_group_profile">Profile</string>
+    <string name="settings_profile_scene_title">Profile 2.0: adaptive scene (beta)</string>
+    <string name="settings_profile_scene_desc">Experimental profile layout with a layered scene. Off by default; turning it off returns the standard profile.</string>
     <string name="lyrics_show">Show lyrics</string>
     <string name="lyrics_hide">Hide lyrics</string>
     <string name="lyrics_none_for_track">There are no lyrics for this track</string>
