@@ -166,6 +166,8 @@ import com.beykus.beygram.ui.screens.chat.isWaveChat
 import com.beykus.beygram.ui.screens.chat.preparedTimeline
 import com.beykus.beygram.ui.screens.chat.LocalChatAnimationPreferences
 import com.beykus.beygram.ui.screens.chat.LocalAutoDownloadFile
+import com.beykus.beygram.ui.screens.chat.VideoNoteDelivery
+import com.beykus.beygram.ui.screens.chat.VideoNoteExportCenter
 import com.beykus.beygram.ui.screens.chat.MessageThreadScreen
 import com.beykus.beygram.ui.screens.chat.ForumTopicsScreen
 import com.beykus.beygram.ui.screens.chat.ForumTopicsLoadingScreen
@@ -460,6 +462,21 @@ internal fun BeyGramAppContent(
     // No caller of a secondary route may fall back to the first account.
     val unavailableAccountRepository = remember { UnavailableTelegramRepository() }
     val repository = repositorySelection ?: unavailableAccountRepository
+    // Delivery of auto-approved video notes is owned by the app, not by an open chat screen (#1228). Bind it to the
+    // account whose repository is actually available; drafts of other accounts stay queued until they become active.
+    LaunchedEffect(repositorySelection, selectedAccountId) {
+        val active = repositorySelection
+        if (active == null) {
+            // No repository yet for the newly selected account: never keep delivering the previous one.
+            VideoNoteExportCenter.unbindDelivery()
+        } else {
+            VideoNoteExportCenter.bindDelivery(
+                VideoNoteDelivery(selectedAccountId) { chatId, topicId, media, reply ->
+                    active.sendMedia(chatId, media, "", reply, forumTopicId = topicId).map { Unit }
+                }
+            )
+        }
+    }
     val authState by repository.authState.collectAsStateWithLifecycle()
     val legacyAuthState by legacyRepository.authState.collectAsStateWithLifecycle()
     // ---- Автопроверка обновлений ---------------------------------------------

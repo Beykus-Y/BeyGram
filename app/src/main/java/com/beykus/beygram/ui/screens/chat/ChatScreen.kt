@@ -749,11 +749,12 @@ fun ChatScreen(
                 list.filter { it.claimedBy(chat.id, accountId, videoClaimTopicId) && !it.requiresPreview && !it.sending }.forEach { item ->
                     val reply = item.sendReplyId(feedSender = forumAllMessages, composerReplyId = replyId)
                     noteLocalSend()
-                    val accepted = VideoNoteExportCenter.send(item.chatId, item.sessionName, reply, accountId) { media, targetReply ->
+                    val started = VideoNoteExportCenter.send(item.chatId, item.sessionName, reply, accountId) { media, targetReply ->
                         conversation.sendMedia(item.chatId, media, "", targetReply, forumTopicId = item.topicId).map { Unit }
                     }
                     // Clear the composer's reply only when this note used it; a reply set after the note was recorded stays.
-                    if (accepted && reply == replyId) clearReply()
+                    // AlreadySending means the app-level sender won the race: the note still used the composer's reply.
+                    if (started != VideoNoteSendStart.NotFound && reply == replyId) clearReply()
                 }
             }
         }
@@ -761,7 +762,8 @@ fun ChatScreen(
             VideoNoteExportCenter.failures.collect {
                 val failed = if (forumAllMessages) VideoNoteExportCenter.consumeFailureForChat(chat.id, accountId)
                 else VideoNoteExportCenter.consumeFailure(chat.id, sendForumTopicId, accountId)
-                if (failed) error = context.getString(R.string.recorder_save_failed)
+                // The reason matters: "не удалось сохранить" alone cannot distinguish a broken encoder from a full disk.
+                if (failed != null) error = failed.message.resolve(context)
             }
         }
     }
@@ -3063,16 +3065,17 @@ fun ChatScreen(
             selectedIndex = recordingPreviewIndex,
             sentPaths = video.media.take(video.nextIndex).mapTo(mutableSetOf()) { it.path },
             sending = video.sending,
+            failure = video.failure,
             progress = (video.nextIndex + 1).coerceAtMost(video.media.size),
             onSelect = recordingRecovery::select,
             onDelete = { VideoNoteExportCenter.discard(video.chatId, video.sessionName, accountId) },
             onSend = {
                 val reply = video.sendReplyId(feedSender = forumAllMessages, composerReplyId = replyId)
                 noteLocalSend()
-                val accepted = VideoNoteExportCenter.send(video.chatId, video.sessionName, reply, accountId) { media, targetReply ->
+                val started = VideoNoteExportCenter.send(video.chatId, video.sessionName, reply, accountId) { media, targetReply ->
                     conversation.sendMedia(video.chatId, media, "", targetReply, forumTopicId = video.topicId).map { Unit }
                 }
-                if (accepted && reply == replyId) clearReply()
+                if (started == VideoNoteSendStart.Started && reply == replyId) clearReply()
             }
         )
     }

@@ -1303,6 +1303,13 @@
     <string name="chat_retry_send">Повторить</string>
     <string name="chat_retry_send_failed">Не удалось повторить отправку</string>
     <string name="recorder_preview_title">Предпросмотр записи</string>
+    <!-- P0 #1228: причина сбоя отправки кружка видна в предпросмотре. -->
+    <string name="recorder_send_in_progress">Отправка…</string>
+    <!-- P0 #1228: причина сбоя обработки кружка. -->
+    <string name="recorder_unreadable_video">Запись повреждена: видео не читается</string>
+    <string name="recorder_unsupported_codec">Кодек записи не поддерживается</string>
+    <string name="recorder_retry_send">Повторить отправку</string>
+    <string name="recorder_preview_unavailable">Не удалось воспроизвести запись</string>
     <string name="recorder_preview_duration">Длительность: %1$s</string>
     <string name="recorder_preview_batch">%1$d видеокружков · %2$s</string>
     <string name="recorder_preview_size">Общий размер: %1$s</string>
