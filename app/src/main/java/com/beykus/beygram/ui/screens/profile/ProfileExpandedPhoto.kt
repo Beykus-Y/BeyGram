@@ -12,6 +12,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.contentDescription
@@ -29,6 +30,10 @@ import kotlinx.coroutines.flow.StateFlow
 /** Side of the revealed square, in dp. Fits a 320 dp phone content width and stays bounded in landscape. */
 private val PhotoSide = 260.dp
 
+private const val ParallaxScale = 1.2f
+private const val ParallaxFactor = 0.2f
+private const val ParallaxMaxPx = 40f
+
 /**
  * Profile 2.0 C, step C1: the current profile photo shown at full header width. A tap on the avatar
  * reveals it here; a tap on the revealed photo opens the existing full-screen gallery (#1138).
@@ -41,6 +46,8 @@ internal fun ProfileExpandedPhoto(
     observeFile: (Int) -> StateFlow<MediaFileState>,
     downloadFile: (Int) -> Unit,
     onOpenGallery: () -> Unit,
+    /** Current scroll of the profile page in px, read at draw time so scrolling does not recompose. */
+    scrollPx: () -> Float = { 0f },
     modifier: Modifier = Modifier,
 ) {
     val context = LocalContext.current
@@ -58,6 +65,16 @@ internal fun ProfileExpandedPhoto(
                 stateDescription = context.getString(R.string.a11y_profile_photo_expanded_state)
             }
     ) {
-        file.localPath?.let { path -> LocalMediaImage(path, Modifier.fillMaxSize()) }
+        // Parallax: the photo moves a little slower than the page, inside a 1.2x crop so it never shows an edge.
+        file.localPath?.let { path ->
+            LocalMediaImage(
+                path,
+                Modifier.fillMaxSize().graphicsLayer {
+                    scaleX = ParallaxScale
+                    scaleY = ParallaxScale
+                    translationY = (scrollPx() * ParallaxFactor).coerceIn(0f, ParallaxMaxPx)
+                }
+            )
+        }
     }
 }

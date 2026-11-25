@@ -310,7 +310,8 @@ fun ProfileScreen(
                         Spacer(Modifier.height(12.dp))
                         ProfileExpandedPhoto(
                             photo = info.photo, color = palette.accent, observeFile = observeFile, downloadFile = downloadFile,
-                            onOpenGallery = { showPhoto = true }
+                            onOpenGallery = { showPhoto = true },
+                            scrollPx = { scrollState.value.toFloat() }
                         )
                     }
                     Spacer(Modifier.height(16.dp))
