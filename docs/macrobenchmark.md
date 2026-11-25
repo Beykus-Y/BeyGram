@@ -34,26 +34,64 @@
 `benchmark` не публикуется и не попадает в CI. Он сохраняет поведение release (R8 и shrinker выключены), поэтому
 измеряется тот же код, что уходит пользователю, но без необходимости в release-ключе.
 
-## Как запускать
+## Как запускать на Samsung M21 (финальный сценарий)
 
-Нужно физическое устройство. Основное слабое устройство для проверки — Samsung M21. Эмулятор для этих замеров не
-годится: он меряет производительность хоста.
+Нужно физическое устройство. Основное слабое устройство для проверки — Samsung M21 (SM-M215F). Эмулятор для этих
+замеров не годится: он меряет производительность хоста. Запуск на телефоне выполняется только с разрешения владельца.
+
+Подготовка (один раз):
 
 ```powershell
-# Список устройств
-adb devices
+# Пакеты и ADB
+adb devices                       # ровно одно устройство в состоянии "device"
+adb shell getprop ro.product.model      # ожидается SM-M215F
+adb shell getprop ro.build.version.sdk # 29+ (у M21 — Android 10/11/12 в зависимости от прошивки)
 
-# Холодный старт, 5 прогонов
+# Устройство не должно быть под другим агентом: проверьте, что нет активного benchmark/install
+adb shell pm list packages | Select-String "com.beykus.beygram"
+```
+
+Сборка и установка профилируемого варианта (debug-подпись, R8 выключен как в релизе):
+
+```powershell
+./gradlew :app:assembleDevBenchmark
+adb install -r app/build/outputs/apk/devBenchmark/app-dev-benchmark.apk
+
+# Требуется для замеров: приложение не debuggable, но profileable
+adb shell dumpsys package com.beykus.beygram.dev | Select-String "profileable"
+```
+
+Перед каждым блоком: закрыть приложение, разблокировать экран, включить авиарежим не нужно (проверка не влияет),
+телефон не на зарядке или на зарядке — одинаково для всех прогонов; температура корпуса комнатная, между блоками
+пауза 5 минут.
+
+```powershell
+# Холодный старт: 5 прогонов, StartupTimingMetric
 ./gradlew :macrobenchmark:connectedDevBenchmarkAndroidTest `
   -Pandroid.testInstrumentationRunnerArguments.class=com.beykus.beygram.macrobenchmark.StartupBenchmark
 
-# Навигация и скролл
+# Навигация и скролл: 5 прогонов, FrameTimingMetric
 ./gradlew :macrobenchmark:connectedDevBenchmarkAndroidTest `
   -Pandroid.testInstrumentationRunnerArguments.class=com.beykus.beygram.macrobenchmark.ChatNavigationBenchmark
 
-# Stable-канал вместо DEV
--Pandroid.testInstrumentationRunnerArguments.targetPackage=com.beykus.beygram
+# Stable-канал вместо DEV (тот же APK не нужен: бенчмарк ставится заново)
+./gradlew :macrobenchmark:connectedProdBenchmarkAndroidTest `
+  -Pandroid.testInstrumentationRunnerArguments.class=com.beykus.beygram.macrobenchmark.StartupBenchmark `
+  -Pandroid.testInstrumentationRunnerArguments.targetPackage=com.beykus.beygram
 ```
+
+Где смотреть результаты:
+
+- `macrobenchmark/build/outputs/connected_android_test_additional_output/` — JSON и логи прогонов;
+- `macrobenchmark/build/outputs/androidTest-results/connected/` — отчёты instrumentation.
+
+Что записать в таблицу (одинаково для всех вариантов): устройство и прошивка, APK (вариант, versionName, SHA-256),
+дата и температура, `timeToInitialDisplay`/`timeToFullDisplay` (P50/P95/P99, min/max), длительность кадров и jank,
+размер APK, PSS/RSS после прогретого сценария.
+
+Проверка отсутствия регрессии установки: после замеров вернуть обычную сборку `:app:installDevDebug` и убедиться,
+что данные приложения и аккаунт на месте (benchmark-вариант имеет тот же applicationId и debug-подпись, поэтому
+ставится поверх, но проверять это нужно явно).
 
 Результаты: `macrobenchmark/build/outputs/connected_android_test_additional_output/...` и
 `macrobenchmark/build/outputs/androidTest-results/connected/...`.
