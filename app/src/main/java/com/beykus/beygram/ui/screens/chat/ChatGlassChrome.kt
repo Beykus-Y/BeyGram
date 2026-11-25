@@ -1,5 +1,7 @@
 package com.beykus.beygram.ui.screens.chat
 
+import android.os.Build
+
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
@@ -35,6 +37,7 @@ import com.beykus.beygram.ui.components.beyGramPalette
  * the header does not turn solid while the user searches, selects or acts on a message.
  */
 internal val LocalChatChromeOnGlass = staticCompositionLocalOf { false }
+internal val LocalComposerOnGlassPlane = staticCompositionLocalOf { false }
 
 /** A fill for a chat bar that gives way to the glass pane it is drawn on. */
 @Composable
@@ -79,7 +82,11 @@ internal fun ChatChromeHost(
         }
         return
     }
-    if (edge == GlassEdge.TopHairline) {
+    val design = LocalDesignSystem.current
+    val glassStyle = design.surfaces.glass
+    val sharedComposer = edge == GlassEdge.TopHairline && !floatingComposer && backdrop != null &&
+        glassStyle?.lensRefraction == true && glassStyle.samplesBackdrop && Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU
+    if (edge == GlassEdge.TopHairline && !sharedComposer) {
         // The attached Liquid Glass composer uses a soft scrim; the floating composer has none. The
         // field and round buttons carry their own surfaces. Bars drawn in this stack (read-only notice, search, selection,
         // delayed send) have no pane behind them any more, so they paint their own opaque fill again.
@@ -93,7 +100,6 @@ internal fun ChatChromeHost(
         }
         return
     }
-    val design = LocalDesignSystem.current
     CompositionLocalProvider(LocalChatChromeOnGlass provides true, LocalGlassBackdrop provides backdrop) {
         // One measured block: the pane plus the floating cards below it, so the list reserves space for both and
         // scrolls under the gaps around the cards.
@@ -106,15 +112,21 @@ internal fun ChatChromeHost(
                 backdropBase = palette.screen,
                 shape = RectangleShape,
                 edge = edge,
-                // The chat header (top chrome) gets the lens along its bottom side; the composer does not.
-                lensOnFreeEdge = edge == GlassEdge.BottomHairline,
+                lensOnFreeEdge = true,
                 // A tap on the pane must not reach a message scrolled underneath; its own buttons still get input first.
                 modifier = Modifier.fillMaxWidth()
                     .pointerInput(Unit) { awaitPointerEventScope { while (true) awaitPointerEvent() } }
             ) {
                 Column(Modifier.fillMaxWidth()) {
                     statusBarSpacer()
-                    paneContent()
+                    if (sharedComposer) {
+                        CompositionLocalProvider(
+                            LocalComposerOnGlassPlane provides true,
+                            LocalGlassBackdrop provides null
+                        ) { paneContent() }
+                    } else {
+                        paneContent()
+                    }
                 }
             }
             // The floating cards sample the same backdrop as the pane and stay out of its rectangle, so they read as

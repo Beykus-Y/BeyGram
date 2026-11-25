@@ -147,8 +147,8 @@ fun GlassPanel(
     edge: GlassEdge = GlassEdge.Rim,
     contentPadding: PaddingValues = PaddingValues(0.dp),
     /**
-     * Opts full-width top chrome into the lens (Issue #1173). The lens then bends only along the side that meets the
-     * content; the screen-edge sides stay flat. Ignored for every other edge.
+     * Opts full-width chrome into the lens (Issue #1173). The lens then bends only along the side that meets the
+     * content; the screen-edge sides stay flat.
      */
     lensOnFreeEdge: Boolean = false,
     content: @Composable BoxScope.() -> Unit
@@ -165,8 +165,8 @@ fun GlassPanel(
     val samplesFrosted = !samplesBackdrop && glass != null && glass.samplesFrosted && backdrop != null
     val frostLayer = rememberGraphicsLayer()
     // Liquid Glass V2: the lens shader exists only where the style asks for it and the device has API 33+.
-    // Floating panes get the lens. Full-width top chrome gets it only with [lensOnFreeEdge], and then only along its
-    // bottom side (see freeEdgeSides): its window-edge sides are not bevelled, which would draw a border there.
+    // Floating panes get the lens. Full-width chrome gets it only with [lensOnFreeEdge], along its
+    // content edge (see freeEdgeSides): its window-edge sides are not bevelled.
     // A shader is created only for a panel that really draws the sampled backdrop; Balanced, Lite and the frosted or
     // unsampled frames never compile one.
     val lensWanted = glassLensWanted(glass?.lensRefraction == true, edge, samplesBackdrop, lensOnFreeEdge)
@@ -198,7 +198,7 @@ fun GlassPanel(
     // step would flicker it, so a shrinking header keeps the last settled lens and rebuilds it once the size settles.
     // A growing header drops it as before: the stale lens would show the bottom band with the background shifted.
     // The effect is only rebuilt at settle (keyed on lensSize), so this costs no extra per-frame work.
-    val keepsLensThroughResize = lensOnFreeEdge && lensEffect != null && panelSize.height <= lensSize.height
+    val keepsLensThroughResize = edge == GlassEdge.BottomHairline && lensOnFreeEdge && lensEffect != null && panelSize.height <= lensSize.height
     val lensActive = lensEffect != null && (panelSize == lensSize || keepsLensThroughResize)
     // The lens cross-fades in once a settled size is known, and drops out at once when the size changes: a fade-out
     // would keep drawing the lens at the old size while the panel has already moved on. Free-edge chrome is the exception
