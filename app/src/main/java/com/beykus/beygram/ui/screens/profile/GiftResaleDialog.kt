@@ -119,7 +119,9 @@ internal fun GiftResaleDialog(
                 ) {
                     items(rows, key = { "listing:" + it.name }) { listing ->
                         Row(Modifier.fillMaxWidth().padding(vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
-                            Text(listing.emoji.ifBlank { "🎁" }, fontSize = 28.sp)
+                            GiftVisualImage(listing.visual, 28.dp) {
+                                Text(listing.emoji.ifBlank { "🎁" }, fontSize = 28.sp)
+                            }
                             Column(Modifier.weight(1f).padding(horizontal = 8.dp)) {
                                 Text(listing.title.ifBlank { listing.name } + " #" + listing.number, color = palette.textPrimary, fontWeight = FontWeight.SemiBold)
                                 listing.starCount?.let {
