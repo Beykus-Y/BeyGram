@@ -28,6 +28,7 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.RadioButton
 import com.beykus.beygram.ui.components.Switch
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.State
 import androidx.compose.runtime.getValue
@@ -356,6 +357,7 @@ private fun StatusCard(
 ) {
     val palette = beyGramPalette()
     val design = LocalDesignSystem.current
+    var showLimits by rememberSaveable { mutableStateOf(false) }
     Column(
         Modifier.fillMaxWidth().glassCard(design, groupSurfaceColor(), palette.textSecondary, groupCardShape()).padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(8.dp)
@@ -386,13 +388,13 @@ private fun StatusCard(
 
         GroupTitle(stringResource(R.string.stealth_active_parameters))
         val activeLabels = buildList {
-            if (settings.hideTyping) add(R.string.stealth_hide_typing_title)
-            if (settings.noReadReceipts) add(R.string.stealth_no_read_receipts_title)
-            if (settings.noContentOpen) add(R.string.stealth_no_content_open_title)
-            if (settings.noStoryViews) add(R.string.stealth_no_story_views_title)
-            if (settings.hideOnline) add(R.string.stealth_hide_online_title)
-            if (settings.hideOnline && settings.warnRiskyActions) add(R.string.stealth_warn_risky_title)
-            if (settings.serverScheduledSend) add(R.string.stealth_schedule_title)
+            if (settings.hideTyping) add(R.string.stealth_summary_typing)
+            if (settings.noReadReceipts) add(R.string.stealth_summary_reads)
+            if (settings.noContentOpen) add(R.string.stealth_summary_media)
+            if (settings.noStoryViews) add(R.string.stealth_summary_stories)
+            if (settings.hideOnline) add(R.string.stealth_summary_presence)
+            if (settings.hideOnline && settings.warnRiskyActions) add(R.string.stealth_summary_warnings)
+            if (settings.serverScheduledSend) add(R.string.stealth_summary_scheduled)
         }
         if (activeLabels.isEmpty() && exceptionCount == 0) {
             Text(stringResource(R.string.stealth_no_active_parameters), color = palette.textSecondary, fontSize = 13.sp)
@@ -407,10 +409,15 @@ private fun StatusCard(
         if (exceptionCount > 0) {
             Text(stringResource(R.string.stealth_exceptions_count, exceptionCount), color = palette.textSecondary, fontSize = 13.sp)
         }
-        GroupTitle(stringResource(R.string.stealth_limits_title))
-        Text(stringResource(R.string.stealth_limits_scope), color = palette.textSecondary, fontSize = 13.sp)
-        Text(stringResource(R.string.stealth_limits_actions), color = palette.textSecondary, fontSize = 13.sp)
-        Text(stringResource(R.string.stealth_limits_online), color = palette.textSecondary, fontSize = 13.sp)
+        Text(stringResource(R.string.stealth_summary_scope), color = palette.textSecondary, fontSize = 13.sp)
+        TextButton(onClick = { showLimits = !showLimits }, modifier = Modifier.heightIn(min = 48.dp)) {
+            Text(stringResource(if (showLimits) R.string.stealth_hide_limits else R.string.stealth_show_limits))
+        }
+        if (showLimits) {
+            Text(stringResource(R.string.stealth_limits_scope), color = palette.textSecondary, fontSize = 13.sp)
+            Text(stringResource(R.string.stealth_limits_actions), color = palette.textSecondary, fontSize = 13.sp)
+            Text(stringResource(R.string.stealth_limits_online), color = palette.textSecondary, fontSize = 13.sp)
+        }
     }
 }
 
