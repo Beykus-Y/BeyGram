@@ -355,4 +355,10 @@
     <string name="gift_auction_history_number_pending">Номер ещё не присвоен</string>
     <string name="gift_auction_history_number">Коллекционный подарок №%1$d</string>
     <string name="gift_auction_history_error">Не удалось загрузить историю</string>
+    <string name="gifts_collectible_number">Подарок №%1$d</string>
+    <string name="gifts_rarity_uncommon">Необычная</string>
+    <string name="gifts_rarity_rare">Редкая</string>
+    <string name="gifts_rarity_epic">Эпическая</string>
+    <string name="gifts_rarity_legendary">Легендарная</string>
+    <string name="gifts_rarity_percent">%1$s%%</string>
 </resources>
