@@ -151,7 +151,7 @@ val Material3DesignSystem = DesignSystem(
  * level; lower levels keep the geometry, the tint and the light rim but skip the blur pass, so the interface stays
  * readable and cheap on weak hardware.
  */
-fun liquidGlassDesign(quality: GlassQuality): DesignSystem {
+fun liquidGlassDesign(quality: GlassQuality, liquidGlassV2: Boolean = false): DesignSystem {
     val resolved = if (quality == GlassQuality.Auto) GlassQuality.High else quality
     val glass = when (resolved) {
         // Real glass: a lighter tint over a saturated blur lets the content behind the pane carry the colour, while the
@@ -170,7 +170,7 @@ fun liquidGlassDesign(quality: GlassQuality): DesignSystem {
             quality = GlassQuality.Lite, blurRadiusDp = 0.dp, tintAlpha = 0.96f,
             rimAlpha = 0.40f, highlightAlpha = 0.08f, shadowElevation = 2.dp
         )
-    }
+    }.copy(lensRefraction = liquidGlassV2)
     return DesignSystem(
         style = DesignStyle.LiquidGlass,
         shapes = DesignShapes(

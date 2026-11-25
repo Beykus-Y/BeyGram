@@ -22,6 +22,7 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.selection.selectableGroup
+import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
@@ -195,6 +196,10 @@ internal fun AppearanceStylePage(
                         )
                     }
                 }
+                LiquidGlassV2Row(
+                    enabled = draft.liquidGlassV2,
+                    onChange = { onDraftChange(draft.copy(liquidGlassV2 = it)) }
+                )
             }
         }
 
@@ -277,6 +282,44 @@ private fun StyleCard(
             overflow = TextOverflow.Ellipsis,
             modifier = Modifier.fillMaxWidth().heightIn(min = StyleCardCaptionHeight).padding(bottom = 2.dp)
         )
+    }
+}
+
+/** Experimental Liquid Glass V2 lens switch. Off by default; the glass above it stays the fallback. */
+@Composable
+private fun LiquidGlassV2Row(enabled: Boolean, onChange: (Boolean) -> Unit) {
+    val palette = beyGramPalette()
+    val boxShape = RoundedCornerShape(4.dp)
+    Row(
+        Modifier.fillMaxWidth()
+            .clip(AppearanceDimens.innerShape)
+            .toggleable(value = enabled, role = Role.Switch, onValueChange = onChange)
+            .padding(vertical = 6.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(10.dp)
+    ) {
+        Box(
+            Modifier.size(18.dp).clip(boxShape)
+                .border(2.dp, if (enabled) palette.accent else palette.divider, boxShape),
+            contentAlignment = Alignment.Center
+        ) {
+            if (enabled) Box(Modifier.size(9.dp).clip(CircleShape).background(palette.accent))
+        }
+        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(1.dp)) {
+            Text(
+                stringResource(R.string.appearance_style_v2_title),
+                color = if (enabled) palette.accentInk else palette.textPrimary,
+                fontSize = 14.sp,
+                lineHeight = 19.sp,
+                fontWeight = if (enabled) FontWeight.SemiBold else FontWeight.Medium
+            )
+            Text(
+                stringResource(R.string.appearance_style_v2_detail),
+                color = palette.textSecondary,
+                fontSize = 12.sp,
+                lineHeight = 17.sp
+            )
+        }
     }
 }
 
