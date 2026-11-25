@@ -172,7 +172,11 @@ private fun YandexSignInScreen(onBack: () -> Unit) {
                             onClick = { showDiagnostics = !showDiagnostics }
                         )
                         if (showDiagnostics) {
-                            val summary = listOfNotNull(provider.subscriptionDiagnostics, provider.lyricsDiagnostics)
+                            val summary = listOfNotNull(
+                                provider.subscriptionDiagnostics,
+                                provider.lyricsDiagnostics,
+                                provider.canvasDiagnostics,
+                            )
                                 .joinToString("\n")
                                 .takeIf { it.isNotBlank() }
                             Text(
