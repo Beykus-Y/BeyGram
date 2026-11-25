@@ -1,6 +1,9 @@
 package com.beykus.beygram.ui.screens.playback
 
+import android.content.BroadcastReceiver
 import android.content.Context
+import android.content.Intent
+import android.content.IntentFilter
 import android.os.PowerManager
 import android.view.TextureView
 import androidx.compose.animation.core.animateFloatAsState
@@ -12,11 +15,13 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.viewinterop.AndroidView
+import androidx.core.content.ContextCompat
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
@@ -41,6 +46,27 @@ import com.beykus.beygram.ui.motion.MotionCategory
 import com.beykus.beygram.ui.motion.MotionToken
 import com.beykus.beygram.ui.motion.rememberMotionSpec
 import java.io.File
+
+internal fun isBgCanvasAllowed(
+    active: Boolean,
+    resumed: Boolean,
+    mode: BgCanvasMode,
+    reducedMotion: Boolean,
+    motionEnabled: Boolean,
+    mediaMotionDisabled: Boolean,
+    powerSave: Boolean,
+): Boolean =
+    active &&
+        resumed &&
+        mode != BgCanvasMode.Off &&
+        !reducedMotion &&
+        motionEnabled &&
+        !mediaMotionDisabled &&
+        !powerSave
+
+private fun readPowerSaveMode(context: Context): Boolean = runCatching {
+    (context.getSystemService(Context.POWER_SERVICE) as? PowerManager)?.isPowerSaveMode == true
+}.getOrDefault(false)
 
 /**
  * Observes BG Canvas availability for [item] when [active], resumed, and allowed by settings,
@@ -70,19 +96,34 @@ internal fun rememberBgCanvasState(
         onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
     }
 
-    val powerSave = remember(context, resumed) {
+    var powerSave by remember(context) { mutableStateOf(readPowerSaveMode(context)) }
+    LaunchedEffect(context, resumed) {
+        powerSave = readPowerSaveMode(context)
+    }
+    DisposableEffect(context) {
+        val receiver = object : BroadcastReceiver() {
+            override fun onReceive(ctx: Context?, intent: Intent?) {
+                powerSave = readPowerSaveMode(context)
+            }
+        }
+        val filter = IntentFilter(PowerManager.ACTION_POWER_SAVE_MODE_CHANGED)
         runCatching {
-            (context.getSystemService(Context.POWER_SERVICE) as? PowerManager)?.isPowerSaveMode == true
-        }.getOrDefault(false)
+            ContextCompat.registerReceiver(context, receiver, filter, ContextCompat.RECEIVER_NOT_EXPORTED)
+        }
+        onDispose {
+            runCatching { context.unregisterReceiver(receiver) }
+        }
     }
 
-    val allowed = active &&
-        resumed &&
-        settings.mode != BgCanvasMode.Off &&
-        !reducedMotion &&
-        motion.enabled &&
-        MotionCategory.Media !in motion.disabledCategories &&
-        !powerSave
+    val allowed = isBgCanvasAllowed(
+        active = active,
+        resumed = resumed,
+        mode = settings.mode,
+        reducedMotion = reducedMotion,
+        motionEnabled = motion.enabled,
+        mediaMotionDisabled = MotionCategory.Media in motion.disabledCategories,
+        powerSave = powerSave,
+    )
 
     var state by remember(item.key) { mutableStateOf<CanvasLoadState>(CanvasLoadState.Idle) }
 
@@ -123,6 +164,7 @@ internal fun BgCanvasOverlay(
     modifier: Modifier = Modifier,
 ) {
     val asset = (state as? CanvasLoadState.Ready)?.asset ?: return
+    val context = LocalContext.current
     var failedKey by remember(asset.playbackKey, asset.localFilePath) { mutableStateOf(false) }
     if (failedKey) return
 
@@ -139,8 +181,18 @@ internal fun BgCanvasOverlay(
             filePath = asset.localFilePath,
             playing = playing,
             modifier = Modifier.fillMaxSize(),
-            onFirstFrame = { firstFrameRendered = true },
-            onError = { failedKey = true },
+            onFirstFrame = {
+                if (!firstFrameRendered) {
+                    firstFrameRendered = true
+                    AppCanvasRepository.get(context).recordFirstFrame()
+                }
+            },
+            onError = { errorCode ->
+                if (!failedKey) {
+                    failedKey = true
+                    AppCanvasRepository.get(context).recordPlaybackError(errorCode)
+                }
+            },
         )
     }
 }
@@ -151,9 +203,11 @@ internal fun CanvasVideoSurface(
     playing: Boolean,
     modifier: Modifier = Modifier,
     onFirstFrame: () -> Unit = {},
-    onError: () -> Unit = {},
+    onError: (String) -> Unit = {},
 ) {
     val context = LocalContext.current
+    val currentOnFirstFrame by rememberUpdatedState(onFirstFrame)
+    val currentOnError by rememberUpdatedState(onError)
     val player = remember(context) {
         val trackSelector = DefaultTrackSelector(context).apply {
             parameters = buildUponParameters()
@@ -174,11 +228,11 @@ internal fun CanvasVideoSurface(
     DisposableEffect(player) {
         val listener = object : Player.Listener {
             override fun onRenderedFirstFrame() {
-                onFirstFrame()
+                currentOnFirstFrame()
             }
 
             override fun onPlayerError(error: PlaybackException) {
-                onError()
+                currentOnError(error.errorCodeName)
             }
         }
         player.addListener(listener)
@@ -191,7 +245,7 @@ internal fun CanvasVideoSurface(
     LaunchedEffect(player, filePath) {
         val file = File(filePath)
         if (!file.isFile || file.length() <= 0L) {
-            onError()
+            currentOnError("missing_file")
             return@LaunchedEffect
         }
         player.setMediaItem(MediaItem.fromUri(file.toURI().toString()))
