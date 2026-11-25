@@ -1,0 +1,7 @@
+# robolectric 4.17
+# android-all jars that the BeyGram unit tests need, Robolectric 4.17, format: <api level> <jar file> <sha1>.
+# Tests without @Config run at the app targetSdk (36, app/build.gradle.kts); the screenshot tests pin sdk = [34].
+# scripts/robolectric-prefetch.sh checks the version line against gradle/libs.versions.toml and the api level against
+# targetSdk, so a version bump that needs new jars fails in the prefetch step with a clear message.
+34 android-all-instrumented-14-robolectric-10818077-i7.jar dd5e1d356107e9d99ebf58beb5329debe2849140
+36 android-all-instrumented-16-robolectric-13921718-i7.jar d13a33227927de4f98e8f85f91ce68cee55c0ae6

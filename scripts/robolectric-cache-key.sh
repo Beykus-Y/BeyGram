@@ -22,4 +22,4 @@ if [ -z "$robolectric" ] || [ -z "$roborazzi" ]; then
 fi
 
 os=${RUNNER_OS:-$(uname -s)}
-echo "beygram-robolectric-v2-${os}-robolectric-${robolectric}-roborazzi-${roborazzi}"
+echo "beygram-robolectric-v3-${os}-robolectric-${robolectric}-roborazzi-${roborazzi}"
