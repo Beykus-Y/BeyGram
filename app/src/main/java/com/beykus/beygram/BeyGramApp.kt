@@ -246,6 +246,7 @@ import com.beykus.beygram.data.settings.ForumNavigationStore
 import com.beykus.beygram.data.settings.TranslationSettingsStore
 import com.beykus.beygram.data.appearance.AppearanceConfig
 import com.beykus.beygram.data.presence.LastSeenSettingsStore
+import com.beykus.beygram.data.settings.StealthSettingsStore
 import com.beykus.beygram.ui.screens.proxy.ProxyConnectScreen
 import com.beykus.beygram.ui.screens.proxy.ProxyConnectTab
 import com.beykus.beygram.ui.screens.proxy.ProxyListScreen
@@ -367,7 +368,7 @@ fun BeyGramApp(
 }
 
 @Composable
-private fun BeyGramAppContent(
+internal fun BeyGramAppContent(
     legacyRepository: TelegramRepository,
     tdLibReadiness: TdLibReadiness,
     appearance: AppearanceConfig,
@@ -384,7 +385,10 @@ private fun BeyGramAppContent(
     onDeepLinkBound: (Long, String) -> Unit,
     onDeepLinkHandled: (Long) -> Unit,
     onSecureScreenChange: (Boolean) -> Unit,
-    locked: Boolean
+    locked: Boolean,
+    stealthStoreForRepository: (TelegramRepository) -> StealthSettingsStore? = {
+        (it as? TdLibTelegramRepository)?.stealthSettings
+    }
 ) {
     val context = LocalContext.current
     // ---- Реактивное состояние ------------------------------------------------
@@ -517,6 +521,17 @@ private fun BeyGramAppContent(
     var accountSwitcherVisible by rememberSaveable { mutableStateOf(false) }
     var accountSwitcherAddMode by rememberSaveable { mutableStateOf(false) }
     var accountSwitcherRouteAccountId by rememberSaveable { mutableStateOf<String?>(null) }
+
+    fun openAccountsFrom(source: String) {
+        if (MultiAccountDiagnostics.isVerbose()) {
+            MultiAccountDiagnostics.milestone(
+                code = "account_switcher_open",
+                stage = "requested",
+                attrs = mapOf("source" to source, "ready" to (!locked).toString())
+            )
+        }
+        accountSwitcherVisible = true
+    }
     // A restored secondary account may be selected before its native session is up.
     var recoveryBusy by remember { mutableStateOf(false) }
     var recoveryError by remember { mutableStateOf<UiText?>(null) }
@@ -1836,7 +1851,7 @@ private fun BeyGramAppContent(
             // Same route as a chat tap, but the chat opens on the topic that the row names.
             onForumTopicClick = { chat -> openDeepLinkChat(chat.id, 0L, chat.lastMessageForumTopicId) },
             onMyProfile = { routeName = AppRoute.MyProfile.name },
-            onAccountPicker = { accountSwitcherVisible = true },
+            onAccountPicker = { openAccountsFrom("chats") },
             onArchiveClick = { routeName = AppRoute.Archive.name },
             onMarkRead = markChatRead,
             onMarkAllRead = { chats ->
@@ -1927,7 +1942,7 @@ private fun BeyGramAppContent(
             onSessions = { routeName = AppRoute.Sessions.name },
             onPrivacy = { routeName = AppRoute.PrivacySettings.name },
             onAccountSecurity = { routeName = AppRoute.AccountSecurity.name },
-            onSecondaryAccounts = { accountSwitcherVisible = true },
+            onSecondaryAccounts = { openAccountsFrom("settings") },
             onAppLock = { routeName = AppRoute.AppLock.name },
             onEqualizer = { routeName = AppRoute.Equalizer.name },
             onExperiments = { routeName = AppRoute.Experiments.name },
@@ -3705,7 +3720,7 @@ GlobalSearchScreen(
     }
     AccountSwitcherSheet(
         visible = accountSwitcherVisible && !locked,
-        stealthStore = (repository as? TdLibTelegramRepository)?.stealthSettings.takeIf { authState == AuthState.Ready },
+        stealthStore = stealthStoreForRepository(repository).takeIf { authState == AuthState.Ready },
         onOpenStealth = { routeName = AppRoute.StealthSettings.name },
         currentAccountId = selectedAccountId,
         legacyReady = legacyAuthState == AuthState.Ready,
