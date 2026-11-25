@@ -128,6 +128,10 @@ jobs:
           cache-read-only: ${{ github.event_name != 'push' }}
           gradle-home-cache-excludes: caches/build-cache-1
 
+      - name: Compute Robolectric cache key
+        id: robolectric-key
+        run: echo "key=$(scripts/robolectric-cache-key.sh)" >> "$GITHUB_OUTPUT"
+
       - name: Restore Robolectric artifact cache
         # Robolectric keeps the android-all jars in ~/.m2. A failed download there fails every test that needs it, so
         # the jars are cached per Robolectric version. Pull requests read the cache saved by DEV or main.
@@ -135,7 +139,7 @@ jobs:
         uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
         with:
           path: ~/.m2/repository/org/robolectric
-          key: beygram-robolectric-${{ runner.os }}-${{ hashFiles('gradle/libs.versions.toml') }}
+          key: ${{ steps.robolectric-key.outputs.key }}
 
       - name: Install Android platform 36.1
         # The runner image ships the Android SDK but not sdkmanager on PATH.

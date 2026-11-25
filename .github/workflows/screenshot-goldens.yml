@@ -65,6 +65,17 @@ jobs:
           cache-read-only: true
           gradle-home-cache-excludes: caches/build-cache-1
 
+      - name: Compute Robolectric cache key
+        id: robolectric-key
+        run: echo "key=$(scripts/robolectric-cache-key.sh)" >> "$GITHUB_OUTPUT"
+
+      - name: Restore Robolectric artifact cache
+        # Read only: a record run on a pull request never saves it. It reads the jars saved by DEV or main.
+        uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: ~/.m2/repository/org/robolectric
+          key: ${{ steps.robolectric-key.outputs.key }}
+
       - name: Install Android platform 36.1
         run: |
           set -uo pipefail
@@ -79,8 +90,8 @@ jobs:
       - name: Record screenshots
         run: |
           printf 'telegramApiId=0\ntelegramApiHash=\n' > secrets.properties
-          ./gradlew --no-daemon :app:testDevDebugUnitTest -Pscreenshots=record \
-            --tests 'com.beykus.beygram.ui.screenshots.*'
+          scripts/gradle-test-retry.sh app/build/test-results/testDevDebugUnitTest \
+            :app:testDevDebugUnitTest -Pscreenshots=record --tests 'com.beykus.beygram.ui.screenshots.*'
 
       - name: Save recorded goldens
         # The record step ran code from the PR, which may have left hooks or git settings in this tree. Only the golden
