@@ -751,7 +751,8 @@ fun ChatScreen(
                         conversation.sendMedia(item.chatId, media, "", targetReply, forumTopicId = item.topicId).map { Unit }
                     }
                     // Clear the composer's reply only when this note used it; a reply set after the note was recorded stays.
-                    if (started == VideoNoteSendStart.Started && reply == replyId) clearReply()
+                    // AlreadySending means the app-level sender won the race: the note still used the composer's reply.
+                    if (started != VideoNoteSendStart.NotFound && reply == replyId) clearReply()
                 }
             }
         }

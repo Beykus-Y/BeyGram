@@ -13,6 +13,7 @@ import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
@@ -264,5 +265,51 @@ class VideoNoteDeliveryStateTest {
             assertTrue("an explicitly deleted draft takes its recording with it", !raw.exists())
         }
         Unit
+    }
+
+    @Test fun anAutoApprovedDraftIsDeliveredWithoutAnyScreen() = runBlocking {
+        // Delivery used to live in ChatScreen's LaunchedEffect: a note finished after leaving the chat stayed unsent.
+        val item = VideoNoteExportResult(1_319L, listOf(media("auto")), previewFirst = false, sessionName = "test-auto-delivery")
+        val delivered = CompletableDeferred<Unit>()
+        VideoNoteExportCenter.bindDelivery(VideoNoteDelivery("legacy") { chatId, topicId, media, reply ->
+            assertEquals(1_319L, chatId)
+            assertEquals("video-note-auto.mp4", media.fileName)
+            assertNull(reply)
+            delivered.complete(Unit)
+            Result.success(Unit)
+        })
+        try {
+            VideoNoteExportCenter.publish(item)
+            withTimeout(3_000) { delivered.await() }
+            withTimeout(3_000) {
+                VideoNoteExportCenter.results.first { list -> list.none { it.sessionName == item.sessionName } }
+            }
+        } finally {
+            VideoNoteExportCenter.unbindDelivery("legacy")
+        }
+        Unit
+    }
+
+    @Test fun aFailedAutoSendIsNotRetriedInALoop() = runBlocking {
+        val item = VideoNoteExportResult(1_420L, listOf(media("auto-fail")), previewFirst = false, sessionName = "test-auto-fail")
+        val attempts = java.util.concurrent.atomic.AtomicInteger()
+        VideoNoteExportCenter.bindDelivery(VideoNoteDelivery("legacy") { _, _, _, _ ->
+            attempts.incrementAndGet()
+            Result.failure(IllegalStateException("offline"))
+        })
+        try {
+            VideoNoteExportCenter.publish(item)
+            withTimeout(3_000) {
+                VideoNoteExportCenter.results.first { list ->
+                    list.any { it.sessionName == item.sessionName && it.requiresPreview && !it.sending }
+                }
+            }
+            // Give the collector several rounds to (incorrectly) retry: a failed draft must wait for the user.
+            kotlinx.coroutines.delay(200)
+            assertEquals(1, attempts.get())
+        } finally {
+            VideoNoteExportCenter.unbindDelivery("legacy")
+            VideoNoteExportCenter.discard(item.chatId, item.sessionName)
+        }
     }
 }

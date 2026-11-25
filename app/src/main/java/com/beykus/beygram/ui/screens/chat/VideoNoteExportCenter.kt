@@ -23,6 +23,7 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -171,6 +172,15 @@ internal fun CoroutineScope.launchExclusiveExport(block: suspend () -> Unit): Jo
  * The queue survives chat navigation/configuration, not Android process death. Disk-backed
  * recovery of process kills and failed transcodes remains a separate task.
  */
+/**
+ * Turns an accepted draft into a TDLib message. Bound by the app for the active account, so delivery does not depend on
+ * a chat screen being open: a note recorded just before navigating away still reaches its chat (#1228).
+ */
+internal class VideoNoteDelivery(
+    val accountId: String,
+    val send: suspend (chatId: Long, topicId: Long, media: OutgoingMedia, replyId: Long?) -> Result<Unit>
+)
+
 internal object VideoNoteExportCenter {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
 
@@ -184,6 +194,43 @@ internal object VideoNoteExportCenter {
     private val _pendingNotes = MutableStateFlow<List<PendingVideoNote>>(emptyList())
     /** Автоматические кружки, которые TDLib ещё не принял: лента показывает их сразу, с индикатором. */
     val pendingNotes: StateFlow<List<PendingVideoNote>> = _pendingNotes.asStateFlow()
+
+    /** The app-bound sender for automatic delivery; null until the app binds the active account. */
+    private var delivery: VideoNoteDelivery? = null
+    private var deliveryJob: Job? = null
+
+    /**
+     * Binds delivery for the active account and starts the once-per-process collector. Auto-approved drafts are sent
+     * without waiting for a screen; a draft that failed stays in the preview until the user retries or deletes it.
+     */
+    fun bindDelivery(next: VideoNoteDelivery) {
+        synchronized(this) {
+            delivery = next
+            if (deliveryJob == null) {
+                deliveryJob = scope.launch {
+                    _results.collect { list ->
+                        val current = delivery ?: return@collect
+                        list.filter { it.accountId == current.accountId && !it.requiresPreview && !it.sending }
+                            .forEach { item ->
+                                // Without a composer there is only the reply stored with the note; a reply typed after
+                                // recording belongs to whatever the user writes next.
+                                val reply = item.sendReplyId(feedSender = false, composerReplyId = null)
+                                send(item.chatId, item.sessionName, reply, item.accountId) { media, targetReply ->
+                                    current.send(item.chatId, item.topicId, media, targetReply)
+                                }
+                            }
+                    }
+                }
+            }
+        }
+    }
+
+    /** Stops delivering for an account that is no longer active; its drafts stay queued. */
+    fun unbindDelivery(accountId: String) {
+        synchronized(this) {
+            if (delivery?.accountId == accountId) delivery = null
+        }
+    }
 
     /** Used both by the real exporter and deterministic queue tests. */
     internal fun publish(result: VideoNoteExportResult) {
