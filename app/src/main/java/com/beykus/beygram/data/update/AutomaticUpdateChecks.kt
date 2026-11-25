@@ -5,6 +5,7 @@ import android.util.Log
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.isActive
@@ -58,7 +59,7 @@ class AutomaticUpdateChecks internal constructor(
     private val scope: CoroutineScope,
     private val announce: (StableRelease, Long) -> Unit,
     private val withdraw: () -> Unit,
-    private val statuses: kotlinx.coroutines.flow.Flow<UpdateStatus>,
+    private val statuses: Flow<UpdateStatus>,
     private val clock: () -> Long = System::currentTimeMillis,
     private val log: (String) -> Unit = { Log.i(LOG_TAG, it) },
 ) {
