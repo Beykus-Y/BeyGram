@@ -9,6 +9,7 @@ import android.util.Log
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.unit.Density
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
@@ -24,14 +25,25 @@ import androidx.compose.ui.unit.dp
  * The panel's tint, rim and highlight stay on top, and every failure falls back to the plain blur.
  */
 
-/** Width of the refracting band along the panel edge, before it is capped by the panel's size. */
-internal val LensEdgeThickness = 14.dp
+/**
+ * The tunable constants of the lens, in one place. The defaults are starting values chosen from the optics, not
+ * measured on a device: they are meant to be adjusted on hardware (see the manual check in the PR).
+ */
+data class LensTuning(
+    /** Width of the refracting band along the edge, capped by a fifth of the panel's shorter side. */
+    val thicknessDp: Dp = 22.dp,
+    /** How far the refracted ray travels inside the glass, as a multiple of the band width. Higher bends content more. */
+    val strength: Float = 0.9f,
+    /** Refraction index of the glass; the ray enters air-to-glass with eta = 1 / index. */
+    val refractionIndex: Float = 1.5f,
+    /**
+     * Blur of the lens path as a fraction of the style's blur. The refraction bends structure, so the lens reads the
+     * sharp layer and only the output is softened; a full blur first would leave nothing to bend.
+     */
+    val blurScale: Float = 0.5f
+)
 
-/** How far the refracted ray travels inside the glass, as a fraction of the band width. */
-private const val LensStrength = 0.5f
-
-/** Refraction index of the glass; the ray enters air-to-glass with eta = 1 / index. */
-private const val LensRefractionIndex = 1.5f
+internal val DefaultLensTuning = LensTuning()
 
 /**
  * Shader that refracts the already blurred backdrop sample ("img") at the panel edge.
@@ -139,7 +151,8 @@ internal fun buildLensRenderEffect(
     blurPx: Float,
     darkSurface: Boolean,
     density: Density,
-    layoutDirection: LayoutDirection
+    layoutDirection: LayoutDirection,
+    tuning: LensTuning
 ): RenderEffect? {
     if (sizePx.width <= 0 || sizePx.height <= 0) return null
     val size = Size(sizePx.width.toFloat(), sizePx.height.toFloat())
@@ -149,14 +162,16 @@ internal fun buildLensRenderEffect(
         shader.setFloatUniform("size", size.width, size.height)
         shader.setFloatUniform("radii", radii.topLeft, radii.topRight, radii.bottomRight, radii.bottomLeft)
         shader.setFloatUniform("thickness", thickness)
-        shader.setFloatUniform("strength", LensStrength)
-        shader.setFloatUniform("eta", 1f / LensRefractionIndex)
+        shader.setFloatUniform("strength", tuning.strength)
+        shader.setFloatUniform("eta", 1f / tuning.refractionIndex)
         shader.setFloatUniform("lightSurface", if (darkSurface) 0f else 1f)
-        val blur = RenderEffect.createBlurEffect(blurPx, blurPx, Shader.TileMode.CLAMP)
+        // Order: the lens reads the sharp layer first, then the output is blurred and lifted in saturation, so the
+        // bent edges stay visible under the softened glass.
+        val blur = RenderEffect.createBlurEffect(blurPx * tuning.blurScale, blurPx * tuning.blurScale, Shader.TileMode.CLAMP)
         val vibrancy = RenderEffect.createColorFilterEffect(ColorMatrixColorFilter(vibrancyMatrix(darkSurface)))
         val lens = RenderEffect.createRuntimeShaderEffect(shader, "img")
         LiquidGlassMetrics.recordLensBuilt()
-        RenderEffect.createChainEffect(lens, RenderEffect.createChainEffect(vibrancy, blur))
+        RenderEffect.createChainEffect(RenderEffect.createChainEffect(vibrancy, blur), lens)
     } catch (error: RuntimeException) {
         LiquidGlassMetrics.recordCompileFailure()
         null

@@ -8,6 +8,7 @@ import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class LiquidGlassGeometryTest {
@@ -57,5 +58,14 @@ class LiquidGlassGeometryTest {
         assertEquals(before.shadersCreated + 1, after.shadersCreated)
         assertEquals(before.fallbackFrames + 1, after.fallbackFrames)
         assertEquals(before.lensEffectsBuilt, after.lensEffectsBuilt)
+    }
+
+    @Test
+    fun defaultLensTuningStaysInItsPhysicalRange() {
+        val tuning = DefaultLensTuning
+        assertTrue(tuning.refractionIndex > 1f)
+        assertTrue(tuning.strength > 0f)
+        assertTrue(tuning.blurScale > 0f && tuning.blurScale <= 1f)
+        assertTrue(tuning.thicknessDp > 0.dp)
     }
 }

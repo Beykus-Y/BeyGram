@@ -282,7 +282,9 @@ data class GlassStyle(
      * Liquid Glass V2 (experimental): the sampled backdrop is refracted at the panel edge by the lens shader. Only
      * effective at [samplesBackdrop] on API 33+; everywhere else the panel is the unchanged material. Off by default.
      */
-    val lensRefraction: Boolean = false
+    val lensRefraction: Boolean = false,
+    /** The lens constants (see [LensTuning]); used only when [lensRefraction] is on. */
+    val lensTuning: LensTuning = DefaultLensTuning
 ) {
     /** The backdrop is sampled and blurred only at the full level; lower levels keep the layout and the tint. */
     val samplesBackdrop: Boolean get() = quality == GlassQuality.High && blurRadiusDp > 0.dp

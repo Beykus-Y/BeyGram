@@ -169,14 +169,15 @@ fun GlassPanel(
         delay(LensSettleMillis)
         lensSize = panelSize
     }
-    val lensThicknessPx = with(density) { LensEdgeThickness.toPx() }
+    val lensTuning = glass?.lensTuning ?: DefaultLensTuning
+    val lensThicknessPx = with(density) { lensTuning.thicknessDp.toPx() }
     val layoutDirection = LocalLayoutDirection.current
     val blurPx = with(density) { (glass?.blurRadiusDp ?: 0.dp).toPx() }
     val darkSurface = tint.luminance() < 0.5f
     // The effect is rebuilt only when the size, the shape or the surface changes, not on every frame.
-    val lensEffect = remember(lensShader, lensSize, shape, lensThicknessPx, blurPx, darkSurface, density, layoutDirection) {
+    val lensEffect = remember(lensShader, lensSize, shape, lensThicknessPx, blurPx, darkSurface, density, layoutDirection, lensTuning) {
         lensShader?.let {
-            buildLensRenderEffect(it, lensSize, shape, lensThicknessPx, blurPx, darkSurface, density, layoutDirection)
+            buildLensRenderEffect(it, lensSize, shape, lensThicknessPx, blurPx, darkSurface, density, layoutDirection, lensTuning)
         }
     }
     val lensActive = lensEffect != null && panelSize == lensSize
