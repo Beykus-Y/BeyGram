@@ -13,6 +13,8 @@
     <string name="profile_gallery_delete_title">Supprimer la photo de profil ?</string>
     <string name="profile_gallery_delete_warning">Cette photo sera supprimée de l’historique des photos de profil Telegram. Cette action est irréversible.</string>
     <string name="profile_gallery_position">%1$d sur %2$d</string>
+    <string name="profile_gallery_next">Photo suivante</string>
+    <string name="profile_gallery_previous">Photo précédente</string>
     <string name="profile_gallery_retry">Impossible de charger l’historique des photos de profil · Réessayer</string>
     <string name="profile_gallery_set_main">Définir comme photo de profil principale</string>
     <string name="profile_group_members_count">Membres : %1$d</string>

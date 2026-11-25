@@ -79,7 +79,8 @@ object LensTuningPresets {
 
 /**
  * Shader that refracts the already blurred backdrop sample ("img") at the panel edge.
- * Uniforms: size (px), radii (tl, tr, br, bl in px), thickness (px), strength, lightSurface (1 on light surfaces).
+ * Uniforms: size (px), radii (tl, tr, br, bl in px), thickness (px), strength, lightSurface (1 on light surfaces),
+ * open (left, top, right, bottom; 1 = the side lies on the screen edge and is not bevelled).
  */
 private val LensShaderSource = """
     uniform shader img;
@@ -89,6 +90,7 @@ private val LensShaderSource = """
     uniform float strength;
     uniform float eta;
     uniform float lightSurface;
+    uniform float4 openSides;
 
     float sdRoundedBox(float2 p, float2 halfSize, float4 r) {
         // Per-corner radius picked by the quadrant of p: top-left, top-right, bottom-right, bottom-left.
@@ -98,8 +100,17 @@ private val LensShaderSource = """
     }
 
     half4 main(float2 coord) {
-        float2 halfSize = size * 0.5;
-        float2 p = coord - halfSize;
+        // An open side is pushed 4096 px outside the panel, so its bevel lies off screen and only the closed sides bend
+        // light. With every side closed the box is the panel itself, as before.
+        float M = 4096.0;
+        float4 box = float4(
+            openSides.x > 0.5 ? -M : 0.0,
+            openSides.y > 0.5 ? -M : 0.0,
+            openSides.z > 0.5 ? size.x + M : size.x,
+            openSides.w > 0.5 ? size.y + M : size.y
+        );
+        float2 halfSize = (box.zw - box.xy) * 0.5;
+        float2 p = coord - (box.xy + box.zw) * 0.5;
         float sd = min(sdRoundedBox(p, halfSize, radii), 0.0);
         // 0 at the rim, 1 where the bevel ends, deeper inside the panel the lens does nothing.
         float depth = clamp(-sd / thickness, 0.0, 1.0);
@@ -195,12 +206,14 @@ internal fun buildLensRenderEffect(
     darkSurface: Boolean,
     density: Density,
     layoutDirection: LayoutDirection,
-    tuning: LensTuning
+    tuning: LensTuning,
+    edge: GlassEdge = GlassEdge.Rim
 ): RenderEffect? {
     if (sizePx.width <= 0 || sizePx.height <= 0) return null
     val size = Size(sizePx.width.toFloat(), sizePx.height.toFloat())
     val radii = lensCornerRadii(shape, size, density, layoutDirection)
     val thickness = lensThicknessPx(thicknessPx, size, tuning.maxThicknessFraction)
+    val open = freeEdgeSides(edge)
     return try {
         shader.setFloatUniform("size", size.width, size.height)
         shader.setFloatUniform("radii", radii.topLeft, radii.topRight, radii.bottomRight, radii.bottomLeft)
@@ -208,6 +221,13 @@ internal fun buildLensRenderEffect(
         shader.setFloatUniform("strength", tuning.strength)
         shader.setFloatUniform("eta", 1f / tuning.refractionIndex)
         shader.setFloatUniform("lightSurface", if (darkSurface) 0f else 1f)
+        shader.setFloatUniform(
+            "openSides",
+            if (open[0]) 1f else 0f,
+            if (open[1]) 1f else 0f,
+            if (open[2]) 1f else 0f,
+            if (open[3]) 1f else 0f
+        )
         // Order: the lens reads the sharp layer first, then the output is blurred and lifted in saturation, so the
         // bent edges stay visible under the softened glass.
         val blur = RenderEffect.createBlurEffect(blurPx * tuning.blurScale, blurPx * tuning.blurScale, Shader.TileMode.CLAMP)

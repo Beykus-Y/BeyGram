@@ -27,6 +27,7 @@ import androidx.compose.material.icons.rounded.DownloadDone
 import androidx.compose.material.icons.rounded.History
 import androidx.compose.material.icons.rounded.NewReleases
 import androidx.compose.material.icons.rounded.Restore
+import androidx.compose.material.icons.rounded.Settings
 import androidx.compose.material.icons.rounded.Star
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.material.icons.rounded.WarningAmber
@@ -92,7 +93,8 @@ internal fun MyMusicScreen(
     onSearch: (providerFirst: Boolean) -> Unit,
     onOpenPlaylist: (String) -> Unit,
     onProviderSignIn: () -> Unit = {},
-    onOpenCollection: ((String) -> Unit)? = null
+    onOpenCollection: ((String) -> Unit)? = null,
+    onOpenSettings: () -> Unit = {}
 ) {
     val palette = beyGramPalette()
     val context = LocalContext.current
@@ -147,6 +149,15 @@ internal fun MyMusicScreen(
                         Icon(
                             Icons.AutoMirrored.Rounded.ArrowBack,
                             stringResource(R.string.common_back),
+                            tint = palette.textPrimary
+                        )
+                    }
+                },
+                actions = {
+                    IconButton(onClick = onOpenSettings) {
+                        Icon(
+                            Icons.Rounded.Settings,
+                            stringResource(R.string.music_settings_title),
                             tint = palette.textPrimary
                         )
                     }

@@ -135,6 +135,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.beykus.beygram.R
 import com.beykus.beygram.data.appearance.ListDensity
+import com.beykus.beygram.data.update.UpdateBannerState
 import com.beykus.beygram.domain.UiText
 import com.beykus.beygram.domain.model.ChatMessage
 import com.beykus.beygram.domain.model.ChatPreview
@@ -288,7 +289,14 @@ fun ChatsScreen(
      * Поиск, папка и позиция списка. Владелец экрана держит это состояние выше раскладки,
      * поэтому переход между телефоном и двумя панелями не сбрасывает список.
      */
-    state: ChatsScreenState = rememberChatsScreenState()
+    state: ChatsScreenState = rememberChatsScreenState(),
+    /**
+     * An available build, when the updater has a confirmed offer. Null hides the line entirely; the banner is part of
+     * the scrolling list, never an overlay, so it cannot cover a chat, the composer or the keyboard.
+     */
+    updateBanner: UpdateBannerState? = null,
+    onUpdateBannerOpen: () -> Unit = {},
+    onUpdateBannerSnooze: () -> Unit = {}
 ) {
     val query = state.query
     // After upgrading from the local text field, never leave the list filtered by a stale saved query.
@@ -908,6 +916,15 @@ fun ChatsScreen(
             )
         ) {
             // Stories live on the main chat list only, not in search results or a server folder.
+            if (activeFolderId == null && query.isBlank() && updateBanner != null) {
+                item(key = "update_banner") {
+                    UpdateAvailableBanner(
+                        model = updateBanner,
+                        onOpen = onUpdateBannerOpen,
+                        onSnooze = onUpdateBannerSnooze,
+                    )
+                }
+            }
             if (activeFolderId == null && query.isBlank()) {
                 item(key = "story_bar") {
                     StoryBarSection(
@@ -1117,6 +1134,7 @@ fun ChatsScreen(
                   backdropBase = palette.screen,
                   shape = RectangleShape,
                   edge = GlassEdge.BottomHairline,
+                  lensOnFreeEdge = true,
                   // The pane is hit-tested as a whole: a tap on the title or a gap must not reach a chat row
                   // scrolled underneath. Its own buttons and the search field still receive input first.
                   modifier = Modifier.fillMaxWidth().onSizeChanged {

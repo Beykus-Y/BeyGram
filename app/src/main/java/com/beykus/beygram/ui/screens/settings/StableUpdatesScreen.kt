@@ -15,6 +15,7 @@ import androidx.compose.animation.togetherWith
 import androidx.compose.animation.core.snap
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
@@ -31,6 +32,7 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
@@ -78,6 +80,7 @@ import com.beykus.beygram.data.update.updateChannelFor
 import com.beykus.beygram.ui.accessibility.errorAnnouncement
 import com.beykus.beygram.ui.components.Button
 import com.beykus.beygram.ui.components.OutlinedButton
+import com.beykus.beygram.ui.components.Switch
 import com.beykus.beygram.ui.components.beyGramPalette
 import com.beykus.beygram.ui.design.LocalDesignSystem
 import com.beykus.beygram.ui.design.glassScreenBackground
@@ -123,6 +126,8 @@ fun StableUpdatesScreen(onBack: () -> Unit, model: StableUpdatesViewModel = view
         onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
     }
     val card = updateCardModel(uiState)
+    // Unattended checks are a user choice; the manual check stays available either way.
+    var autoCheckEnabled by remember { mutableStateOf(model.autoCheckEnabled) }
     Column(
         Modifier.fillMaxSize()
             .glassScreenBackground(design, palette.screen)
@@ -142,6 +147,17 @@ fun StableUpdatesScreen(onBack: () -> Unit, model: StableUpdatesViewModel = view
                 .padding(horizontal = 16.dp, vertical = 12.dp)
         ) {
             UpdateStatusCard(model, uiState, card, isDevBeta)
+            SettingsGroup(stringResource(R.string.updates_group_auto_check)) {
+                Column(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 12.dp)) {
+                    AutoCheckRow(
+                        checked = autoCheckEnabled,
+                        onCheckedChange = { enabled ->
+                            autoCheckEnabled = enabled
+                            model.setAutoCheckEnabled(enabled)
+                        },
+                    )
+                }
+            }
             card.release?.let { current ->
                 SettingsGroup(stringResource(R.string.updates_changes)) {
                     Column(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 14.dp)) {
@@ -161,6 +177,36 @@ fun StableUpdatesScreen(onBack: () -> Unit, model: StableUpdatesViewModel = view
             }
             Spacer(Modifier.height(16.dp))
         }
+    }
+}
+
+/**
+ * One switch under the status card: unattended checks on or off. It never disables the manual check, and it keeps an
+ * offer that is already visible — the user asked to stop checking, not to hide what was found.
+ */
+@Composable
+private fun AutoCheckRow(checked: Boolean, onCheckedChange: (Boolean) -> Unit) {
+    val palette = beyGramPalette()
+    Row(
+        Modifier.fillMaxWidth()
+            .toggleable(value = checked, role = Role.Switch, onValueChange = onCheckedChange)
+            .padding(vertical = 4.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(12.dp)
+    ) {
+        Column(Modifier.weight(1f)) {
+            Text(
+                stringResource(R.string.updates_auto_check_title),
+                color = palette.textPrimary,
+                style = MaterialTheme.typography.bodyLarge
+            )
+            Text(
+                stringResource(R.string.updates_auto_check_detail),
+                color = palette.textSecondary,
+                style = MaterialTheme.typography.bodySmall
+            )
+        }
+        Switch(checked = checked, onCheckedChange = null)
     }
 }
 

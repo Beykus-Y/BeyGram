@@ -76,3 +76,80 @@ Robolectric запускается на SDK 34: для SDK 35+ он требуе
   (`ChatListItem`);
 - подпись «Contacts» в нижней панели не помещалась: подписи вкладок растут с системным размером текста до 1.5×, дальше
   остаются на этом размере и при нехватке места получают многоточие (`tabLabelSize` в `MainTabs.kt`).
+
+## Локальный запуск в PowerShell
+
+Из корня отдельного клона запустите существующую матрицу BeyGram или выберите отдельный тест. Gradle использует Android SDK и JDK этой среды.
+
+```powershell
+.\scripts\visual-tests.ps1
+.\scripts\visual-tests.ps1 -Mode compare -TestPattern '*StyleMatrixScreenshotTest'
+.\scripts\visual-tests.ps1 -Mode record -TestPattern '*MusicHomeScreenshotTest'
+```
+
+`verify` сравнивает с эталонами в `app/src/test/screenshots`. `compare` сохраняет результаты сравнения в `app/build/outputs/roborazzi`. `record` записывает эталоны выбранного теста. Проверьте diff PNG перед коммитом. Для строгого сравнения используйте одинаковые ОС, JDK и версию Robolectric. На Windows с JBR 21.0.10 повторный снимок Stealth совпал по SHA-256 и прошёл verify по PNG из того же окружения. Штатный StylePreview отличался от эталонов репозитория. Режим compare сохранил изображения сравнения. У Default Chats различия видны главным образом на краях и сглаживании.
+
+Для нового экрана добавьте JVM-тест в `ui/screenshots` по образцу `StylePreviewScreenshotTest`. Передайте в публичную composable тестовые данные, используйте простой `Application`, зафиксируйте SDK 34, размер окна, язык, тему и состояние, затем вызывайте `compose.onRoot().captureRoboImage(...)`. Для загрузки и ошибок задайте воспроизводимые fake-состояния. Для стилей используйте `designFor` и `GlassQuality.Balanced`.
+
+### Независимые PNG Stealth
+
+```powershell
+.\scripts\visual-tests.ps1 -StealthCaptureDir 'F:\BeyGram-Agents\Codex\reports\stealth-2-screens' -Stage after
+```
+
+Сценарий `StealthUiCapture` отрисовывает настоящий `StealthSettingsScreen` на синтетическом состоянии Maximum с двумя исключениями и 30-секундной задержкой. Размер 360 × 780 dp, xhdpi, русский язык, тёмная тема. `before` снимает Default, `after` — пять стилей и Liquid Glass V2. PNG сохраняются в указанной папке и лежат отдельно от эталонов Git. Имена файлов имеют вид `before-Default.png`, `after-Default.png`, `after-LiquidGlassV2.png`.
+
+Первоначальные снимки получены на DEV `754dd219638962865c632bcffe4625730665b6dd` и ветке исключений `e27440fcfcff6070491ce1192b44b673135c559c`. Компактный вариант снят на `11b508023e23d60efdb031095b2695d47d62faa8`, его PNG лежат в подкаталоге `compact`. Для повторения на произвольном коммите используйте временный клон, перенесите туда `StealthUiCapture.kt` в `app/src/test/java/com/beykus/beygram/ui/screens/settings` и запустите:
+
+```powershell
+$env:JAVA_HOME = 'C:\Program Files\Android\Android Studio\jbr'
+$env:ANDROID_HOME = 'C:\Users\Beykus\AppData\Local\Android\Sdk'
+$env:GRADLE_USER_HOME = 'F:\BeyGram-Agents\Codex\tmp\gradle'
+$env:BEYGRAM_STEALTH_CAPTURE_DIR = 'F:\BeyGram-Agents\Codex\reports\stealth-2-screens'
+$env:BEYGRAM_STEALTH_CAPTURE_STAGE = 'before'
+.\gradlew.bat --no-daemon :app:testDevDebugUnitTest -Pscreenshots=record --tests '*StealthUiCapture'
+```
+
+Для второго коммита установите `BEYGRAM_STEALTH_CAPTURE_STAGE=after` и повторите команду Gradle. Robolectric подтверждает компоновку Compose по теме и токенам. Оптический эффект Liquid Glass V2 с реальным backdrop, TalkBack и производительность требуют проверки на Android.
+
+## Выгрузка PNG в GitHub Actions
+
+В PR из этого репозитория добавьте метку `capture-stealth` для обзора Stealth или `capture-screenshots` для штатной матрицы. Оба варианта используют существующий **Record screenshot goldens** и берут точный head на момент назначения метки. Снимки публикуются в **Artifacts**. Эти запуски работают по запросу. `record-screenshots` остаётся отдельной операцией обновления эталонов.
+
+```bash
+gh run download RUN_ID -n "capture-stealth-HEAD_SHA" -D reports/stealth
+```
+
+### Одинаковая матрица на Linux и Windows
+
+Воспроизводимость между запусками требует одинаковых JDK, Android SDK, Robolectric и параметров сцены. Пример для Linux после установки SDK 36.1 и JDK 17, настроенных через Android SDK и `JAVA_HOME`.
+
+```bash
+mkdir -p "$PWD/app/build/visual-captures"
+BEYGRAM_STEALTH_CAPTURE_DIR="$PWD/app/build/visual-captures" \
+BEYGRAM_STEALTH_CAPTURE_STAGE=after BEYGRAM_STEALTH_CAPTURE_MATRIX=review \
+./gradlew :app:testDevDebugUnitTest -Pscreenshots=record --tests '*StealthUiCapture' --rerun
+```
+
+```powershell
+.\scripts\visual-tests.ps1 -StealthCaptureDir '.\app\build\visual-captures' -Matrix review
+```
+
+Матрица `review` добавляет маленький светлый телефон с Normal, большой тёмный телефон с Custom, альбомное окно с HiddenReading и планшет с FailClosed. Базовая серия снимает Maximum во всех стилях.
+
+## Кадры адаптивной сцены профиля
+
+`ProfileSceneUiCapture` открывает настоящий `ProfileScreen` на синтетическом профиле. Сценарий сохраняет кадры до
+раскрытия, в процессе раскрытия, после него, при pull-down, во время сворачивания прокруткой, в компактном состоянии и после Back.
+Последний PNG показывает стабильный Profile A при выключенном эксперименте. Для захвата на PR используйте метку
+`capture-profile` существующего workflow и скачайте одноимённый артефакт.
+
+```bash
+BEYGRAM_PROFILE_CAPTURE_DIR="$PWD/app/build/visual-captures" \
+./gradlew :app:testDevDebugUnitTest -Pscreenshots=record --tests '*ProfileSceneUiCapture' --rerun
+```
+
+```powershell
+$env:BEYGRAM_PROFILE_CAPTURE_DIR = Join-Path (Get-Location) 'app/build/visual-captures'
+.\gradlew.bat :app:testDevDebugUnitTest -Pscreenshots=record --tests '*ProfileSceneUiCapture' --rerun
+```

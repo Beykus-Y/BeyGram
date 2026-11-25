@@ -366,6 +366,9 @@ internal open class YandexApi(
         }
         val firstAlbum = o.optJSONArray("albums")?.optJSONObject(0)
         val album = firstAlbum?.optString("title")?.takeIf { it.isNotBlank() }
+        val videoUri = o.optString("backgroundVideoUri")
+            .takeIf { it.startsWith("https://", ignoreCase = true) }
+        val videoId = o.idOf("backgroundVideoId")
         return ProviderTrack(
             trackId = id,
             title = title,
@@ -377,6 +380,8 @@ internal open class YandexApi(
             liked = null,
             artistRefs = artistRefs,
             albumId = firstAlbum?.idOf("id"),
+            backgroundVideoUri = videoUri,
+            backgroundVideoId = videoId,
         )
     }
 
