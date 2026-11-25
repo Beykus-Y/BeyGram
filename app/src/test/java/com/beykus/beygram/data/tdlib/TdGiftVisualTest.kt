@@ -65,6 +65,20 @@ class TdGiftVisualTest {
     }
 
     @Test
+    fun aStickerRegistersItsFileAndThumbnailInTheMediaStore() {
+        val store = MediaFileStore()
+        val payments = TdPayments(TdRequests { error("TDLib is not used by these tests") }, store)
+        val sticker = TdApi.Sticker().apply {
+            sticker = TdApi.File().apply { id = 31 }
+            format = TdApi.StickerFormatTgs()
+            thumbnail = TdApi.Thumbnail().apply { file = TdApi.File().apply { id = 32 } }
+        }
+        payments.giftVisual(sticker)
+        assertEquals(31, store.snapshot(31)?.id)
+        assertEquals(32, store.snapshot(32)?.id)
+    }
+
+    @Test
     fun aRegularGiftHasNoCollectibleDetails() {
         assertNull(payments().giftCollectible(null))
     }

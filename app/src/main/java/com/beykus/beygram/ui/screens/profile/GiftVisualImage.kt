@@ -12,8 +12,12 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.Dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.beykus.beygram.R
 import com.beykus.beygram.data.media.AutoDownloadNetworkStatus
 import com.beykus.beygram.data.settings.AutoDownloadSettingsStore
 import com.beykus.beygram.domain.model.AutoDownloadRequest
@@ -85,6 +89,7 @@ internal fun GiftVisualImage(visual: GiftVisual?, size: Dp, fallback: @Composabl
     }
     val animated = visual.format == StickerFileFormat.Tgs || visual.format == StickerFileFormat.Webp
     val autoplay = rememberAutoplayEligible(enabled = animated)
+    val description = stringResource(R.string.gifts_gift_generic)
     val path = file.localPath
     val thumbnailPath = if (thumbnailId != null) thumbnail.localPath else null
     // What the cell shows until the sticker can be drawn: the thumbnail, or the emoji when there is none.
@@ -95,7 +100,10 @@ internal fun GiftVisualImage(visual: GiftVisual?, size: Dp, fallback: @Composabl
             fallback()
         }
     }
-    Box(Modifier.size(size).then(autoplay.modifier), contentAlignment = Alignment.Center) {
+    Box(
+        Modifier.size(size).then(autoplay.modifier).semantics { contentDescription = description },
+        contentAlignment = Alignment.Center
+    ) {
         when {
             // With animation off, TgsSticker shows the poster and never parses the file.
             path != null && visual.format == StickerFileFormat.Tgs ->
