@@ -972,6 +972,14 @@
     <string name="lyrics_copy_line">Copiar línea</string>
     <string name="lyrics_copied">Línea copiada</string>
     <string name="lyrics_line_options_a11y">Estilo de letra y copiar</string>
+    <string name="lyrics_external_disabled">La búsqueda externa de letras (LRCLIB) está desactivada. Actívala para buscar por título y artista sin compartir datos del chat.</string>
+    <string name="lyrics_enable_external">Activar búsqueda en LRCLIB</string>
+    <string name="lyrics_restricted_privacy">La búsqueda externa de letras no está disponible para contenido protegido o privado</string>
+    <string name="lyrics_source_attribution">Fuente: %1$s</string>
+    <string name="lyrics_sources_section">Fuentes</string>
+    <string name="lyrics_external_lrclib_toggle">Búsqueda en LRCLIB</string>
+    <string name="lyrics_clear_cache">Limpiar caché de letras</string>
+    <string name="lyrics_cache_cleared">Caché de letras limpiada</string>
     <string name="chat_quote_title">Citar fragmento</string>
     <string name="chat_quote_hint">Texto citado</string>
     <string name="chat_quote_action">Citar</string>
