@@ -5,6 +5,7 @@ import com.beykus.beygram.ui.design.LocalDesignSystem
 import com.beykus.beygram.ui.design.glassScreenBackground
 import androidx.annotation.StringRes
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -139,6 +140,7 @@ fun GiftsScreen(
     val loadingText = stringResource(R.string.a11y_state_loading)
     val context = LocalContext.current
     var listingGift by remember(accountId, profileId) { mutableStateOf<ReceivedGiftItem?>(null) }
+    var detailTarget by remember(accountId, profileId) { mutableStateOf<GiftDetailTarget?>(null) }
     val listingState by GiftListingStore.state.collectAsState()
     val listingOperation = listingState[accountId]
     var info by remember { mutableStateOf<GiftsInfo?>(null) }
@@ -347,7 +349,8 @@ fun GiftsScreen(
         }
     }
 
-    Column(Modifier.fillMaxSize().glassScreenBackground(design, palette.screen).windowInsetsPadding(WindowInsets.safeDrawing)) {
+    ProvideGiftAnimationBudget {
+        Column(Modifier.fillMaxSize().glassScreenBackground(design, palette.screen).windowInsetsPadding(WindowInsets.safeDrawing)) {
         ProfileToolbar(title, onBack = { if (!sending) onBack() }) {
             IconButton(onClick = { if (!loading && !sending) reload++ }, enabled = !loading && !sending) {
                 Icon(Icons.Rounded.Refresh, stringResource(R.string.common_retry), tint = palette.textPrimary)
@@ -472,7 +475,7 @@ fun GiftsScreen(
                             }
                         } else {
                             items(gifts.received, key = { it.id }) { gift ->
-                                ReceivedGiftRow(gift)
+                                ReceivedGiftRow(gift, onClick = { detailTarget = GiftDetailTarget.Received(gift) })
                                 if (gift.isUpgraded && !gift.wasRefunded && gift.id.isNotBlank()) {
                                     TextButton(
                                         onClick = { listingGift = gift },
@@ -730,6 +733,10 @@ fun GiftsScreen(
             onDismiss = ::dismissDialog
         )
     }
+    detailTarget?.let { target ->
+        GiftDetailSheet(target = target, onDismiss = { detailTarget = null })
+    }
+    }
 }
 
 @Composable
@@ -868,40 +875,43 @@ private fun GiftCatalogRow(
 }
 
 @Composable
-private fun ReceivedGiftRow(gift: ReceivedGiftItem) {
+internal fun ReceivedGiftRow(gift: ReceivedGiftItem, onClick: (() -> Unit)? = null) {
     val palette = beyGramPalette()
+    val cardModifier = Modifier.fillMaxWidth().profileCardSurface().let { base ->
+        if (onClick != null) base.clickable(role = Role.Button, onClick = onClick) else base
+    }
     Column(
-        Modifier.fillMaxWidth().profileCardSurface()
+        cardModifier
             .padding(horizontal = 16.dp, vertical = 12.dp)
             .semantics(mergeDescendants = true) {}
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             // The gift itself is the main visual, so the emoji gets a larger slot than the text around it.
             // An upgraded gift shows its backdrop behind the model and its symbol in the corner; a regular gift has neither.
-            GiftCollectibleBackdrop(
-                gift.collectible,
-                Modifier.sizeIn(minWidth = 48.dp, minHeight = 48.dp).clip(RoundedCornerShape(12.dp))
-            ) {
-                GiftPatternLayer(gift.collectible?.symbol, hasBackdrop = backdropEndpoints(gift.collectible) != null)
-                GiftVisualImage(gift.visual, 36.dp) {
-                    Text(gift.emoji.ifBlank { "🎁" }, fontSize = 36.sp)
-                }
-                // The symbol only shows its thumbnail, so a symbol without one has nothing to draw. Its inset keeps it
-                // inside the rounded backdrop corner, and its semantics are cleared because the row already says the gift.
-                gift.collectible?.symbol?.takeIf { it.thumbnailFileId != null }?.let { symbol ->
-                    Box(Modifier.align(Alignment.BottomEnd).padding(4.dp).clearAndSetSemantics {}) {
-                        GiftVisualImage(symbol, 18.dp, staticOnly = true) {}
-                    }
-                }
-            }
+            GiftArtworkFrame(
+                visual = gift.visual,
+                emoji = gift.emoji,
+                collectible = gift.collectible,
+                frameSize = 52.dp,
+                stickerSize = 36.dp,
+                symbolSize = 18.dp,
+                cornerRadius = 12.dp,
+                modifier = Modifier.sizeIn(minWidth = 48.dp, minHeight = 48.dp)
+            )
             Column(Modifier.weight(1f).padding(start = 12.dp)) {
                 // Regular gifts have no title from Telegram, so they show a generic name rather than the list heading.
+                val displayTitle = gift.name.ifBlank {
+                    gift.collectible?.title.orEmpty().ifBlank { stringResource(R.string.gifts_gift_generic) }
+                }
                 Text(
-                    gift.name.ifBlank { stringResource(R.string.gifts_gift_generic) },
+                    displayTitle,
                     color = palette.textPrimary,
                     fontSize = 15.sp,
                     fontWeight = FontWeight.SemiBold
                 )
+                gift.collectible?.modelName?.takeIf { it.isNotBlank() && it != displayTitle }?.let { model ->
+                    Text(model, color = palette.textSecondary, fontSize = 12.sp)
+                }
                 Text(
                     stringResource(R.string.gifts_from, gift.senderName ?: stringResource(R.string.gifts_sender_unknown)),
                     color = palette.textSecondary,
@@ -956,6 +966,7 @@ private fun ReceivedGiftRow(gift: ReceivedGiftItem) {
             Text(gift.text, color = palette.textPrimary, fontSize = 14.sp)
         }
         val badges = mutableListOf<String>()
+        if (gift.isPinned) badges += stringResource(R.string.gifts_pinned)
         if (gift.isUpgraded) badges += stringResource(R.string.gifts_upgraded)
         if (gift.isPrivate) badges += stringResource(R.string.gifts_private)
         if (gift.wasRefunded) badges += stringResource(R.string.gifts_refunded)
@@ -1065,7 +1076,7 @@ private object RetainedGiftSendStore {
 }
 
 /** The label of a model's rarity tier, shown under an upgraded gift's number. */
-private fun giftRarityLabelRes(tier: GiftRarityTier): Int = when (tier) {
+internal fun giftRarityLabelRes(tier: GiftRarityTier): Int = when (tier) {
     GiftRarityTier.Uncommon -> R.string.gifts_rarity_uncommon
     GiftRarityTier.Rare -> R.string.gifts_rarity_rare
     GiftRarityTier.Epic -> R.string.gifts_rarity_epic
@@ -1073,7 +1084,7 @@ private fun giftRarityLabelRes(tier: GiftRarityTier): Int = when (tier) {
 }
 
 /** Each rarity tier has its own colour from the theme palette, so the levels read apart without the label. */
-private fun giftRarityColor(tier: GiftRarityTier?, palette: BeyGramPalette): Color = when (tier) {
+internal fun giftRarityColor(tier: GiftRarityTier?, palette: BeyGramPalette): Color = when (tier) {
     GiftRarityTier.Uncommon -> palette.textSecondary
     GiftRarityTier.Rare -> palette.accentInk
     GiftRarityTier.Epic -> palette.warningText
