@@ -87,7 +87,7 @@ Robolectric запускается на SDK 34: для SDK 35+ он требуе
 .\scripts\visual-tests.ps1 -Mode record -TestPattern '*MusicHomeScreenshotTest'
 ```
 
-`verify` сравнивает с эталонами в `app/src/test/screenshots`. `compare` сохраняет результаты сравнения в `app/build/outputs/roborazzi`. `record` записывает эталоны выбранного теста. Проверьте diff PNG перед коммитом. Для строгого сравнения используйте одинаковые ОС, JDK и версию Robolectric. На Windows JBR 21.0.10 повторный снимок Stealth совпал по SHA-256, а штатный StylePreview отличался от эталонов репозитория. Режим compare сохранил изображения; у Default Chats различия видны главным образом на краях и сглаживании.
+`verify` сравнивает с эталонами в `app/src/test/screenshots`. `compare` сохраняет результаты сравнения в `app/build/outputs/roborazzi`. `record` записывает эталоны выбранного теста. Проверьте diff PNG перед коммитом. Для строгого сравнения используйте одинаковые ОС, JDK и версию Robolectric. На Windows с JBR 21.0.10 повторный снимок Stealth совпал по SHA-256 и прошёл verify по PNG из того же окружения. Штатный StylePreview отличался от эталонов репозитория. Режим compare сохранил изображения сравнения. У Default Chats различия видны главным образом на краях и сглаживании.
 
 Для нового экрана добавьте JVM-тест в `ui/screenshots` по образцу `StylePreviewScreenshotTest`. Передайте в публичную composable тестовые данные, используйте простой `Application`, зафиксируйте SDK 34, размер окна, язык, тему и состояние, затем вызывайте `compose.onRoot().captureRoboImage(...)`. Для загрузки и ошибок задайте воспроизводимые fake-состояния. Для стилей используйте `designFor` и `GlassQuality.Balanced`.
 
