@@ -39,5 +39,6 @@
     <string name="appearance_style_lens_title">Вариант линзы</string>
     <string name="appearance_style_lens_standard">Обычная</string>
     <string name="appearance_style_lens_clear">Прозрачная</string>
-    <string name="appearance_style_lens_bold">Выразительная</string>
+    <string name="appearance_style_lens_bold">Сильная</string>
+    <string name="appearance_style_lens_detail">Обычная — баланс. Прозрачная — меньше размытия и тона. Сильная — шире полоса и сильнее преломление.</string>
 </resources>

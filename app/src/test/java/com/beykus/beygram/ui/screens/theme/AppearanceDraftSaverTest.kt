@@ -136,11 +136,11 @@ class AppearanceDraftSaverTest {
 
     @Test fun draftSavedBeforeThePlacementExistedKeepsTheStylePlacement() {
         // A version-3 draft: the design style and the glass quality, but no bar placement and no V2 switch.
+        // The first fifteen values of that build (style and quality included), then its version "3".
         val legacy = encodeAppearanceDraft(
             completeDraft().copy(designStyle = DesignStyle.Signature, glassQuality = GlassQuality.High)
-        ).toMutableList()
-        legacy.removeAt(15) // bar placement
-        legacy.removeAt(15) // Liquid Glass V2 switch, which now sits where the placement was
+        ).take(15) + "3"
+        assertEquals(16, legacy.size)
         val restored = decodeAppearanceDraft(legacy)
         assertEquals(DesignStyle.Signature, restored?.designStyle)
         assertEquals(GlassQuality.High, restored?.glassQuality)

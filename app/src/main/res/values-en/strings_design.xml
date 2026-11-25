@@ -40,4 +40,5 @@
     <string name="appearance_style_lens_standard">Standard</string>
     <string name="appearance_style_lens_clear">Clear</string>
     <string name="appearance_style_lens_bold">Bold</string>
+    <string name="appearance_style_lens_detail">Standard is balanced. Clear has less blur and tint. Bold has a wider band and a stronger bend.</string>
 </resources>

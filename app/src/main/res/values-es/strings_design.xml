@@ -40,4 +40,5 @@
     <string name="appearance_style_lens_standard">Estándar</string>
     <string name="appearance_style_lens_clear">Clara</string>
     <string name="appearance_style_lens_bold">Intensa</string>
+    <string name="appearance_style_lens_detail">Estándar es equilibrada. Clara tiene menos desenfoque y tinte. Intensa tiene una banda más ancha y una refracción más fuerte.</string>
 </resources>

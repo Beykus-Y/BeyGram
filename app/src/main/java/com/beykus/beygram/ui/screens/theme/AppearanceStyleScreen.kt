@@ -311,6 +311,12 @@ private fun LiquidGlassPresetRow(selected: LiquidGlassLensPreset, onSelect: (Liq
             fontSize = 12.sp,
             lineHeight = 17.sp
         )
+        Text(
+            stringResource(R.string.appearance_style_lens_detail),
+            color = palette.textSecondary,
+            fontSize = 12.sp,
+            lineHeight = 17.sp
+        )
         Row(
             Modifier.fillMaxWidth().selectableGroup(),
             horizontalArrangement = Arrangement.spacedBy(8.dp)
@@ -336,7 +342,9 @@ private fun LiquidGlassPresetRow(selected: LiquidGlassLensPreset, onSelect: (Liq
                         color = if (isSelected) palette.accentInk else palette.textPrimary,
                         fontSize = 13.sp,
                         lineHeight = 18.sp,
-                        fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Medium
+                        fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Medium,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
                     )
                 }
             }
