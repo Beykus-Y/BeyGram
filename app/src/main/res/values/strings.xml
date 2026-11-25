@@ -1632,6 +1632,8 @@
     <string name="updates_error_network">Нет связи с GitHub. Проверьте подключение к интернету и повторите.</string>
     <string name="updates_error_verify">Файл не прошёл проверку перед установкой, установка отменена. Скачайте обновление заново.</string>
     <string name="profile_gallery_position">%1$d из %2$d</string>
+    <string name="profile_gallery_next">Следующая фотография</string>
+    <string name="profile_gallery_previous">Предыдущая фотография</string>
     <string name="profile_gallery_retry">Не удалось загрузить историю аватарок · Повторить</string>
     <string name="profile_gallery_set_main">Сделать основной фотографией</string>
     <string name="profile_gallery_delete_title">Удалить фотографию профиля?</string>
@@ -2683,6 +2685,8 @@
     <string name="settings_experiments_group_profile">Профиль</string>
     <string name="settings_profile_scene_title">Профиль 2.0: адаптивная сцена (бета)</string>
     <string name="settings_profile_scene_desc">Экспериментальный вид профиля с многослойной сценой. Выключено по умолчанию; выключение возвращает стандартный профиль.</string>
+    <string name="settings_profile_cover_title">Выразительная обложка</string>
+    <string name="settings_profile_cover_desc">Больше цвета и глубины в сцене профиля</string>
     <string name="lyrics_show">Показать текст</string>
     <string name="lyrics_hide">Скрыть текст</string>
     <string name="lyrics_none_for_track">Для этого трека нет текста</string>
@@ -2831,4 +2835,17 @@
     <string name="report_step_send">Отправка</string>
     <string name="report_step_result">Результат</string>
     <string name="report_result_pending">Статус появится здесь после отправки</string>
+    <!-- Автопроверка обновлений (#1148): канал уведомлений и плашка на экране чатов. -->
+    <string name="updates_channel_name">Обновления BeyGram</string>
+    <string name="updates_channel_description">Сообщение о доступной новой версии BeyGram.</string>
+    <string name="updates_notification_title">Доступно обновление BeyGram</string>
+    <string name="updates_notification_text">Версия %1$s. Нажмите, чтобы открыть экран обновлений.</string>
+    <string name="updates_banner_title">Доступно обновление</string>
+    <string name="updates_banner_text">Версия %1$s уже опубликована.</string>
+    <string name="updates_banner_text_unconfirmed">Версия %1$s: последняя проверка не удалась, сведения могут быть устаревшими.</string>
+    <string name="updates_banner_open">Открыть</string>
+    <string name="updates_banner_later">Позже</string>
+    <string name="updates_group_auto_check">Автоматическая проверка</string>
+    <string name="updates_auto_check_title">Проверять обновления автоматически</string>
+    <string name="updates_auto_check_detail">При запуске, при возврате в приложение и примерно каждые 30 минут. Ручная проверка работает всегда.</string>
 </resources>
