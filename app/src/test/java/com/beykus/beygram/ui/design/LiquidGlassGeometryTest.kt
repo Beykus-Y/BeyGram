@@ -40,13 +40,15 @@ class LiquidGlassGeometryTest {
 
     @Test
     fun thicknessIsCappedByTheShorterSide() {
-        assertEquals(8f, lensThicknessPx(14f, Size(40f, 40f)), 0.001f)
-        assertEquals(14f, lensThicknessPx(14f, Size(200f, 100f)), 0.001f)
+        assertEquals(8f, lensThicknessPx(14f, Size(40f, 40f), 0.2f), 0.001f)
+        assertEquals(14f, lensThicknessPx(14f, Size(200f, 100f), 0.2f), 0.001f)
+        // The default cap is a third of the shorter side: a 64 dp dock gets a band of about 21 dp.
+        assertEquals(64f / 3f, lensThicknessPx(64f, Size(300f, 64f), DefaultLensTuning.maxThicknessFraction), 0.01f)
     }
 
     @Test
     fun thicknessIsNeverBelowOnePixel() {
-        assertEquals(1f, lensThicknessPx(14f, Size.Zero), 0.001f)
+        assertEquals(1f, lensThicknessPx(14f, Size.Zero, 0.2f), 0.001f)
     }
 
     @Test
@@ -67,6 +69,8 @@ class LiquidGlassGeometryTest {
         assertTrue(tuning.strength > 0f)
         assertTrue(tuning.blurScale > 0f && tuning.blurScale <= 1f)
         assertTrue(tuning.tintScale > 0f && tuning.tintScale <= 1f)
+        assertTrue(tuning.maxThicknessFraction > 0f && tuning.maxThicknessFraction <= 0.5f)
+        assertTrue(tuning.crossfadeMillis > 0)
         assertTrue(tuning.thicknessDp > 0.dp)
     }
 }

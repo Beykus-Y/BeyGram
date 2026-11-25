@@ -30,8 +30,10 @@ import androidx.compose.ui.unit.dp
  * measured on a device: they are meant to be adjusted on hardware (see the manual check in the PR).
  */
 data class LensTuning(
-    /** Width of the refracting band along the edge, capped by a fifth of the panel's shorter side. */
+    /** Width of the refracting band along the edge, capped by [maxThicknessFraction] of the panel's shorter side. */
     val thicknessDp: Dp = 22.dp,
+    /** The largest band, as a share of the panel's shorter side. A fifth left a dock only ~12 dp of lens. */
+    val maxThicknessFraction: Float = 1f / 3f,
     /** How far the refracted ray travels inside the glass, as a multiple of the band width. Higher bends content more. */
     val strength: Float = 0.9f,
     /** Refraction index of the glass; the ray enters air-to-glass with eta = 1 / index. */
@@ -40,12 +42,14 @@ data class LensTuning(
      * Blur of the lens path as a fraction of the style's blur. The refraction bends structure, so the lens reads the
      * sharp layer and only the output is softened; a full blur first would leave nothing to bend.
      */
-    val blurScale: Float = 0.5f,
+    val blurScale: Float = 0.2f,
     /**
      * Multiplier on the style's tint alpha while the lens is on screen. The lighter tint lets the bent content show
      * through; a dense tint over a blurred sample reads as a matt plastic surface.
      */
-    val tintScale: Float = 0.75f
+    val tintScale: Float = 0.75f,
+    /** Time for the lens to fade in or out, so the switch at a size change is a cross-fade and not a jump. */
+    val crossfadeMillis: Int = 240
 )
 
 internal val DefaultLensTuning = LensTuning()
@@ -59,10 +63,10 @@ object LensTuningPresets {
     val Default = LensTuning()
 
     /** Clearer glass: the least blur on the lens path and the lightest tint. */
-    val Clear = LensTuning(blurScale = 0.35f, tintScale = 0.6f)
+    val Clear = LensTuning(blurScale = 0.1f, tintScale = 0.6f)
 
     /** A stronger bend at the rim, with a wider band. */
-    val Bold = LensTuning(thicknessDp = 28.dp, strength = 1.2f, tintScale = 0.8f)
+    val Bold = LensTuning(thicknessDp = 28.dp, maxThicknessFraction = 0.4f, strength = 1.2f, blurScale = 0.25f, tintScale = 0.8f)
 }
 
 /**
@@ -177,7 +181,7 @@ internal fun buildLensRenderEffect(
     if (sizePx.width <= 0 || sizePx.height <= 0) return null
     val size = Size(sizePx.width.toFloat(), sizePx.height.toFloat())
     val radii = lensCornerRadii(shape, size, density, layoutDirection)
-    val thickness = lensThicknessPx(thicknessPx, size)
+    val thickness = lensThicknessPx(thicknessPx, size, tuning.maxThicknessFraction)
     return try {
         shader.setFloatUniform("size", size.width, size.height)
         shader.setFloatUniform("radii", radii.topLeft, radii.topRight, radii.bottomRight, radii.bottomLeft)

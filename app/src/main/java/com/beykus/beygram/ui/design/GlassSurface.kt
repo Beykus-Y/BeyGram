@@ -5,6 +5,8 @@ import android.graphics.ColorMatrixColorFilter
 import android.graphics.RenderEffect
 import android.graphics.Shader
 import android.os.Build
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Box
@@ -34,6 +36,7 @@ import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.graphics.ColorMatrix as ComposeColorMatrix
 import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.asComposeRenderEffect
+import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.withTransform
 import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.graphics.graphicsLayer
@@ -45,6 +48,7 @@ import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.layout.positionInWindow
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalLayoutDirection
+import androidx.compose.ui.util.lerp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.toIntSize
 import com.beykus.beygram.data.appearance.DesignStyle
@@ -181,6 +185,11 @@ fun GlassPanel(
         }
     }
     val lensActive = lensEffect != null && panelSize == lensSize
+    val lensMix: Float by animateFloatAsState(
+        targetValue = if (lensActive) 1f else 0f,
+        animationSpec = tween(lensTuning.crossfadeMillis),
+        label = "liquidGlassLensMix"
+    )
     Box(
         modifier
             .onGloballyPositioned { originInWindow = it.positionInWindow() }
@@ -224,38 +233,46 @@ fun GlassPanel(
             // The opaque floor of the sampled pane: a list without its own background records transparent gaps, and
             // those must show this colour, not the sharp content drawn underneath.
             val base = if (backdropBase != Color.Unspecified) backdropBase else tint.copy(alpha = 1f)
-            // With no lens effect (no size yet, or a device that cannot build it) the panel keeps the plain blur.
-            val surfaceEffect = if (lensActive) {
-                Modifier.lensLayer(lensEffect!!, shape)
-            } else {
-                Modifier.graphicsLayerWithBlur(blurPx, shape, darkSurface)
+            // The pane is two layers that cross-fade: the plain blur, and the lens on top. The lens fades out while the
+            // size animates and back in once it settles, so the switch is not a jump.
+            val effect = lensEffect
+            val sampleDraw: DrawScope.() -> Unit = {
+                drawRect(base)
+                if (lensWanted && !lensActive) LiquidGlassMetrics.recordFallbackFrame()
+                val sampled = backdrop
+                val source = sampled?.layer
+                // Sampling the layer that is being recorded right now would draw it into itself, which kills the render
+                // thread; a frame without a finished sample gets a dense mask instead, so the lighter tint of real glass
+                // never leaves sharp content showing through the panel.
+                if (sampled == null || source == null || !sampled.hasContent || sampled.recording) {
+                    drawRect(tint.copy(alpha = GlassUnsampledMaskAlpha))
+                } else {
+                    val delta = sampled.originInWindow - originInWindow
+                    withTransform({ translate(delta.x, delta.y) }) { drawLayer(source) }
+                }
             }
-            Box(
-                Modifier.matchParentSize()
-                    .then(surfaceEffect)
-                    .drawBehind {
-                        drawRect(base)
-                        if (lensWanted && !lensActive) LiquidGlassMetrics.recordFallbackFrame()
-                        val sampled = backdrop
-                        val source = sampled?.layer
-                        // Sampling the layer that is being recorded right now would draw it into itself, which kills
-                        // the render thread; a frame without a finished sample gets a dense mask instead, so the
-                        // lighter tint of real glass never leaves sharp content showing through the panel.
-                        if (sampled == null || source == null || !sampled.hasContent || sampled.recording) {
-                            drawRect(tint.copy(alpha = GlassUnsampledMaskAlpha))
-                            return@drawBehind
-                        }
-                        val delta = sampled.originInWindow - originInWindow
-                        withTransform({ translate(delta.x, delta.y) }) { drawLayer(source) }
-                    }
-            )
+            if (lensMix < 1f || effect == null) {
+                Box(
+                    Modifier.matchParentSize()
+                        .then(Modifier.graphicsLayerWithBlur(blurPx, shape, darkSurface))
+                        .drawBehind(sampleDraw)
+                )
+            }
+            if (effect != null && lensMix > 0f) {
+                Box(
+                    Modifier.matchParentSize()
+                        .then(Modifier.lensLayer(effect, shape))
+                        .graphicsLayer { alpha = lensMix }
+                        .drawBehind(sampleDraw)
+                )
+            }
         }
         // The tint is what makes glass readable: it is always drawn, blurred or not. Over a real blurred sample the
         // style's own tint is enough; without one the panel stays dense, so labels never fight sharp content below.
         val tintAlpha = glass?.tintAlpha?.coerceIn(0f, 1f) ?: 0f
         // With the lens on screen the tint is lighter, so the bent content shows through the glass.
         val baseAlpha = if (samplesBackdrop || samplesFrosted) {
-            tintAlpha * (if (lensActive) lensTuning.tintScale else 1f)
+            tintAlpha * lerp(1f, lensTuning.tintScale, lensMix)
         } else {
             maxOf(tintAlpha, 0.93f)
         }

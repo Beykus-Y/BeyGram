@@ -67,8 +67,8 @@ internal fun lensCornerRadii(
 }
 
 /**
- * The width of the refracting band. It is capped at a fifth of the shorter side, so a small control gets a thin lens
- * instead of a band that covers its whole face, and it is never below one pixel.
+ * The width of the refracting band. It is capped at [maxFraction] of the shorter side, so a small control gets a thin
+ * lens instead of a band that covers its whole face, and it is never below one pixel.
  */
-internal fun lensThicknessPx(requestedPx: Float, size: Size): Float =
-    minOf(requestedPx, minOf(size.width, size.height) / 5f).coerceAtLeast(1f)
+internal fun lensThicknessPx(requestedPx: Float, size: Size, maxFraction: Float): Float =
+    minOf(requestedPx, minOf(size.width, size.height) * maxFraction).coerceAtLeast(1f)
