@@ -40,7 +40,8 @@ internal fun TdApi.File.toMediaFileState(): MediaFileState {
                 it.isNotBlank() && (file.isDownloadingCompleted || file.downloadedPrefixSize > 0L)
             }
         },
-        downloadedPrefixBytes = local?.downloadedPrefixSize ?: 0
+        downloadedPrefixBytes = local?.downloadedPrefixSize ?: 0,
+        downloadOffset = local?.downloadOffset ?: 0
     )
 }
 
