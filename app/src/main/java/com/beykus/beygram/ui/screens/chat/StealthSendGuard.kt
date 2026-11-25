@@ -73,7 +73,7 @@ internal fun rememberStealthSendGuard(chatId: Long, conversation: ConversationRe
 internal fun stealthWillSchedule(conversation: ConversationRepository, options: MessageSendOptions): Boolean =
     options.scheduledAtSeconds == null && !options.sendNowConsent && conversation.stealthSchedulesSends()
 
-/** Tells the user that stealth mode handed the message to Telegram's scheduled queue instead of sending it now. */
+/** Points the user to Scheduled Messages to check the outcome. */
 internal fun showStealthScheduledNotice(context: Context) {
     Toast.makeText(context, context.getString(R.string.stealth_schedule_done), Toast.LENGTH_SHORT).show()
 }

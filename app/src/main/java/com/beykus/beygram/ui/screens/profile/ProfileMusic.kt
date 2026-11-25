@@ -19,10 +19,14 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
-import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.CustomAccessibilityAction
+import androidx.compose.ui.semantics.clearAndSetSemantics
+import androidx.compose.ui.semantics.customActions
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -40,6 +44,8 @@ import com.beykus.beygram.ui.components.beyGramPalette
 import com.beykus.beygram.ui.components.BeyGramPopover
 import com.beykus.beygram.ui.components.BeyGramPopoverItem
 import com.beykus.beygram.ui.components.BeyGramSheet
+import com.beykus.beygram.ui.design.LocalDesignSystem
+import com.beykus.beygram.ui.design.glassCard
 import com.beykus.beygram.ui.text.userMessage
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
@@ -49,6 +55,8 @@ import kotlinx.coroutines.launch
  * аккаунта; null прячет действие, например в режиме без аккаунта.
  */
 val LocalAddProfileAudio = compositionLocalOf<(suspend (PlaybackItem) -> Result<Unit>)?> { null }
+
+internal const val ProfileMusicRowTag = "profile_music_row"
 
 /**
  * Полоса музыки под аватаром. Играет через общий плеер, как и музыка из чатов, поэтому мини-плеер и экран
@@ -79,6 +87,7 @@ internal fun ProfileMusicBar(
     val isPlaying = playingIndex >= 0 && playback.playing
     val playLabel = stringResource(R.string.profile_music_play)
     val pauseLabel = stringResource(R.string.profile_music_pause)
+    val playbackLabel = if (isPlaying) pauseLabel else playLabel
     val subtitle = if (tracks.size > 1) stringResource(R.string.profile_music_track_count, index + 1, tracks.size) else shown.performer
     // The list also opens for a single track on the own profile, because a track is removed from there.
     val canOpenList = own || tracks.size > 1
@@ -93,30 +102,47 @@ internal fun ProfileMusicBar(
         if (playingIndex >= 0) PlaybackEngine.togglePlayPause() else play(index)
     }
 
+    val design = LocalDesignSystem.current
+    val cardShape = RoundedCornerShape(design.shapes.groupCard)
+    val cardElevation = design.surfaces.cardElevation
     Row(
         Modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(18.dp))
-            .background(palette.accentSoft.copy(alpha = 0.6f))
-            .clickable(role = Role.Button) { if (canOpenList) listOpen = true else togglePlayback() }
+            .testTag(ProfileMusicRowTag)
+            // Same glass-card fill, corner and depth tokens as the neighbouring profile cards, without their 16 dp side
+            // inset, so the bar keeps its place under the header.
+            .then(if (cardElevation > 0.dp) Modifier.shadow(cardElevation, cardShape, clip = false) else Modifier)
+            .glassCard(design, palette.accentSoft.copy(alpha = 0.6f), palette.textSecondary, cardShape)
+            .clickable(role = Role.Button, onClickLabel = if (canOpenList) null else playbackLabel) {
+                if (canOpenList) listOpen = true else togglePlayback()
+            }
+            .semantics {
+                // When the row itself plays the only track, its labelled click already exposes play/pause.
+                if (canOpenList) {
+                    customActions = listOf(CustomAccessibilityAction(playbackLabel) { togglePlayback(); true })
+                }
+            }
             .padding(horizontal = 8.dp, vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        Box(
-            Modifier
-                .size(44.dp)
-                .clip(CircleShape)
-                .background(palette.accent)
-                .clickable(role = Role.Button) { togglePlayback() }
-                .semantics { contentDescription = if (isPlaying) pauseLabel else playLabel },
-            contentAlignment = Alignment.Center
-        ) {
-            Icon(
-                if (isPlaying) Icons.Rounded.Pause else Icons.Rounded.PlayArrow,
-                contentDescription = null,
-                tint = palette.onAccent,
-                modifier = Modifier.size(26.dp)
-            )
+        // The disc handles touch; the enclosing semantics node exposes one playback action.
+        Box(Modifier.clearAndSetSemantics {}) {
+            Box(
+                Modifier
+                    .minimumInteractiveComponentSize()
+                    .size(44.dp)
+                    .clip(CircleShape)
+                    .background(palette.accent)
+                    .clickable(role = Role.Button) { togglePlayback() },
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    if (isPlaying) Icons.Rounded.Pause else Icons.Rounded.PlayArrow,
+                    contentDescription = null,
+                    tint = palette.onAccent,
+                    modifier = Modifier.size(26.dp)
+                )
+            }
         }
         Spacer(Modifier.width(12.dp))
         Column(Modifier.weight(1f)) {

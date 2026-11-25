@@ -278,10 +278,20 @@ class MusicPlayerUiStateTest {
             listOf(
                 PlayerActionKind.TelegramFavorite,
                 PlayerActionKind.AddToPlaylist,
+                PlayerActionKind.Lyrics,
                 PlayerActionKind.Queue,
                 PlayerActionKind.Sound
             ),
             resolvePlayerActionKinds(isProviderTrack = false, isEndlessRadio = false, lyricsEnabled = true)
+        )
+        assertEquals(
+            listOf(
+                PlayerActionKind.TelegramFavorite,
+                PlayerActionKind.AddToPlaylist,
+                PlayerActionKind.Queue,
+                PlayerActionKind.Sound
+            ),
+            resolvePlayerActionKinds(isProviderTrack = false, isEndlessRadio = false, lyricsEnabled = false)
         )
         assertEquals(
             listOf(
