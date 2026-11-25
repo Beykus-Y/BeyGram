@@ -177,6 +177,7 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.zIndex
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.beykus.beygram.R
+import com.beykus.beygram.media.bgbeat.BgBeatSection
 import com.beykus.beygram.media.bgwave.BgWaveHub
 import androidx.compose.material.icons.rounded.GraphicEq
 import com.beykus.beygram.playback.PLAYBACK_SPEED_OPTIONS
@@ -323,10 +324,33 @@ internal fun MusicPlayerContent(
     // Kept across Player and Queue, so the list keeps its place while the overlay stays open.
     val queueList = rememberSaveable(saver = LazyListState.Saver) { LazyListState() }
     var queuePlaced by rememberSaveable { mutableStateOf(false) }
+    val fallbackDurationMs = player.item.durationSeconds.coerceAtLeast(0) * 1000L
+    val rhythmSignal = rememberBgRhythmSignal(
+        item = player.item,
+        playing = player.playing,
+        speed = player.speed,
+        fallbackDurationMs = fallbackDurationMs,
+        active = panel == PlayerPanel.Player,
+    )
+    val rhythmGlowBrush = remember(palette.accent) {
+        Brush.verticalGradient(
+            0.0f to palette.accent,
+            0.65f to palette.accent.copy(alpha = 0.2f),
+            1.0f to Color.Transparent,
+        )
+    }
     Box(
         modifier
             .fillMaxWidth()
             .then(if (ambientBrush != null) Modifier.drawBehind { drawRect(ambientBrush) } else Modifier)
+            .drawBehind {
+                if (rhythmSignal.isActive && rhythmSignal.phraseEnergy > 0f) {
+                    drawRect(
+                        brush = rhythmGlowBrush,
+                        alpha = (rhythmSignal.phraseEnergy * 0.16f).coerceIn(0f, 0.16f),
+                    )
+                }
+            }
             .onGloballyPositioned { contentCoords = it }
     ) {
         if (waveRibbons) {
@@ -384,6 +408,7 @@ internal fun MusicPlayerContent(
                     PlayerBody(
                         modifier = Modifier.weight(1f),
                         player = player,
+                        rhythmSignal = rhythmSignal,
                         onOpenQueue = { onPanel(PlayerPanel.Queue) },
                         onOpenLyrics = { onPanel(PlayerPanel.Lyrics) },
                         onOpenEqualizer = onOpenEqualizer?.let { open ->
@@ -679,6 +704,7 @@ internal const val SLEEP_EXTEND_MINUTES = 15
 @Composable
 private fun PlayerBody(
     player: MusicPlayerUi,
+    rhythmSignal: BgRhythmSignal,
     onOpenQueue: () -> Unit,
     onOpenLyrics: () -> Unit,
     onOpenEqualizer: (() -> Unit)?,
@@ -694,7 +720,7 @@ private fun PlayerBody(
                 Modifier.fillMaxSize().padding(horizontal = 20.dp, vertical = 4.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                PlayerArtwork(player, artwork, mediaMotion)
+                PlayerArtwork(player, artwork, mediaMotion, rhythmSignal)
                 Spacer(Modifier.width(28.dp))
                 Column(
                     Modifier
@@ -729,7 +755,7 @@ private fun PlayerBody(
                         .padding(top = 4.dp, bottom = 12.dp),
                     horizontalAlignment = Alignment.CenterHorizontally
                 ) {
-                    PlayerArtwork(player, artwork, mediaMotion)
+                    PlayerArtwork(player, artwork, mediaMotion, rhythmSignal)
                     Spacer(Modifier.height(18.dp))
                     PlayerDetails(
                         player = player,
@@ -792,7 +818,12 @@ internal fun seekDeltaFraction(positionMs: Long, durationMs: Long, deltaMs: Long
 }
 
 @Composable
-private fun PlayerArtwork(player: MusicPlayerUi, size: Dp, mediaMotion: MotionSpec) {
+private fun PlayerArtwork(
+    player: MusicPlayerUi,
+    size: Dp,
+    mediaMotion: MotionSpec,
+    rhythmSignal: BgRhythmSignal,
+) {
     val palette = beyGramPalette()
     val density = LocalDensity.current
     val haptic = LocalHapticFeedback.current
@@ -890,7 +921,12 @@ private fun PlayerArtwork(player: MusicPlayerUi, size: Dp, mediaMotion: MotionSp
                 )
             }
             .graphicsLayer {
-                val combined = entryScale.value * breatheScale
+                val rhythmScale = if (rhythmSignal.isActive) {
+                    1f + rhythmSignal.beatPulse * 0.025f + rhythmSignal.downbeatPulse * 0.015f
+                } else {
+                    1f
+                }
+                val combined = entryScale.value * breatheScale * rhythmScale
                 scaleX = combined
                 scaleY = combined
                 translationX = animatedDragX
@@ -1580,6 +1616,7 @@ internal fun resolvePlayerActionKinds(
         }
         else -> {
             add(PlayerActionKind.AddToPlaylist)
+            if (lyricsEnabled) add(PlayerActionKind.Lyrics)
         }
     }
     add(PlayerActionKind.Queue)
@@ -1631,7 +1668,7 @@ private fun PlayerActions(
     val kinds = resolvePlayerActionKinds(
         isProviderTrack = isProviderKey,
         isEndlessRadio = isEndlessRadio,
-        lyricsEnabled = YANDEX_LYRICS_ENABLED
+        lyricsEnabled = if (isProviderKey) YANDEX_LYRICS_ENABLED else (item.isMusic && !item.systemPrivate)
     )
     val actions = kinds.map { kind ->
         when (kind) {
