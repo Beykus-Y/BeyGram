@@ -415,6 +415,8 @@ object PlaybackEngine {
     private var prefetchPolicyAccount: String? = null
     /** BG Mix music path: used only for eligible local music queues while the experimental flag is on. */
     private var bgMix: BgMixQueueDriver? = null
+    /** Deferred queue edit while a native crossfade is running, applied as soon as the transition finishes. */
+    private var pendingBgMixRetarget: Pair<List<PlaybackItem>, PlaybackQueueSource?>? = null
     /** Listeners the media session registered on the wrapper; BG Mix events go to them directly. */
     private val bgMixListeners = mutableSetOf<Player.Listener>()
     /** Session listener -> the copy that drops ExoPlayer events while BG Mix plays. */
@@ -2454,6 +2456,22 @@ object PlaybackEngine {
         }
         notifyChanges(before, _state.value)
         fireStartedCallback()
+        if (!status.transitionActive) {
+            val deferred = pendingBgMixRetarget
+            if (deferred != null) {
+                pendingBgMixRetarget = null
+                if (!retargetBgMix(deferred.first, deferred.second)) {
+                    val fallbackIdx = deferred.first.indexOfFirst { it.key == item.key }.coerceAtLeast(0)
+                    scope.launch {
+                        continueBgMixQueueOnExo(
+                            deferred.first,
+                            fallbackIdx,
+                            autoPlay = _state.value.intentPlaying || _state.value.playing
+                        )
+                    }
+                }
+            }
+        }
     }
 
     private fun toggleBgMix() {
@@ -2498,6 +2516,7 @@ object PlaybackEngine {
         bgMixSeekJob?.cancel()
         bgMixSeekJob = null
         bgMixOriginalQueue = null
+        pendingBgMixRetarget = null
         bgMix?.attachWaveTap(0L)
         BgWaveHostTap.exoSuppressedForBgMix = false
         bgMix?.stop()
@@ -3025,6 +3044,21 @@ object PlaybackEngine {
     private fun retargetBgMix(queue: List<PlaybackItem>, source: PlaybackQueueSource? = queueSource): Boolean {
         val driver = bgMix?.takeIf { it.isActive } ?: return false
         val current = _state.value.item ?: return false
+        if (driver.status?.value?.transitionActive == true) {
+            val newIndex = queue.indexOfFirst { it.key == current.key }.takeIf { it >= 0 } ?: return false
+            pendingBgMixRetarget = queue to source
+            val known = _state.value.queue.mapTo(HashSet()) { it.key }
+            queue.filterNot { it.key in known }.forEach { registerSource(it, source) }
+            _state.update {
+                it.copy(
+                    queue = queue,
+                    queueIndex = newIndex,
+                    timelineHasNext = bgMixHasNext(newIndex, queue.size) || driver.pendingIndex != null
+                )
+            }
+            return true
+        }
+        pendingBgMixRetarget = null
         // Only new items get a source registration: re-registering a known one would replace its handle with a copy
         // that may predate a resolved file.
         val known = _state.value.queue.mapTo(HashSet()) { it.key }
@@ -3045,6 +3079,7 @@ object PlaybackEngine {
 
     /** Ends the page load of a queue that a new one replaces: its result is dropped when it arrives. */
     private fun dropQueuePages() {
+        pendingBgMixRetarget = null
         queuePageGeneration++
         queuePageJob?.cancel()
         queuePageJob = null
