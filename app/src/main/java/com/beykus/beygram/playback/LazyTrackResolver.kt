@@ -209,6 +209,33 @@ internal abstract class LazyTrackResolver<T : Any>(private val prefix: String, m
         if (changed) LazyTrackRegistry.publishProgress()
     }
 
+    /**
+     * Bounds resolver memory and disk pinning during long sessions: cancels eligible unfinished fetches
+     * (like [cancelOutside]) AND evicts completed or failed entries outside [keep].
+     * Returns true if at least one entry was removed.
+     */
+    fun evictOutside(keep: Set<String>, includePlayback: Boolean = false): Boolean {
+        var changed = false
+        entries.forEach { (key, entry) ->
+            if (key !in keep) {
+                val discard = synchronized(entry) {
+                    val canRemove = when {
+                        entry.track != null || entry.failed -> true
+                        includePlayback || (entry.speculative && !entry.handedOver) -> true
+                        else -> false
+                    }
+                    if (!canRemove || !entries.remove(key, entry)) return@forEach
+                    if (entry.track == null && !entry.failed) entry.job.cancel()
+                    changed = true
+                    entry.track?.takeUnless { entry.handedOver }
+                }
+                discard?.let { discardCopy(pathOf(it)) }
+            }
+        }
+        if (changed) LazyTrackRegistry.publishProgress()
+        return changed
+    }
+
     override fun published(key: String) {
         val entry = entries[key] ?: return
         val track = synchronized(entry) {

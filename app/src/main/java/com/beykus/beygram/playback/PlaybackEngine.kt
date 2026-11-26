@@ -1019,7 +1019,8 @@ object PlaybackEngine {
         offerBgMix: Boolean = true
     ) {
         val selected = queue.items.getOrNull(queue.index) ?: return
-        YandexTrackResolver.cancelOutside(queue.items.mapTo(HashSet()) { it.key }, includePlayback = true)
+        YandexTrackResolver.evictOutside(queue.items.mapTo(HashSet()) { it.key }, includePlayback = true)
+        appContext?.let { YandexTrackResolver.pruneUnused(it) }
         restoredRadioStart = null
         // The queue always starts on ExoPlayer, which plays a local file at once and streams one that is still downloading.
         // With BG Mix on, the handover below moves the queue into BG Mix once the track is ready for it (see
@@ -1252,7 +1253,15 @@ object PlaybackEngine {
 
     private fun resolvedItem(item: PlaybackItem): PlaybackItem {
         val handle = PlaybackSources.handle(item.systemMediaId) ?: return item
-        val resolved = handle.resolve() ?: return handle.item
+        val resolved = handle.resolve() ?: run {
+            val stale = handle.item
+            if (stale.path.isNotBlank() && stale.growing == null && !java.io.File(stale.path).isFile) {
+                val cleared = stale.copy(path = "")
+                handle.item = cleared
+                return cleared
+            }
+            return stale
+        }
         val updated = handle.item.copy(path = resolved.path, growing = resolved.growing)
         handle.item = updated
         return updated
@@ -1711,7 +1720,8 @@ object PlaybackEngine {
         queuePageJob = null
         prefetchedKeys.clear()
         haltPlayer()
-        YandexTrackResolver.cancelOutside(emptySet(), includePlayback = true)
+        YandexTrackResolver.evictOutside(emptySet(), includePlayback = true)
+        appContext?.let { YandexTrackResolver.pruneUnused(it) }
     }
 
     /** Any new playback or an explicit stop ends the chance to undo the last close. */
@@ -2047,7 +2057,11 @@ object PlaybackEngine {
                 val currentIndex = _state.value.queueIndex
                 val end = bgMixWindowEndExclusive(driver.queueItems.size, currentIndex, BG_MIX_DOWNLOAD_AHEAD)
                 if (currentIndex in driver.queueItems.indices) {
-                    YandexTrackResolver.cancelOutside(driver.queueItems.subList(currentIndex, end).mapTo(HashSet()) { it.key })
+                    val keepStart = (currentIndex - 1).coerceAtLeast(0)
+                    val keep = driver.queueItems.subList(keepStart, end).mapTo(HashSet()) { it.key }
+                    if (YandexTrackResolver.evictOutside(keep)) {
+                        appContext?.let { YandexTrackResolver.pruneUnused(it) }
+                    }
                 }
                 driver.appendReady(currentIndex, ::bgMixFileFor)
                 val first = driver.pendingIndex ?: return@launch
@@ -2856,11 +2870,23 @@ object PlaybackEngine {
         }
     }
 
-    /** Files the player still reads: the playing track, its queue, and a music track waiting behind a voice note. */
+    /** Files the player still reads: the playing track, its bounded ownership window, and any music waiting behind a voice note. */
     fun musicPathsInUse(): Set<String> {
         val current = _state.value
-        val waiting = interruptedMusic?.let { listOf(it.item) + it.queue }.orEmpty()
-        return (listOfNotNull(current.item) + current.queue + waiting).map { it.path }.filter { it.isNotBlank() }.toSet()
+        val waiting = interruptedMusic?.let {
+            val idx = it.queueIndex
+            val start = (idx - 1).coerceAtLeast(0)
+            val end = (idx + 2).coerceAtMost(it.queue.size)
+            listOf(it.item) + if (start < end) it.queue.subList(start, end) else emptyList()
+        }.orEmpty()
+        val bgMixPaths = bgMix?.let { driver ->
+            val idx = current.queueIndex
+            val start = (idx - 1).coerceAtLeast(0)
+            val end = bgMixWindowEndExclusive(driver.queueItems.size, idx, BG_MIX_DOWNLOAD_AHEAD)
+            if (start < end) driver.queueItems.subList(start, end).mapNotNull { it.path.takeIf(String::isNotBlank) }.toSet()
+            else emptySet()
+        }.orEmpty()
+        return activeMusicOwnershipPaths(current, waiting, bgMixPaths)
     }
 
     fun setShuffle(enabled: Boolean) {
@@ -3959,7 +3985,10 @@ object PlaybackEngine {
         val candidates = prefetchCandidates(state, playbackOrder)
         val keep = candidates.mapTo(HashSet()) { it.key }
         state.item?.let { keep.add(it.key) }
-        YandexTrackResolver.cancelOutside(keep)
+        state.queue.getOrNull(state.queueIndex - 1)?.let { keep.add(it.key) }
+        if (YandexTrackResolver.evictOutside(keep)) {
+            YandexTrackResolver.pruneUnused(context)
+        }
         candidates.forEachIndexed { index, item ->
             if (currentPending && LazyTrackRegistry.isLazyKey(item.key)) return@forEachIndexed
             prefetchItem(context, source, item, playbackNext = index == 0)
@@ -4065,4 +4094,31 @@ object PlaybackEngine {
     /** A provider row belongs to no account, so its download decision follows the signed-in account, not the legacy one. */
     private fun prefetchAccountFor(item: PlaybackItem): String =
         if (item.accountId == LEGACY_PLAYBACK_ACCOUNT_ID) activeAccountId ?: item.accountId else item.accountId
+}
+
+/**
+ * Bounded set of local file paths pinned against cache eviction during playback:
+ * the playing item, its immediate predecessor, the lookahead prefetch window,
+ * any active BG Mix paths, and an interrupted music track waiting behind a voice/video note.
+ */
+internal fun activeMusicOwnershipPaths(
+    state: PlaybackState,
+    interrupted: List<PlaybackItem> = emptyList(),
+    bgMixPaths: Set<String> = emptySet(),
+    behindCount: Int = 1,
+    aheadCount: Int = 3,
+): Set<String> {
+    val result = HashSet<String>()
+    state.item?.path?.takeIf { it.isNotBlank() }?.let { result.add(it) }
+    if (state.queue.isNotEmpty()) {
+        val anchor = state.queueIndex.coerceIn(0, state.queue.lastIndex)
+        val start = (anchor - behindCount).coerceAtLeast(0)
+        val endExclusive = (anchor + aheadCount + 1).coerceAtMost(state.queue.size)
+        for (i in start until endExclusive) {
+            state.queue[i].path.takeIf { it.isNotBlank() }?.let { result.add(it) }
+        }
+    }
+    interrupted.forEach { it.path.takeIf { p -> p.isNotBlank() }?.let(result::add) }
+    bgMixPaths.forEach { if (it.isNotBlank()) result.add(it) }
+    return result
 }
