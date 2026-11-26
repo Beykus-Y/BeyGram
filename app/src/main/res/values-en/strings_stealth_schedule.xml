@@ -30,6 +30,6 @@
     <string name="stealth_diagnostic_send_blocked">This check is unavailable in stealth mode: it sends a message at once. Turn off stealth sending and try again.</string>
 
     <string name="stealth_schedule_status_pending">Waiting for Telegram confirmation</string>
-    <string name="stealth_schedule_status_queued">In the queue according to TDLib</string>
+    <string name="stealth_schedule_status_queued">Scheduled</string>
     <string name="stealth_schedule_status_unknown">Current status unknown</string>
 </resources>
