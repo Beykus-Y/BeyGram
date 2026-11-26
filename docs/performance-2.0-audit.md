@@ -144,6 +144,23 @@ debuggable-сборке; native heapprofd требует `android:profileable` �
 отдельной profileable-сборки native heap измеряется только через PSS/RSS, и это ограничение нельзя выдавать за
 полный heap-профиль.
 
+#### 4.5.1. Быстрый захват одного сценария
+
+Для ручных прогонов на Windows есть `scripts/perf-capture.ps1`: сбрасывает gfxinfo, снимает `meminfo`/`cpuinfo` до и
+после сценария, сохраняет `framestats`, `top` процесса и условия устройства (build fingerprint, размер, density,
+fontScale, версия пакета), затем печатает перцентили через `scripts/perf_framestats.py`.
+
+```powershell
+# играет музыка, открыт чат; сценарий выполняет человек в течение 30 секунд
+.\scripts\perf-capture.ps1 -Label "chat-scroll-music" -Seconds 30
+
+# холодный старт: сценарий уже выполнен, нужен только снимок после
+.\scripts\perf-capture.ps1 -Label "cold-start" -Seconds 0
+```
+
+Один запуск — один сценарий и один режим. Каталог `perf/<label>/` нельзя смешивать с другим устройством или другой
+темой; сравнение «до/после» допускается только при одинаковых условиях из 4.1.
+
 ### 4.6. Синтетические данные без реальных credentials
 
 Цель — прогнать open/scroll сценарии без входа в аккаунт и без сети.
