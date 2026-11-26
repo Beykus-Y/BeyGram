@@ -129,8 +129,7 @@ internal data class VideoNoteDestination(
     val chatId: Long,
     val topicId: Long,
     val accountId: String,
-    val replyToMessageId: Long?,
-    val recordedInFeed: Boolean
+    val replyToMessageId: Long?
 )
 
 /** Одна запись: пишется или уже останавливается и ждёт финализации CameraX. */
@@ -954,7 +953,6 @@ internal fun rememberVideoNoteRecorder(
     topicId: Long = 0L,
     accountId: String = com.beykus.beygram.data.tdlib.TdAccountStorageLayout.LEGACY_ACCOUNT_ID,
     replyToMessageId: Long? = null,
-    recordedInFeed: Boolean = false,
     onError: (String) -> Unit
 ): VideoNoteRecorder {
     val context = LocalContext.current
@@ -963,15 +961,14 @@ internal fun rememberVideoNoteRecorder(
     val currentTopicId by rememberUpdatedState(topicId)
     val currentAccountId by rememberUpdatedState(accountId)
     val currentReplyToMessageId by rememberUpdatedState(replyToMessageId)
-    val currentRecordedInFeed by rememberUpdatedState(recordedInFeed)
     val currentOnError by rememberUpdatedState(onError)
     val recorder = remember(owner, settings, processingScope) {
         VideoNoteRecorder(context, owner, processingScope, { settings.settings.value },
             currentDestination = {
-                VideoNoteDestination(currentChatId, currentTopicId, currentAccountId, currentReplyToMessageId, currentRecordedInFeed)
+                VideoNoteDestination(currentChatId, currentTopicId, currentAccountId, currentReplyToMessageId)
             },
             onTakeReady = { raw, takeSettings, sessionName, previewFirst, destination ->
-                VideoNoteExportCenter.enqueue(context.applicationContext, destination.chatId, raw, takeSettings, sessionName, previewFirst, destination.topicId, destination.accountId, destination.replyToMessageId, destination.recordedInFeed)
+                VideoNoteExportCenter.enqueue(context.applicationContext, destination.chatId, raw, takeSettings, sessionName, previewFirst, destination.topicId, destination.accountId, destination.replyToMessageId)
             },
             onError = { currentOnError(it) })
     }

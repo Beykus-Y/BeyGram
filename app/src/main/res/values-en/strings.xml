@@ -1108,7 +1108,7 @@
     <string name="forum_topic_move_up">Move up</string>
     <string name="forum_topic_move_down">Move down</string>
     <string name="diag_video_buffer_title">Video start buffer</string>
-    <string name="diag_video_buffer_value_default">Media3 default</string>
+    <string name="diag_video_buffer_value_default">Default</string>
     <string name="diag_video_buffer_value_ms">%1$d ms</string>
     <string name="composer_quality_hint_codec">Telegram cannot play the codec of this video. Compress it to send it as a video, or keep it as a file.</string>
     <!-- Автопроверка обновлений (#1148): канал уведомлений и плашка на экране чатов. -->

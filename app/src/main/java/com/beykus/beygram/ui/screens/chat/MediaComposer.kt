@@ -520,10 +520,7 @@ internal class AttachmentState(
                     val originalCopy = stagedOriginal
                     val replaced = session.replaceItem
                     if (replaced != null) {
-                        val withoutReplaced = pending.filterNot { it.path == replaced.path }
-                        // "Keep original" promises a separate file, so a retained photo becomes a document.
-                        val retained = if (keepOriginal) replaced.copy(kind = MediaKind.Document) else null
-                        pendingState.value = ArrayList(withoutReplaced + edited + listOfNotNull(retained))
+                        pendingState.value = ArrayList(replaceEditedAttachment(pending, replaced, edited, keepOriginal))
                         if (!keepOriginal) runCatching { importer.discard(replaced) }
                     } else {
                         pendingState.value = ArrayList(pending + edited + listOfNotNull(originalCopy))
@@ -1700,6 +1697,31 @@ internal fun reorderPendingAttachment(
     val index = pending.indexOfFirst { it.samePendingAttachment(item) }
     if (index < 0 || index + offset !in pending.indices) return pending
     return ArrayList(pending).apply { add(index + offset, removeAt(index)) }
+}
+
+/**
+ * Swaps an edited photo for its export in place. The export is a new file, so it carries no attachment flags of its
+ * own: the spoiler mark belongs to the user's choice and must survive cropping. The untouched source, when kept,
+ * stays right after the edit instead of jumping to the end and reordering the album.
+ */
+internal fun replaceEditedAttachment(
+    pending: List<OutgoingMedia>,
+    replaced: OutgoingMedia,
+    edited: OutgoingMedia,
+    keepOriginal: Boolean
+): List<OutgoingMedia> {
+    val result = ArrayList(pending)
+    val editedInPlace = edited.copy(hasSpoiler = replaced.hasSpoiler)
+    val index = result.indexOfFirst { it.path == replaced.path }
+    if (index < 0) {
+        result += editedInPlace
+        if (keepOriginal) result += replaced.copy(kind = MediaKind.Document)
+        return result
+    }
+    result[index] = editedInPlace
+    // "Keep original" promises a separate file, so a retained photo becomes a document.
+    if (keepOriginal) result.add(index + 1, replaced.copy(kind = MediaKind.Document))
+    return result
 }
 
 /** Identity independent of filename, as different photos are commonly both named photo.jpg. */
