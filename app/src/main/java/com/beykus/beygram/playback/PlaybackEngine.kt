@@ -3718,13 +3718,19 @@ object PlaybackEngine {
                     loadNextQueuePage()
                 }
             }
-            if (generation == queuePageGeneration && bgMixActive()) bgMix?.status?.value?.let(::applyBgMix)
+            if (generation == queuePageGeneration) {
+                if (bgMixActive()) bgMix?.status?.value?.let(::applyBgMix)
+                else clearManualRecoveryBufferingAtTail()
+            }
             return
         }
         val pause = if (endless) endlessQueuePageRetryDelayMs(queuePageRetries) else queuePageRetryDelayMs(queuePageRetries)
         if (pause == null) {
             // No retry left: a BG Mix queue that waited for this page reports its end now.
-            if (generation == queuePageGeneration && bgMixActive()) bgMix?.status?.value?.let(::applyBgMix)
+            if (generation == queuePageGeneration) {
+                if (bgMixActive()) bgMix?.status?.value?.let(::applyBgMix)
+                else clearManualRecoveryBufferingAtTail()
+            }
             if (endless && generation == queuePageGeneration) {
                 queuePageNetworkJob?.cancel()
                 queuePageNetworkJob = scope.launch {
@@ -3744,8 +3750,16 @@ object PlaybackEngine {
             delay(pause)
             if (generation == queuePageGeneration) loadNextQueuePage()
         }
-        if (endless && queuePageRetries > ENDLESS_AWAIT_FAST_RETRIES && generation == queuePageGeneration && bgMixActive()) {
-            bgMix?.status?.value?.let(::applyBgMix)
+        if (endless && queuePageRetries > ENDLESS_AWAIT_FAST_RETRIES && generation == queuePageGeneration) {
+            if (bgMixActive()) bgMix?.status?.value?.let(::applyBgMix)
+            else clearManualRecoveryBufferingAtTail()
+        }
+    }
+
+    private fun clearManualRecoveryBufferingAtTail() {
+        val snapshot = _state.value
+        if (snapshot.isBuffering && snapshot.queueIndex >= snapshot.queue.lastIndex && !snapshot.playing) {
+            _state.update { it.copy(isBuffering = false, ended = true) }
         }
     }
 
