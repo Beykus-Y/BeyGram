@@ -198,6 +198,11 @@ jobs:
             echo "yandexMusicLyricsSignKey=${YANDEX_LYRICS_SIGN_KEY:-}"
           } > secrets.properties
 
+      - name: Verify TDLib artifacts against the recorded provenance
+        # libtdjni.so and tdlib-java.jar have no build log in Git. docs/tdlib-artifacts.json records their sha256 and
+        # size; a replacement that changes neither is the only one CI can accept without a dedicated rebuild.
+        run: python3 scripts/verify_tdlib_artifacts.py
+
       - name: Run unit tests
         # JVM tests of the dev debug variant. They run before the APKs are built, so a failing test fails this job,
         # and a failed main build cannot be published. A rerun happens only when every failure is a Robolectric
