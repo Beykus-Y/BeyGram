@@ -1,7 +1,10 @@
 package com.beykus.beygram.ui.screens.chat
 
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -53,10 +56,14 @@ internal fun GiftChatCard(
             number,
             caption.takeIf { it.isNotBlank() }
         ).joinToString(", ").ifBlank { generic }
+        Box(
+            modifier = modifier.fillMaxWidth().padding(horizontal = 32.dp),
+            contentAlignment = Alignment.Center
+        ) {
         Column(
             // One node for the screen reader: the artwork already announces itself, so the card is described by what it
             // actually says instead of by its drawing parts.
-            modifier = modifier
+            modifier = Modifier
                 .widthIn(max = CARD_MAX_WIDTH)
                 .clearAndSetSemantics { contentDescription = description },
             horizontalAlignment = Alignment.CenterHorizontally,
@@ -89,6 +96,7 @@ internal fun GiftChatCard(
                 )
             }
         }
+    }
     }
 }
 
