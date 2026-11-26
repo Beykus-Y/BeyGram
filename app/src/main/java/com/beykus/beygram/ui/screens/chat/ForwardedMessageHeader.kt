@@ -29,6 +29,6 @@ internal fun ForwardedMessageHeader(message: ChatMessage) {
         fontWeight = FontWeight.Medium,
         maxLines = 2,
         overflow = TextOverflow.Ellipsis,
-        modifier = Modifier.padding(horizontal = 12.dp, vertical = 5.dp),
+        modifier = Modifier.padding(horizontal = LocalBubbleMetrics.current.textInset).padding(top = 4.dp),
     )
 }
