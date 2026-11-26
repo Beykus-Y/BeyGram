@@ -548,6 +548,7 @@ internal fun MessageThreadScreen(
                             }
                         } else null,
                         onReaction = { option -> changeReaction(message.chatId, message, option, addToRecent = false) },
+                        loadQuickReactions = conversation::availableReactions,
                         onStickerOpen = { id -> stickerSetId = id },
                         observeCustomEmoji = conversation::observeCustomEmoji,
                         onPollVote = { chatId, messageId, choices ->
@@ -610,6 +611,7 @@ internal fun MessageThreadScreen(
                                 onActions = { reactionTarget = channelChatId to root },
                                 onReplyClick = ::jump,
                                 onReaction = { _, option -> changeReaction(channelChatId, root, option, addToRecent = false) },
+                                loadQuickReactions = conversation::availableReactions,
                                 observeCustomEmoji = conversation::observeCustomEmoji,
                                 onPollVote = { messageId, choices ->
                                     riskGuard.run {
@@ -873,6 +875,7 @@ private fun ThreadCommentRow(
     onReplyClick: (MessageReply) -> Unit,
     onReply: ((Long) -> Unit)?,
     onReaction: (ReactionOption) -> Unit,
+    loadQuickReactions: suspend (Long, Long) -> Result<List<ReactionOption>>,
     onPollVote: (chatId: Long, messageId: Long, optionIndices: List<Int>) -> Unit,
     onPollStop: (chatId: Long, messageId: Long) -> Unit,
     onLoadPollVoters: suspend (chatId: Long, messageId: Long, optionIndex: Int, offset: Int) -> Result<PollVotersPage>,
@@ -915,6 +918,7 @@ private fun ThreadCommentRow(
                 onReplyClick = onReplyClick,
                 onReply = onReply,
                 onReaction = { _, option -> onReaction(option) },
+                loadQuickReactions = loadQuickReactions,
                 observeCustomEmoji = observeCustomEmoji,
                 onRetry = onRetry,
                 onShowFailureDetails = onShowFailureDetails,

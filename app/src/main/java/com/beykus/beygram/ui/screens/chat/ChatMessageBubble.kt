@@ -52,6 +52,8 @@ internal fun MessageBubble(message: ChatMessage, observeFile: (Int) -> StateFlow
     /** Chat bubbles start multi-select on long press; other callers keep their own long-press action. */
     longPressSelects: Boolean = false, onReplyClick: (MessageReply) -> Unit = {}, onPlayed: () -> Unit = {}, onRetry: () -> Unit = {}, onReply: ((Long) -> Unit)? = null, onReaction: (Long, ReactionOption) -> Unit, observeCustomEmoji: (Long) -> StateFlow<CustomEmoji?>, inlineContent: @Composable () -> Unit = {},
     onSenderClick: (() -> Unit)? = null,
+    loadQuickReactions: (suspend (Long, Long) -> Result<List<ReactionOption>>)? = null,
+    quickReactionAcrossRow: Boolean = false,
     /** Callers pass the chat/grouping decision; the sender name itself stays available for replies, search and profiles. */
     showSenderHeader: Boolean = true,
     /** Music link cards (Yandex Music) are drawn only where the caller turns them on: the chat list, not secret chats. */
@@ -144,8 +146,15 @@ internal fun MessageBubble(message: ChatMessage, observeFile: (Int) -> StateFlow
     // On a tablet the pane is wide: a bubble grows with it (70 % of the pane, 292 to 480 dp) instead of hugging the edge.
     val bubbleMax = chatBubbleMaxWidthDp(com.beykus.beygram.ui.screens.chats.LocalChatPaneWidthDp.current ?: chatPaneWidthDp(LocalWindowLayout.current)).dp
     val mediaFlightModifier = composerMediaLaunchModifier(composerMediaLaunch, onComposerMediaLaunchFinished)
-    Column(Modifier.fillMaxWidth().then(if (circle) Modifier else Modifier.padding(horizontal = metrics.sideInset)), horizontalAlignment = if (message.isOutgoing) Alignment.End else Alignment.Start) {
-        val haptics = androidx.compose.ui.platform.LocalHapticFeedback.current
+    val quickReaction = if (loadQuickReactions != null && !selectionMode && message.sendState == MessageSendState.Sent) {
+        rememberBubbleQuickReaction(message, loadQuickReactions, onReaction)
+    } else null
+    Column(
+        Modifier.fillMaxWidth()
+            .quickReactionOnFreeSpace(message.chatId, message.id, quickReaction.takeIf { quickReactionAcrossRow })
+            .then(if (circle) Modifier else Modifier.padding(horizontal = metrics.sideInset)),
+        horizontalAlignment = if (message.isOutgoing) Alignment.End else Alignment.Start
+    ) {
         SwipeToReply(
             enabled = onReply != null && message.sendState == MessageSendState.Sent,
             outgoing = message.isOutgoing,
@@ -189,12 +198,8 @@ internal fun MessageBubble(message: ChatMessage, observeFile: (Int) -> StateFlow
                                     message.media != null && !message.media.kind.playsInline() -> onOpen()
                                 }
                             },
-                            onDoubleClick = if (!selectionMode && message.sendState == MessageSendState.Sent) {
-                                {
-                                    haptics.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.TextHandleMove)
-                                    onReaction(message.id, ReactionOption("❤"))
-                                }
-                            } else null,
+                            // Media and other interactive content need an immediate single tap.
+                            onDoubleClick = quickReaction.takeIf { message.media == null && message.special == null },
                             onLongClick = if (selectionMode) onToggleSelection else onActions
                         ),
                     overlayMeta = overlayMeta,

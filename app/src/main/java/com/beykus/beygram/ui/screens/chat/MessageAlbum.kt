@@ -181,6 +181,7 @@ internal fun MessageAlbumBubble(
     /** Loads the earlier texts that Chat Memory kept for a member; without it the album shows no versions link. */
     onLoadVersions: (suspend (chatId: Long, messageId: Long) -> List<ChatMemoryVersion>)? = null,
     composerMediaLaunches: Map<Long, ComposerMediaLaunch> = emptyMap(),
+    loadQuickReactions: (suspend (Long, Long) -> Result<List<ReactionOption>>)? = null,
     onComposerMediaLaunchFinished: (ComposerMediaLaunch) -> Unit = {}
 ) {
     if (messages.isEmpty()) return
@@ -210,7 +211,15 @@ internal fun MessageAlbumBubble(
         ChatMemoryVersionsSheet(versionsOwner, loadVersions, onDismiss = { showVersions = false })
     }
 
-    Column(Modifier.fillMaxWidth().padding(horizontal = metrics.sideInset), horizontalAlignment = if (latest.isOutgoing) Alignment.End else Alignment.Start) {
+    val quickReaction = if (!selectionMode && loadQuickReactions != null && reactionOwner.sendState == MessageSendState.Sent) {
+        rememberBubbleQuickReaction(reactionOwner, loadQuickReactions, onReaction)
+    } else null
+    Column(
+        Modifier.fillMaxWidth()
+            .quickReactionOnFreeSpace(reactionOwner.chatId, reactionOwner.id, quickReaction)
+            .padding(horizontal = metrics.sideInset),
+        horizontalAlignment = if (latest.isOutgoing) Alignment.End else Alignment.Start
+    ) {
         SwipeToReply(enabled = onReply != null && captionMessage.sendState == MessageSendState.Sent, outgoing = latest.isOutgoing,
             onReply = { onReply?.invoke(captionMessage.id) }) { swipe ->
             Box(swipe) {
