@@ -89,28 +89,6 @@ class VideoNotePendingTest {
         assertFalse(note.claimedBy(7L, note.accountId, topicId = 12L))
     }
 
-    @Test fun feedSendsWithTheReplyStoredWithTheNoteNotTheComposersReply() {
-        val note = VideoNoteExportResult(7L, listOf(media("a")), false, "a", topicId = 5L, replyToMessageId = 42L)
-        assertEquals(42L, note.sendReplyId(feedSender = true, composerReplyId = null))
-        assertEquals(42L, note.sendReplyId(feedSender = true, composerReplyId = 99L))
-    }
-
-    @Test fun topicViewKeepsUsingTheComposersReplyForANoteRecordedInTheTopic() {
-        val note = VideoNoteExportResult(7L, listOf(media("a")), false, "a", topicId = 5L, replyToMessageId = 42L)
-        assertEquals(99L, note.sendReplyId(feedSender = false, composerReplyId = 99L))
-        assertNull(note.sendReplyId(feedSender = false, composerReplyId = null))
-    }
-
-    @Test fun noteRecordedInTheFeedKeepsItsReplyWhenATopicViewSendsIt() {
-        val note = VideoNoteExportResult(7L, listOf(media("a")), false, "a", topicId = 5L, replyToMessageId = 42L, recordedInFeed = true)
-        assertEquals(42L, note.sendReplyId(feedSender = false, composerReplyId = null))
-    }
-
-    @Test fun noteRecordedInTheFeedWithoutReplyNeverTakesTheComposersReply() {
-        val note = VideoNoteExportResult(7L, listOf(media("a")), false, "a", topicId = 1L, recordedInFeed = true)
-        assertNull(note.sendReplyId(feedSender = false, composerReplyId = 99L))
-    }
-
     @Test fun retryAfterAcceptedSegmentsDoesNotRepeatTheReply() {
         assertEquals(42L, initialSendReply(nextIndex = 0, replyId = 42L))
         assertNull(initialSendReply(nextIndex = 1, replyId = 42L))

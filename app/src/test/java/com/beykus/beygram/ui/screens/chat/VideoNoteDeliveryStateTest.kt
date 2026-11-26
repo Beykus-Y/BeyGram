@@ -39,7 +39,7 @@ class VideoNoteDeliveryStateTest {
         val second = VideoNoteExportResult(123L, listOf(media("b")), false, "test-b")
         VideoNoteExportCenter.publish(first)
         VideoNoteExportCenter.publish(second)
-        assertEquals(VideoNoteSendStart.Started, VideoNoteExportCenter.send(first.chatId, first.sessionName, null) { _, _ ->
+        assertEquals(VideoNoteSendStart.Started, VideoNoteExportCenter.send(first.chatId, first.sessionName) { _, _ ->
             Result.failure(IllegalStateException("offline"))
         })
         withTimeout(3000) {
@@ -58,7 +58,7 @@ class VideoNoteDeliveryStateTest {
         val item = VideoNoteExportResult(234L, listOf(media("one"), media("two")), true, "test-segments")
         VideoNoteExportCenter.publish(item)
         val attempt = mutableListOf<String>()
-        assertEquals(VideoNoteSendStart.Started, VideoNoteExportCenter.send(item.chatId, item.sessionName, null) { media, _ ->
+        assertEquals(VideoNoteSendStart.Started, VideoNoteExportCenter.send(item.chatId, item.sessionName) { media, _ ->
             attempt += media.fileName
             if (attempt.size == 2) Result.failure(IllegalStateException("network"))
             else Result.success(Unit)
@@ -69,7 +69,7 @@ class VideoNoteDeliveryStateTest {
             }
         }
         val retry = mutableListOf<String>()
-        assertEquals(VideoNoteSendStart.Started, VideoNoteExportCenter.send(item.chatId, item.sessionName, null) { media, _ ->
+        assertEquals(VideoNoteSendStart.Started, VideoNoteExportCenter.send(item.chatId, item.sessionName) { media, _ ->
             retry += media.fileName
             Result.success(Unit)
         })
@@ -98,7 +98,7 @@ class VideoNoteDeliveryStateTest {
         VideoNoteExportCenter.publish(item)
         val entered = CompletableDeferred<Unit>()
         val finish = CompletableDeferred<Unit>()
-        assertEquals(VideoNoteSendStart.Started, VideoNoteExportCenter.send(item.chatId, item.sessionName, null) { _, _ ->
+        assertEquals(VideoNoteSendStart.Started, VideoNoteExportCenter.send(item.chatId, item.sessionName) { _, _ ->
             entered.complete(Unit)
             finish.await()
             Result.success(Unit)
@@ -118,7 +118,7 @@ class VideoNoteDeliveryStateTest {
             session, accountId = "account-owner")
         VideoNoteExportCenter.publish(source)
         var foreignSendInvoked = false
-        assertEquals(VideoNoteSendStart.NotFound, VideoNoteExportCenter.send(sameNumericChat, session, null, "account-foreign") { _, _ ->
+        assertEquals(VideoNoteSendStart.NotFound, VideoNoteExportCenter.send(sameNumericChat, session, "account-foreign") { _, _ ->
             foreignSendInvoked = true
             Result.success(Unit)
         })
@@ -137,7 +137,7 @@ class VideoNoteDeliveryStateTest {
         val item = VideoNoteExportResult(812L, listOf(media("reason")), false, "test-failure-reason")
         VideoNoteExportCenter.publish(item)
         val reason = UserMessageException(UiText.Raw("Файл недоступен"))
-        assertEquals(VideoNoteSendStart.Started, VideoNoteExportCenter.send(item.chatId, item.sessionName, null) { _, _ ->
+        assertEquals(VideoNoteSendStart.Started, VideoNoteExportCenter.send(item.chatId, item.sessionName) { _, _ ->
             Result.failure(reason)
         })
         val failed = withTimeout(3000) {
@@ -151,7 +151,7 @@ class VideoNoteDeliveryStateTest {
         assertTrue(failed.failure?.detail.orEmpty().contains("UserMessageException"))
 
         // A retry clears the visible reason while it runs and removes the draft once accepted.
-        assertEquals(VideoNoteSendStart.Started, VideoNoteExportCenter.send(item.chatId, item.sessionName, null) { _, _ ->
+        assertEquals(VideoNoteSendStart.Started, VideoNoteExportCenter.send(item.chatId, item.sessionName) { _, _ ->
             Result.success(Unit)
         })
         withTimeout(3000) {
@@ -165,7 +165,7 @@ class VideoNoteDeliveryStateTest {
         VideoNoteExportCenter.publish(item)
         val entered = CompletableDeferred<Unit>()
         val finish = CompletableDeferred<Unit>()
-        assertEquals(VideoNoteSendStart.Started, VideoNoteExportCenter.send(item.chatId, item.sessionName, null) { _, _ ->
+        assertEquals(VideoNoteSendStart.Started, VideoNoteExportCenter.send(item.chatId, item.sessionName) { _, _ ->
             entered.complete(Unit)
             finish.await()
             Result.success(Unit)
@@ -173,7 +173,7 @@ class VideoNoteDeliveryStateTest {
         entered.await()
         assertEquals(
             VideoNoteSendStart.AlreadySending,
-            VideoNoteExportCenter.send(item.chatId, item.sessionName, null) { _, _ -> Result.success(Unit) }
+            VideoNoteExportCenter.send(item.chatId, item.sessionName) { _, _ -> Result.success(Unit) }
         )
         finish.complete(Unit)
         withTimeout(3000) {
@@ -186,7 +186,7 @@ class VideoNoteDeliveryStateTest {
         // ChatScreen used to swallow `false` and the Send button looked dead.
         assertEquals(
             VideoNoteSendStart.NotFound,
-            VideoNoteExportCenter.send(1_014L, "missing-session", null) { _, _ -> Result.success(Unit) }
+            VideoNoteExportCenter.send(1_014L, "missing-session") { _, _ -> Result.success(Unit) }
         )
     }
 
@@ -224,7 +224,7 @@ class VideoNoteDeliveryStateTest {
             rawPath = raw.absolutePath
         )
         VideoNoteExportCenter.publish(item)
-        assertEquals(VideoNoteSendStart.Started, VideoNoteExportCenter.send(item.chatId, item.sessionName, null) { _, _ ->
+        assertEquals(VideoNoteSendStart.Started, VideoNoteExportCenter.send(item.chatId, item.sessionName) { _, _ ->
             Result.failure(IllegalStateException("offline"))
         })
         withTimeout(3000) {
@@ -235,7 +235,7 @@ class VideoNoteDeliveryStateTest {
         assertTrue("the recording must survive a failed send", raw.isFile)
 
         // Accepting the draft is what releases the recording, and the empty session folder goes with it.
-        assertEquals(VideoNoteSendStart.Started, VideoNoteExportCenter.send(item.chatId, item.sessionName, null) { _, _ ->
+        assertEquals(VideoNoteSendStart.Started, VideoNoteExportCenter.send(item.chatId, item.sessionName) { _, _ ->
             Result.success(Unit)
         })
         withTimeout(3000) {
@@ -267,14 +267,14 @@ class VideoNoteDeliveryStateTest {
         Unit
     }
 
-    @Test fun anAutoApprovedDraftIsDeliveredWithoutAnyScreen() = runBlocking {
+    @Test fun anAutoApprovedDraftKeepsItsRecordedReplyWithoutAnyScreen() = runBlocking {
         // Delivery used to live in ChatScreen's LaunchedEffect: a note finished after leaving the chat stayed unsent.
-        val item = VideoNoteExportResult(1_319L, listOf(media("auto")), previewFirst = false, sessionName = "test-auto-delivery")
+        val item = VideoNoteExportResult(1_319L, listOf(media("auto")), previewFirst = false, sessionName = "test-auto-delivery", replyToMessageId = 42L)
         val delivered = CompletableDeferred<Unit>()
         VideoNoteExportCenter.bindDelivery(VideoNoteDelivery("legacy") { chatId, topicId, media, reply ->
             assertEquals(1_319L, chatId)
             assertEquals("video-note-auto.mp4", media.fileName)
-            assertNull(reply)
+            assertEquals(42L, reply)
             delivered.complete(Unit)
             Result.success(Unit)
         })
