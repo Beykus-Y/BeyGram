@@ -7,7 +7,7 @@ enum class BgCanvasMode {
 }
 
 data class CanvasSourceSettings(
-    val mode: BgCanvasMode = BgCanvasMode.Off,
+    val mode: BgCanvasMode = BgCanvasMode.Card,
     val respectDataSaver: Boolean = true,
 )
 

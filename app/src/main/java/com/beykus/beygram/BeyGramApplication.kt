@@ -13,6 +13,7 @@ import com.beykus.beygram.data.tdlib.TdLibBootstrap
 import com.beykus.beygram.data.tdlib.TdLibTelegramRepository
 import com.beykus.beygram.data.tdlib.TdSecondaryAccountController
 import com.beykus.beygram.data.tdlib.withSharedMihomoLinks
+import com.beykus.beygram.data.update.AutomaticUpdateChecks
 import com.beykus.beygram.domain.model.AuthState
 import com.beykus.beygram.data.vpn.MihomoProxyClient
 import com.beykus.beygram.data.vpn.VpnBackend
@@ -58,6 +59,9 @@ class BeyGramApplication : Application() {
         MihomoProxyClient.install(this)
         // Analytics runs on its own store and HTTPS client, so it neither waits for Telegram nor starts TDLib.
         AnalyticsSync.install(this, applicationScope)
+        // Unattended update checks: one process-wide scheduler, independent of TDLib, of notifications and of any
+        // screen. It only schedules; the actual request goes through the existing UpdateCoordinator.
+        AutomaticUpdateChecks.get(this, applicationScope).start()
         // Listen history is recorded for the whole process, so plays keep counting after the Activity is gone.
         MusicHistoryRecorder.start(applicationScope, MusicLibraries.get(this))
         // Background notifications are the only work that needs TDLib without a screen. Starting the client only when they

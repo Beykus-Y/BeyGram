@@ -196,6 +196,8 @@ fun ChatScreen(
     // Read only by the forward dialog, so chat list updates don't recompose the chat while it is closed.
     chats: () -> List<ChatPreview>,
     observeFile: (Int) -> StateFlow<MediaFileState>, onDownloadFile: (Int) -> Unit,
+    /** Range-aware playback support from the repository; null keeps the previous whole-prefix behaviour. */
+    playbackCoordinator: com.beykus.beygram.playback.UserRangeCoordinator? = null,
     onBack: () -> Unit, onChatInfo: () -> Unit, onStatistics: (() -> Unit)? = null, connectionState: TelegramConnectionState,
     recordingSettings: VideoMessageSettingsStore, translationSettings: TranslationSettingsStore,
     chatOverrides: ChatOverridesStore, focusMessageId: Long = 0L, onFocusHandled: () -> Unit = {},
@@ -747,11 +749,12 @@ fun ChatScreen(
                 list.filter { it.claimedBy(chat.id, accountId, videoClaimTopicId) && !it.requiresPreview && !it.sending }.forEach { item ->
                     val reply = item.sendReplyId(feedSender = forumAllMessages, composerReplyId = replyId)
                     noteLocalSend()
-                    val accepted = VideoNoteExportCenter.send(item.chatId, item.sessionName, reply, accountId) { media, targetReply ->
+                    val started = VideoNoteExportCenter.send(item.chatId, item.sessionName, reply, accountId) { media, targetReply ->
                         conversation.sendMedia(item.chatId, media, "", targetReply, forumTopicId = item.topicId).map { Unit }
                     }
                     // Clear the composer's reply only when this note used it; a reply set after the note was recorded stays.
-                    if (accepted && reply == replyId) clearReply()
+                    // AlreadySending means the app-level sender won the race: the note still used the composer's reply.
+                    if (started != VideoNoteSendStart.NotFound && reply == replyId) clearReply()
                 }
             }
         }
@@ -759,7 +762,8 @@ fun ChatScreen(
             VideoNoteExportCenter.failures.collect {
                 val failed = if (forumAllMessages) VideoNoteExportCenter.consumeFailureForChat(chat.id, accountId)
                 else VideoNoteExportCenter.consumeFailure(chat.id, sendForumTopicId, accountId)
-                if (failed) error = context.getString(R.string.recorder_save_failed)
+                // The reason matters: "не удалось сохранить" alone cannot distinguish a broken encoder from a full disk.
+                if (failed != null) error = failed.message.resolve(context)
             }
         }
     }
@@ -1350,7 +1354,7 @@ fun ChatScreen(
         reactionOptions = conversation.availableReactions(chat.id, id).getOrNull().orEmpty()
     }
     // Фото и видео листаются по всему чату: окно грузится вокруг открытого вложения, а не только по загруженной истории.
-    val mediaWindow = remember(chat.id) {
+    val mediaWindow = remember(conversation, chat.id) {
         SharedMediaWindow(
             load = { from, newer -> conversation.sharedMessages(chat.id, SharedMediaKind.Media, from, newer) },
             failure = { it.userMessage(context, R.string.err_chat_history_load_failed) }
@@ -1358,14 +1362,32 @@ fun ChatScreen(
     }
     LaunchedEffect(selectedMediaId) {
         val id = selectedMediaId ?: return@LaunchedEffect
-        val kind = currentMessages.firstOrNull { it.id == id }?.media?.kind
+        val selectedMessage = currentMessages.firstOrNull { it.id == id }
+        val kind = selectedMessage?.media?.kind
         // Вложение, которое уже в окне, не перезагружаем: так просмотрщик возвращается к нему на том же месте.
         if (kind != null && kind in viewerSwipeKinds && mediaWindow.messages.none { it.id == id }) {
-            mediaWindow.restart(id)
+            mediaWindow.restart(id, anchorMessage = selectedMessage.takeUnless { it.isViewOnce })
             mediaWindow.loadOlder()
         }
         // Новее догружаем от края: открытое вложение обычно стоит у правого края окна, а прерванная загрузка не оставляет дыр.
-        mediaWindow.loadNear(id)
+        mediaWindow.loadNear(id) { !it.isViewOnce }
+    }
+    var previousHistoryIds by remember(conversation, chat.id) { mutableStateOf<Set<Long>?>(null) }
+    LaunchedEffect(messages, selectedMediaId) {
+        val currentIds = messages.mapTo(HashSet(messages.size)) { it.id }
+        val prevIds = previousHistoryIds
+        if (prevIds != null) {
+            val removed = prevIds - currentIds
+            if (removed.isNotEmpty()) mediaWindow.removeDeleted(removed)
+            if (selectedMediaId != null && mediaWindow.loaded) {
+                val windowMax = mediaWindow.messages.maxOfOrNull { it.id } ?: 0L
+                val hasNewerMedia = messages.any { m ->
+                    m.id !in prevIds && m.id > windowMax && !m.isViewOnce && m.media?.kind in viewerSwipeKinds
+                }
+                if (hasNewerMedia) mediaWindow.refreshNewer()
+            }
+        }
+        previousHistoryIds = currentIds
     }
     LaunchedEffect(selectedMediaId) {
         // Счётчик при свайпе держит прежнее значение до ответа, чтобы не мигал. Права так не держим: см. MediaViewerPolicy.rightsFor.
@@ -3043,16 +3065,17 @@ fun ChatScreen(
             selectedIndex = recordingPreviewIndex,
             sentPaths = video.media.take(video.nextIndex).mapTo(mutableSetOf()) { it.path },
             sending = video.sending,
+            failure = video.failure,
             progress = (video.nextIndex + 1).coerceAtMost(video.media.size),
             onSelect = recordingRecovery::select,
             onDelete = { VideoNoteExportCenter.discard(video.chatId, video.sessionName, accountId) },
             onSend = {
                 val reply = video.sendReplyId(feedSender = forumAllMessages, composerReplyId = replyId)
                 noteLocalSend()
-                val accepted = VideoNoteExportCenter.send(video.chatId, video.sessionName, reply, accountId) { media, targetReply ->
+                val started = VideoNoteExportCenter.send(video.chatId, video.sessionName, reply, accountId) { media, targetReply ->
                     conversation.sendMedia(video.chatId, media, "", targetReply, forumTopicId = video.topicId).map { Unit }
                 }
-                if (accepted && reply == replyId) clearReply()
+                if (started == VideoNoteSendStart.Started && reply == replyId) clearReply()
             }
         )
     }
@@ -3090,15 +3113,30 @@ fun ChatScreen(
     val historyPages = remember(messages, viewerOpen) {
         if (!viewerOpen) emptyList<MediaViewerItem>() else messages.mapNotNull { m -> m.media?.takeIf { it.kind in viewerSwipeKinds }?.let { MediaViewerItem(m.id, it, m.isViewOnce, chat.id, m.text) } }
     }
-    // Пока окно не пришло или не загрузилось, листаем уже загруженную историю чата; без неё показываем вложение одно.
-    val viewerPages = listOf(windowPages, historyPages).firstOrNull { pages -> pages.any { it.messageId == selectedMediaId } }
-        ?: listOfNotNull(viewed?.let { m -> m.media?.let { MediaViewerItem(m.id, it, m.isViewOnce, chat.id, m.text) } })
+    val historyRange = remember(messages, viewerOpen) {
+        if (!viewerOpen || messages.isEmpty()) null
+        else messages.minOf { it.id }..messages.maxOf { it.id }
+    }
+    val liveHistoryIds = remember(messages, viewerOpen) {
+        if (!viewerOpen) null else messages.mapTo(HashSet(messages.size)) { it.id }
+    }
+    val fallbackItem = viewed?.let { m -> m.media?.let { MediaViewerItem(m.id, it, m.isViewOnce, chat.id, m.text) } }
+    // Объединяем пересекающиеся страницы окна и живой истории чата с дедупликацией, чтобы не терять крайнее фото.
+    val viewerPages = resolveMediaViewerPages(
+        windowPages = windowPages,
+        historyPages = historyPages,
+        selectedId = selectedMediaId,
+        fallbackItem = fallbackItem,
+        historyMessageIdRange = historyRange,
+        liveHistoryIds = liveHistoryIds,
+    )
     val viewOnceGate = rememberViewOnceStealthGate(chat.id)
     val viewOnceAsked = viewed?.takeIf { viewOnceGate.needsConsent(chat.id, it.id, it.isViewOnce, conversation.interactionAllowed(InteractionEffect.OpenContent, chat.id)) }
     if (viewOnceAsked != null) viewOnceGate.ConsentDialog(chat.id, viewOnceAsked.id) { selectedMediaId = null }
     if (viewed != null && viewed.media != null && viewOnceAsked == null) MediaViewer(
         pages = viewOnceGate.swipeable(viewerPages, chat.id, viewed.id, conversation.interactionAllowed(InteractionEffect.OpenContent, chat.id)), selectedId = viewed.id, onSelect = { selectedMediaId = it }, originBounds = mediaOrigin(viewed.id),
         observeFile = observeFile, downloadFile = onDownloadFile,
+        playbackCoordinator = playbackCoordinator,
         onViewed = { id ->
             val once = (messages.firstOrNull { it.id == id } ?: retainedViewOnce)?.isViewOnce == true
             if (!once || id !in openedViewOnceIds) {

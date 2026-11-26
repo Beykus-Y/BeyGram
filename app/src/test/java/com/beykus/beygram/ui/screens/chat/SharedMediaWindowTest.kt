@@ -262,4 +262,75 @@ class SharedMediaWindowTest {
         window.removeDeleted(setOf(2L, 9L))
         assertEquals(listOf(1L, 3L), window.messages.map { it.id })
     }
+
+    @Test fun newestPhotoSurvivesWhenTdlibFirstOlderPageExcludesAnchor() = runBlocking {
+        // TDLib SearchChatMessages(fromMessageId = 50, offset = 0) returns messages strictly older than 50.
+        val all = listOf(message(50), message(40), message(30), message(20), message(10))
+        val window = SharedMediaWindow(
+            load = { from, newer ->
+                val result = if (newer) {
+                    all.filter { it.id >= from }
+                } else {
+                    all.filter { from == 0L || it.id < from }
+                }
+                Result.success(MessageSearchPage(messages = result, nextFromMessageId = 0L))
+            },
+            failure = { "failed" }
+        )
+        window.restart(50L)
+        window.loadOlder()
+        window.loadNear(40L)
+        assertEquals(listOf(10L, 20L, 30L, 40L, 50L), window.messages.map { it.id })
+    }
+
+    @Test fun oldestPhotoSurvivesWhenOlderPageIsEmptyAndNewerPageFollows() = runBlocking {
+        val all = listOf(message(30), message(20), message(10))
+        val window = SharedMediaWindow(
+            load = { from, newer ->
+                val result = if (newer) {
+                    all.filter { it.id >= from }
+                } else {
+                    all.filter { from == 0L || it.id < from }
+                }
+                Result.success(MessageSearchPage(messages = result, nextFromMessageId = 0L))
+            },
+            failure = { "failed" }
+        )
+        window.restart(10L)
+        window.loadOlder()
+        window.loadNewer()
+        assertEquals(listOf(10L, 20L, 30L), window.messages.map { it.id })
+    }
+
+    @Test fun seededAnchorSurvivesImmediatelyAndSupportsNewPhotoArrivalAndDeletion() = runBlocking {
+        val all = mutableListOf(message(50), message(40), message(30))
+        val window = SharedMediaWindow(
+            load = { from, newer ->
+                val result = if (newer) {
+                    all.filter { it.id >= from }
+                } else {
+                    all.filter { from == 0L || it.id < from }
+                }
+                Result.success(MessageSearchPage(messages = result, nextFromMessageId = 0L))
+            },
+            failure = { "failed" }
+        )
+        window.restart(50L, anchorMessage = message(50))
+        window.loadOlder()
+        assertEquals(listOf(30L, 40L, 50L), window.messages.map { it.id })
+
+        // New photo arrives while viewer is open
+        all.add(0, message(60))
+        window.refreshNewer()
+        assertEquals(listOf(30L, 40L, 50L, 60L), window.messages.map { it.id })
+
+        // Deleting newest (60) resets newestId so a later 70 can still load cleanly
+        all.removeAll { it.id == 60L }
+        window.removeDeleted(setOf(60L))
+        assertEquals(listOf(30L, 40L, 50L), window.messages.map { it.id })
+
+        all.add(0, message(70))
+        window.refreshNewer()
+        assertEquals(listOf(30L, 40L, 50L, 70L), window.messages.map { it.id })
+    }
 }

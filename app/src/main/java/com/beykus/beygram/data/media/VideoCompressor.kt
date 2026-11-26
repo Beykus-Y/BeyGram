@@ -64,7 +64,8 @@ internal class VideoCompressor(private val context: Context) {
                 durationSeconds = ceil(durationMs / 1000.0).toInt(),
                 sizeBytes = file.length(),
                 mimeType = mimeType,
-                videoCodecH264 = videoCodecs.isNotEmpty() && videoCodecs.all { it == MimeTypes.VIDEO_H264 },
+                videoCodecH264 = videoIsAlreadyTargetCodec(videoCodecs),
+                videoCodecClass = videoCodecClass(videoCodecs),
                 hasAudio = hasAudio
             )
         } finally {

@@ -50,6 +50,13 @@
     <string name="recorder_preview_previous">Back</string>
     <string name="recorder_preview_size">Total size: %1$s</string>
     <string name="recorder_preview_title">Recording preview</string>
+    <!-- P0 #1228: the send failure reason is visible in the preview. -->
+    <string name="recorder_send_in_progress">Sending…</string>
+    <!-- P0 #1228: why a video note could not be processed. -->
+    <string name="recorder_unreadable_video">The recording is damaged: its video cannot be read</string>
+    <string name="recorder_unsupported_codec">The recording codec is not supported</string>
+    <string name="recorder_retry_send">Retry sending</string>
+    <string name="recorder_preview_unavailable">The recording could not be played</string>
     <string name="recorder_processing_busy">The previous recording is still being processed</string>
     <string name="recorder_queue_progress">Sending %1$d of %2$d</string>
     <string name="recorder_queue_sent">Accepted for sending: %1$d of %2$d</string>

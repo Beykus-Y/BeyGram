@@ -18,9 +18,12 @@ enum class AvatarTap { RevealPhoto, OpenGallery }
 object ProfileSceneSettings {
     const val PREFS_NAME = "profile_scene_settings"
     const val KEY_ENABLED = "scene_enabled"
+    private const val KEY_EXPRESSIVE_COVER = "expressive_cover"
 
     private val _enabled = MutableStateFlow(false)
     val enabled: StateFlow<Boolean> = _enabled.asStateFlow()
+    private val _expressiveCover = MutableStateFlow(false)
+    val expressiveCover: StateFlow<Boolean> = _expressiveCover.asStateFlow()
 
     @Volatile
     private var loaded = false
@@ -29,16 +32,26 @@ object ProfileSceneSettings {
         if (loaded) return
         synchronized(this) {
             if (loaded) return
-            _enabled.value = readEnabled(context)
+            _enabled.value = readBoolean(context, KEY_ENABLED)
+            _expressiveCover.value = readBoolean(context, KEY_EXPRESSIVE_COVER)
             loaded = true
         }
     }
 
     fun setEnabled(context: Context, value: Boolean) {
         _enabled.value = value
+        writeBoolean(context, KEY_ENABLED, value)
+    }
+
+    fun setExpressiveCover(context: Context, value: Boolean) {
+        _expressiveCover.value = value
+        writeBoolean(context, KEY_EXPRESSIVE_COVER, value)
+    }
+
+    private fun writeBoolean(context: Context, key: String, value: Boolean) {
         try {
             context.applicationContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-                .edit().putBoolean(KEY_ENABLED, value).apply()
+                .edit().putBoolean(key, value).apply()
         } catch (_: RuntimeException) {
             // The in-memory value still applies for this process.
         }
@@ -54,9 +67,9 @@ object ProfileSceneSettings {
     /** Back folds a revealed photo first, and only in C. Everywhere else Back keeps its usual meaning. */
     fun backClosesExpansion(sceneC: Boolean, photoExpanded: Boolean): Boolean = sceneC && photoExpanded
 
-    private fun readEnabled(context: Context): Boolean = try {
+    private fun readBoolean(context: Context, key: String): Boolean = try {
         context.applicationContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-            .getBoolean(KEY_ENABLED, false)
+            .getBoolean(key, false)
     } catch (_: RuntimeException) {
         false
     }

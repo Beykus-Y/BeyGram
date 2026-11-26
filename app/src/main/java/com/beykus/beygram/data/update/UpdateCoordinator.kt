@@ -7,6 +7,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.async
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -19,10 +20,12 @@ private const val LOG_TAG = "BeyGramUpdates"
 
 /**
  * The update state of the whole process. Screens only observe [state] and send actions, so a download keeps running
- * when the settings screen closes. Nothing starts by itself: every network or file operation follows a user action.
+ * when the settings screen closes. Downloads and installs start only after a user action; the only unattended work is
+ * the check of [checkAutomatically], which is orchestrated by [AutomaticUpdateChecks].
  *
- * Operations are serialized: a new one is refused while another runs. After process death, [restore] rebuilds the state
- * from disk and checks every file again. An unfinished operation is never reported as running.
+ * Operations are serialized: a new one is refused while another runs, except that a user action aborts an unattended
+ * check instead of being refused. After process death, [restore] rebuilds the state from disk and checks every file
+ * again. An unfinished operation is never reported as running.
  */
 class UpdateCoordinator private constructor(context: Context) {
     private val source: ApkUpdateSource = when (updateChannelFor(context.packageName)) {
@@ -35,6 +38,10 @@ class UpdateCoordinator private constructor(context: Context) {
     private val mutableState = MutableStateFlow(UpdateUiState())
     val state: StateFlow<UpdateUiState> = mutableState.asStateFlow()
     private var operation: Job? = null
+    /** True while [operation] is the unattended check, so a user action can take the slot from it. */
+    private var operationIsAutomatic = false
+    /** The status before an unattended check started, restored if a user action aborts it mid-flight. */
+    private var statusBeforeAutomaticCheck: UpdateStatus? = null
     private var cancelRequested = false
     private val restoring: Job = scope.launch { restore() }
 
@@ -50,15 +57,42 @@ class UpdateCoordinator private constructor(context: Context) {
     }
 
     /** Looks for a newer release. Never downloads. A failed check keeps a verified ready file. */
-    fun check() = start {
-        if (!StableUpdateActionPolicy.canCheck(mutableState.value.status)) return@start
+    fun check() = start { runCheck(reportFailure = true) }
+
+    /**
+     * The unattended check. It is the same request as a manual one — one coordinator, one in-flight operation, one
+     * persisted state — but it may never turn the screen into a failure state and may never claim that the installed
+     * build is the latest after a failed attempt. A running user operation wins: this returns [Skipped] at once.
+     */
+    suspend fun checkAutomatically(): AutomaticCheckOutcome = withContext(Dispatchers.Main.immediate) {
+        restoring.join()
+        if (operation?.isActive == true) return@withContext AutomaticCheckOutcome.Skipped
+        statusBeforeAutomaticCheck = mutableState.value.status
+        val work = scope.async { runCheck(reportFailure = false) }
+        operation = work
+        operationIsAutomatic = true
+        try {
+            work.await()
+        } catch (cancelled: CancellationException) {
+            // A user action took the slot; the automatic attempt deliberately has no result.
+            AutomaticCheckOutcome.Skipped
+        } finally {
+            operationIsAutomatic = false
+            statusBeforeAutomaticCheck = null
+        }
+    }
+
+    /** One check, shared by the manual action and the unattended one. */
+    private suspend fun runCheck(reportFailure: Boolean): AutomaticCheckOutcome {
+        if (!StableUpdateActionPolicy.canCheck(mutableState.value.status)) return AutomaticCheckOutcome.Skipped
         setStatus(UpdateStatus.Checking)
         try {
             val release = source.check(source.installedCode())
             val now = System.currentTimeMillis()
             store.saveLastCheckedAt(now)
             store.saveKnownRelease(release)
-            recordCheck(if (release == null) UpdateCheckOutcome.Current else UpdateCheckOutcome.Available, release, now)
+            // The manual-check summary stays a record of a check the user started; see UpdateCheckStore.
+            if (reportFailure) recordCheck(if (release == null) UpdateCheckOutcome.Current else UpdateCheckOutcome.Available, release, now)
             mutableState.update {
                 it.copy(
                     status = if (release == null) UpdateStatus.Current else UpdateStatus.Available(release),
@@ -67,16 +101,24 @@ class UpdateCoordinator private constructor(context: Context) {
                     checkStale = false,
                 )
             }
+            return if (release == null) AutomaticCheckOutcome.Current else AutomaticCheckOutcome.Available(release)
         } catch (error: Exception) {
             if (error is CancellationException) throw error
             Log.w(LOG_TAG, "Update check failed", error)
-            recordCheck(UpdateCheckOutcome.Failed, null, System.currentTimeMillis())
-            mutableState.update {
-                it.copy(
-                    status = UpdateStatus.Failure(UpdateStep.Check, updateErrorReason(error), null),
-                    checkStale = true,
-                )
+            if (reportFailure) recordCheck(UpdateCheckOutcome.Failed, null, System.currentTimeMillis())
+            if (reportFailure) {
+                mutableState.update {
+                    it.copy(
+                        status = UpdateStatus.Failure(UpdateStep.Check, updateErrorReason(error), null),
+                        checkStale = true,
+                    )
+                }
+            } else {
+                // An unattended failure confirms nothing and must not leave the card on "Checking": the previous
+                // status is restored and the known offer is only marked as unconfirmed.
+                mutableState.update { restoreAfterAutomaticFailure(it, statusBeforeAutomaticCheck) }
             }
+            return AutomaticCheckOutcome.Failed(updateErrorReason(error))
         }
     }
 
@@ -245,10 +287,25 @@ class UpdateCoordinator private constructor(context: Context) {
         }
     }
 
+    /**
+     * Runs a user action. A user operation keeps the slot to itself, as before; an unattended check is aborted
+     * instead, so the user's tap is never refused because a background check happened to be in flight.
+     */
     private fun start(block: suspend () -> Unit) {
-        if (operation?.isActive == true) return
+        val running = operation
+        if (running?.isActive == true) {
+            if (!operationIsAutomatic) return
+            running.cancel()
+            // The aborted check may have left the card on "Checking"; a user action must not inherit that spinner.
+            statusBeforeAutomaticCheck?.let { previous ->
+                if (mutableState.value.status == UpdateStatus.Checking) setStatus(previous)
+            }
+        }
+        operationIsAutomatic = false
         operation = scope.launch {
             restoring.join()
+            // The aborted automatic request must be gone before the user's own request starts.
+            running?.join()
             block()
         }
     }
@@ -354,4 +411,18 @@ class UpdateCoordinator private constructor(context: Context) {
             file.isFile && file.length() == stored.release.size &&
             sha256Of(file) == stored.release.sha256
     }
+}
+
+
+/**
+ * State after an unattended check failed. The card must not stay on [UpdateStatus.Checking] (that would be a spinner
+ * with no request behind it), and an already confirmed offer is kept but marked as not confirmed any more.
+ */
+internal fun restoreAfterAutomaticFailure(state: UpdateUiState, previous: UpdateStatus?): UpdateUiState {
+    val restored = when {
+        state.status != UpdateStatus.Checking -> state.status
+        previous != null && previous != UpdateStatus.Checking -> previous
+        else -> UpdateStatus.Idle
+    }
+    return state.copy(status = restored, checkStale = state.knownRelease != null)
 }

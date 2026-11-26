@@ -32,3 +32,5 @@ dependencyResolutionManagement {
 
 rootProject.name = "BeyGram"
 include(":app")
+// Macrobenchmark and Baseline Profile generation (#1119). Not part of any release or PR build.
+include(":macrobenchmark")

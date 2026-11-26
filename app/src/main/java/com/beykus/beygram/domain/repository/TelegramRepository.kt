@@ -211,6 +211,18 @@ interface TelegramRepository : ConversationRepository, NotificationRepository, R
     suspend fun receivedGifts(offset: String): Result<ReceivedGiftsPage> =
         Result.failure(UnsupportedOperationException())
 
+    /** Read-only received gifts for any user profile (#1144). */
+    suspend fun receivedGiftsForUser(userId: Long, offset: String): Result<ReceivedGiftsPage> =
+        Result.failure(UnsupportedOperationException())
+
+    /** Safe non-monetary toggle for whether a received gift is shown on the current user's profile (#1145). */
+    suspend fun toggleGiftSaved(receivedGiftId: String, isSaved: Boolean): Result<Unit> =
+        Result.failure(UnsupportedOperationException())
+
+    /** Safe non-monetary update of pinned received gifts on the current user's profile (#1135, #1145). */
+    suspend fun setPinnedGifts(receivedGiftIds: List<String>): Result<Unit> =
+        Result.failure(UnsupportedOperationException())
+
     /**
      * Sends one gift after explicit confirmation. [text] is plain and checked against the
      * server limit; [isPrivate] shows the sender's name and the text only to the recipient. The repository never retries it.
@@ -409,4 +421,15 @@ interface TelegramRepository : ConversationRepository, NotificationRepository, R
 
     /** Automatic download that the repository may deny, cancel or skip according to the local policy. */
     fun autoDownloadFile(request: AutoDownloadRequest)
+
+    /**
+     * Range-aware reads for progressive playback, or null when the backend cannot answer them.
+     *
+     * The player uses it to prove that the bytes at a concrete offset are present, and to point TDLib's single user
+     * download window at the position it is about to play. It never creates a second cache.
+     */
+    val playbackRanges: com.beykus.beygram.playback.PlaybackRanges? get() = null
+
+    /** The player-facing coordinator over [playbackRanges]; null when the backend cannot report ranges. */
+    val playbackCoordinator: com.beykus.beygram.playback.UserRangeCoordinator? get() = null
 }
