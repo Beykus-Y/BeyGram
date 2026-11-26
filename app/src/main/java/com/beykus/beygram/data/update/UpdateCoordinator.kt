@@ -4,10 +4,13 @@ import android.content.Context
 import android.util.Log
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.async
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -72,10 +75,7 @@ class UpdateCoordinator private constructor(context: Context) {
         operation = work
         operationIsAutomatic = true
         try {
-            work.await()
-        } catch (cancelled: CancellationException) {
-            // A user action took the slot; the automatic attempt deliberately has no result.
-            AutomaticCheckOutcome.Skipped
+            awaitAutomaticCheck(work)
         } finally {
             operationIsAutomatic = false
             statusBeforeAutomaticCheck = null
@@ -426,3 +426,15 @@ internal fun restoreAfterAutomaticFailure(state: UpdateUiState, previous: Update
     }
     return state.copy(status = restored, checkStale = state.knownRelease != null)
 }
+
+/**
+ * A cancelled automatic check means a user action took the slot, but only while the caller itself is still active.
+ * Cancelling the caller must stay a cancellation; swallowing it would leave a dead job reporting [AutomaticCheckOutcome.Skipped].
+ */
+internal suspend fun awaitAutomaticCheck(work: Deferred<AutomaticCheckOutcome>): AutomaticCheckOutcome =
+    try {
+        work.await()
+    } catch (cancelled: CancellationException) {
+        currentCoroutineContext().ensureActive()
+        AutomaticCheckOutcome.Skipped
+    }
