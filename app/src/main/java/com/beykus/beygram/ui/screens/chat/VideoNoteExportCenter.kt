@@ -94,6 +94,8 @@ internal data class VideoNoteExportResult(
     /** Number of segments already accepted by TDLib. Retained when a later send fails. */
     val nextIndex: Int = 0,
     val sending: Boolean = false,
+    /** Monotonic token of the current send job, so a finished older attempt cannot clear a newer one. */
+    val attemptId: Long = 0L,
     /** Preview and retry items stay in the center until explicit Send/Delete. */
     val requiresPreview: Boolean = previewFirst || media.size > 1,
     /** Forum topic the note was recorded in (0 outside forums): it is sent there, not to the open topic. */
@@ -114,6 +116,14 @@ internal fun VideoNoteExportResult.markSegmentSent(): VideoNoteExportResult =
 /** Keeps the draft and its reason: the dialog shows the reason and offers another attempt. */
 internal fun VideoNoteExportResult.markSendFailed(failure: VideoNoteFailure): VideoNoteExportResult =
     copy(sending = false, requiresPreview = true, failure = failure)
+
+/**
+ * Clears the busy mark only for the attempt that still owns the draft (#1153 A-33). A retry can claim the draft in the
+ * short window between [markSendFailed] and the job's `finally`; the old job must not release the new one's claim, or a
+ * third tap could start a second send of the same segments.
+ */
+internal fun VideoNoteExportResult.finishAttempt(attemptId: Long): VideoNoteExportResult =
+    if (this.attemptId == attemptId) copy(sending = false) else this
 
 /** Автоматический кружок до приёма TDLib: [processing] — идёт обработка, иначе кружок ждёт отправки. */
 internal data class PendingVideoNote(val chatId: Long, val sessionName: String, val processing: Boolean, val previewPath: String? = null, val topicId: Long = 0L, val accountId: String = com.beykus.beygram.data.tdlib.TdAccountStorageLayout.LEGACY_ACCOUNT_ID)
@@ -304,12 +314,13 @@ internal object VideoNoteExportCenter {
         accountId: String = com.beykus.beygram.data.tdlib.TdAccountStorageLayout.LEGACY_ACCOUNT_ID,
         sender: suspend (OutgoingMedia, Long?) -> Result<Unit>
     ): VideoNoteSendStart {
-        val initial: VideoNoteExportResult = synchronized(this) {
+        val (initial, attemptId) = synchronized(this) {
             val current = _results.value.firstOrNull { it.chatId == chatId && it.sessionName == sessionName && it.accountId == accountId }
                 ?: return VideoNoteSendStart.NotFound
             if (current.sending) return VideoNoteSendStart.AlreadySending
-            updateResult(sessionName, accountId) { it.copy(sending = true, failure = null) }
-            current
+            val token = current.attemptId + 1
+            updateResult(sessionName, accountId) { it.copy(sending = true, failure = null, attemptId = token) }
+            current.copy(attemptId = token) to token
         }
         VideoNoteDiagnostics.append(sessionName, VideoNoteDiagnostics.text(R.string.vn_entry_send_requested, initial.media.size - initial.nextIndex), VideoNoteStatus.SENDING)
         scope.launch {
@@ -346,8 +357,9 @@ internal object VideoNoteExportCenter {
                 updateResult(sessionName, accountId) { it.markSendFailed(reason) }
             } finally {
                 // Never leave a draft marked as sending if the job ends through an unexpected path: the dialog would stay
-                // disabled and the user could neither retry nor delete it.
-                updateResult(sessionName, accountId) { it.copy(sending = false) }
+                // disabled and the user could neither retry nor delete it. Only this attempt may release the mark; a
+                // retry that already claimed the draft keeps its own.
+                updateResult(sessionName, accountId) { it.finishAttempt(attemptId) }
             }
         }
         return VideoNoteSendStart.Started
