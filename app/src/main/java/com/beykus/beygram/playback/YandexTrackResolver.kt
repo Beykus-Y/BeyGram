@@ -17,6 +17,7 @@ import java.net.URL
 import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicLong
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
 
@@ -176,14 +177,15 @@ internal object YandexTrackResolver : LazyTrackResolver<String>(YANDEX_KEY_PREFI
             val first = linkOf(trackId) ?: return null
             val linkedAt = SystemClock.elapsedRealtime()
             var retried = false
+            val job = coroutine[Job]
             val path = try {
-                YandexAudioDownloader.download(first, dir, progress) { coroutine.ensureActive() }
+                YandexAudioDownloader.download(first, dir, progress, job) { coroutine.ensureActive() }
             } catch (expired: YandexAudioDownloader.LinkExpired) {
                 // The link lived less than the download took: one fresh link, then give up for this attempt.
                 retried = true
                 coroutine.ensureActive()
                 val fresh = linkOf(trackId) ?: return null
-                YandexAudioDownloader.download(fresh, dir, progress) { coroutine.ensureActive() }
+                YandexAudioDownloader.download(fresh, dir, progress, job) { coroutine.ensureActive() }
             }
             recordFetchTiming(linkMs = linkedAt - startedAt, totalMs = SystemClock.elapsedRealtime() - startedAt, path.length(), retried)
             return path.absolutePath
@@ -229,11 +231,19 @@ internal object YandexTrackResolver : LazyTrackResolver<String>(YANDEX_KEY_PREFI
         pruneCopies(dir)
     }
 
+    /** Removes unreferenced audio files from the Yandex cache directory. */
+    fun pruneUnused(context: Context) {
+        val dir = File(context.applicationContext.cacheDir, DIR_NAME)
+        if (dir.isDirectory) pruneCopies(dir)
+    }
+
     /** Removes copies that no queue row, live entry or download in progress still names. */
-    private fun pruneCopies(dir: File) {
-        val keep = livePaths() + PlaybackEngine.musicPathsInUse() + YandexAudioDownloader.reserved
+    internal fun pruneCopies(
+        dir: File,
+        keepPaths: Set<String> = livePaths() + PlaybackEngine.musicPathsInUse() + YandexAudioDownloader.reserved
+    ) {
         dir.listFiles().orEmpty().forEach { file ->
-            if (file.absolutePath !in keep) file.delete()
+            if (file.absolutePath !in keepPaths) file.delete()
         }
     }
 }
@@ -258,7 +268,13 @@ internal object YandexAudioDownloader {
      * filled in as the bytes arrive, so the player can start from the readable start of the file.
      * The connection bypasses the local proxy: the service answers only inside its own region.
      */
-    fun download(link: YandexAudioLink, dir: File, progress: YandexDownload? = null, checkCancelled: () -> Unit = {}): File {
+    fun download(
+        link: YandexAudioLink,
+        dir: File,
+        progress: YandexDownload? = null,
+        cancelJob: Job? = null,
+        checkCancelled: () -> Unit = {}
+    ): File {
         checkCancelled()
         dir.mkdirs()
         val target = File(dir, "${UUID.randomUUID()}.${extensionFor(link.codec)}")
@@ -268,6 +284,10 @@ internal object YandexAudioDownloader {
         } catch (error: Throwable) {
             reserved -= target.absolutePath
             throw error
+        }
+        // Disconnect immediately on coroutine cancellation so a blocked socket read aborts promptly.
+        val cancelHook = cancelJob?.invokeOnCompletion { cause ->
+            if (cause != null) runCatching { connection.disconnect() }
         }
         try {
             connection.connectTimeout = CONNECT_TIMEOUT_MS
@@ -305,6 +325,7 @@ internal object YandexAudioDownloader {
             target.delete()
             throw error
         } finally {
+            cancelHook?.dispose()
             connection.disconnect()
         }
     }
