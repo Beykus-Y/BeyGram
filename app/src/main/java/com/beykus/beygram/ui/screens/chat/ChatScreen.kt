@@ -2430,6 +2430,7 @@ fun ChatScreen(
                                     isRead = latest?.let { it.isOutgoing && it.sendState == MessageSendState.Sent && it.id <= history.lastReadOutboxMessageId } == true,
                                     highlighted = listItem.messages.any { it.id == highlighted || it.id == actionsId },
                                     onOpen = { selectedMediaId = it }, onActions = ::openActionsOnLongPress, onReplyClick = ::jump,
+                                    onPlayed = { conversation.openMessageContent(chat.id, it) },
                                     onMediaBounds = { coordinates ->
                                         listItem.messages.forEach { mediaCoordinates[it.id] = coordinates }
                                         if (actionsId != null && listItem.messages.any { it.id == actionsId }) {
