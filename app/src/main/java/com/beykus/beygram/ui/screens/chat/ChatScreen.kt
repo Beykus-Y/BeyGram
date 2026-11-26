@@ -2428,7 +2428,7 @@ fun ChatScreen(
                                             coordinates.mediaScreenBounds()?.let { actionAnchorBounds = it }
                                         }
                                     }, onReply = if (swipeReplyAllowed) ::swipeReply else null,
-                                    onReaction = ::react, observeCustomEmoji = conversation::observeCustomEmoji, onRetry = { retryFailedMessages(listItem.messages.filter { it.sendState == MessageSendState.Failed }.map { it.id }) },
+                                    onReaction = ::react, loadQuickReactions = conversation::availableReactions, observeCustomEmoji = conversation::observeCustomEmoji, onRetry = { retryFailedMessages(listItem.messages.filter { it.sendState == MessageSendState.Failed }.map { it.id }) },
                                     selectionMode = selectionMode,
                                     selected = listItem.messages.all { it.id in selectionIds },
                                     onToggleSelection = { listItem.messages.firstOrNull()?.let(::toggleSelection) },
@@ -2535,7 +2535,7 @@ fun ChatScreen(
                                     onShowFailureDetails = if (message.isOutgoing && message.sendState == MessageSendState.Failed) {
                                         { failedSendTarget = FailedSendTarget(message, localAttempt?.attemptId) }
                                     } else null,
-                                    onReaction = ::react, observeCustomEmoji = conversation::observeCustomEmoji, inlineContent = { InlineBotButtons(message, conversation, riskGuard, ::requestBotWebApp, onOpenEntity = onOpenMessageEntity) },
+                                    onReaction = ::react, loadQuickReactions = conversation::availableReactions, quickReactionAcrossRow = true, observeCustomEmoji = conversation::observeCustomEmoji, inlineContent = { InlineBotButtons(message, conversation, riskGuard, ::requestBotWebApp, onOpenEntity = onOpenMessageEntity) },
                                 onBubblePositioned = bubblePosition,
                                 onMediaBounds = { coordinates -> mediaCoordinates[message.id] = coordinates },
                                 composerMediaLaunch = mediaLaunch,
