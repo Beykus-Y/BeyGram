@@ -260,6 +260,13 @@ jobs:
           BEYGRAM_OPENSSL_CACHE: ${{ runner.temp }}/beygram-openssl
         run: ./gradlew --no-daemon :app:assembleDevDebug :app:assembleProdRelease :app:assembleDevDebugAndroidTest
 
+      - name: Compile the macrobenchmark module
+        # A PR used to never compile this module, so its scenarios could rot between manual device runs (A-18). The
+        # configuration cache is off: the module's synthetic-merge task is not cacheable in this AGP version.
+        env:
+          BEYGRAM_OPENSSL_CACHE: ${{ runner.temp }}/beygram-openssl
+        run: ./gradlew --no-daemon --no-configuration-cache :macrobenchmark:assembleDevBenchmark
+
       - name: Save OpenSSL for Android (BG Wave)
         if: github.event_name == 'push' && steps.openssl-cache.outputs.cache-hit != 'true'
         uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
