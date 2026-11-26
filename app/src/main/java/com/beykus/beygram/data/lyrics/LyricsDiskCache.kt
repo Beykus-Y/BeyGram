@@ -112,7 +112,10 @@ class LyricsDiskCache(
         }
     }
 
-    /** Removes all cached lyrics entries belonging to [accountId] without disturbing other accounts. */
+    /**
+     * Removes all cached lyrics entries belonging to [accountId] (as well as legacy entries written
+     * before per-account tagging) without disturbing other active accounts.
+     */
     fun removeByAccount(accountId: String) {
         if (accountId.isBlank()) return
         synchronized(lock) {
@@ -121,7 +124,7 @@ class LyricsDiskCache(
                 if (!file.isFile || file.name.endsWith(".tmp")) return@forEach
                 val raw = runCatching { file.readText(StandardCharsets.UTF_8) }.getOrNull() ?: return@forEach
                 val owner = runCatching { JSONObject(raw).optString("accountId", "") }.getOrDefault("")
-                if (owner == accountId) file.delete()
+                if (owner == accountId || owner.isEmpty()) file.delete()
             }
         }
     }

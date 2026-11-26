@@ -119,4 +119,38 @@ class LyricsAuditRegressionTest {
         repo.observeLyrics(id1, settings).toList()
         assertEquals(3, calls)
     }
+
+    @Test
+    fun legacyDiskCacheEntriesRemainReadableAndAreClearedOnLogoutWithoutTouchingOtherAccounts() {
+        val dir = tempFolder.newFolder("lyrics-legacy")
+        val disk = LyricsDiskCache(dir)
+        val doc = LyricsDocument(
+            syncMode = LyricsSyncMode.Plain,
+            lines = listOf(RichLyricLine(startMs = 0L, text = "Legacy")),
+            plainText = "Legacy",
+            attribution = LyricsAttribution(LyricsSourceId.LrcLib, "LRCLIB"),
+        )
+        val version = LyricsDocument.CURRENT_FORMAT_VERSION
+        val legacyKey = "acc-1|tg:legacy|v$version"
+        disk.put(legacyKey, doc, ttlMs = 60_000L, nowMs = 10_000L)
+        // Simulate a legacy-format disk entry by stripping the new "accountId" field from the JSON file.
+        val legacyFile = dir.listFiles()!!.single { it.name.endsWith(".json") }
+        val stripped = org.json.JSONObject(legacyFile.readText(java.nio.charset.StandardCharsets.UTF_8)).apply {
+            remove("accountId")
+        }
+        legacyFile.writeText(stripped.toString(), java.nio.charset.StandardCharsets.UTF_8)
+
+        // Legacy entry must still be readable before logout.
+        assertNotNull(disk.get(legacyKey, 10_000L))
+
+        disk.put("acc-1|tg:new|v$version", doc, ttlMs = 60_000L, nowMs = 10_000L)
+        disk.put("acc-2|tg:other|v$version", doc, ttlMs = 60_000L, nowMs = 10_000L)
+
+        disk.removeByAccount("acc-1")
+
+        // acc-1 and legacy untagged entry are cleared; acc-2 remains intact.
+        assertNull(disk.get(legacyKey, 10_000L))
+        assertNull(disk.get("acc-1|tg:new|v$version", 10_000L))
+        assertNotNull(disk.get("acc-2|tg:other|v$version", 10_000L))
+    }
 }

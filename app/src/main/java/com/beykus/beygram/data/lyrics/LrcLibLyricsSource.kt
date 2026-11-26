@@ -226,9 +226,10 @@ class LrcLibLyricsSource(
             }
             try {
                 val code = connection.responseCode
+                val retryAfter = connection.getHeaderField("Retry-After")?.trim()?.toLongOrNull()
                 val stream = if (code in 200..299) connection.inputStream else connection.errorStream
                 val body = stream?.use { readBoundedUtf8(it, MAX_RESPONSE_BYTES) }.orEmpty()
-                LrcLibHttpResponse(code, body)
+                LrcLibHttpResponse(code, body, retryAfterSeconds = retryAfter)
             } finally {
                 cancelHook.dispose()
                 connection.disconnect()
