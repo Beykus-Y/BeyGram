@@ -74,13 +74,26 @@ internal class ComposerLaunch(
     val replyToMessageId: Long?,
     val sourceBounds: Rect,
     val baselineSequence: Long,
-    val speed: Float
+    val speed: Float,
+    private val isTargetVisible: (Rect) -> Boolean = { !it.isEmpty }
 ) {
     var localAttemptId by mutableStateOf<Long?>(null)
     var messageId by mutableStateOf<Long?>(null)
     var message by mutableStateOf<ChatMessage?>(null)
-    var targetBounds by mutableStateOf<Rect?>(null)
     var awaitingSend by mutableStateOf(true)
+    private data class Target(val rowId: Long, val bounds: Rect)
+    private var target by mutableStateOf<Target?>(null)
+    val targetBounds: Rect? get() = target?.bounds?.takeIf(isTargetVisible)
+
+    fun positionRow(rowId: Long, bounds: Rect) {
+        target = Target(rowId, bounds)
+    }
+
+    fun ownsRow(rowId: Long): Boolean = target?.rowId == rowId && targetBounds != null
+
+    fun releaseRow(rowId: Long) {
+        if (target?.rowId == rowId) target = null
+    }
 }
 
 /** The exact bounded text and entities that are handed to TDLib and matched by a Composer Launch. */
@@ -140,11 +153,12 @@ internal fun resolveComposerLaunchTargets(
     history: ChatHistory,
     visibleLocalRowIds: Set<Long>
 ): Map<Long, ComposerLaunch> = buildMap {
-    val assigned = mutableSetOf<Long>()
+    val assigned = launches.mapNotNullTo(mutableSetOf()) { launch ->
+        launch.messageId?.let { resolveMessageIdThroughReplacements(it, history.recentReplacements) }
+    }
     launches.sortedBy { it.key }.forEach { launch ->
         val existing = launch.messageId?.let { resolveMessageIdThroughReplacements(it, history.recentReplacements) }
         if (existing != null) {
-            assigned += existing
             put(existing, launch)
         } else {
             val candidate = findComposerLaunchMessage(
@@ -268,30 +282,12 @@ internal fun ComposerLaunchLayer(
         progress.animateTo(1f, tween(duration, easing = CubicBezierEasing(0.16f, 0.84f, 0.24f, 1f)))
         onFinished(launch)
     }
+    if (target == null) return
     val bubble = @Composable {
         ComposerLaunchBubble(
             message = message,
             modifier = Modifier.onSizeChanged { bubbleSize = it }
         )
-    }
-    if (target == null) {
-        val center = source.center
-        Box(
-            Modifier.offset {
-                IntOffset(
-                    (center.x - bubbleSize.width / 2f).roundToInt(),
-                    (center.y - bubbleSize.height / 2f).roundToInt()
-                )
-            }.graphicsLayer {
-                val visible = bubbleSize.width > 0 && bubbleSize.height > 0
-                alpha = if (visible) 0.92f else 0f
-                val scale = (source.height * 1.15f / bubbleSize.height.coerceAtLeast(1)).coerceIn(0.35f, 0.7f)
-                scaleX = scale
-                scaleY = scale
-                transformOrigin = TransformOrigin.Center
-            }
-        ) { bubble() }
-        return
     }
     val geometry = composerLaunchGeometry(source, target, bubbleSize)
     if (geometry == null) {
@@ -395,7 +391,7 @@ internal fun ComposerLaunchPreview(
                 speed = speed
             ).also {
                 it.message = message
-                it.targetBounds = targetBounds
+                it.positionRow(message.id, targetBounds!!)
                 it.awaitingSend = false
             }
             fieldCleared = true

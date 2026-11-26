@@ -172,9 +172,6 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
 
-/** More than one transition can be in flight, but an accidental tap storm must not create an unbounded overlay. */
-private const val MAX_ACTIVE_COMPOSER_LAUNCHES = 4
-
 private data class PendingBotWebApp(val url: String, val botUserId: Long, val messageId: Long, val source: BotWebAppSource, val buttonText: String)
 
 /** The synchronous refusal plus the server result it replaced, so a later async result can invalidate it. */
@@ -938,86 +935,18 @@ fun ChatScreen(
     val animationTracker = remember(chat.id, forumTopicId) { MessageArrivalTracker() }
     // Decorative effects are capped per chat, so a burst of arrivals cannot stack several Lottie overlays.
     val effectLimiter = remember(chat.id, forumTopicId) { MessageEffectPlaybackLimiter() }
-    // Composer Launch is a spatial overlay; the real row stays hidden until the overlay lands on it.
-    val composerLaunches = remember(accountId, chat.id, forumTopicId) { mutableStateListOf<ComposerLaunch>() }
-    val completedLocalLaunches = remember(accountId, chat.id, forumTopicId) { mutableListOf<Triple<String, Long?, Long>>() }
-    remember(history) {
+    val composerLaunch = remember(accountId, chat.id, forumTopicId) { ComposerLaunchState() }
+    remember(history, composerLaunch) {
         animationTracker.observe(history)
-        if (completedLocalLaunches.isNotEmpty()) {
-            val claimed = HashSet<Long>()
-            val iterator = completedLocalLaunches.iterator()
-            while (iterator.hasNext()) {
-                val (launchText, launchReply, launchBaseline) = iterator.next()
-                val match = findComposerLaunchMessage(
-                    history = history,
-                    text = launchText,
-                    replyToMessageId = launchReply,
-                    baselineSequence = launchBaseline,
-                    assignedIds = claimed
-                )
-                if (match != null) {
-                    claimed += resolveMessageIdThroughReplacements(match.id, history.recentReplacements)
-                    animationTracker.claim(listOf(match.id))
-                    iterator.remove()
-                }
-            }
-        }
+        composerLaunch.claimCompletedArrivals(history, animationTracker)
     }
-    var composerFieldBounds by remember { mutableStateOf<Rect?>(null) }
     val composerCursor = remember(chat.id) { ComposerCursor() }
-    var launchOverlayBounds by remember { mutableStateOf<Rect?>(null) }
-    var composerLaunchCounter by remember { mutableLongStateOf(0L) }
-    var composerDraftLaunchKey by remember { mutableStateOf<Long?>(null) }
-    // Hiding is bound to the exact send attempt, not to the text value: a new identical draft must stay visible.
-    val hidingComposerForLaunch by remember(composerLaunches, composerDraftState) {
-        derivedStateOf {
-            shouldHideComposerDraft(
-                editing = editId != null,
-                draft = draft,
-                activeLaunchKey = composerDraftLaunchKey,
-                launch = composerLaunches.firstOrNull { it.key == composerDraftLaunchKey }
-            )
-        }
+    val hidingComposerForLaunch by remember(composerLaunch, composerDraftState) {
+        derivedStateOf { composerLaunch.hidesDraft(editing = editId != null, draft = draft) }
     }
-    // Follow sends across the temporary-to-server id replacement and cancel transitions for failed messages.
-    LaunchedEffect(composerLaunches.toList(), history.messages, history.liveArrivals, history.recentReplacements, queuedTextAttempts) {
-        if (composerLaunches.isEmpty()) return@LaunchedEffect
-        val assigned = composerLaunches.mapNotNull { launch ->
-            launch.messageId?.let { resolveMessageIdThroughReplacements(it, history.recentReplacements) }
-        }.toMutableSet()
-        composerLaunches.sortedBy { it.key }.toList().forEach { launch ->
-            val localId = launch.localAttemptId
-            if (localId != null && queuedTextAttempts.any { it.attemptId == localId && it.phase == TextSendAttemptPhase.Failed }) {
-                composerLaunches.remove(launch)
-                if (composerDraftLaunchKey == launch.key) composerDraftLaunchKey = null
-                return@forEach
-            }
-            val existing = launch.messageId?.let { resolveMessageIdThroughReplacements(it, history.recentReplacements) }
-            if (existing != null) {
-                val current = messages.firstOrNull { it.id == existing }
-                when {
-                    current == null -> Unit
-                    current.sendState == MessageSendState.Failed -> composerLaunches.remove(launch)
-                    else -> launch.message = current
-                }
-            } else {
-                val candidate = findComposerLaunchMessage(
-                    history, launch.text, launch.replyToMessageId, launch.baselineSequence, assigned
-                )
-                if (candidate != null) {
-                    if (candidate.sendState == MessageSendState.Failed) {
-                        composerLaunches.remove(launch)
-                    } else {
-                        launch.messageId = candidate.id
-                        launch.message = candidate
-                        assigned += resolveMessageIdThroughReplacements(candidate.id, history.recentReplacements)
-                    }
-                }
-            }
-        }
-    }
-    // Resolve the same assignment synchronously for this list frame, so a new outgoing row is hidden before the effect runs.
-    val launchTargets = resolveComposerLaunchTargets(composerLaunches, history, localTextAttemptIds.keys)
+    // Assign targets before the lazy rows compose. The overlay follows the same history snapshot.
+    val launchTargets = composerLaunch.targets(history, localTextAttemptIds.keys)
+    ComposerLaunchHistoryEffect(composerLaunch, history, queuedTextAttempts)
     val newest = messages.lastOrNull()
     val lifecycle = LocalLifecycleOwner.current.lifecycle
     // A batch collected while the app was away is not a burst of entrances; keep the tracker paused through the first resume frames.
@@ -1991,27 +1920,12 @@ fun ChatScreen(
             }
             val forceReplyId = botKeyboard?.takeIf { it.forceReply }?.messageId
             val launch = if (messageAnimations.enabled && outgoingAnimation.preset == MessageAnimationPreset.ComposerLaunch) {
-                composerFieldBounds?.let { source ->
-                    composerLaunchCounter += 1
-                    ComposerLaunch(
-                        key = composerLaunchCounter,
-                        text = outgoing.text,
-                        entities = outgoing.entities,
-                        replyToMessageId = replySnapshot,
-                        sourceBounds = source,
-                        baselineSequence = history.liveArrivalSequence,
-                        speed = outgoingAnimation.tuning.speed
-                    ).also {
-                        composerLaunches += it
-                        while (composerLaunches.size > MAX_ACTIVE_COMPOSER_LAUNCHES) composerLaunches.removeAt(0)
-                    }
-                }
+                composerLaunch.start(outgoing, replySnapshot, history.liveArrivalSequence, outgoingAnimation.tuning.speed)
             } else null
             val timeLabel = DateFormat.getTimeInstance(DateFormat.SHORT).format(Date())
             val baselineSeq = history.liveArrivalSequence
             error = null
             val submittedDraft = composerDraft
-            if (launch != null) composerDraftLaunchKey = launch.key
             textSendQueue.launchComposerWrite(textSendScopeKey) {
                 try {
                     val attempt = textSendQueue.enqueue(
@@ -2032,8 +1946,7 @@ fun ChatScreen(
                         },
                         onFailure = { attempt, failure ->
                             launch?.awaitingSend = false
-                            launch?.let(composerLaunches::remove)
-                            if (composerDraftLaunchKey == launch?.key) composerDraftLaunchKey = null
+                            launch?.let(composerLaunch::cancel)
                             attachments.stealthFallback.offer(failure) {
                                 retryLocalTextAttempt(attempt.attemptId, sendNowConsent = true)
                             }
@@ -2045,34 +1958,26 @@ fun ChatScreen(
                     launch?.awaitingSend = false
                 } catch (_: TextSendStorageException) {
                     launch?.awaitingSend = false
-                    launch?.let(composerLaunches::remove)
-                    if (composerDraftLaunchKey == launch?.key) composerDraftLaunchKey = null
+                    launch?.let(composerLaunch::cancel)
                     error = queueStorageFailureText
                     return@launchComposerWrite
                 }
                 updateDraft { current -> if (current == submittedDraft) MessageDraft() else current }
-                if (composerDraftLaunchKey == launch?.key) composerDraftLaunchKey = null
+                launch?.let(composerLaunch::releaseDraft)
             }
             return
         }
         // A scheduled message is not in the chat yet, so it must not run the Composer Launch animation.
-        val launch: ComposerLaunch? = null
-        val stealthWaitsLocally = false
         val submitted = composerDraft
         sending = true; error = null
         scope.launch {
-            var delivered = false
             try {
                 val result = conversation.sendMessage(
                     chat.id, outgoing.text, replyId, outgoing.entities, forumTopicId = sendForumTopicId,
                     clearDraft = false, options = effectiveOptions
                 )
-                if (stealthWaitsLocally && result.isFailure) updateDraft { current -> if (current.text.isEmpty()) submitted else current }
                 if (result.isSuccess) {
-                    delivered = true
-                    if (!stealthWaitsLocally) updateDraft { current -> if (current == submitted) MessageDraft() else current }
-                    launch?.awaitingSend = false
-                    if (composerDraftLaunchKey == launch?.key) composerDraftLaunchKey = null
+                    updateDraft { current -> if (current == submitted) MessageDraft() else current }
                     botKeyboard?.takeIf { it.forceReply }?.let { conversation.dismissBotKeyboard(chat.id, it.messageId) }
                     if (effectiveOptions.scheduledAtSeconds != null) {
                         Toast.makeText(context, context.getString(R.string.chat_schedule_success), Toast.LENGTH_SHORT).show()
@@ -2083,11 +1988,6 @@ fun ChatScreen(
                     error = result.exceptionOrNull()?.userMessage(context, R.string.err_chat_send_failed)
                 }
             } finally {
-                launch?.awaitingSend = false
-                if (!delivered) {
-                    launch?.let(composerLaunches::remove)
-                    if (composerDraftLaunchKey == launch?.key) composerDraftLaunchKey = null
-                }
                 sending = false
             }
         }
@@ -2131,7 +2031,7 @@ fun ChatScreen(
     // Only the open/closed flip recomposes the screen, not every frame of the keyboard animation.
     val keyboardOpen by remember(imeInsets, imeDensity) { derivedStateOf { imeInsets.getBottom(imeDensity) > 0 } }
     val compactChrome = windowLayout.heightCompact
-    Box(Modifier.fillMaxSize().onGloballyPositioned { launchOverlayBounds = it.boundsInWindow() }) {
+    Box(Modifier.fillMaxSize().onGloballyPositioned { composerLaunch.overlayBounds = it.boundsInWindow() }) {
     // The system bar bands take the colour of the bar next to them (header on top, composer at the bottom), so the edges
     // of the screen are not two-toned. In Liquid Glass that is the pane tint over the screen colour. The status bar band
     // is drawn only for non-glass styles; in glass the header pane covers the status bar.
@@ -2464,7 +2364,9 @@ fun ChatScreen(
                             message.sendState != MessageSendState.Failed &&
                             resolveMessageIdThroughReplacements(it.messageId, history.recentReplacements) == message.id
                     }
-                    val launchModifier = if (launch != null) Modifier.graphicsLayer { alpha = 0f } else Modifier
+                    val launchModifier = if (launch != null) Modifier.graphicsLayer {
+                        alpha = if (launch.ownsRow(message.id)) 0f else 1f
+                    } else Modifier
                     // Only an open action menu and an in-flight launch follow the bubble while the list moves. Other rows only
                     // store their layout; the rectangle is computed when something reads it.
                     val bubblePosition: (LayoutCoordinates) -> Unit = { coordinates ->
@@ -2473,14 +2375,7 @@ fun ChatScreen(
                         if (inActionMenu || launch != null) {
                             val rect = coordinates.boundsInWindow()
                             if (inActionMenu) actionAnchorBounds = rect
-                            launch?.let { target ->
-                                val fieldTop = composerFieldBounds?.top ?: Float.MAX_VALUE
-                                val screenTop = launchOverlayBounds?.top ?: 0f
-                                // Ignore prefetched or offscreen rows: the overlay must land on a bubble the user can see.
-                                if (rect.bottom <= fieldTop && rect.top >= screenTop && target.targetBounds != rect) {
-                                    target.targetBounds = rect
-                                }
-                            }
+                            launch?.positionRow(message.id, rect)
                         }
                     }
                     val isCenteredRow = message.serviceText != null
@@ -2504,6 +2399,9 @@ fun ChatScreen(
                             limiter = effectLimiter
                         ) {
                         Column(Modifier.fillMaxWidth()) {
+                            DisposableEffect(launch, message.id) {
+                                onDispose { launch?.releaseRow(message.id) }
+                            }
                             DisposableEffect(message.id) {
                                 onDispose { bubbleCoordinates.remove(message.id); mediaCoordinates.remove(message.id) }
                             }
@@ -2935,7 +2833,7 @@ fun ChatScreen(
                 onEntitiesChange = { if (!hidingComposerForLaunch) { if (editing) editEntities = it else updateDraft { state -> state.copy(entities = it) } } },
                 placeholder = if (hidingComposerForLaunch) "" else if (attachments.active && attachments.extra == null) stringResource(R.string.chat_caption_placeholder) else botKeyboard?.placeholder?.takeIf { it.isNotBlank() } ?: stringResource(R.string.chat_message),
                 locked = busy || hidingComposerForLaunch, isError = false,
-                modifier = Modifier.fillMaxWidth().onFocusChanged { if (it.isFocused && stickerPanelOpen) stickerPanelOpen = false }.onGloballyPositioned { if (composerFieldBounds != it.boundsInWindow()) composerFieldBounds = it.boundsInWindow() },
+                modifier = Modifier.fillMaxWidth().onFocusChanged { if (it.isFocused && stickerPanelOpen) stickerPanelOpen = false }.onGloballyPositioned { composerLaunch.fieldBounds = it.boundsInWindow() },
                 focusRequest = replyFocusRequest, cursor = composerCursor,
                 // One entry to Emoji / Stickers / GIF, inside the input and before Record/Send.
                 header = if (editing) null else replyHeader,
@@ -3036,25 +2934,7 @@ fun ChatScreen(
         }
         })
     }
-    ComposerLaunchOverlay(
-        launches = composerLaunches,
-        chatId = chat.id,
-        overlayBounds = launchOverlayBounds,
-        onFinished = {
-            if (it.messageId == null && it.localAttemptId != null) {
-                completedLocalLaunches += Triple(it.text, it.replyToMessageId, it.baselineSequence)
-                while (completedLocalLaunches.size > MAX_ACTIVE_COMPOSER_LAUNCHES) {
-                    completedLocalLaunches.removeAt(0)
-                }
-            }
-            composerLaunches.remove(it)
-            if (composerDraftLaunchKey == it.key) composerDraftLaunchKey = null
-        },
-        onCancel = {
-            composerLaunches.remove(it)
-            if (composerDraftLaunchKey == it.key) composerDraftLaunchKey = null
-        }
-    )
+    ChatComposerLaunchOverlay(composerLaunch, chat.id)
     AttachmentMediaHost(attachments)
     }
     // Each unacknowledged video draft remains in the app center. Only the oldest is shown;

@@ -231,7 +231,7 @@ private fun AppearancePreviewBody(
             speed = outgoing.tuning.speed
         ).also {
             it.message = outgoingMessage
-            it.targetBounds = target
+            it.positionRow(outgoingMessage.id, target)
             it.awaitingSend = false
         }
     }
