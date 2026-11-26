@@ -9,6 +9,7 @@ import android.media.AudioManager
 import android.net.Uri
 import android.os.PowerManager
 import android.os.SystemClock
+import android.util.Log
 import android.view.TextureView
 import androidx.core.content.ContextCompat
 import androidx.core.content.FileProvider
@@ -50,7 +51,9 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -2063,8 +2066,14 @@ object PlaybackEngine {
         cancelBgMixHandover()
         val context = appContext ?: return
         BgMixSettingsStore.load(context)
-        if (!BgMixSettingsStore.enabled.value) return
-        if (!BgMixNative.isAvailable) return
+        if (!BgMixSettingsStore.enabled.value) {
+            Log.i("BgMixHandover", "blocked reason=${BgMixHandoverBlockReason.Disabled.name}")
+            return
+        }
+        if (!BgMixNative.isAvailable) {
+            Log.i("BgMixHandover", "blocked reason=${BgMixHandoverBlockReason.NativeUnavailable.name}")
+            return
+        }
         bgMixHandoverJob = scope.launch {
             runBgMixHandover(context, rejectedKey)
             if (!bgMixActive()) setBgMixPreparing(false)
@@ -2086,47 +2095,65 @@ object PlaybackEngine {
     private suspend fun runBgMixHandover(context: Context, initialRejectedKey: String? = null) {
         var failures = 0
         var rejectedKey = initialRejectedKey
-        while (failures < BG_HANDOVER_ATTEMPTS) {
+        var lastItemKey: String? = null
+        var exhaustedKey: String? = null
+        var lastLoggedReason: BgMixHandoverBlockReason? = null
+        while (currentCoroutineContext().isActive) {
             if (bgMixActive()) return
-            // A previous host can still be releasing PCM. Exo keeps playing while we wait.
-            if (bgMix?.isRetiring == true) {
-                delay(BG_HANDOVER_POLL_MS)
-                continue
-            }
             val state = _state.value
             val item = state.item ?: return
             if (!item.isMusic || item.systemPrivate || state.queueIndex !in state.queue.indices) return
-            if (item.key == rejectedKey) {
-                setBgMixPreparing(false)
-                delay(BG_HANDOVER_IDLE_POLL_MS)
-                continue
+            if (item.key != lastItemKey) {
+                failures = 0
+                exhaustedKey = null
+                lastItemKey = item.key
             }
-            val candidate = BgMixQueueDriver.isCandidate(item) || bgMixFileFor(item) != null
-            setBgMixPreparing(candidate)
-            val file = if (candidate && bgMixHandoverMoment(state, item)) bgMixFileFor(item) else null
-            if (file == null) {
-                delay(if (state.intentPlaying) BG_HANDOVER_POLL_MS else BG_HANDOVER_IDLE_POLL_MS)
+            val file = bgMixFileFor(item)
+            val candidate = BgMixQueueDriver.isCandidate(item) || file != null
+            val target = exo
+            val remainingMs = target?.duration?.takeIf { it != C.TIME_UNSET }?.let { it - target.currentPosition }
+            val reason = bgMixHandoverBlockReason(
+                enabled = BgMixSettingsStore.enabled.value,
+                nativeAvailable = BgMixNative.isAvailable,
+                isMusic = item.isMusic,
+                systemPrivate = item.systemPrivate,
+                isCandidate = candidate,
+                isRetiring = bgMix?.isRetiring == true,
+                isRejected = item.key == rejectedKey,
+                isAttemptsExhausted = item.key == exhaustedKey,
+                playing = state.playing,
+                intentPlaying = state.intentPlaying,
+                ended = state.ended,
+                waitingForNetwork = state.waitingForNetwork,
+                hasDeferredSeek = deferredSeek != null,
+                speed = effectiveSpeed(item),
+                remainingMs = remainingMs,
+                minRemainingMs = BG_HANDOVER_MIN_REMAINING_MS,
+                fileReady = file != null,
+            )
+            if (reason != lastLoggedReason) {
+                Log.i("BgMixHandover", "state reason=${reason.name} attempts=$failures")
+                lastLoggedReason = reason
+            }
+            setBgMixPreparing(reason.showsPreparingIndicator())
+            if (reason != BgMixHandoverBlockReason.Ready || file == null) {
+                delay(if (state.intentPlaying && reason.showsPreparingIndicator()) BG_HANDOVER_POLL_MS else BG_HANDOVER_IDLE_POLL_MS)
                 continue
             }
             when (handOverToBgMix(context, state, file) { rejectedKey = file.key }) {
                 true -> return
-                // The queue changed while the session was being prepared: prepare again for the new one.
+                // The queue or playback state changed while the session was being prepared: re-evaluate without burning attempts.
                 null -> continue
                 false -> {
                     if (rejectedKey != file.key) failures++ else failures = 0
+                    if (failures >= BG_HANDOVER_ATTEMPTS) {
+                        exhaustedKey = file.key
+                        setBgMixPreparing(false)
+                    }
                     delay(BG_HANDOVER_RETRY_MS)
                 }
             }
         }
-    }
-
-    /** ExoPlayer plays this music track audibly at normal speed, with enough of it left to be worth moving. */
-    private fun bgMixHandoverMoment(state: PlaybackState, item: PlaybackItem): Boolean {
-        val target = exo ?: return false
-        if (!state.playing || !state.intentPlaying || state.ended || state.waitingForNetwork) return false
-        if (deferredSeek != null || effectiveSpeed(item) != 1f) return false
-        val duration = target.duration
-        return duration == C.TIME_UNSET || duration - target.currentPosition >= BG_HANDOVER_MIN_REMAINING_MS
     }
 
     /**
@@ -2146,10 +2173,13 @@ object PlaybackEngine {
         val index = if (shuffled) 0 else state.queueIndex
         val queueKeys = state.queue.map { it.key }
         fun queueChanged(): Boolean = _state.value.queue.map { it.key } != queueKeys || _state.value.shuffleEnabled != state.shuffleEnabled
-        if (!driver.stage(order, index, single, ::bgMixFileFor)) return false
+        if (!driver.stage(order, index, single, ::bgMixFileFor)) {
+            Log.w("BgMixHandover", "handover_failed stage=stage")
+            return false
+        }
         if (generation != bgMixHandoverGeneration || !stillHandingOver(file)) {
             driver.discardStaged()
-            return false
+            return null
         }
         val status = driver.stagedStatus
         val loaded = status?.let {
@@ -2165,18 +2195,25 @@ object PlaybackEngine {
             return null
         }
         if (loaded?.queue?.any { it.state == "failed" } == true) {
+            Log.w("BgMixHandover", "handover_failed stage=decode_rejected")
             onRejected()
             driver.discardStaged()
             return false
         }
-        if (loaded == null || !stillHandingOver(file)) {
+        if (!stillHandingOver(file) || generation != bgMixHandoverGeneration) {
+            driver.discardStaged()
+            return null
+        }
+        if (loaded == null) {
+            Log.w("BgMixHandover", "handover_failed stage=prepare_timeout")
             driver.discardStaged()
             return false
         }
-        val target = exo ?: run { driver.discardStaged(); return false }
+        val target = exo ?: run { driver.discardStaged(); return null }
         // A starting guess: the alignment below measures where the native output is really heard.
         val positionMs = target.currentPosition + BG_HANDOVER_LEAD_MS
         if (!driver.seekStaged(positionMs / 1000.0)) {
+            Log.w("BgMixHandover", "handover_failed stage=seek_staged")
             driver.discardStaged()
             return false
         }
@@ -2187,7 +2224,12 @@ object PlaybackEngine {
         val started = withTimeoutOrNull(BG_HANDOVER_START_TIMEOUT_MS) {
             driver.stagedStatus?.first { snapshot -> snapshot?.decks?.getOrNull(snapshot.master)?.playing == true }
         }
-        if (started == null || !stillHandingOver(file) || generation != bgMixHandoverGeneration) {
+        if (!stillHandingOver(file) || generation != bgMixHandoverGeneration) {
+            driver.discardStaged()
+            return null
+        }
+        if (started == null) {
+            Log.w("BgMixHandover", "handover_failed stage=start_timeout")
             driver.discardStaged()
             return false
         }
@@ -3326,6 +3368,11 @@ object PlaybackEngine {
                 requestSilenceMeasurement()
                 queuePageRetries = 0
                 loadNextQueuePage()
+                if (!bgMixActive() && bgMixHandoverJob?.isActive != true &&
+                    _state.value.item?.let { it.isMusic && !it.systemPrivate } == true
+                ) {
+                    scheduleBgMixHandover()
+                }
             }
         }
 
