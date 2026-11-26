@@ -63,6 +63,15 @@ class MusicPlayerUiStateTest {
     }
 
     @Test
+    fun miniPlayerIdentifiesVideoNotesWithoutDependingOnPosition() {
+        val state = playback(track("note").copy(kind = MediaKind.VideoNote))
+        val ui = state.miniPlayerUi()!!
+        assertTrue(ui.isVideoNote)
+        assertEquals(ui, state.copy(positionMs = 250L).miniPlayerUi())
+        assertFalse(playback(track("music")).miniPlayerUi()!!.isVideoNote)
+    }
+
+    @Test
     fun miniPlayerKeepsTitleAndArtistSeparate() {
         val ui = playback(track("a", title = "Nightfall", performer = "Aurora")).miniPlayerUi()!!
         assertEquals("Nightfall", ui.title)

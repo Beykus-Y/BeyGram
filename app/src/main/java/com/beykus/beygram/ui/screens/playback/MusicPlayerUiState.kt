@@ -28,7 +28,8 @@ internal data class MiniPlayerUi(
     val ended: Boolean,
     val canNext: Boolean,
     val durationSeconds: Int,
-    val origin: PlaybackOrigin?
+    val origin: PlaybackOrigin?,
+    val isVideoNote: Boolean
 )
 
 /** The displayed music title without the legacy "Artist — Title" join. */
@@ -57,7 +58,8 @@ internal fun PlaybackState.miniPlayerUi(): MiniPlayerUi? {
         ended = ended,
         canNext = canNext,
         durationSeconds = current.durationSeconds,
-        origin = current.origin
+        origin = current.origin,
+        isVideoNote = current.kind == MediaKind.VideoNote
     )
 }
 
