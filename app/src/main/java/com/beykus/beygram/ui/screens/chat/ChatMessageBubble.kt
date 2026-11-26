@@ -280,13 +280,24 @@ internal fun MessageBubble(message: ChatMessage, observeFile: (Int) -> StateFlow
                                 message, observeFile, onDownloadFile, autoDownloadFile = onAutoDownloadFile,
                                 onOpenEntity = onOpenMessageEntity, enabled = musicLinkCards,
                                 messageText = {
-                                    if (lastLineMeta) {
-                                        PlainMessageWithMeta(message.text, modifier = if (message.reply != null) Modifier.fillMaxWidth() else Modifier) {
+                                    val trailingMetadata: (@Composable () -> Unit)? = if (lastLineMeta) {
+                                        {
                                             BubbleMeta(message, isRead, retryAvailable = false, overlay = false,
                                                 onRetry = onRetry, inline = true, insideTextInsets = true, connectionState = connectionState)
                                         }
-                                    } else if (showText) FormattedMessageText(message, observeCustomEmoji, observeFile, onDownloadFile,
-                                        onOpenEntity = onOpenMessageEntity, entityClicksEnabled = !selectionMode)
+                                    } else null
+                                    val textModifier = if (lastLineMeta && message.reply != null) Modifier.fillMaxWidth() else Modifier
+                                    if (trailingMetadata != null && message.entities.isEmpty()) {
+                                        PlainMessageWithMeta(message.text, textModifier, trailingMetadata)
+                                    } else if (showText) {
+                                        FormattedMessageText(
+                                            message, observeCustomEmoji, observeFile, onDownloadFile,
+                                            onOpenEntity = onOpenMessageEntity,
+                                            entityClicksEnabled = !selectionMode,
+                                            modifier = textModifier,
+                                            trailingMetadata = trailingMetadata
+                                        )
+                                    }
                                 }
                             )
                             translation?.let { state ->

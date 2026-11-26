@@ -18,6 +18,8 @@ import androidx.compose.ui.unit.dp
 import com.beykus.beygram.domain.model.ChatMessage
 import com.beykus.beygram.domain.model.CustomEmoji
 import com.beykus.beygram.domain.model.MediaFileState
+import com.beykus.beygram.domain.model.MessageTextEntity
+import com.beykus.beygram.domain.model.TextStyleKind
 import com.beykus.beygram.ui.theme.BeyGramTheme
 import kotlinx.coroutines.flow.MutableStateFlow
 import org.junit.Assert.assertTrue
@@ -58,6 +60,12 @@ class MessageLayoutV2GeometryTest {
         assertTimeBesideFinalLine(text, LayoutDirection.Rtl)
     }
 
+    @Test fun aBoldLastLineKeepsTheTimeClearOfItsActualGlyphs() {
+        val text = "Long first line in the message\nBold"
+        render(text, entities = listOf(MessageTextEntity(text.length - 4, 4, TextStyleKind.Bold)))
+        assertTimeBesideFinalLine(text, LayoutDirection.Ltr)
+    }
+
     @Test fun aFullLineKeepsTheTimeBelowTheTextAndAtTheTrailingEdge() {
         val text = "WWWWWWWW"
         val time = "23:59:59"
@@ -75,7 +83,8 @@ class MessageLayoutV2GeometryTest {
         sender: String = "",
         direction: LayoutDirection = LayoutDirection.Ltr,
         time: String = "18:41",
-        width: Dp = 360.dp
+        width: Dp = 360.dp,
+        entities: List<MessageTextEntity> = emptyList()
     ) {
         val file = MutableStateFlow(MediaFileState(id = 1))
         val emoji = MutableStateFlow<CustomEmoji?>(null)
@@ -84,7 +93,7 @@ class MessageLayoutV2GeometryTest {
                 BeyGramTheme {
                     Box(Modifier.width(width)) {
                         MessageBubble(
-                            message = ChatMessage(1, 1, text, time, isOutgoing = sender.isEmpty(), senderName = sender),
+                            message = ChatMessage(1, 1, text, time, isOutgoing = sender.isEmpty(), senderName = sender, entities = entities),
                             observeFile = { file },
                             onDownloadFile = {},
                             onOpen = {},
