@@ -1341,82 +1341,21 @@ fun ChatScreen(
             }
         }
     }
-    // LaunchedEffect lives across recompositions; rememberUpdatedState keeps the collector on fresh history/row counts.
-    val autoLoadHistory by rememberUpdatedState(history)
-    val autoLoadRowCount by rememberUpdatedState(messageListItems.size)
-    // Reverse LazyColumn: larger visible indexes are OLDER messages. Prefetch when the user approaches
-    // the loaded edge, but wait for the unread/focused opening to settle, and stop on errors until retry.
-    // beginLoad() in the repository also prevents duplicate in-flight requests.
-    LaunchedEffect(chat.id, forumTopicId, conversation, listState) {
-        snapshotFlow {
-            shouldAutoLoadOlderMessages(
-                lastVisibleItemIndex = listState.layoutInfo.visibleItemsInfo.maxOfOrNull { it.index } ?: -1,
-                loadedItemCount = autoLoadRowCount,
-                hasOlderMessages = autoLoadHistory.hasOlderMessages,
-                isLoading = autoLoadHistory.isLoading,
-                hasError = autoLoadHistory.error != null,
-                openingSettled = scrollPosition.readBoundaryChecked
-            )
-        }.distinctUntilChanged().collect { shouldLoad ->
-            if (shouldLoad) {
-                if (forumTopicId > 0L) conversation.loadOlderForumTopicMessages(chat.id, forumTopicId)
-                else conversation.loadOlderMessages(chat.id)
-            }
-        }
-    }
+    ChatOlderHistoryEffect(conversation, chat.id, forumTopicId, listState, scrollPosition, history, messageListItems.size)
     val listScrollInstant = rememberMotionInstant(MotionToken.ListReorder)
-    // Появление кружка в ленте прокручивает к низу, как и исходящее сообщение.
-    LaunchedEffect(pendingVideoNotes.firstOrNull()?.sessionName) {
-        if (pendingVideoNotes.isNotEmpty()) listState.scrollToItemRespectingMotion(0, motionInstant = listScrollInstant)
-    }
-    // Restores the position saved when the chat was left. Another opening owns the position while a jump, a focused message
-    // or the unread separator is pending: a restore that ran after the separator was placed would move it.
-    LaunchedEffect(chat.id, messageListItems, history.isLoading) {
-        if (scrollPosition.anchorRestored || messageListItems.isEmpty()) return@LaunchedEffect
-        val unreadOpening = !scrollPosition.readBoundaryChecked && (if (forumTopicId > 0L) topicUnreadCount else chat.unreadCount) > 0
-        val anchor = scrollPosition.anchor
-        if (focusMessageId != 0L || scrollPosition.focusClaimed || pendingJumpId != null || unreadOpening ||
-            anchor == null || !anchor.isFresh(System.currentTimeMillis())) {
-            scrollPosition.anchorRestored = true
-            return@LaunchedEffect
-        }
-        // While history is still loading, an older anchor may not be in the list yet: wait rather than take a neighbour.
-        val found = messageListItems.any { item ->
-            item.key == anchor.key || (anchor.messageId != 0L && item.messages.any { it.id == anchor.messageId })
-        }
-        if (!found && history.isLoading) return@LaunchedEffect
-        val index = resolveAnchorIndex(messageListItems, anchor)
-        if (index == null) listState.scrollToItem(0) else listState.scrollToItem(index, anchor.offset)
-        scrollPosition.anchorRestored = true
-    }
-    LaunchedEffect(chat.id, newest?.id) {
-        // A message sent while the chat opens drops the boundary: the list goes to the bottom and the boundary is not placed.
-        val arrived = scrollPosition.seenNewestId != 0L && newest != null && newest.id != scrollPosition.seenNewestId
-        scrollPosition.seenNewestId = newest?.id ?: 0L
-        // The opening position belongs to the restore effect above until it has finished: following here would undo it.
-        if (!arrived && !scrollPosition.anchorRestored) return@LaunchedEffect
-        val now = System.currentTimeMillis()
-        val localSend = scrollPosition.localSendPending(now)
-        if ((if (forumTopicId > 0L) topicUnreadCount else chat.unreadCount) > 0 && !scrollPosition.readBoundaryChecked) {
-            if (arrived && newest?.isOutgoing == true && localSend) scrollPosition.readBoundaryChecked = true
-            else return@LaunchedEffect
-        }
-        // The list is newest-first, so the row that was at the bottom before this arrival is now one index lower, with the same key.
-        val firstIndex = listState.firstVisibleItemIndex
-        val firstOffset = listState.firstVisibleItemScrollOffset
-        val atBottomPosition = firstIndex == 0 && firstOffset <= bottomThresholdPx
-        val previousKey = scrollPosition.previousFirstKey
-        val wasAtBottom = atBottomPosition ||
-            (previousKey != null && firstOffset <= bottomThresholdPx && messageListItems.getOrNull(firstIndex)?.key == previousKey)
-        val follow = messages.isNotEmpty() && shouldFollowNewest(
-            wasAtBottom, listState.isScrollInProgress, newest?.isOutgoing == true, localSend, history.hasNewerMessages
-        )
-        if (follow) {
-            listState.scrollToItemRespectingMotion(0, motionInstant = listScrollInstant)
-            if (localSend) scrollPosition.consumeLocalSend()
-        }
-        if (atBottomPosition || follow) scrollPosition.previousFirstKey = messageListItems.firstOrNull()?.key
-    }
+    ChatTimelineOpeningEffects(
+        listState = listState,
+        scrollPosition = scrollPosition,
+        items = messageListItems,
+        history = history,
+        newest = newest,
+        unreadCount = if (forumTopicId > 0L) topicUnreadCount else chat.unreadCount,
+        focusMessageId = focusMessageId,
+        hasPendingJump = { pendingJumpId != null },
+        pendingRecording = pendingVideoNotes.firstOrNull()?.sessionName,
+        bottomThresholdPx = bottomThresholdPx,
+        listScrollInstant = listScrollInstant
+    )
     // Открытие с непрочитанными: экран встаёт у разделителя «Непрочитанные», а не у последнего сообщения.
     // Пока граница не зафиксирована, отметки прочтения не отправляются (см. сбор видимых сообщений выше), поэтому она не сдвигается.
     LaunchedEffect(chat.id, history.isLoading, messages, focusMessageId) {
