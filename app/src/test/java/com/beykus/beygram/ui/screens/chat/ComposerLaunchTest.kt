@@ -190,6 +190,30 @@ class ComposerLaunchTest {
         assertFalse(shouldHideComposerDraft(editing = false, draft = "OK", activeLaunchKey = null, launch = finished))
     }
 
+    @Test fun aRowObscuredByTheComposerReleasesTheOverlayTarget() {
+        val state = ComposerLaunchState().apply {
+            overlayBounds = Rect(0f, 0f, 360f, 780f)
+            fieldBounds = Rect(20f, 700f, 340f, 750f)
+        }
+        val launch = state.start(composerLaunchPayload("Hello", emptyList(), 100), null, 0L, 1f)!!
+        val row = Rect(200f, 650f, 340f, 690f)
+
+        launch.positionRow(-7L, row)
+        assertTrue(launch.ownsRow(-7L))
+
+        state.fieldBounds = Rect(20f, 430f, 340f, 480f)
+        assertFalse(launch.ownsRow(-7L))
+        assertNull(launch.targetBounds)
+
+        val moved = Rect(200f, 380f, 340f, 420f)
+        launch.positionRow(900L, moved)
+        launch.releaseRow(-7L)
+        assertTrue(launch.ownsRow(900L))
+        assertEquals(moved, launch.targetBounds)
+        launch.releaseRow(900L)
+        assertNull(launch.targetBounds)
+    }
+
     @Test fun hidingIsBoundToTheCurrentSendAttempt() {
         val first = launch(key = 1L, text = "OK", awaitingSend = false)
         val second = launch(key = 2L, text = "OK", awaitingSend = true)
