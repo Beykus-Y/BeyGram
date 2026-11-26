@@ -17,6 +17,7 @@ import java.net.URL
 import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicLong
+import kotlinx.coroutines.InternalCoroutinesApi
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
@@ -268,11 +269,13 @@ internal object YandexAudioDownloader {
      * filled in as the bytes arrive, so the player can start from the readable start of the file.
      * The connection bypasses the local proxy: the service answers only inside its own region.
      */
+    @OptIn(InternalCoroutinesApi::class)
     fun download(
         link: YandexAudioLink,
         dir: File,
         progress: YandexDownload? = null,
         cancelJob: Job? = null,
+        openConnection: (URL) -> HttpURLConnection = { MihomoProxyClient.openConnection(it, proxy = null) },
         checkCancelled: () -> Unit = {}
     ): File {
         checkCancelled()
@@ -280,13 +283,13 @@ internal object YandexAudioDownloader {
         val target = File(dir, "${UUID.randomUUID()}.${extensionFor(link.codec)}")
         reserved += target.absolutePath
         val connection = try {
-            MihomoProxyClient.openConnection(URL(link.url), proxy = null)
+            openConnection(URL(link.url))
         } catch (error: Throwable) {
             reserved -= target.absolutePath
             throw error
         }
-        // Disconnect immediately on coroutine cancellation so a blocked socket read aborts promptly.
-        val cancelHook = cancelJob?.invokeOnCompletion { cause ->
+        // Disconnect immediately when the coroutine enters Cancelling state so a blocked socket read aborts promptly.
+        val cancelHook = cancelJob?.invokeOnCompletion(onCancelling = true, invokeImmediately = true) { cause ->
             if (cause != null) runCatching { connection.disconnect() }
         }
         try {

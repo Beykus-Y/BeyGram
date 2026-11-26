@@ -2,6 +2,16 @@ package com.beykus.beygram.playback
 
 import com.beykus.beygram.domain.model.MediaKind
 import java.io.File
+import java.io.IOException
+import java.io.InputStream
+import java.net.HttpURLConnection
+import java.net.URL
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicBoolean
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -117,5 +127,51 @@ class MusicResourceOwnershipTest {
         } finally {
             YandexAudioDownloader.reserved -= reservedFile.absolutePath
         }
+    }
+
+    @Test
+    fun cancellingDownloadDisconnectsBlockedHttpReadPromptly() = runBlocking {
+        val dir = tempFolder.newFolder("stalled-http")
+        val readStarted = CountDownLatch(1)
+        val disconnected = CountDownLatch(1)
+        val disconnectCalled = AtomicBoolean(false)
+
+        val fakeConnection = object : HttpURLConnection(URL("https://example.com/track.mp3")) {
+            override fun connect() = Unit
+            override fun usingProxy(): Boolean = false
+            override fun getResponseCode(): Int = HTTP_OK
+            override fun getContentLengthLong(): Long = 1_048_576L
+            override fun getInputStream(): InputStream = object : InputStream() {
+                override fun read(): Int {
+                    readStarted.countDown()
+                    disconnected.await(15, TimeUnit.SECONDS)
+                    throw IOException("disconnected")
+                }
+            }
+            override fun disconnect() {
+                disconnectCalled.set(true)
+                disconnected.countDown()
+            }
+        }
+
+        val startedAt = System.currentTimeMillis()
+        val job = launch(Dispatchers.IO) {
+            runCatching {
+                YandexAudioDownloader.download(
+                    link = YandexAudioLink("https://example.com/track.mp3", "mp3"),
+                    dir = dir,
+                    cancelJob = coroutineContext[Job],
+                    openConnection = { fakeConnection },
+                )
+            }
+        }
+        assertTrue(readStarted.await(3, TimeUnit.SECONDS))
+        job.cancel()
+        job.join()
+        val elapsedMs = System.currentTimeMillis() - startedAt
+        assertTrue(disconnectCalled.get())
+        assertTrue("Expected prompt abort (<2000ms), took ${elapsedMs}ms", elapsedMs < 2_000L)
+        assertTrue(dir.listFiles().orEmpty().isEmpty())
+        assertTrue(YandexAudioDownloader.reserved.none { it.startsWith(dir.absolutePath) })
     }
 }
