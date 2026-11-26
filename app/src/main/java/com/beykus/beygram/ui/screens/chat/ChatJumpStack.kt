@@ -24,6 +24,8 @@ import androidx.compose.material.icons.rounded.Favorite
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -52,7 +54,12 @@ import com.beykus.beygram.ui.motion.MotionToken
 import com.beykus.beygram.ui.motion.fadeEnter
 import com.beykus.beygram.ui.motion.fadeExit
 import com.beykus.beygram.ui.motion.rememberMotionSpec
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeoutOrNull
+
+private enum class UnreadMark { Reaction, Mention }
 
 /**
  * Combined bottom-end jump controls for the chat screen: unread reactions (♡), unread mentions (@),
@@ -70,14 +77,45 @@ internal fun ChatJumpControls(
     onJumpToMessage: (Long) -> Unit,
     modifier: Modifier = Modifier,
     onReadAllFailed: () -> Unit = {},
+    onJumpEmpty: () -> Unit,
+    onJumpFailed: (Throwable?) -> Unit,
     jumpLatestButton: @Composable () -> Unit
 ) {
     val scope = rememberCoroutineScope()
     val motion = rememberMotionSpec(MotionToken.BannerChange)
     val enter = if (motion.isInstant) EnterTransition.None else motion.fadeEnter() + slideInVertically(motion.animationSpec()) { it / 2 }
     val exit = if (motion.isInstant) ExitTransition.None else motion.fadeExit() + slideOutVertically(motion.animationSpec()) { it / 2 }
-    // true: the read-all dialog for mentions; false: for reactions; null: closed.
-    var readAllMentions by remember { mutableStateOf<Boolean?>(null) }
+    // The account's repository and the exact chat/topic own both the lookup and its cancellation.
+    var pendingMark by remember(conversation, chatId, forumTopicId) { mutableStateOf<UnreadMark?>(null) }
+    var readAllMentions by remember(conversation, chatId, forumTopicId) { mutableStateOf<Boolean?>(null) }
+    val currentJump by rememberUpdatedState(onJumpToMessage)
+    val currentEmpty by rememberUpdatedState(onJumpEmpty)
+    val currentFailure by rememberUpdatedState(onJumpFailed)
+    LaunchedEffect(conversation, chatId, forumTopicId, pendingMark) {
+        val mark = pendingMark ?: return@LaunchedEffect
+        try {
+            val result = withTimeoutOrNull(8_000) {
+                when (mark) {
+                    UnreadMark.Mention -> conversation.nextUnreadMention(chatId, forumTopicId)
+                    UnreadMark.Reaction -> conversation.nextUnreadReaction(chatId, forumTopicId)
+                }
+            }
+            currentCoroutineContext().ensureActive()
+            if (result == null) {
+                currentFailure(null)
+            } else {
+                result.fold(onSuccess = { id ->
+                    if (id == null) currentEmpty()
+                    else {
+                        conversation.viewMessageAgain(chatId, id)
+                        currentJump(id)
+                    }
+                }, onFailure = { currentFailure(it) })
+            }
+        } finally {
+            pendingMark = null
+        }
+    }
 
     Column(
         modifier = modifier,
@@ -89,14 +127,8 @@ internal fun ChatJumpControls(
                 icon = Icons.Rounded.Favorite,
                 count = unreadReactions,
                 label = stringResource(R.string.chat_jump_to_reaction),
-                onClick = {
-                    scope.launch {
-                        conversation.nextUnreadReaction(chatId, forumTopicId).getOrNull()?.let { id ->
-                            conversation.viewMessageAgain(chatId, id)
-                            onJumpToMessage(id)
-                        }
-                    }
-                },
+                enabled = pendingMark == null,
+                onClick = { if (pendingMark == null) pendingMark = UnreadMark.Reaction },
                 onLongClick = { readAllMentions = false }
             )
         }
@@ -105,14 +137,8 @@ internal fun ChatJumpControls(
                 icon = Icons.Rounded.AlternateEmail,
                 count = unreadMentions,
                 label = stringResource(R.string.chat_jump_to_mention),
-                onClick = {
-                    scope.launch {
-                        conversation.nextUnreadMention(chatId, forumTopicId).getOrNull()?.let { id ->
-                            conversation.viewMessageAgain(chatId, id)
-                            onJumpToMessage(id)
-                        }
-                    }
-                },
+                enabled = pendingMark == null,
+                onClick = { if (pendingMark == null) pendingMark = UnreadMark.Mention },
                 onLongClick = { readAllMentions = true }
             )
         }
@@ -182,7 +208,8 @@ private fun ChatFloatingBadgeButton(
     count: Int,
     label: String,
     onClick: () -> Unit,
-    onLongClick: () -> Unit = {}
+    onLongClick: () -> Unit = {},
+    enabled: Boolean = true
 ) {
     val palette = beyGramPalette()
     Box(
@@ -194,7 +221,7 @@ private fun ChatFloatingBadgeButton(
                 if (LocalDesignSystem.current.usesGlassPanels) m.clip(CircleShape).background(palette.surface.copy(alpha = 0.72f))
                     .border(0.5.dp, palette.textSecondary.copy(alpha = 0.35f), CircleShape)
                 else m.shadow(elevation = 4.dp, shape = CircleShape).clip(CircleShape).background(palette.surface)
-            }.combinedClickable(role = Role.Button, onClick = onClick, onLongClick = onLongClick),
+            }.combinedClickable(enabled = enabled, role = Role.Button, onClick = onClick, onLongClick = onLongClick),
             contentAlignment = Alignment.Center
         ) {
             Icon(icon, contentDescription = null, tint = palette.accent, modifier = Modifier.size(20.dp))
