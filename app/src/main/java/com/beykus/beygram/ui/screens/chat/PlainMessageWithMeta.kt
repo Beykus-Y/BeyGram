@@ -1,17 +1,16 @@
 package com.beykus.beygram.ui.screens.chat
 
-import androidx.compose.material3.LocalTextStyle
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.layout.AlignmentLine
 import androidx.compose.ui.layout.LastBaseline
 import androidx.compose.ui.layout.Layout
-import androidx.compose.ui.text.AnnotatedString
-import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.TextLayoutResult
 import androidx.compose.ui.text.font.FontFamily
-import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.text.style.ResolvedTextDirection
+import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -23,10 +22,9 @@ import com.beykus.beygram.ui.theme.LocalMessageTextSize
 import kotlin.math.ceil
 import kotlin.math.floor
 
-/** Rich entities, media, memory labels and failed sends keep the existing renderer and metadata row. */
+/** Media, memory labels, translations and failed sends keep a distinct metadata row. */
 internal fun useLastLineTextMetadata(message: ChatMessage, hasTranslation: Boolean): Boolean =
     message.text.isNotBlank() &&
-        message.entities.isEmpty() &&
         message.media == null &&
         message.special == null &&
         message.linkPreview == null &&
@@ -57,43 +55,67 @@ internal fun PlainMessageWithMeta(
 ) {
     val size = LocalMessageTextSize.current
     val spacing = LocalMessageLineSpacing.current
-    val style = LocalTextStyle.current.merge(TextStyle(
-        fontSize = size,
-        fontFamily = FontFamily.Default,
-        lineHeight = (size.value * spacing).sp,
-        color = beyGramPalette().messageText,
-    ))
-    val measurer = rememberTextMeasurer()
-    Layout(modifier = modifier, content = { Text(text, style = style); androidx.compose.foundation.layout.Box { meta() } }) { children, constraints ->
+    val color = beyGramPalette().messageText
+    MeasuredMessageTextWithMeta(
+        modifier = modifier,
+        text = { onTextLayout ->
+            Text(
+                text, color = color, fontSize = size, fontFamily = FontFamily.Default,
+                lineHeight = (size.value * spacing).sp, onTextLayout = onTextLayout
+            )
+        },
+        meta = meta
+    )
+}
+
+private class MessageTextMeasurement {
+    var result: TextLayoutResult? = null
+}
+
+/** Let the actual Text node measure once, including spans, fallback fonts and inline placeholders. */
+@Composable
+internal fun MeasuredMessageTextWithMeta(
+    modifier: Modifier,
+    text: @Composable ((TextLayoutResult) -> Unit) -> Unit,
+    meta: @Composable () -> Unit
+) {
+    val measurement = remember { MessageTextMeasurement() }
+    Layout(
+        modifier = modifier,
+        content = {
+            text { measurement.result = it }
+            androidx.compose.foundation.layout.Box { meta() }
+        }
+    ) { children, constraints ->
         val loose = constraints.copy(minWidth = 0, minHeight = 0)
-        val textPlaceable = children[0].measure(loose)
-        val metaPlaceable = children[1].measure(loose)
-        val result = measurer.measure(AnnotatedString(text), style = style, constraints = loose)
-        val line = result.lineCount - 1
+        val body = children[0].measure(loose)
+        val metadata = children[1].measure(loose)
+        val result = measurement.result?.takeIf {
+            it.lineCount > 0 && it.layoutInput.text.isNotEmpty() && it.size == IntSize(body.width, body.height)
+        }
+        val bodyBaseline = body[LastBaseline]
+        val metaBaseline = metadata[LastBaseline]
+        val alignedTop = if (bodyBaseline != AlignmentLine.Unspecified && metaBaseline != AlignmentLine.Unspecified) {
+            bodyBaseline - metaBaseline
+        } else -1
         val gap = 4.dp.roundToPx()
-        val paragraph = result.getParagraphDirection(result.getLineStart(line).coerceAtMost(text.lastIndex))
-        val sameDirection = if (layoutDirection == LayoutDirection.Ltr) paragraph == ResolvedTextDirection.Ltr
-            else paragraph == ResolvedTextDirection.Rtl
-        // Align the text and timestamp from the same logical edge, including when the bubble widens in RTL.
-        val lastLineWidth = if (layoutDirection == LayoutDirection.Ltr) ceil(result.getLineRight(line)).toInt()
-            else textPlaceable.width - floor(result.getLineLeft(line)).toInt()
-        val metaBaseline = metaPlaceable[LastBaseline]
-        val textBaseline = textPlaceable[LastBaseline]
-        val top = if (metaBaseline != AlignmentLine.Unspecified && textBaseline != AlignmentLine.Unspecified)
-            textBaseline - metaBaseline else -1
-        val inline = sameDirection &&
-            result.size == androidx.compose.ui.unit.IntSize(textPlaceable.width, textPlaceable.height) &&
-            top >= result.getLineTop(line).toInt() &&
-            lastLineMetadataFits(lastLineWidth, metaPlaceable.width, gap, loose.maxWidth)
-        val desiredWidth = if (inline) maxOf(textPlaceable.width, lastLineWidth + gap + metaPlaceable.width)
-            else maxOf(textPlaceable.width, metaPlaceable.width)
+        val lastLineWidth = result?.let {
+            val line = it.lineCount - 1
+            val start = it.getLineStart(line).coerceAtMost(it.layoutInput.text.length - 1)
+            val direction = if (layoutDirection == LayoutDirection.Ltr) ResolvedTextDirection.Ltr else ResolvedTextDirection.Rtl
+            if (it.getParagraphDirection(start) != direction || alignedTop < it.getLineTop(line).toInt()) null
+            else if (layoutDirection == LayoutDirection.Ltr) ceil(it.getLineRight(line)).toInt()
+            else body.width - floor(it.getLineLeft(line)).toInt()
+        }
+        val inline = lastLineWidth != null && lastLineMetadataFits(lastLineWidth, metadata.width, gap, loose.maxWidth)
+        val desiredWidth = if (inline) maxOf(body.width, requireNotNull(lastLineWidth) + gap + metadata.width)
+            else maxOf(body.width, metadata.width)
         val width = desiredWidth.coerceIn(constraints.minWidth, constraints.maxWidth)
-        val metaTop = if (inline) top else textPlaceable.height
-        val height = maxOf(textPlaceable.height, metaTop + metaPlaceable.height)
-            .coerceIn(constraints.minHeight, constraints.maxHeight)
+        val metaTop = if (inline) alignedTop else body.height
+        val height = maxOf(body.height, metaTop + metadata.height).coerceIn(constraints.minHeight, constraints.maxHeight)
         layout(width, height) {
-            textPlaceable.placeRelative(0, 0)
-            metaPlaceable.placeRelative(width - metaPlaceable.width, metaTop)
+            body.placeRelative(0, 0)
+            metadata.placeRelative(width - metadata.width, metaTop)
         }
     }
 }

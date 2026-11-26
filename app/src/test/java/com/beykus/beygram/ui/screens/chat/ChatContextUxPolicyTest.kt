@@ -51,7 +51,7 @@ class ChatContextUxPolicyTest {
         )
         assertTrue(useLastLineTextMetadata(long, false))
         assertFalse(useLastLineTextMetadata(long, true))
-        assertFalse(useLastLineTextMetadata(long.copy(entities = listOf(
+        assertTrue(useLastLineTextMetadata(long.copy(entities = listOf(
             MessageTextEntity(0, 1, TextStyleKind.Bold)
         )), false))
         assertFalse(useLastLineTextMetadata(long.copy(sendState = com.beykus.beygram.domain.model.MessageSendState.Failed), false))
