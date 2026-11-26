@@ -228,11 +228,12 @@ fun ChatScreen(
     fun updateDraft(transform: (com.beykus.beygram.domain.model.MessageDraft) -> com.beykus.beygram.domain.model.MessageDraft) =
         if (forumTopicId > 0L) conversation.updateForumTopicDraft(chat.id, forumTopicId, transform)
         else conversation.updateMessageDraft(chat.id, transform)
-    val quoteState = remember(chat.id) { ChatQuoteState() }
-    fun clearReply() {
-        quoteState.clear()
-        updateDraft { it.copy(replyToMessageId = null) }
+    val quoteState = remember(accountId, chat.id, forumTopicId) { ChatQuoteState() }
+    fun setReplyTarget(messageId: Long?) {
+        quoteState.keepOnlyFor(messageId)
+        updateDraft { it.copy(replyToMessageId = messageId) }
     }
+    fun clearReply() { setReplyTarget(null) }
     // The all-messages feed has no topic of its own. A reply goes into the topic of the message it answers, and any other message
     // goes to the General topic; the composer waits when that topic is hidden or cannot take messages.
     val feedGeneralTopic = remember(forumTopicsById) { forumTopicsById.values.firstOrNull { it.isGeneral } }
@@ -955,7 +956,7 @@ fun ChatScreen(
     val swipeReplyAllowed = (canPostHere || feedSendTarget == ForumFeedSendTarget.Unavailable && chat.canPost) && !searching && !deleting && !selectionMode && editMessage == null && actionMessage == null && !videoNote.active && !audioNote.active &&
         !sending && !attachments.sending && !recordingQueueSending && pendingVideoNotes.isEmpty()
     LaunchedEffect(editId) { editEntities = editMessage?.entities.orEmpty() }
-    LaunchedEffect(botKeyboard?.messageId) { if (botKeyboard?.forceReply == true) updateDraft { it.copy(replyToMessageId = botKeyboard?.messageId) } }
+    LaunchedEffect(botKeyboard?.messageId) { if (botKeyboard?.forceReply == true) setReplyTarget(botKeyboard?.messageId) }
     val editLimit = if (editMessage?.media == null) limits.text else limits.caption
     fun closeActions() { actionsId = null; actionAnchorBounds = null; reactionPickerOpen = false; deleting = false; deleteError = null; capabilities = null; capabilitiesError = null; pinConfirm = false }
     fun enterSelection(message: ChatMessage? = null) {
@@ -1423,7 +1424,7 @@ fun ChatScreen(
             result
                 .onSuccess {
                     if (it.canReply) {
-                        updateDraft { it.copy(replyToMessageId = messageId) }
+                        setReplyTarget(messageId)
                         replyFocusRequest++
                     } else {
                         error = context.getString(R.string.err_message_cannot_reply)
@@ -1767,7 +1768,7 @@ fun ChatScreen(
         }
         // View-once is selected in the attachment panel; scheduling or groups silently drop the flag instead of
         // producing a TDLib error, and the composer hides those paths for view-once media.
-        val quotedOptions = quoteState.consumeInto(options)
+        val quotedOptions = quoteState.consumeInto(options, replyId)
         val effectiveOptions = if (attachments.active) {
             quotedOptions.copy(viewOnce = attachments.viewOnce && ViewOncePolicy.canSend(attachments.pending, isPrivateChat = allowViewOnce, isSecretChat = chat.isSecret, scheduled = quotedOptions.scheduledAtSeconds != null))
         } else quotedOptions
@@ -2075,7 +2076,7 @@ fun ChatScreen(
             )
         }
         ChatQuoteHost(quoteState) { id ->
-            updateDraft { it.copy(replyToMessageId = id) }
+            setReplyTarget(id)
             replyFocusRequest++
         }
         if (actionMessage != null && !deleting && !reactionPickerOpen && !pinConfirm) {
@@ -2108,7 +2109,7 @@ fun ChatScreen(
                 } else null,
                 onClose = ::closeActions,
                 onRetry = { capabilitiesAttempt++ },
-                onReply = { quoteState.clear(); updateDraft { it.copy(replyToMessageId = actionMessage.id) }; replyFocusRequest++; closeActions() },
+                onReply = { quoteState.clear(); setReplyTarget(actionMessage.id); replyFocusRequest++; closeActions() },
                 onQuote = if (actionMessage.text.isNotBlank()) { { quoteState.pickerTarget = actionMessage; closeActions() } } else null,
                 onCopy = { clipboard.setPrimaryClip(ClipData.newPlainText(context.getString(R.string.chat_message), actionMessage.text)); closeActions() },
                 onEdit = { editId = actionMessage.id; editText = actionMessage.text; closeActions() },
@@ -2610,7 +2611,7 @@ fun ChatScreen(
         // The reply strip lives inside the field container, above the text, as one composer unit.
         val replyHeader: (@Composable () -> Unit)? = if (replyId == null) null else ({
             val senderLabel = stringResource(R.string.chat_reply_label) + " · " + (replyTarget?.senderName?.ifBlank { if (replyTarget.isOutgoing) stringResource(R.string.chat_you) else chat.title } ?: stringResource(R.string.chat_message))
-            val previewText = quoteState.quote?.first?.let { "«$it»" } ?: replyTarget?.summary() ?: stringResource(R.string.chat_message_unavailable)
+            val previewText = quoteState.textFor(replyId)?.let { "«$it»" } ?: replyTarget?.summary() ?: stringResource(R.string.chat_message_unavailable)
             ChatReplyHeaderStrip(senderLabel, previewText, chatGlass, sending, ::clearReply)
         })
         val editing = editMessage != null
