@@ -60,6 +60,7 @@ import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
@@ -390,7 +391,10 @@ object PlaybackEngine {
     private var queuePageJob: Job? = null
     private var persistence: MusicSessionPersistence? = null
     private var queuePageRetryJob: Job? = null
+    private var queuePageNetworkJob: Job? = null
     private var queuePageRetries = 0
+    /** True when an endless radio reached the end of loaded tracks while the user intended to keep playing. */
+    private var endlessWaitingForRecovery = false
     /** Tracks skipped in a row without one starting; see [MAX_CONSECUTIVE_SKIPS]. */
     private var consecutiveSkips = 0
     /** Start of the current wait for the network, 0 when the queue is not waiting. */
@@ -1563,6 +1567,10 @@ object PlaybackEngine {
         }
         // At ENDED ExoPlayer keeps playWhenReady=true; the user's Play must restart, not "pause" an already silent item.
         if (_state.value.ended) {
+            if (currentQueueIsEndless()) {
+                triggerManualEndlessRecovery(startServiceIfNeeded = true)
+                return
+            }
             _state.update { it.copy(failed = false, intentPlaying = true) }
             if (_state.value.item?.systemPrivate != true) startPlaybackService()
             target.play()
@@ -1583,6 +1591,7 @@ object PlaybackEngine {
 
     /** Пауза без сброса файла: так голосовое или кружок могут остановить музыку, не теряя её места. Состояние меняем сразу: если файл ещё буферизуется, плеер не пришлёт событие о паузе. */
     fun pause() {
+        endlessWaitingForRecovery = false
         if (bgMixActive()) {
             pauseBgMix()
             return
@@ -2401,14 +2410,24 @@ object PlaybackEngine {
         }
         // An endless queue (a radio) played out its known tracks while the next page loads or waits for its retry: keep the
         // play intent and wait. The page is requested on every track change, and its result applies this status again.
+        val pageInFlight = queuePageJob?.isActive == true || (
+            queuePageRetryJob?.isActive == true &&
+                queuePageRetries <= ENDLESS_AWAIT_FAST_RETRIES &&
+                AutoDownloadNetworkStatus.network.value != AutoDownloadNetwork.None
+            )
         val awaitingPage = bgMixAwaitsNextPage(
             finished = finished,
             pendingIndex = pending,
             endless = queueSource?.loadMore != null,
             repeat = _state.value.repeatMode,
-            pageInFlight = queuePageJob?.isActive == true || queuePageRetryJob?.isActive == true
+            pageInFlight = pageInFlight
         )
         val reportFinished = finished && !awaitingPage
+        if (reportFinished && queueSource?.loadMore != null && (before.intentPlaying || before.playing) &&
+            _state.value.repeatMode == PlaybackRepeatMode.Off
+        ) {
+            endlessWaitingForRecovery = true
+        }
         val playing = !status.paused && deckPlaying && !finished
         val hasNext = status.queue.any { (driver.indexOfNative(it.id) ?: -1) > index } || pending != null
         _state.update { current ->
@@ -2431,7 +2450,15 @@ object PlaybackEngine {
             )
         }
         // A radio asks for its next page as BG Mix advances, the same way the regular player does on a track change.
-        if (before.queueIndex != index) loadNextQueuePage()
+        if (before.queueIndex != index) {
+            queuePageRetries = 0
+            queuePageRetryJob?.cancel()
+            queuePageRetryJob = null
+            queuePageNetworkJob?.cancel()
+            queuePageNetworkJob = null
+            endlessWaitingForRecovery = false
+            loadNextQueuePage()
+        }
         if (before.item?.key != _state.value.item?.key) {
             exo?.let { target ->
                 if (target.mediaItemCount > 0) target.replaceMediaItem(0, placeholderItem(item))
@@ -2464,6 +2491,10 @@ object PlaybackEngine {
     /** Resumes BG Mix, or restarts the queue from its current index when it has ended. */
     private fun bgMixPlay() {
         if (_state.value.ended) {
+            if (currentQueueIsEndless()) {
+                triggerManualEndlessRecovery(startServiceIfNeeded = false)
+                return
+            }
             playQueueIndex(_state.value.queueIndex)
             return
         }
@@ -2479,6 +2510,7 @@ object PlaybackEngine {
     private fun pauseBgMix() {
         // Any pause but the focus listener's transient one is final: a later focus gain must not restart playback.
         bgResumeOnFocusGain = false
+        endlessWaitingForRecovery = false
         val before = _state.value
         bgMix?.pause()
         releaseBgWakeLock()
@@ -2609,6 +2641,7 @@ object PlaybackEngine {
                     continueBgMixQueueOnExo(state.queue, state.queueIndex + 1, autoPlay = state.playing || state.intentPlaying || state.ended)
                 }
                 state.repeatMode == PlaybackRepeatMode.All -> restartBgMix(state.queue, 0, 0L, state.intentPlaying || state.ended)
+                currentQueueIsEndless() -> triggerManualEndlessRecovery(startServiceIfNeeded = false)
             }
             return
         }
@@ -2617,7 +2650,10 @@ object PlaybackEngine {
         val hasNext = target.hasNextMediaItem()
         val fallback = if (state.shuffleEnabled) null else (state.queueIndex + 1).takeIf { it in state.queue.indices }
         val wrapAll = state.repeatMode == PlaybackRepeatMode.All && target.mediaItemCount > 1
-        if (!hasNext && !wrapAll && fallback == null) return
+        if (!hasNext && !wrapAll && fallback == null) {
+            if (currentQueueIsEndless()) triggerManualEndlessRecovery(startServiceIfNeeded = true)
+            return
+        }
         _manualSkips.update { it + 1 }
         val wasPlaying = state.playing || state.intentPlaying || state.ended
         transitionToken++
@@ -3046,10 +3082,14 @@ object PlaybackEngine {
     /** Ends the page load of a queue that a new one replaces: its result is dropped when it arrives. */
     private fun dropQueuePages() {
         queuePageGeneration++
+        queuePageRetries = 0
+        endlessWaitingForRecovery = false
         queuePageJob?.cancel()
         queuePageJob = null
         queuePageRetryJob?.cancel()
         queuePageRetryJob = null
+        queuePageNetworkJob?.cancel()
+        queuePageNetworkJob = null
         _queuePageLoading.value = false
     }
 
@@ -3092,10 +3132,14 @@ object PlaybackEngine {
         if (state.queue.size <= 1 || keep !in state.queue.indices) return
         // A page that is still loading, or one that the source would load later, must not refill the cleared queue.
         queuePageGeneration++
+        queuePageRetries = 0
+        endlessWaitingForRecovery = false
         queuePageJob?.cancel()
         queuePageJob = null
         queuePageRetryJob?.cancel()
         queuePageRetryJob = null
+        queuePageNetworkJob?.cancel()
+        queuePageNetworkJob = null
         _queuePageLoading.value = false
         queueSource = queueSource?.let {
             PlaybackQueueSource(it.accountId, it.observeFile, it.download, it.autoDownload, loadMore = null)
@@ -3374,8 +3418,11 @@ object PlaybackEngine {
         networkWaitJob?.cancel()
         networkWaitJob = null
         queuePageRetries = 0
+        endlessWaitingForRecovery = false
         queuePageRetryJob?.cancel()
         queuePageRetryJob = null
+        queuePageNetworkJob?.cancel()
+        queuePageNetworkJob = null
         if (_state.value.waitingForNetwork) _state.update { it.copy(waitingForNetwork = false) }
     }
 
@@ -3459,6 +3506,9 @@ object PlaybackEngine {
         // The last loaded track ended while the next queue page is still loading (or about to be retried). The page
         // restarts playback, and Android would refuse to start the service again from the background, so it stays up.
         if (queuePageJob?.isActive == true || queuePageRetryJob?.isActive == true) return
+        if (queueSource?.loadMore != null && _state.value.intentPlaying && _state.value.repeatMode == PlaybackRepeatMode.Off) {
+            endlessWaitingForRecovery = true
+        }
         // ExoPlayer already advanced through Repeat/Next when it could; ENDED means the session is finished.
         stopPlaybackService()
         _audioSessionId.value = null
@@ -3561,6 +3611,22 @@ object PlaybackEngine {
     }
 
     /**
+     * Manual recovery when the listener taps Play or Next at the tail of an endless radio queue
+     * (e.g. after temporary network loss or exhausted page retries).
+     */
+    private fun triggerManualEndlessRecovery(startServiceIfNeeded: Boolean) {
+        queuePageRetries = 0
+        queuePageRetryJob?.cancel()
+        queuePageRetryJob = null
+        queuePageNetworkJob?.cancel()
+        queuePageNetworkJob = null
+        endlessWaitingForRecovery = true
+        _state.update { it.copy(failed = false, ended = false, intentPlaying = true, isBuffering = true) }
+        if (startServiceIfNeeded && _state.value.item?.systemPrivate != true) startPlaybackService()
+        loadNextQueuePage()
+    }
+
+    /**
      * Extends the existing Media3 timeline without rebuilding the current source or resetting the seek position.
      * The loader belongs to the active Telegram account, and a stale result cannot resurrect a stopped queue.
      */
@@ -3593,13 +3659,25 @@ object PlaybackEngine {
                 }
                 if (bgMixActive()) {
                     // BG Mix plays its own queue: the page extends it instead of the Exo timeline.
-                    if (extendBgMixQueue(fresh, source)) queuePageRetries = 0 else scheduleQueuePageRetry(generation)
+                    if (extendBgMixQueue(fresh, source)) {
+                        queuePageRetries = 0
+                        queuePageNetworkJob?.cancel()
+                        queuePageNetworkJob = null
+                        val shouldResume = now.ended && (now.intentPlaying || endlessWaitingForRecovery)
+                        endlessWaitingForRecovery = false
+                        if (shouldResume) _state.update { it.copy(intentPlaying = true) }
+                    } else {
+                        scheduleQueuePageRetry(generation)
+                    }
                     return@launch
                 }
                 val target = exo ?: return@launch
                 fresh.forEach { registerSource(it, source) }
                 target.addMediaItems(fresh.map(::mediaItemFor))
-                val ended = now.ended && now.intentPlaying
+                val ended = (now.ended && now.intentPlaying) || (now.ended && endlessWaitingForRecovery)
+                endlessWaitingForRecovery = false
+                queuePageNetworkJob?.cancel()
+                queuePageNetworkJob = null
                 _state.update { it.copy(queue = it.queue + fresh).withTimelineNavigation(target) }
                 if (ended) {
                     target.seekTo(now.queue.size, 0L)
@@ -3613,7 +3691,7 @@ object PlaybackEngine {
             } catch (cancelled: CancellationException) {
                 throw cancelled
             } catch (_: Exception) {
-                // Keep the existing playable timeline and try again after 2, 5 and 15 seconds while the track plays.
+                // Keep the existing playable timeline and try again with bounded backoff while the track plays.
                 scheduleQueuePageRetry(generation)
             } finally {
                 if (generation == queuePageGeneration) {
@@ -3629,9 +3707,35 @@ object PlaybackEngine {
     }
 
     private fun scheduleQueuePageRetry(generation: Long) {
-        val pause = queuePageRetryDelayMs(queuePageRetries) ?: run {
+        val endless = queueSource?.loadMore != null
+        if (endless && AutoDownloadNetworkStatus.network.value == AutoDownloadNetwork.None) {
+            queuePageRetryJob?.cancel()
+            queuePageRetryJob = scope.launch {
+                appContext?.let { AutoDownloadNetworkStatus.ensureStarted(it) }
+                AutoDownloadNetworkStatus.network.first { it != AutoDownloadNetwork.None }
+                if (generation == queuePageGeneration) {
+                    queuePageRetries = 0
+                    loadNextQueuePage()
+                }
+            }
+            if (generation == queuePageGeneration && bgMixActive()) bgMix?.status?.value?.let(::applyBgMix)
+            return
+        }
+        val pause = if (endless) endlessQueuePageRetryDelayMs(queuePageRetries) else queuePageRetryDelayMs(queuePageRetries)
+        if (pause == null) {
             // No retry left: a BG Mix queue that waited for this page reports its end now.
             if (generation == queuePageGeneration && bgMixActive()) bgMix?.status?.value?.let(::applyBgMix)
+            if (endless && generation == queuePageGeneration) {
+                queuePageNetworkJob?.cancel()
+                queuePageNetworkJob = scope.launch {
+                    appContext?.let { AutoDownloadNetworkStatus.ensureStarted(it) }
+                    AutoDownloadNetworkStatus.network.drop(1).first { it != AutoDownloadNetwork.None }
+                    if (generation == queuePageGeneration) {
+                        queuePageRetries = 0
+                        loadNextQueuePage()
+                    }
+                }
+            }
             return
         }
         queuePageRetries++
@@ -3639,6 +3743,9 @@ object PlaybackEngine {
         queuePageRetryJob = scope.launch {
             delay(pause)
             if (generation == queuePageGeneration) loadNextQueuePage()
+        }
+        if (endless && queuePageRetries > ENDLESS_AWAIT_FAST_RETRIES && generation == queuePageGeneration && bgMixActive()) {
+            bgMix?.status?.value?.let(::applyBgMix)
         }
     }
 
