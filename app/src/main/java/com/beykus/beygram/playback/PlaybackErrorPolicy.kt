@@ -56,3 +56,15 @@ internal fun playbackErrorAction(
 internal val QUEUE_PAGE_RETRY_DELAYS_MS = longArrayOf(2_000L, 5_000L, 15_000L)
 
 internal fun queuePageRetryDelayMs(failedAttempts: Int): Long? = QUEUE_PAGE_RETRY_DELAYS_MS.getOrNull(failedAttempts)
+
+/**
+ * Bounded backoff for endless radio queues (such as «Моя волна»): fast retries while a track finishes,
+ * followed by slower 30s and 60s attempts before waiting for a network change or manual resume.
+ */
+internal val ENDLESS_QUEUE_PAGE_RETRY_DELAYS_MS = longArrayOf(2_000L, 5_000L, 15_000L, 30_000L, 60_000L)
+
+/** Number of fast retries during which BG Mix keeps `awaitingPage = true` at the end of the loaded queue. */
+internal const val ENDLESS_AWAIT_FAST_RETRIES = 3
+
+internal fun endlessQueuePageRetryDelayMs(failedAttempts: Int): Long? =
+    ENDLESS_QUEUE_PAGE_RETRY_DELAYS_MS.getOrNull(failedAttempts)
