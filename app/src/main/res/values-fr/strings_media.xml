@@ -78,4 +78,5 @@
     <string name="recorder_too_short">L’enregistrement est trop court</string>
     <string name="recorder_video_note_unavailable">L’enregistrement de messages vidéo est temporairement indisponible</string>
     <string name="recorder_zoom_value">%1$.1f×</string>
+    <string name="chat_peek_open_chat">Ouvrir la discussion</string>
 </resources>

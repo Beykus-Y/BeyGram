@@ -10,6 +10,7 @@ import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
 
 private const val LOG_TAG = "BeyGramUpdates"
 
@@ -71,8 +72,8 @@ class AutomaticUpdateChecks internal constructor(
 ) {
     private var ticker: Job? = null
     private var notificationWatcher: Job? = null
-    @Volatile private var lastForegroundRequest = 0L
-    @Volatile private var running = false
+    private var lastForegroundRequest = 0L
+    private val attemptMutex = Mutex()
 
     /** Called on the first composition after a launch. A cold start may check even when the last attempt is recent. */
     fun onLaunch() {
@@ -96,12 +97,20 @@ class AutomaticUpdateChecks internal constructor(
     fun isAutoCheckEnabled(): Boolean = storage.autoCheckEnabled()
 
     /** Starts the periodic ticker and the status observer once per process. Repeated calls are cheap and safe. */
+    @Synchronized
     fun start() {
         if (ticker?.isActive != true) {
             ticker = scope.launch {
                 while (isActive) {
-                    delay(UpdateAutoCheckPolicy.FOREGROUND_INTERVAL_MS)
-                    request(UpdateCheckTrigger.Periodic)
+                    val now = clock()
+                    val interval = UpdateAutoCheckPolicy.FOREGROUND_INTERVAL_MS
+                    val attempts = storage.attempts()
+                    val jitter = UpdateAutoCheckPolicy.jitterMs(JITTER_SPAN_MS, attempts.lastAttemptAt ?: now)
+                    val next = UpdateAutoCheckPolicy.nextAttemptAt(attempts, interval, jitter)
+                    // Re-evaluate after a newer attempt, a clock change or a skipped check.
+                    val wait = next?.minus(now)?.takeIf { it > 0L }?.coerceAtMost(interval) ?: interval
+                    delay(wait)
+                    attemptIfIdle(UpdateCheckTrigger.Periodic)
                 }
             }
         }
@@ -120,14 +129,19 @@ class AutomaticUpdateChecks internal constructor(
     }
 
     private fun request(trigger: UpdateCheckTrigger) {
-        if (running) return
-        running = true
-        scope.launch {
-            try {
-                gateAndAttempt(trigger)
-            } finally {
-                running = false
-            }
+        scope.launch { attemptIfIdle(trigger) }
+    }
+
+    private suspend fun attemptIfIdle(trigger: UpdateCheckTrigger) {
+        if (trigger == UpdateCheckTrigger.Launch) {
+            attemptMutex.lock()
+        } else if (!attemptMutex.tryLock()) {
+            return
+        }
+        try {
+            gateAndAttempt(trigger)
+        } finally {
+            attemptMutex.unlock()
         }
     }
 

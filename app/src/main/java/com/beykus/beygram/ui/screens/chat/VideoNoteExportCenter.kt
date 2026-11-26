@@ -94,15 +94,15 @@ internal data class VideoNoteExportResult(
     /** Number of segments already accepted by TDLib. Retained when a later send fails. */
     val nextIndex: Int = 0,
     val sending: Boolean = false,
+    /** Monotonic token of the current send job, so a finished older attempt cannot clear a newer one. */
+    val attemptId: Long = 0L,
     /** Preview and retry items stay in the center until explicit Send/Delete. */
     val requiresPreview: Boolean = previewFirst || media.size > 1,
     /** Forum topic the note was recorded in (0 outside forums): it is sent there, not to the open topic. */
     val topicId: Long = 0L,
     val accountId: String = com.beykus.beygram.data.tdlib.TdAccountStorageLayout.LEGACY_ACCOUNT_ID,
-    /** The reply the note was recorded with. The all-messages feed sends with it, not with the composer's current reply. */
+    /** Reply selected when recording started. */
     val replyToMessageId: Long? = null,
-    /** Recorded in the all-messages feed: any screen that sends it uses [replyToMessageId], see [sendReplyId]. */
-    val recordedInFeed: Boolean = false,
     /** Why the last attempt did not deliver this note; null while it is being processed or has not been tried yet. */
     val failure: VideoNoteFailure? = null,
     /** The untouched recording this draft was exported from; kept until acceptance or explicit deletion. */
@@ -116,6 +116,14 @@ internal fun VideoNoteExportResult.markSegmentSent(): VideoNoteExportResult =
 /** Keeps the draft and its reason: the dialog shows the reason and offers another attempt. */
 internal fun VideoNoteExportResult.markSendFailed(failure: VideoNoteFailure): VideoNoteExportResult =
     copy(sending = false, requiresPreview = true, failure = failure)
+
+/**
+ * Clears the busy mark only for the attempt that still owns the draft (#1153 A-33). A retry can claim the draft in the
+ * short window between [markSendFailed] and the job's `finally`; the old job must not release the new one's claim, or a
+ * third tap could start a second send of the same segments.
+ */
+internal fun VideoNoteExportResult.finishAttempt(attemptId: Long): VideoNoteExportResult =
+    if (this.attemptId == attemptId) copy(sending = false) else this
 
 /** Автоматический кружок до приёма TDLib: [processing] — идёт обработка, иначе кружок ждёт отправки. */
 internal data class PendingVideoNote(val chatId: Long, val sessionName: String, val processing: Boolean, val previewPath: String? = null, val topicId: Long = 0L, val accountId: String = com.beykus.beygram.data.tdlib.TdAccountStorageLayout.LEGACY_ACCOUNT_ID)
@@ -132,13 +140,6 @@ internal fun pendingVideoNotesFor(chatId: Long, processing: List<PendingVideoNot
 /** Whether a screen claims this note for sending. A null [topicId] is the all-messages feed, which claims every topic of its chat. */
 internal fun VideoNoteExportResult.claimedBy(chatId: Long, accountId: String, topicId: Long?): Boolean =
     this.chatId == chatId && this.accountId == accountId && (topicId == null || this.topicId == topicId)
-
-/**
- * The reply a note is sent with. The all-messages feed sends with the reply stored with the note, and so does any screen that sends
- * a note recorded in the feed. A note recorded and sent in one topic keeps using the composer's reply, as before.
- */
-internal fun VideoNoteExportResult.sendReplyId(feedSender: Boolean, composerReplyId: Long?): Long? =
-    if (feedSender || recordedInFeed) replyToMessageId else composerReplyId
 
 /** Only a send that starts at the first segment carries the reply; a retry after accepted segments must not repeat it. */
 internal fun initialSendReply(nextIndex: Int, replyId: Long?): Long? = if (nextIndex == 0) replyId else null
@@ -234,10 +235,7 @@ internal object VideoNoteExportCenter {
                         if (current == null) return@collect
                         results.filter { it.accountId == current.accountId && !it.requiresPreview && !it.sending }
                             .forEach { item ->
-                                // Without a composer there is only the reply stored with the note; a reply typed after
-                                // recording belongs to whatever the user writes next.
-                                val reply = item.sendReplyId(feedSender = false, composerReplyId = null)
-                                send(item.chatId, item.sessionName, reply, item.accountId) { media, targetReply ->
+                                send(item.chatId, item.sessionName, item.accountId) { media, targetReply ->
                                     current.send(item.chatId, item.topicId, media, targetReply)
                                 }
                             }
@@ -261,7 +259,7 @@ internal object VideoNoteExportCenter {
         }
     }
 
-    fun enqueue(context: Context, chatId: Long, source: File, settings: VideoMessageSettings, sessionName: String, previewFirst: Boolean, topicId: Long = 0L, accountId: String = com.beykus.beygram.data.tdlib.TdAccountStorageLayout.LEGACY_ACCOUNT_ID, replyToMessageId: Long? = null, recordedInFeed: Boolean = false) {
+    fun enqueue(context: Context, chatId: Long, source: File, settings: VideoMessageSettings, sessionName: String, previewFirst: Boolean, topicId: Long = 0L, accountId: String = com.beykus.beygram.data.tdlib.TdAccountStorageLayout.LEGACY_ACCOUNT_ID, replyToMessageId: Long? = null) {
         val appContext = context.applicationContext
         VideoNoteDiagnostics.append(sessionName, VideoNoteDiagnostics.text(R.string.vn_entry_export_queued, VideoNoteDiagnostics.text(if (previewFirst) R.string.loss_yes else R.string.loss_no)), VideoNoteStatus.QUEUED)
         // Автоматический кружок виден в ленте сразу после отпускания, а не когда обработка закончится.
@@ -283,7 +281,7 @@ internal object VideoNoteExportCenter {
                 Log.i(TAG, "video_processing_completed session=" + sessionName + " segments=" + media.size)
                 recordAppEvent(EventKind.OTHER, "video_note_processed", "Кружок: обработка завершена", attrs = mapOf("segments" to media.size.toString()))
                 VideoNoteDiagnostics.append(sessionName, VideoNoteDiagnostics.text(R.string.vn_entry_export_succeeded, media.size), if (previewFirst) VideoNoteStatus.PREVIEW else VideoNoteStatus.READY)
-                publish(VideoNoteExportResult(chatId, media, previewFirst, sessionName, topicId = topicId, accountId = accountId, replyToMessageId = replyToMessageId, recordedInFeed = recordedInFeed, rawPath = source.absolutePath))
+                publish(VideoNoteExportResult(chatId, media, previewFirst, sessionName, topicId = topicId, accountId = accountId, replyToMessageId = replyToMessageId, rawPath = source.absolutePath))
             } catch (failure: CancellationException) {
                 throw failure
             } catch (failure: Exception) {
@@ -313,20 +311,20 @@ internal object VideoNoteExportCenter {
     internal fun send(
         chatId: Long,
         sessionName: String,
-        replyId: Long?,
         accountId: String = com.beykus.beygram.data.tdlib.TdAccountStorageLayout.LEGACY_ACCOUNT_ID,
         sender: suspend (OutgoingMedia, Long?) -> Result<Unit>
     ): VideoNoteSendStart {
-        val initial: VideoNoteExportResult = synchronized(this) {
+        val (initial, attemptId) = synchronized(this) {
             val current = _results.value.firstOrNull { it.chatId == chatId && it.sessionName == sessionName && it.accountId == accountId }
                 ?: return VideoNoteSendStart.NotFound
             if (current.sending) return VideoNoteSendStart.AlreadySending
-            updateResult(sessionName, accountId) { it.copy(sending = true, failure = null) }
-            current
+            val token = current.attemptId + 1
+            updateResult(sessionName, accountId) { it.copy(sending = true, failure = null, attemptId = token) }
+            current.copy(attemptId = token) to token
         }
         VideoNoteDiagnostics.append(sessionName, VideoNoteDiagnostics.text(R.string.vn_entry_send_requested, initial.media.size - initial.nextIndex), VideoNoteStatus.SENDING)
         scope.launch {
-            var reply = initialSendReply(initial.nextIndex, replyId)
+            var reply = initialSendReply(initial.nextIndex, initial.replyToMessageId)
             try {
                 for (index in initial.nextIndex until initial.media.size) {
                     VideoNoteSendTracking.tracker.expect(chatId, sessionName)
@@ -359,8 +357,9 @@ internal object VideoNoteExportCenter {
                 updateResult(sessionName, accountId) { it.markSendFailed(reason) }
             } finally {
                 // Never leave a draft marked as sending if the job ends through an unexpected path: the dialog would stay
-                // disabled and the user could neither retry nor delete it.
-                updateResult(sessionName, accountId) { it.copy(sending = false) }
+                // disabled and the user could neither retry nor delete it. Only this attempt may release the mark; a
+                // retry that already claimed the draft keeps its own.
+                updateResult(sessionName, accountId) { it.finishAttempt(attemptId) }
             }
         }
         return VideoNoteSendStart.Started
