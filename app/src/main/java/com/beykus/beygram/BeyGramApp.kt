@@ -3829,7 +3829,7 @@ GlobalSearchScreen(
             }
         }
         PlayerExpansionHost()
-        com.beykus.beygram.ui.screens.chat.InAppVideoPipHost()
+        com.beykus.beygram.ui.screens.chat.InAppVideoPipHost(selectedAccountId)
     }
     }
     AccountSwitcherSheet(
