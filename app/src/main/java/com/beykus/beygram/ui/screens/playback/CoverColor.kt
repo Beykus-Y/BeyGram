@@ -118,8 +118,21 @@ internal fun coverSurface(
     return CoverSurface(surface, textOnSurface, mutedOnSurface)
 }
 
-/** Tokens for a player whose surface follows its cover, and the colour that surface is painted with. */
-internal data class CoverTokens(val tokens: BeyGramTokens, val surface: Color)
+/** Tokens for a player whose surface follows its cover, the surface colour, and a soft precomputed ambient tint. */
+internal data class CoverTokens(
+    val tokens: BeyGramTokens,
+    val surface: Color,
+    val ambientAccent: Color = surface
+)
+
+/**
+ * Soft top-of-sheet ambient colour derived from the precomputed cover colour. Keeps the gradient lightweight
+ * (no realtime blur) and subtly richer than the flat tinted surface without compromising readability.
+ */
+internal fun coverAmbientColor(surface: Color, source: Color?, maxAmount: Float = 0.28f): Color {
+    if (source == null || source == surface) return surface
+    return lerp(surface, source, maxAmount.coerceIn(0f, 1f))
+}
 
 /**
  * Tokens of a player tinted by the cover of [artworkPath] and [audioPath]. A track without a cover takes the theme
@@ -154,10 +167,19 @@ internal fun rememberCoverTokens(
         animationSpec = mediaMotion.animationSpec(),
         label = "coverSurface"
     )
-    return remember(tokens, surface, target.text, target.muted) {
+    val ambientTarget = remember(ready, target.surface, lookup.color, tokens.accent) {
+        if (ready) coverAmbientColor(target.surface, lookup.color ?: tokens.accent) else target.surface
+    }
+    val ambient by animateColorAsState(
+        targetValue = ambientTarget,
+        animationSpec = mediaMotion.animationSpec(),
+        label = "coverAmbient"
+    )
+    return remember(tokens, surface, ambient, target.text, target.muted) {
         CoverTokens(
             tokens = tokens.copy(bg = surface, surface = surface, text = target.text, muted = target.muted),
-            surface = surface
+            surface = surface,
+            ambientAccent = ambient
         )
     }
 }

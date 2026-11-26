@@ -269,6 +269,35 @@ Java_com_beykus_beygram_media_bgmix_BgMixNative_nativeClearQueue(JNIEnv*, jclass
 #endif
 }
 
+// Manual navigation: an immediate switch without crossfade. Result: 0 accepted, 1 not found, 2 not ready
+// (the caller plays the track on its own player). Without BG Media every call reports not found.
+JNIEXPORT jint JNICALL
+Java_com_beykus_beygram_media_bgmix_BgMixNative_nativeManualSelect(JNIEnv*, jclass, jlong handle, jlong queueItemId) {
+#if defined(HAVE_BGMEDIA) && HAVE_BGMEDIA
+    MixHost* host = hostFrom(handle);
+    if (!host) return 1;
+    std::lock_guard lock(host->control);
+    return static_cast<jint>(host->session->manualSelect(static_cast<std::uint64_t>(queueItemId)));
+#else
+    (void)handle;
+    (void)queueItemId;
+    return 1;
+#endif
+}
+
+JNIEXPORT jint JNICALL
+Java_com_beykus_beygram_media_bgmix_BgMixNative_nativeManualNext(JNIEnv*, jclass, jlong handle) {
+#if defined(HAVE_BGMEDIA) && HAVE_BGMEDIA
+    MixHost* host = hostFrom(handle);
+    if (!host) return 1;
+    std::lock_guard lock(host->control);
+    return static_cast<jint>(host->session->manualNext());
+#else
+    (void)handle;
+    return 1;
+#endif
+}
+
 // Transport: play, pause, next (planned smooth transition), stop.
 JNIEXPORT void JNICALL
 Java_com_beykus_beygram_media_bgmix_BgMixNative_nativeTransport(JNIEnv*, jclass, jlong handle, jint action) {

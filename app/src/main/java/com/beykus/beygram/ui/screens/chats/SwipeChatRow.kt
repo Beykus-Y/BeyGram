@@ -68,6 +68,9 @@ internal data class ChatSwipeAction(
 
 internal enum class SwipeTarget { Closed, Revealed, Dismissed }
 
+/** A tapped chat row must dismiss its revealed action on either side before navigation. */
+internal fun shouldCloseSwipeOnRowTap(offset: Float): Boolean = offset != 0f
+
 /**
  * A dismissed row must not be auto-restored while its archive action is in flight.
  * Otherwise clearing the global open-swipe ID re-opens the just-dismissed row before TDLib finishes.
@@ -261,13 +264,13 @@ internal fun SwipeChatRow(
                 )
         ) {
             ChatListItem(chat, observeFile, downloadFile,
-                onClick = { if (swipeOffset < 0f) close() else onClick() },
-                onLongClick = { if (swipeOffset < 0f) close() else onLongClick() },
-                onAvatarLongClick = { if (swipeOffset < 0f) close() else onAvatarLongClick() },
+                onClick = { if (shouldCloseSwipeOnRowTap(swipeOffset)) close() else onClick() },
+                onLongClick = { if (shouldCloseSwipeOnRowTap(swipeOffset)) close() else onLongClick() },
+                onAvatarLongClick = { if (shouldCloseSwipeOnRowTap(swipeOffset)) close() else onAvatarLongClick() },
                 highlighted = highlighted,
                 observeForumTopic = observeForumTopic,
                 observeCustomEmoji = observeCustomEmoji,
-                onTopicClick = { if (swipeOffset < 0f) close() else onForumTopicClick() })
+                onTopicClick = { if (shouldCloseSwipeOnRowTap(swipeOffset)) close() else onForumTopicClick() })
         }
     }
 }

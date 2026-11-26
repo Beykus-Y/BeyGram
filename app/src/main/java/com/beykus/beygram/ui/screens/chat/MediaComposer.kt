@@ -53,6 +53,8 @@ import androidx.compose.material.icons.rounded.MusicNote
 import androidx.compose.material.icons.rounded.Person
 import androidx.compose.material.icons.rounded.Poll
 import androidx.compose.material.icons.rounded.Refresh
+import androidx.compose.material.icons.rounded.Timer
+import androidx.compose.material.icons.rounded.VisibilityOff
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
@@ -105,6 +107,7 @@ import com.beykus.beygram.data.media.OutgoingMediaImporter
 import com.beykus.beygram.data.media.PhotoEditor
 import com.beykus.beygram.data.media.PhotoExportQuality
 import com.beykus.beygram.data.media.PhotoRotation
+import com.beykus.beygram.data.media.VideoCodecClass
 import com.beykus.beygram.data.media.VideoCompressor
 import com.beykus.beygram.data.media.VideoLimitIssue
 import com.beykus.beygram.data.media.VideoPlanReason
@@ -701,6 +704,34 @@ internal class AttachmentState(
         if (item.path.isNotBlank()) scope.launch { importer.discard(item) }
     }
 
+    /** Toggles Telegram's spoiler shimmer on all visual media (photos, videos, animations) staged in the tray. */
+    fun setSpoilerForVisuals(enabled: Boolean) {
+        if (sending || importing) return
+        pendingState.value = ArrayList(
+            pending.map { item ->
+                if (item.kind == MediaKind.Photo || item.kind == MediaKind.Video || item.kind == MediaKind.Animation) {
+                    item.copy(hasSpoiler = enabled)
+                } else {
+                    item
+                }
+            }
+        )
+    }
+
+    /** Toggles Telegram's spoiler shimmer on a single visual media item. */
+    fun toggleSpoiler(item: OutgoingMedia) {
+        if (sending || importing) return
+        if (item.kind != MediaKind.Photo && item.kind != MediaKind.Video && item.kind != MediaKind.Animation) return
+        pendingState.value = ArrayList(
+            pending.map { existing ->
+                val matches = existing === item ||
+                    (item.stagingKey.isNotBlank() && existing.stagingKey == item.stagingKey) ||
+                    (item.stagingKey.isBlank() && existing.path == item.path)
+                if (matches) existing.copy(hasSpoiler = !existing.hasSpoiler) else existing
+            }
+        )
+    }
+
     /**
      * Per-file quality selection. Changing one file never changes another file or a future import;
      * the untouched original stays staged until the attachment is sent or removed.
@@ -866,7 +897,12 @@ internal class AttachmentState(
                     mode = MediaQualityMode.Original,
                     delivery = MediaDeliveryMode.File,
                     prepared = null,
-                    hint = if (limit == VideoLimitIssue.TooLong) MediaPreparationHint.TooLongAsFile else MediaPreparationHint.TooLargeAsFile
+                    hint = when {
+                        // A document whose codec is unconfirmed stays a file; explain why nothing was converted.
+                        item.kind == MediaKind.Document -> MediaPreparationHint.CodecNeedsConversion
+                        limit == VideoLimitIssue.TooLong -> MediaPreparationHint.TooLongAsFile
+                        else -> MediaPreparationHint.TooLargeAsFile
+                    }
                 )
             }
             viewOnce = false
@@ -876,19 +912,27 @@ internal class AttachmentState(
             return
         }
         val plan = videoCompressionPlan(info, mode.toVideoOption())
-        if (!plan.transcode) {
-            val hint = when (plan.reason) {
-                VideoPlanReason.AlreadyEfficient -> MediaPreparationHint.AlreadyEfficient
-                VideoPlanReason.UnknownMetadata -> MediaPreparationHint.UnknownMetadata
-                VideoPlanReason.NotWorthIt -> MediaPreparationHint.NotWorthIt
-                VideoPlanReason.OriginalRequested, VideoPlanReason.Transcode -> null
+        // An unconfirmed codec (AV1/VP9) is only sendable as a video after a transcode; that goal outranks the
+        // "not worth it" size heuristic. Choosing "Original" keeps the file as a document, which is the fallback.
+        val convertForCompatibility = item.kind == MediaKind.Document &&
+            info.videoCodecClass == VideoCodecClass.Unconfirmed &&
+            mode != MediaQualityMode.Original
+        if (!plan.transcode && !convertForCompatibility) {
+            val hint = when {
+                item.kind == MediaKind.Document && info.videoCodecClass == VideoCodecClass.Unconfirmed ->
+                    MediaPreparationHint.CodecNeedsConversion
+                plan.reason == VideoPlanReason.AlreadyEfficient -> MediaPreparationHint.AlreadyEfficient
+                plan.reason == VideoPlanReason.UnknownMetadata -> MediaPreparationHint.UnknownMetadata
+                plan.reason == VideoPlanReason.NotWorthIt -> MediaPreparationHint.NotWorthIt
+                else -> null
             }
             if (hint != null) updateQuality(item.path) { it.copy(hint = hint) }
             return
         }
+        val effectivePlan = if (plan.transcode) plan else plan.copy(transcode = true, reason = VideoPlanReason.Transcode)
         val output = File(source.parentFile, "quality-${UUID.randomUUID()}.mp4")
         try {
-            compressor.compress(source, output, plan, info) { progress ->
+            compressor.compress(source, output, effectivePlan, info) { progress ->
                 if (qualityCurrent(item.path, token)) {
                     updateQuality(item.path) { it.copy(progress = progress) }
                 }
@@ -1228,7 +1272,12 @@ internal fun AttachmentButton(state: AttachmentState, enabled: Boolean = true, e
             .semantics { contentDescription = context.getString(R.string.composer_attach_description) }
     ) {
         Box(Modifier.size(ComposerButtonSize), contentAlignment = Alignment.Center) {
-            ComposerMaterial(if (tonal) palette.accentSoft else palette.surface2, CircleShape, embedded)
+            ComposerMaterial(
+                if (tonal) palette.accentSoft else palette.surface2,
+                CircleShape,
+                embedded = embedded,
+                compactControl = true
+            )
             Icon(
                 Icons.Rounded.AttachFile,
                 contentDescription = null,
@@ -1475,19 +1524,91 @@ private fun PreparedAttachmentsPanel(
             }
         }
     }
-    if (viewOnceAvailable && !closing) {
+    val visualPending = displayPending.filter {
+        it.kind == MediaKind.Photo || it.kind == MediaKind.Video || it.kind == MediaKind.Animation
+    }
+    val showSpoilerChip = visualPending.isNotEmpty() && !state.viewOnce && !closing
+    val showViewOnceChip = viewOnceAvailable && !closing
+    if (showSpoilerChip || showViewOnceChip) {
         Row(
-            Modifier.fillMaxWidth().heightIn(min = 48.dp)
-                .toggleable(value = state.viewOnce, enabled = !state.sending, role = Role.Checkbox) { state.viewOnce = it }
-                .padding(horizontal = 14.dp, vertical = 2.dp),
+            Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 12.dp, vertical = 4.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Checkbox(checked = state.viewOnce, onCheckedChange = null, enabled = !state.sending)
-            Column(Modifier.weight(1f)) {
-                Text(stringResource(R.string.composer_view_once), color = palette.textPrimary, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
-                Text(stringResource(R.string.composer_view_once_hint), color = palette.textSecondary, fontSize = 12.sp)
+            if (showSpoilerChip) {
+                val spoilerCount = visualPending.count { it.hasSpoiler }
+                val allSpoiler = spoilerCount == visualPending.size
+                val anySpoiler = spoilerCount > 0
+                val spoilerLabel = if (visualPending.size > 1 && anySpoiler && !allSpoiler) {
+                    "${stringResource(R.string.attach_spoiler)} ($spoilerCount/${visualPending.size})"
+                } else {
+                    stringResource(R.string.attach_spoiler)
+                }
+                ComposerToggleChip(
+                    label = spoilerLabel,
+                    icon = Icons.Rounded.VisibilityOff,
+                    selected = anySpoiler,
+                    enabled = !state.sending,
+                    onClick = { state.setSpoilerForVisuals(!allSpoiler) }
+                )
+            }
+            if (showViewOnceChip) {
+                ComposerToggleChip(
+                    label = stringResource(R.string.composer_view_once),
+                    icon = Icons.Rounded.Timer,
+                    selected = state.viewOnce,
+                    enabled = !state.sending,
+                    onClick = { state.viewOnce = !state.viewOnce }
+                )
             }
         }
+        if (showViewOnceChip && state.viewOnce) {
+            Text(
+                stringResource(R.string.composer_view_once_hint),
+                color = palette.textSecondary,
+                fontSize = 11.sp,
+                modifier = Modifier.padding(horizontal = 14.dp, vertical = 2.dp)
+            )
+        }
+    }
+}
+
+@Composable
+private fun ComposerToggleChip(
+    label: String,
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    selected: Boolean,
+    enabled: Boolean,
+    onClick: () -> Unit
+) {
+    val palette = beyGramPalette()
+    val shape = styledShape(14.dp)
+    Row(
+        Modifier
+            .clip(shape)
+            .background(if (selected) palette.accent.copy(alpha = 0.2f) else palette.surface2)
+            .then(
+                Modifier.background(Color.Transparent)
+            )
+            .clickable(enabled = enabled, role = Role.Checkbox, onClick = onClick)
+            .padding(horizontal = 12.dp, vertical = 7.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(6.dp)
+    ) {
+        Icon(
+            icon,
+            contentDescription = null,
+            tint = if (selected) palette.accent else palette.textSecondary,
+            modifier = Modifier.size(16.dp)
+        )
+        Text(
+            label,
+            color = if (selected) palette.accent else palette.textPrimary,
+            fontSize = 13.sp,
+            fontWeight = FontWeight.Medium
+        )
     }
 }
 
@@ -1689,7 +1810,60 @@ private fun CompactVisualAttachmentTray(
                             }
                         }
                     )
-                    if (item.kind == MediaKind.Video && !documentTile) {
+                    if (item.hasSpoiler && !documentTile) {
+                        Box(
+                            Modifier
+                                .fillMaxSize()
+                                .background(Color.Black.copy(alpha = 0.45f)),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(
+                                Icons.Rounded.VisibilityOff,
+                                contentDescription = stringResource(R.string.attach_spoiler),
+                                tint = Color.White.copy(alpha = 0.9f),
+                                modifier = Modifier.size(22.dp)
+                            )
+                        }
+                    }
+                    if (item.kind == MediaKind.Photo && !documentTile && !state.viewOnce) {
+                        Box(
+                            modifier = Modifier
+                                .align(Alignment.BottomStart)
+                                .padding(4.dp)
+                                .size(24.dp)
+                                .clip(CircleShape)
+                                .background(
+                                    if (item.hasSpoiler) palette.accent else Color.Black.copy(alpha = 0.58f)
+                                )
+                                .clickable(enabled = enabled, role = Role.Button) {
+                                    state.toggleSpoiler(item)
+                                },
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(
+                                Icons.Rounded.VisibilityOff,
+                                contentDescription = stringResource(R.string.attach_spoiler),
+                                tint = Color.White,
+                                modifier = Modifier.size(14.dp)
+                            )
+                        }
+                        Box(
+                            modifier = Modifier
+                                .align(Alignment.BottomEnd)
+                                .padding(4.dp)
+                                .size(22.dp)
+                                .clip(CircleShape)
+                                .background(Color.Black.copy(alpha = 0.58f)),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(
+                                Icons.Rounded.Edit,
+                                contentDescription = null,
+                                tint = Color.White,
+                                modifier = Modifier.size(12.dp)
+                            )
+                        }
+                    } else if (item.kind == MediaKind.Video && !documentTile) {
                         Row(
                             modifier = Modifier.align(Alignment.BottomStart)
                                 .padding(6.dp)
@@ -1720,6 +1894,19 @@ private fun CompactVisualAttachmentTray(
                         onDismissRequest = { menuItemKey = null },
                         alignEnd = false
                     ) {
+                        if ((item.kind == MediaKind.Photo || item.kind == MediaKind.Video || item.kind == MediaKind.Animation) && !state.viewOnce) {
+                            BeyGramPopoverItem(
+                                text = stringResource(R.string.attach_spoiler),
+                                leadingIcon = {
+                                    Icon(
+                                        Icons.Rounded.VisibilityOff,
+                                        contentDescription = null,
+                                        tint = if (item.hasSpoiler) palette.accent else palette.textSecondary
+                                    )
+                                },
+                                onClick = { menuItemKey = null; state.toggleSpoiler(item) }
+                            )
+                        }
                         BeyGramPopoverItem(
                             text = moveLeft,
                             enabled = index > 0,

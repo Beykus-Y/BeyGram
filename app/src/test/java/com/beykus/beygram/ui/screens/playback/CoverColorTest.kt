@@ -48,6 +48,14 @@ class CoverColorTest {
         assertEquals(base, result.surface)
     }
 
+    @Test fun ambientColorReturnsSurfaceWhenSourceMissingOrIdentical() {
+        val surface = Color(0xFF1A1E24)
+        assertEquals(surface, coverAmbientColor(surface, null))
+        assertEquals(surface, coverAmbientColor(surface, surface))
+        val tinted = coverAmbientColor(surface, Color(0xFF3B5BDB))
+        assertTrue(tinted != surface)
+    }
+
     @Test fun themeTextStaysWhenItStillReads() {
         val text = Color(0xFF1A1A1A)
         val result = coverSurface(Color.White, Color(0xFFFFF3C4), text, Color(0xFF555555), accent, MINI_COVER_TINT)

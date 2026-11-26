@@ -2,7 +2,10 @@ package com.beykus.beygram.ui.screens.profile
 
 import androidx.compose.foundation.layout.Box
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.Block
+import androidx.compose.material.icons.rounded.DeleteOutline
 import androidx.compose.material.icons.rounded.MoreVert
+import androidx.compose.material.icons.rounded.Report
 import androidx.compose.material3.*
 import com.beykus.beygram.ui.components.BeyGramDialog
 import com.beykus.beygram.ui.components.BeyGramPopover
@@ -41,13 +44,16 @@ internal fun ChatInfoMenu(
         BeyGramPopover(expanded = expanded, onDismissRequest = { expanded = false }) {
             if (canBlock) BeyGramPopoverItem(
                 text = stringResource(if (isBlocked) R.string.feature_unblock_user else R.string.feature_block_user),
+                leadingIcon = { Icon(Icons.Rounded.Block, contentDescription = null, tint = palette.textSecondary) },
                 onClick = { expanded = false; confirmation = if (isBlocked) "unblock" else "block" })
             if (canReport) BeyGramPopoverItem(
                 text = stringResource(R.string.feature_report_spam),
+                leadingIcon = { Icon(Icons.Rounded.Report, contentDescription = null, tint = palette.danger) },
                 danger = true,
                 onClick = { expanded = false; confirmation = "report" })
             if (canDelete) BeyGramPopoverItem(
                 text = stringResource(R.string.feature_delete_chat),
+                leadingIcon = { Icon(Icons.Rounded.DeleteOutline, contentDescription = null, tint = palette.danger) },
                 danger = true,
                 onClick = { expanded = false; confirmation = "delete" })
         }

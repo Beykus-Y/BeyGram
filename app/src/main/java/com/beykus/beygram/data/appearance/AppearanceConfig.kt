@@ -29,6 +29,10 @@ data class AppearanceConfig(
     val designStyle: DesignStyle = DesignStyle.Default,
     /** How much glass rendering Liquid Glass may use. The other styles ignore it and keep it for a later switch back. */
     val glassQuality: GlassQuality = GlassQuality.Auto,
+    /** Liquid Glass V2 lens (API 33+). On by default with [LiquidGlassLensPreset.Clear]; can be turned off. */
+    val liquidGlassV2: Boolean = true,
+    /** Which lens variant the V2 switch uses. Only read while [liquidGlassV2] is on. */
+    val liquidGlassPreset: LiquidGlassLensPreset = LiquidGlassLensPreset.Clear,
     /**
      * Where the bottom navigation sits. It is its own axis, so the style keeps deciding how the bar looks while the user
      * decides whether it is pinned to the bottom edge or floats above the content.

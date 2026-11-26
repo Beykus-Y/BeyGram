@@ -68,6 +68,9 @@ interface MusicProvider {
 
     suspend fun lyrics(trackId: String): ProviderResult<ProviderLyrics>
 
+    /** Drops any cached lyrics entry for [trackId] so an explicit retry always queries the service again. */
+    fun invalidateLyrics(trackId: String) {}
+
     /**
      * A temporary direct link to the audio of a full track. Fails with [MusicProviderFailure.SubscriptionRequired]
      * when the account has no subscription, so the player never plays 30-second previews as full tracks.
@@ -110,6 +113,10 @@ data class ProviderTrack(
     val albumId: String? = null,
     /** Artists of the track with their provider ids, for a radio of the artist. Empty when the provider gives no ids. */
     val artistRefs: List<ProviderArtistRef> = emptyList(),
+    /** Optional animated cover video URL (HTTPS MP4) returned by the provider. */
+    val backgroundVideoUri: String? = null,
+    /** Optional provider identifier for the animated cover video. */
+    val backgroundVideoId: String? = null,
 ) {
     /** Stable player key for this track: `ym:<trackId>`. */
     val key: String get() = YANDEX_TRACK_KEY_PREFIX + trackId

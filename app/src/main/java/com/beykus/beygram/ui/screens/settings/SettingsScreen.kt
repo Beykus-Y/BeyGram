@@ -84,7 +84,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.beykus.beygram.R
 import com.beykus.beygram.ui.components.beyGramPalette
-import com.beykus.beygram.ui.components.MainTabHeader
+import com.beykus.beygram.ui.components.MainTabLayout
 import com.beykus.beygram.ui.components.MainTabTitle
 import com.beykus.beygram.ui.components.LocalNavigationDock
 import com.beykus.beygram.ui.components.scrollClearance
@@ -102,17 +102,17 @@ fun SettingsScreen(onNavigationSettings: () -> Unit, onAppearance: () -> Unit, o
     onSecondaryAccounts: () -> Unit, onPrivacy: () -> Unit, onAccountSecurity: () -> Unit, onAutoDownload: () -> Unit, onAppLock: () -> Unit = {}, onEqualizer: () -> Unit = {}, onMusicLibrary: () -> Unit = {}, onExperiments: () -> Unit = {}, onTriggerWords: () -> Unit = {}) {
     val palette = beyGramPalette()
     val design = LocalDesignSystem.current
-    Column(
-        Modifier.fillMaxSize().glassScreenBackground(design, palette.screen)
-            .mainTabInsets()
-    ) {
-        MainTabHeader {
+    MainTabLayout(
+        modifier = Modifier.fillMaxSize().glassScreenBackground(design, palette.screen).mainTabInsets(),
+        header = {
             MainTabTitle(
                 stringResource(R.string.settings_title),
                 Modifier.fillMaxWidth().padding(start = 20.dp, end = 20.dp, top = 8.dp, bottom = 12.dp)
             )
         }
+    ) { headerInset ->
         Column(Modifier.weight(1f).fillMaxWidth().verticalScroll(rememberScrollState())) {
+        Spacer(Modifier.height(headerInset))
 
         SettingsGroup(stringResource(R.string.settings_group_interface)) {
             SettingsLink(Icons.Rounded.Language, stringResource(R.string.feature_language), onLanguage)

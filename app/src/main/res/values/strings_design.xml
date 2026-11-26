@@ -34,4 +34,11 @@
     <string name="design_style_liquid_glass_detail">Плавающие стеклянные панели с размытием фона и световыми кромками</string>
     <string name="design_style_signature">BeyGram Signature</string>
     <string name="design_style_signature_detail">Фирменный стиль BeyGram: чат на первом месте, спокойная глубина, собственный док</string>
+    <string name="appearance_style_v2_title">Линза Liquid Glass V2 (экспериментально)</string>
+    <string name="appearance_style_v2_detail">Преломление стекла по краю панелей на Android 13 и новее при качестве «Полное». Выключено по умолчанию, прежнее стекло остаётся запасным.</string>
+    <string name="appearance_style_lens_title">Вариант линзы</string>
+    <string name="appearance_style_lens_standard">Обычная</string>
+    <string name="appearance_style_lens_clear">Прозрачная</string>
+    <string name="appearance_style_lens_bold">Сильная</string>
+    <string name="appearance_style_lens_detail">Обычная — баланс. Прозрачная — меньше размытия и тона. Сильная — шире полоса и сильнее преломление.</string>
 </resources>

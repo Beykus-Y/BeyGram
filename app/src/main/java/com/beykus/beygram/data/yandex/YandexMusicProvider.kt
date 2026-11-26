@@ -86,6 +86,7 @@ internal class YandexMusicProvider(
     /** Moves to the next account generation and forgets what was cached for the previous one. Call under [refreshLock]. */
     private fun bumpGeneration() {
         generation += 1
+        canvasDiagnostics = null
         synchronized(lyricsLock) { lyricsCache.clear() }
     }
 
@@ -224,6 +225,15 @@ internal class YandexMusicProvider(
     @Volatile
     var lyricsDiagnostics: String? = null
         private set
+
+    /** Last redacted track canvas/video field summary seen from API responses. No URLs, tokens or track ids. */
+    @Volatile
+    var canvasDiagnostics: String? = null
+        private set
+
+    internal fun recordCanvasDiagnostics(summary: String) {
+        canvasDiagnostics = summary
+    }
 
     /** DEV diagnostics: the flag the app derived and the key names the service sent. No tokens or names. */
     private fun logSubscription(account: YandexAccount) {
@@ -373,6 +383,11 @@ internal class YandexMusicProvider(
 
     /** Number of cached lyrics results. For tests. */
     internal fun lyricsCacheSize(): Int = synchronized(lyricsLock) { lyricsCache.size }
+
+    override fun invalidateLyrics(trackId: String) {
+        val key = "$generation:$trackId"
+        synchronized(lyricsLock) { lyricsCache.remove(key) }
+    }
 
     private fun lyricsTtl(result: ProviderResult<ProviderLyrics>): Long =
         if (result is ProviderResult.Success) YandexConfig.LYRICS_OK_TTL_MS else YandexConfig.LYRICS_FAILED_TTL_MS

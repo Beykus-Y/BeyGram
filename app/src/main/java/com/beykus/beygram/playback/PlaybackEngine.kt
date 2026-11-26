@@ -218,6 +218,7 @@ object PlaybackEngine {
     private const val BG_DUCK_VOLUME = 0.25f
     /** Maximum lookahead from the playing track, independent of native queue growth. */
     private const val BG_MIX_DOWNLOAD_AHEAD = 2
+    private const val QUEUE_PAGE_TIMEOUT_MS = 20_000L
     private const val BG_MIX_FEED_INTERVAL_MS = 1_000L
     private const val BG_HANDOVER_POLL_MS = 500L
     private const val BG_HANDOVER_IDLE_POLL_MS = 1_000L
@@ -2015,6 +2016,8 @@ object PlaybackEngine {
             }
         }
         startBgMixFeed()
+        // A radio handed over near the end of its page asks for the next one right away.
+        loadNextQueuePage()
         startPlaybackService()
         if (!autoPlay) pauseBgMix()
     }
@@ -2060,7 +2063,7 @@ object PlaybackEngine {
         cancelBgMixHandover()
         val context = appContext ?: return
         BgMixSettingsStore.load(context)
-        if (!BgMixSettingsStore.enabled.value || !bgMixAdmitsSource(queueSource)) return
+        if (!BgMixSettingsStore.enabled.value) return
         if (!BgMixNative.isAvailable) return
         bgMixHandoverJob = scope.launch {
             runBgMixHandover(context, rejectedKey)
@@ -2396,6 +2399,16 @@ object PlaybackEngine {
             }
             return
         }
+        // An endless queue (a radio) played out its known tracks while the next page loads or waits for its retry: keep the
+        // play intent and wait. The page is requested on every track change, and its result applies this status again.
+        val awaitingPage = bgMixAwaitsNextPage(
+            finished = finished,
+            pendingIndex = pending,
+            endless = queueSource?.loadMore != null,
+            repeat = _state.value.repeatMode,
+            pageInFlight = queuePageJob?.isActive == true || queuePageRetryJob?.isActive == true
+        )
+        val reportFinished = finished && !awaitingPage
         val playing = !status.paused && deckPlaying && !finished
         val hasNext = status.queue.any { (driver.indexOfNative(it.id) ?: -1) > index } || pending != null
         _state.update { current ->
@@ -2408,22 +2421,24 @@ object PlaybackEngine {
                 queue = driver.queueItems,
                 queueIndex = index,
                 playing = playing,
-                intentPlaying = !status.paused && !finished,
+                intentPlaying = !status.paused && (!finished || awaitingPage),
                 positionMs = ((master?.positionSeconds ?: 0.0) * 1000).toLong(),
                 durationMs = ((master?.durationSeconds ?: 0.0) * 1000).toLong(),
                 started = current.started || playing,
-                ended = finished,
-                isBuffering = false,
+                ended = reportFinished,
+                isBuffering = awaitingPage,
                 bgMixActive = true
             )
         }
+        // A radio asks for its next page as BG Mix advances, the same way the regular player does on a track change.
+        if (before.queueIndex != index) loadNextQueuePage()
         if (before.item?.key != _state.value.item?.key) {
             exo?.let { target ->
                 if (target.mediaItemCount > 0) target.replaceMediaItem(0, placeholderItem(item))
             }
         }
         val repeat = _state.value.repeatMode
-        val repeatsQueue = finished && !before.ended && repeat != PlaybackRepeatMode.Off &&
+        val repeatsQueue = reportFinished && !before.ended && repeat != PlaybackRepeatMode.Off &&
             (masterEnded || status.queue.any { it.state == "played" })
         if (repeatsQueue) {
             // Repeat One plays the same track again, Repeat All starts the queue over; the mode stays BG Mix.
@@ -2433,7 +2448,7 @@ object PlaybackEngine {
             scope.launch { restartBgMix(items, next, 0L, autoPlay = true) }
             return
         }
-        if (finished && !before.ended) {
+        if (reportFinished && !before.ended) {
             releaseBgFocus()
             releaseBgWakeLock()
         }
@@ -2586,7 +2601,13 @@ object PlaybackEngine {
                         // Like the regular Next, a paused queue stays paused on the new track.
                         continueBgMixQueueOnExo(state.queue, it, autoPlay = state.playing || state.intentPlaying || state.ended)
                     }
-                !last -> bgMix?.next()
+                // Manual Next is an explicit jump, not the native planned transition (session.next()), which adds a
+                // crossfade and could lift a pause. A prepared successor switches in the native session at once; any
+                // other one moves the queue to the regular player at the next track from 0, and startQueue schedules
+                // the automatic handover back to BG Mix.
+                !last -> if (bgMix?.manualNext() != true) {
+                    continueBgMixQueueOnExo(state.queue, state.queueIndex + 1, autoPlay = state.playing || state.intentPlaying || state.ended)
+                }
                 state.repeatMode == PlaybackRepeatMode.All -> restartBgMix(state.queue, 0, 0L, state.intentPlaying || state.ended)
             }
             return
@@ -2637,6 +2658,13 @@ object PlaybackEngine {
         if (bgMixActive()) {
             val context = appContext
             _manualSkips.update { it + 1 }
+            // A prepared row switches in the native session at once, without a crossfade. An explicit row pick plays,
+            // as it always did, so play is requested after the switch. Otherwise the regular player takes over below.
+            if (index in _state.value.queue.indices && bgMix?.manualSelect(index) == true) {
+                bgMix?.resume()
+                _state.update { it.copy(ended = false, failed = false, intentPlaying = true) }
+                return
+            }
             val queue = PlaybackQueue(_state.value.queue, index)
             // The regular player starts the track at once; BG Mix takes it back as soon as it has prepared it.
             stopBgMix()
@@ -2681,7 +2709,10 @@ object PlaybackEngine {
                     }
                 }
             } else {
-                restartBgMix(state.queue, state.queueIndex - 1, 0L, state.intentPlaying)
+                // A prepared previous track switches in the native session at once; otherwise the queue restarts on the regular player.
+                if (bgMix?.manualSelect(state.queueIndex - 1) != true) {
+                    restartBgMix(state.queue, state.queueIndex - 1, 0L, state.intentPlaying)
+                }
             }
             return
         }
@@ -2770,9 +2801,9 @@ object PlaybackEngine {
                 items = original?.takeIf { queue -> queue.any { it.key == current.key } } ?: state.queue
             }
             val index = items.indexOfFirst { it.key == current.key }.coerceAtLeast(0)
-            // The native session has no shuffle, so it starts again at the same place with the new order.
+            // The session follows the new order in place when it can; otherwise it starts again at the same place.
             val keepOriginal = bgMixOriginalQueue
-            restartBgMix(items, index, state.positionMs, state.intentPlaying)
+            if (!retargetBgMix(items)) restartBgMix(items, index, state.positionMs, state.intentPlaying)
             if (enabled) bgMixOriginalQueue = keepOriginal
             return
         }
@@ -2842,6 +2873,15 @@ object PlaybackEngine {
         val shouldPlay = state.playing || state.intentPlaying
         val target = exo
         val base = state.queue.ifEmpty { listOf(current) }
+        if (bgMixActive()) {
+            // BG Mix follows the edit in its own session; the Exo timeline is not touched.
+            val queue = base.filterNot { it.key == item.key }.toMutableList()
+            val currentAt = queue.indexOfFirst { it.key == current.key }
+            if (currentAt >= 0) {
+                queue.add(currentAt + 1, item)
+                if (retargetBgMix(queue)) return
+            }
+        }
         val currentIndex = (target?.currentMediaItemIndex?.takeIf { it in base.indices }
             ?: state.queueIndex.takeIf { it in base.indices }
             ?: base.indexOfFirst { it.key == current.key })
@@ -2905,6 +2945,7 @@ object PlaybackEngine {
             return
         }
         val queue = base + item
+        if (bgMixActive() && retargetBgMix(queue)) return
         if (canEditInPlace(target, base.size) && target != null) {
             registerSource(item, queueSource)
             target.addMediaItem(mediaItemFor(item))
@@ -2977,6 +3018,31 @@ object PlaybackEngine {
         return true
     }
 
+    /**
+     * Mirrors an edited logical queue into the running BG Mix session; the playing track keeps playing. False when the session
+     * cannot follow the edit: the caller then takes its regular path, which stops the session and plays on ExoPlayer.
+     */
+    private fun retargetBgMix(queue: List<PlaybackItem>, source: PlaybackQueueSource? = queueSource): Boolean {
+        val driver = bgMix?.takeIf { it.isActive } ?: return false
+        val current = _state.value.item ?: return false
+        // Only new items get a source registration: re-registering a known one would replace its handle with a copy
+        // that may predate a resolved file.
+        val known = _state.value.queue.mapTo(HashSet()) { it.key }
+        if (!driver.retarget(queue, current.key)) return false
+        val items = driver.queueItems
+        val index = items.indexOfFirst { it.key == current.key }
+        items.filterNot { it.key in known }.forEach { registerSource(it, source) }
+        _state.update {
+            it.copy(
+                queue = items,
+                queueIndex = index,
+                timelineHasNext = bgMixHasNext(index, items.size) || driver.pendingIndex != null
+            )
+        }
+        startBgMixFeed()
+        return true
+    }
+
     /** Ends the page load of a queue that a new one replaces: its result is dropped when it arrives. */
     private fun dropQueuePages() {
         queuePageGeneration++
@@ -2994,6 +3060,10 @@ object PlaybackEngine {
         val queue = state.queue.toMutableList().apply { removeAt(index) }
         if (queue.isEmpty()) {
             stop()
+            return
+        }
+        if (index != state.queueIndex && bgMixActive() && retargetBgMix(queue)) {
+            PlaybackSources.remove(state.queue[index].systemMediaId)
             return
         }
         val target = exo
@@ -3030,6 +3100,10 @@ object PlaybackEngine {
         queueSource = queueSource?.let {
             PlaybackQueueSource(it.accountId, it.observeFile, it.download, it.autoDownload, loadMore = null)
         }
+        if (bgMixActive() && retargetBgMix(listOf(state.queue[keep]))) {
+            state.queue.forEachIndexed { index, item -> if (index != keep) PlaybackSources.remove(item.systemMediaId) }
+            return
+        }
         // From the end: removing a later row never moves an earlier one.
         for (index in state.queue.indices.reversed()) {
             if (index != keep) removeFromQueue(index)
@@ -3043,6 +3117,7 @@ object PlaybackEngine {
         val queue = state.queue.toMutableList()
         val moved = queue.removeAt(from)
         queue.add(to, moved)
+        if (bgMixActive() && retargetBgMix(queue)) return
         val target = exo
         if (canEditInPlace(target, state.queue.size) && target != null) {
             target.moveMediaItem(from, to)
@@ -3504,16 +3579,20 @@ object PlaybackEngine {
         _queuePageLoading.value = true
         queuePageJob = scope.launch {
             try {
-                val page = loader()
+                // A request that never answers must not hold a waiting radio forever: it counts as a failed page.
+                val page = withTimeoutOrNull(QUEUE_PAGE_TIMEOUT_MS) { loader() } ?: throw java.io.IOException("Queue page timed out")
                 if (generation != queuePageGeneration || source !== queueSource ||
                     (!providerItem && activeAccountId != null && currentAccount != activeAccountId)) return@launch
                 val now = _state.value
                 if (now.queue.isEmpty() || now.item?.accountId != currentAccount) return@launch
                 val fresh = appendMusicPage(now.queue, page, currentAccount)
-                if (fresh.isEmpty()) return@launch
+                if (fresh.isEmpty()) {
+                    // An empty or fully repeated radio batch is not the end of an endless source: try again with the bounded backoff.
+                    if (providerItem) scheduleQueuePageRetry(generation)
+                    return@launch
+                }
                 if (bgMixActive()) {
-                    // BG Mix plays its own queue: the page extends it instead of the Exo timeline. Reached when a retry
-                    // was scheduled before BG Mix started.
+                    // BG Mix plays its own queue: the page extends it instead of the Exo timeline.
                     if (extendBgMixQueue(fresh, source)) queuePageRetries = 0 else scheduleQueuePageRetry(generation)
                     return@launch
                 }
@@ -3541,13 +3620,20 @@ object PlaybackEngine {
                     queuePageJob = null
                     _queuePageLoading.value = false
                     stopServiceIfQueueStillEnded()
+                    // BG Mix may be waiting at the end of the radio for this page: apply its status again, so it either
+                    // continues with the new tracks or reports the end once no retry is left.
+                    if (bgMixActive()) bgMix?.status?.value?.let(::applyBgMix)
                 }
             }
         }
     }
 
     private fun scheduleQueuePageRetry(generation: Long) {
-        val pause = queuePageRetryDelayMs(queuePageRetries) ?: return
+        val pause = queuePageRetryDelayMs(queuePageRetries) ?: run {
+            // No retry left: a BG Mix queue that waited for this page reports its end now.
+            if (generation == queuePageGeneration && bgMixActive()) bgMix?.status?.value?.let(::applyBgMix)
+            return
+        }
         queuePageRetries++
         queuePageRetryJob?.cancel()
         queuePageRetryJob = scope.launch {
@@ -3578,6 +3664,29 @@ object PlaybackEngine {
         settledGrowingItem(item)?.let { return it }
         val resolved = PlaybackSources.handle(item.systemMediaId)?.resolve() ?: return item
         return if (resolved.growing == null) item.copy(path = resolved.path) else item
+    }
+
+    /**
+     * The track that plays after the current one in real play order (BG Mix queue order, or ExoPlayer's order with shuffle
+     * and repeat), with its local path when its file is resolved; null when there is none or it is private. Main thread only.
+     */
+    fun nextInPlayOrder(): PlaybackItem? {
+        val state = _state.value
+        val current = state.item ?: return null
+        if (current.systemPrivate || state.queue.isEmpty()) return null
+        val next = (
+            if (bgMixActive()) {
+                bgMix?.itemAt(state.queueIndex + 1)
+            } else {
+                val target = exo ?: return null
+                val nextIndex = target.nextMediaItemIndex
+                if (nextIndex == C.INDEX_UNSET) return null
+                val nextMediaId = target.getMediaItemAt(nextIndex).mediaId
+                state.queue.firstOrNull { it.systemMediaId == nextMediaId }
+            }
+        ) ?: return null
+        if (next.systemPrivate || next.key == current.key) return null
+        return withResolvedSource(next)
     }
 
     /**

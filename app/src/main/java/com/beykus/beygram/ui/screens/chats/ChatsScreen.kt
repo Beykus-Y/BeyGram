@@ -135,6 +135,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.beykus.beygram.R
 import com.beykus.beygram.data.appearance.ListDensity
+import com.beykus.beygram.data.update.UpdateBannerState
 import com.beykus.beygram.domain.UiText
 import com.beykus.beygram.domain.model.ChatMessage
 import com.beykus.beygram.domain.model.ChatPreview
@@ -288,7 +289,14 @@ fun ChatsScreen(
      * Поиск, папка и позиция списка. Владелец экрана держит это состояние выше раскладки,
      * поэтому переход между телефоном и двумя панелями не сбрасывает список.
      */
-    state: ChatsScreenState = rememberChatsScreenState()
+    state: ChatsScreenState = rememberChatsScreenState(),
+    /**
+     * An available build, when the updater has a confirmed offer. Null hides the line entirely; the banner is part of
+     * the scrolling list, never an overlay, so it cannot cover a chat, the composer or the keyboard.
+     */
+    updateBanner: UpdateBannerState? = null,
+    onUpdateBannerOpen: () -> Unit = {},
+    onUpdateBannerSnooze: () -> Unit = {}
 ) {
     val query = state.query
     // After upgrading from the local text field, never leave the list filtered by a stale saved query.
@@ -343,13 +351,25 @@ fun ChatsScreen(
     }
     // Статус сессии Telegram общий для телефона и двухпанельного списка: он не зависит от раскладки.
     val connectionStatus = rememberChatsConnectionStatus(accountId, connectionState)
-    var openSwipeChatId by remember { mutableStateOf<Long?>(null) }
-    var selectedActions by remember { mutableStateOf<ChatPreview?>(null) }
-    var peekedChat by remember { mutableStateOf<ChatPreview?>(null) }
-    var confirmReadAll by remember { mutableStateOf(false) }
+    // A revealed swipe belongs to the current account and folder only.
+    var openSwipeChatId by remember(accountId, activeFolderId) { mutableStateOf<Long?>(null) }
+    var selectedActions by remember(accountId, activeFolderId) { mutableStateOf<ChatPreview?>(null) }
+    var peekedChat by remember(accountId, activeFolderId) { mutableStateOf<ChatPreview?>(null) }
+    var confirmReadAll by remember(accountId, activeFolderId) { mutableStateOf(false) }
     val swipeStore = remember(context) { ChatSwipeSettingsStore(context) }
     var swipePreferences by remember(accountId) { mutableStateOf(swipeStore.load(accountId)) }
     var showSwipeSettings by remember(accountId) { mutableStateOf(false) }
+    val coveredByOverlay = com.beykus.beygram.LocalMainTabsCovered.current
+    LaunchedEffect(coveredByOverlay) {
+        if (coveredByOverlay) {
+            openSwipeChatId = null
+            selectedActions = null
+            peekedChat = null
+            confirmReadAll = false
+            showSwipeSettings = false
+            managingFolders = false
+        }
+    }
     val snackbarState = remember(accountId) { SnackbarHostState() }
     val snackbarScope = rememberCoroutineScope()
     val changeSwipePreferences: (ChatSwipePreferences) -> Unit = { updated ->
@@ -632,7 +652,7 @@ fun ChatsScreen(
         if (listState.firstVisibleItemIndex != 0 || listState.firstVisibleItemScrollOffset != 0) listState.scrollToItem(0)
     }
 
-    if (managingFolders) {
+    if (managingFolders && !coveredByOverlay) {
         val manager: @Composable () -> Unit = {
             // Sorting every chat by title is only needed while the manager is open, and once per list change.
             val knownChats = remember(chats, archivedChats, folderChats) {
@@ -896,6 +916,15 @@ fun ChatsScreen(
             )
         ) {
             // Stories live on the main chat list only, not in search results or a server folder.
+            if (activeFolderId == null && query.isBlank() && updateBanner != null) {
+                item(key = "update_banner") {
+                    UpdateAvailableBanner(
+                        model = updateBanner,
+                        onOpen = onUpdateBannerOpen,
+                        onSnooze = onUpdateBannerSnooze,
+                    )
+                }
+            }
             if (activeFolderId == null && query.isBlank()) {
                 item(key = "story_bar") {
                     StoryBarSection(
@@ -1105,6 +1134,7 @@ fun ChatsScreen(
                   backdropBase = palette.screen,
                   shape = RectangleShape,
                   edge = GlassEdge.BottomHairline,
+                  lensOnFreeEdge = true,
                   // The pane is hit-tested as a whole: a tap on the title or a gap must not reach a chat row
                   // scrolled underneath. Its own buttons and the search field still receive input first.
                   modifier = Modifier.fillMaxWidth().onSizeChanged {
@@ -1190,7 +1220,8 @@ fun ChatsScreen(
                     Result.failure(IllegalStateException("archive"))
                 }
             },
-            delete = { onDeleteChat(selected.id) }
+            delete = { onDeleteChat(selected.id) },
+            onPeek = { peekedChat = selected }
         )
     }
     peekedChat?.let { peek ->
@@ -1199,7 +1230,14 @@ fun ChatsScreen(
             observeFile = observeFile,
             downloadFile = downloadFile,
             load = onPeekChat,
-            onClose = { peekedChat = null }
+            onClose = { peekedChat = null },
+            onOpenChat = { onChatClick(peek) },
+            onToggleMute = { onMuteChat(peek.id, !peek.isMuted) },
+            onTogglePin = {
+                if (activeFolderId != null) onPinFolderChat(activeFolderId, peek.id, !peek.isPinned)
+                else onPinChat(peek.id, !peek.isPinned)
+            },
+            onMarkRead = { onMarkRead(peek) }
         )
     }
 }

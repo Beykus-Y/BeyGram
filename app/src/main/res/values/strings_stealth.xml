@@ -4,7 +4,7 @@
     <string name="stealth_status_on">Включён</string>
     <string name="stealth_status_off">Выключен</string>
     <string name="stealth_unavailable">Сейчас недоступно для этого аккаунта</string>
-    <string name="stealth_fail_closed">Сохранённые настройки не удалось прочитать. Все сигналы заблокированы, пока вы не сохраните настройки заново. Любое изменение сохраняет их.</string>
+    <string name="stealth_fail_closed">Не удалось прочитать настройки. До успешного сохранения BeyGram ограничивает сигналы, которыми управляет этот режим.</string>
     <string name="stealth_save_failed">Не удалось сохранить настройку</string>
 
     <string name="stealth_group_presets">Уровень защиты</string>
@@ -15,15 +15,15 @@
 
     <string name="stealth_group_switches">Что скрывать</string>
     <string name="stealth_hide_typing_title">Не показывать, что я печатаю</string>
-    <string name="stealth_hide_typing_detail">Также скрывает запись голосовых и видео и отправку файлов.</string>
+    <string name="stealth_hide_typing_detail">BeyGram ограничивает отправку сигналов набора, записи и загрузки по настройкам этого чата.</string>
     <string name="stealth_no_read_receipts_title">Не отмечать сообщения прочитанными</string>
-    <string name="stealth_no_read_receipts_detail">Чаты остаются непрочитанными для собеседника. Открытие и прокрутка чата не отправляют отметку. Кнопка «%1$s» сначала спрашивает.</string>
+    <string name="stealth_no_read_receipts_detail">BeyGram учитывает настройки чата перед отправкой отметок. Действие «%1$s» запрашивает согласие, если отметки ограничены.</string>
     <string name="stealth_no_content_open_title">Не сообщать об открытии медиа</string>
-    <string name="stealth_no_content_open_detail">Голосовые и видео не отмечаются прослушанными и просмотренными. Одноразовые медиа спрашивают перед открытием.</string>
+    <string name="stealth_no_content_open_detail">BeyGram учитывает настройки чата перед отправкой отметок об открытии медиа. Для одноразового медиа может потребоваться согласие.</string>
     <string name="stealth_no_story_views_title">Не просматривать истории заметно</string>
-    <string name="stealth_no_story_views_detail">Истории открываются без добавления в список просмотревших и остаются непросмотренными.</string>
+    <string name="stealth_no_story_views_detail">BeyGram учитывает настройки перед отправкой отметки о просмотре истории.</string>
     <string name="stealth_hide_online_title">Скрывать статус «в сети»</string>
-    <string name="stealth_hide_online_detail">Приложение не сообщает, что вы в сети. Telegram всё равно показывает вас в сети около 30 секунд, когда вы отправляете сообщение, читаете личное сообщение или печатаете.</string>
+    <string name="stealth_hide_online_detail">BeyGram применяет настройку присутствия этого аккаунта. Telegram может показать вас в сети после отправки сообщения, чтения в личном чате или набора текста.</string>
     <string name="stealth_warn_risky_title">Предупреждать перед действиями, которые могут показать активность</string>
     <string name="stealth_warn_risky_detail">Спрашивает перед отправкой сообщения, реакцией, голосом в опросе и нажатием кнопки бота. Telegram может показать вас в сети около 30 секунд.</string>
 
@@ -53,4 +53,23 @@
         <item quantity="many">Собеседники в %1$d чатах увидят, что сообщения прочитаны.</item>
         <item quantity="other">Собеседники в %1$d чатах увидят, что сообщения прочитаны.</item>
     </plurals>
+
+    <string name="stealth_client_state">Настройки клиента</string>
+    <string name="stealth_group_reading">Чтение и просмотр</string>
+    <string name="stealth_group_activity">Присутствие и действия</string>
+    <string name="stealth_active_parameters">Активные параметры</string>
+    <string name="stealth_no_active_parameters">Обычные правила клиента</string>
+    <string name="stealth_server_visibility_unknown">Видимость активности в Telegram неизвестна.</string>
+    <string name="stealth_quick_presets">Быстрый выбор режима</string>
+
+    <string name="stealth_summary_typing">Набор и запись</string>
+    <string name="stealth_summary_reads">Квитанции прочтения</string>
+    <string name="stealth_summary_media">Открытие медиа</string>
+    <string name="stealth_summary_stories">Просмотры историй</string>
+    <string name="stealth_summary_presence">Присутствие</string>
+    <string name="stealth_summary_warnings">Предупреждения</string>
+    <string name="stealth_summary_scheduled">Отправка по расписанию</string>
+    <string name="stealth_summary_scope">Другие сессии Telegram действуют отдельно.</string>
+    <string name="stealth_show_limits">Показать ограничения</string>
+    <string name="stealth_hide_limits">Скрыть ограничения</string>
 </resources>

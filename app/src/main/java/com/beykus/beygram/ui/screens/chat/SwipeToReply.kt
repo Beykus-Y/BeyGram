@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.Reply
+import androidx.compose.material.icons.rounded.Favorite
 import androidx.compose.material3.Icon
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -23,6 +24,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalHapticFeedback
@@ -52,6 +54,8 @@ internal fun SwipeToReply(
     enabled: Boolean,
     outgoing: Boolean,
     onReply: () -> Unit,
+    onSecondaryAction: (() -> Unit)? = null,
+    secondaryIcon: ImageVector = Icons.Rounded.Favorite,
     content: @Composable (Modifier) -> Unit
 ) {
     val palette = beyGramPalette()
@@ -61,14 +65,20 @@ internal fun SwipeToReply(
     val triggerPx = with(density) { ReplyTrigger.toPx() }
     val maxPullPx = with(density) { ReplyMaxPull.toPx() }
     val direction = if (outgoing) -1f else 1f
-    // The drag writes the pull directly, so a touch move starts no coroutine. The animation only brings the bubble back.
+    val hasSecondary = onSecondaryAction != null
+    // Positive pull = reply toward chat center; negative pull = secondary quick action in opposite direction.
     var pull by remember { mutableFloatStateOf(0f) }
     var settling by remember { mutableStateOf<Job?>(null) }
-    val armed by remember { derivedStateOf { isReplyArmed(pull, triggerPx) } }
+    val armedReply by remember { derivedStateOf { isReplyArmed(pull, triggerPx) } }
+    val armedSecondary by remember { derivedStateOf { hasSecondary && isReplyArmed(-pull, triggerPx) } }
     val dragState = rememberDraggableState { delta ->
-        val wasArmed = isReplyArmed(pull, triggerPx)
-        pull = (pull + delta * direction).coerceIn(0f, maxPullPx)
-        if (!wasArmed && isReplyArmed(pull, triggerPx)) haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+        val wasReply = isReplyArmed(pull, triggerPx)
+        val wasSecondary = hasSecondary && isReplyArmed(-pull, triggerPx)
+        val minPull = if (hasSecondary) -maxPullPx else 0f
+        pull = (pull + delta * direction).coerceIn(minPull, maxPullPx)
+        if ((!wasReply && isReplyArmed(pull, triggerPx)) || (!wasSecondary && hasSecondary && isReplyArmed(-pull, triggerPx))) {
+            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+        }
     }
     // A bubble that stops being swipeable in the middle of a gesture must not stay pushed to the side.
     LaunchedEffect(enabled) { if (!enabled) pull = 0f }
@@ -76,10 +86,10 @@ internal fun SwipeToReply(
     Box(Modifier.fillMaxWidth()) {
         Icon(
             Icons.AutoMirrored.Rounded.Reply, contentDescription = null,
-            tint = if (armed) palette.accent else palette.textSecondary,
+            tint = if (armedReply) palette.accent else palette.textSecondary,
             modifier = Modifier.align(if (outgoing) Alignment.CenterEnd else Alignment.CenterStart)
                 .padding(horizontal = 16.dp).size(24.dp).graphicsLayer {
-                    val progress = replySwipeProgress(pull, triggerPx)
+                    val progress = replySwipeProgress(pull.coerceAtLeast(0f), triggerPx)
                     val scale = 0.6f + 0.4f * progress
                     alpha = progress
                     // Flipped for incoming messages, so the arrow points at the bubble it belongs to.
@@ -87,9 +97,27 @@ internal fun SwipeToReply(
                     scaleY = scale
                 }
         )
+        if (hasSecondary) {
+            Icon(
+                secondaryIcon, contentDescription = null,
+                tint = if (armedSecondary) palette.accent else palette.textSecondary,
+                modifier = Modifier.align(if (outgoing) Alignment.CenterStart else Alignment.CenterEnd)
+                    .padding(horizontal = 16.dp).size(22.dp).graphicsLayer {
+                        val progress = replySwipeProgress((-pull).coerceAtLeast(0f), triggerPx)
+                        val scale = 0.6f + 0.4f * progress
+                        alpha = progress
+                        scaleX = scale
+                        scaleY = scale
+                    }
+            )
+        }
         content(
             Modifier.align(if (outgoing) Alignment.TopEnd else Alignment.TopStart)
-                .graphicsLayer { translationX = replySwipeOffset(pull, triggerPx) * direction }
+                .graphicsLayer {
+                    val signedOffset = if (pull >= 0f) replySwipeOffset(pull, triggerPx)
+                    else -replySwipeOffset(-pull, triggerPx)
+                    translationX = signedOffset * direction
+                }
                 .draggable(
                     state = dragState,
                     orientation = Orientation.Horizontal,
@@ -97,8 +125,10 @@ internal fun SwipeToReply(
                     onDragStarted = { settling?.cancel() },
                     onDragStopped = {
                         val reply = isReplyArmed(pull, triggerPx)
+                        val secondary = hasSecondary && isReplyArmed(-pull, triggerPx)
                         settling = scope.launch { animate(pull, 0f) { value, _ -> pull = value } }
                         if (reply) onReply()
+                        else if (secondary) onSecondaryAction?.invoke()
                     }
                 )
         )

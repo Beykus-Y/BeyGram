@@ -5,6 +5,7 @@ import androidx.datastore.core.DataMigration
 import androidx.datastore.core.handlers.ReplaceFileCorruptionHandler
 import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.edit
+import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.intPreferencesKey
 import androidx.datastore.preferences.core.emptyPreferences
 import androidx.datastore.preferences.core.stringPreferencesKey
@@ -33,6 +34,8 @@ private val MessageTimeColorKey = intPreferencesKey("message_time_color")
 private val MessageAnimationsKey = stringPreferencesKey("message_animations")
 private val DesignStyleKey = stringPreferencesKey("design_style")
 private val GlassQualityKey = stringPreferencesKey("glass_quality")
+internal val LiquidGlassV2Key = booleanPreferencesKey("liquid_glass_v2")
+internal val LiquidGlassLensPresetKey = stringPreferencesKey("liquid_glass_lens_preset")
 private val NavigationPlacementKey = stringPreferencesKey("navigation_placement")
 
 private val Context.appearanceDataStore by preferencesDataStore(
@@ -47,26 +50,7 @@ class AppearanceSettingsStore(context: Context) {
 
     val config: Flow<AppearanceConfig> = dataStore.data
         .catch { error -> if (error is IOException) emit(emptyPreferences()) else throw error }
-        .map { preferences ->
-            AppearanceConfig(
-                preset = themePresetFromStored(preferences[ThemePresetKey]),
-                mode = themeModeFromStored(preferences[ThemeModeKey]),
-                bubbleStyle = bubbleStyleFromStored(preferences[BubbleStyleKey]),
-                density = listDensityFromStored(preferences[ListDensityKey]),
-                accentColor = preferences[AccentColorKey],
-                outgoingBubbleColor = preferences[OutgoingBubbleColorKey],
-                wallpaper = chatWallpaperFromStored(preferences[WallpaperKey]),
-                messageTextSizeSp = validMessageTextSize(preferences[MessageTextSizeKey] ?: DEFAULT_MESSAGE_TEXT_SIZE_SP),
-                bubbleCornerRadiusDp = validBubbleCornerRadius(preferences[BubbleCornerRadiusKey]),
-                messageLineSpacing = messageLineSpacingFromStored(preferences[MessageLineSpacingKey]),
-                messageTextColor = preferences[MessageTextColorKey],
-                messageTimeColor = preferences[MessageTimeColorKey],
-                messageAnimations = messageAnimationConfigFromStored(preferences[MessageAnimationsKey]),
-                designStyle = designStyleFromStored(preferences[DesignStyleKey]),
-                glassQuality = glassQualityFromStored(preferences[GlassQualityKey]),
-                navigationPlacement = navigationPlacementFromStored(preferences[NavigationPlacementKey])
-            )
-        }
+        .map(::appearanceConfigFromPreferences)
 
     suspend fun save(config: AppearanceConfig) {
         dataStore.edit { preferences ->
@@ -90,6 +74,8 @@ class AppearanceSettingsStore(context: Context) {
             preferences[MessageAnimationsKey] = config.messageAnimations.encode()
             preferences[DesignStyleKey] = config.designStyle.name
             preferences[GlassQualityKey] = config.glassQuality.name
+            preferences[LiquidGlassV2Key] = config.liquidGlassV2
+            preferences[LiquidGlassLensPresetKey] = config.liquidGlassPreset.name
             preferences[NavigationPlacementKey] = config.navigationPlacement.name
         }
     }
@@ -118,3 +104,26 @@ internal fun migratedThemeMode(hasStoredMode: Boolean, legacyDarkTheme: Boolean?
     if (hasStoredMode || legacyDarkTheme == null) return null
     return if (legacyDarkTheme) ThemeMode.Dark else ThemeMode.Light
 }
+
+internal fun appearanceConfigFromPreferences(preferences: Preferences): AppearanceConfig = AppearanceConfig(
+    preset = themePresetFromStored(preferences[ThemePresetKey]),
+    mode = themeModeFromStored(preferences[ThemeModeKey]),
+    bubbleStyle = bubbleStyleFromStored(preferences[BubbleStyleKey]),
+    density = listDensityFromStored(preferences[ListDensityKey]),
+    accentColor = preferences[AccentColorKey],
+    outgoingBubbleColor = preferences[OutgoingBubbleColorKey],
+    wallpaper = chatWallpaperFromStored(preferences[WallpaperKey]),
+    messageTextSizeSp = validMessageTextSize(preferences[MessageTextSizeKey] ?: DEFAULT_MESSAGE_TEXT_SIZE_SP),
+    bubbleCornerRadiusDp = validBubbleCornerRadius(preferences[BubbleCornerRadiusKey]),
+    messageLineSpacing = messageLineSpacingFromStored(preferences[MessageLineSpacingKey]),
+    messageTextColor = preferences[MessageTextColorKey],
+    messageTimeColor = preferences[MessageTimeColorKey],
+    messageAnimations = messageAnimationConfigFromStored(preferences[MessageAnimationsKey]),
+    designStyle = designStyleFromStored(preferences[DesignStyleKey]),
+    glassQuality = glassQualityFromStored(preferences[GlassQualityKey]),
+    // Safe migration: missing or damaged keys resolve to V2 Clear, while valid persisted values
+    // (including legacy false/Standard written by earlier save() calls) are preserved as-is.
+    liquidGlassV2 = preferences[LiquidGlassV2Key] ?: true,
+    liquidGlassPreset = liquidGlassLensPresetFromStored(preferences[LiquidGlassLensPresetKey]),
+    navigationPlacement = navigationPlacementFromStored(preferences[NavigationPlacementKey])
+)

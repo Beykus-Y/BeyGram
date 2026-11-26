@@ -47,7 +47,8 @@ internal fun AppearanceOverviewPage(
     draft: AppearanceConfig,
     systemDark: Boolean,
     onOpenPage: (AppearancePage) -> Unit,
-    onOpenPreview: () -> Unit
+    onOpenPreview: () -> Unit,
+    onApplyPreset: ((AppearanceConfig) -> Unit)? = null
 ) {
     val palette = beyGramPalette()
     val compactHeight = LocalConfiguration.current.screenHeightDp < 500
@@ -113,6 +114,14 @@ internal fun AppearanceOverviewPage(
                     modifier = Modifier.fillMaxWidth()
                 )
             }
+        }
+
+        if (onApplyPreset != null) {
+            AppearanceUserPresetsSection(
+                draft = draft,
+                systemDark = systemDark,
+                onApplyPreset = onApplyPreset
+            )
         }
 
         AppearanceSectionLabel(stringResource(R.string.appearance_section_navigation))

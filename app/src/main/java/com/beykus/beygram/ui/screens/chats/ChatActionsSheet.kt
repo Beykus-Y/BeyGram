@@ -13,6 +13,7 @@ import androidx.compose.material.icons.rounded.MarkChatUnread
 import androidx.compose.material.icons.rounded.NotificationsActive
 import androidx.compose.material.icons.rounded.NotificationsOff
 import androidx.compose.material.icons.rounded.PushPin
+import androidx.compose.material.icons.rounded.Visibility
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -58,7 +59,8 @@ internal fun ChatActionsSheet(
     setRead: suspend () -> Result<Unit>,
     setUnread: suspend () -> Result<Unit>,
     archive: suspend () -> Result<Unit>,
-    delete: suspend () -> Result<Unit>
+    delete: suspend () -> Result<Unit>,
+    onPeek: (() -> Unit)? = null
 ) {
     val palette = beyGramPalette()
     val design = LocalDesignSystem.current
@@ -150,6 +152,17 @@ internal fun ChatActionsSheet(
                     else Modifier.clip(groupCardShape()).background(groupSurfaceColor())
                 )
         ) {
+            if (onPeek != null) {
+                SheetActionRow(
+                    icon = Icons.Rounded.Visibility,
+                    title = stringResource(R.string.peek_no_read_hint),
+                    onClick = {
+                        onClose()
+                        onPeek()
+                    }
+                )
+                Box(Modifier.padding(start = 52.dp).fillMaxWidth().height(1.dp).background(palette.divider))
+            }
             SheetActionRow(
                 icon = Icons.Rounded.ContentCopy,
                 title = stringResource(R.string.feature_copy_chat_title),

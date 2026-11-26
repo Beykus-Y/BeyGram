@@ -4,8 +4,11 @@ import androidx.activity.compose.BackHandler
 import com.beykus.beygram.ui.design.styledShape
 import android.os.SystemClock
 import android.widget.Toast
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.Crossfade
 import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -13,6 +16,8 @@ import androidx.compose.foundation.focusable
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.detectDragGestures
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import com.beykus.beygram.ui.screens.music.WaveBackdrop
@@ -45,15 +50,20 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
+import androidx.compose.material.icons.automirrored.rounded.KeyboardArrowRight
 import androidx.compose.material.icons.rounded.ChatBubble
+import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.DragHandle
 import androidx.compose.material.icons.rounded.Equalizer
 import androidx.compose.material.icons.rounded.KeyboardArrowDown
+import androidx.compose.material.icons.rounded.Lyrics
 import androidx.compose.material.icons.rounded.MoreHoriz
 import androidx.compose.material.icons.rounded.MoreVert
 import com.beykus.beygram.ui.components.sheetSurfaceColor
 import com.beykus.beygram.ui.motion.MotionSpec
 import com.beykus.beygram.ui.motion.MotionToken
+import com.beykus.beygram.ui.motion.fadeEnter
+import com.beykus.beygram.ui.motion.fadeExit
 import com.beykus.beygram.ui.motion.rememberMotionSpec
 import com.beykus.beygram.ui.theme.LocalBeyGramTokens
 import com.beykus.beygram.media.bgbeat.BgBeatSection
@@ -63,6 +73,7 @@ import androidx.compose.material.icons.rounded.QueueMusic
 import androidx.compose.material.icons.rounded.Repeat
 import androidx.compose.material.icons.rounded.RepeatOne
 import androidx.compose.material.icons.rounded.Replay
+import androidx.compose.material.icons.rounded.Search
 import androidx.compose.material.icons.rounded.Tune
 import androidx.compose.material.icons.rounded.Waves
 import androidx.compose.material.icons.rounded.Share
@@ -117,12 +128,15 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.LayoutCoordinates
 import androidx.compose.ui.text.TextStyle
@@ -142,6 +156,9 @@ import androidx.compose.ui.input.key.type
 import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.input.pointer.positionChanged
+import androidx.compose.ui.input.pointer.util.VelocityTracker
+import androidx.compose.ui.zIndex
+import kotlinx.coroutines.Job
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalHapticFeedback
@@ -166,11 +183,19 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.zIndex
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.beykus.beygram.R
+import com.beykus.beygram.data.canvas.BgCanvasMode
+import com.beykus.beygram.data.canvas.CanvasLoadState
+import com.beykus.beygram.media.bgbeat.BgBeatSection
+import com.beykus.beygram.ui.accessibility.rememberSystemReducedMotion
+import com.beykus.beygram.ui.motion.LocalMotionSettings
+import com.beykus.beygram.ui.motion.MotionCategory
+import com.beykus.beygram.ui.screens.music.PlayerWaveBackdrop
 import com.beykus.beygram.media.bgwave.BgWaveHub
 import androidx.compose.material.icons.rounded.GraphicEq
 import com.beykus.beygram.playback.PLAYBACK_SPEED_OPTIONS
 import com.beykus.beygram.playback.PlaybackEngine
 import com.beykus.beygram.playback.PlaybackItem
+import com.beykus.beygram.playback.PlaybackState
 import com.beykus.beygram.playback.PlaybackRepeatMode
 import com.beykus.beygram.playback.SLEEP_TIMER_MAX_MINUTES
 import com.beykus.beygram.playback.SleepTimerState
@@ -192,13 +217,14 @@ import com.beykus.beygram.ui.screens.music.reportMusicOutcome
 import com.beykus.beygram.ui.screens.profile.LocalAddProfileAudio
 import com.beykus.beygram.ui.screens.profile.PROFILE_AUDIO_KEY_PREFIX
 import com.beykus.beygram.ui.text.userMessage
+import com.beykus.beygram.ui.screens.music.LocalOpenProviderAlbum
 import com.beykus.beygram.ui.screens.music.PlayerProviderTrackMenuItems
 
 private const val SEEK_STEP_MS = 5_000L
 private val QUEUE_ROW_HEIGHT = 76.dp
 private val QUEUE_RISE_DP = 48.dp
 
-internal enum class PlayerPanel { Player, Queue }
+internal enum class PlayerPanel { Player, Queue, Lyrics }
 
 /**
  * Stops the sheet from taking over a list's overscroll at its end. When a list reaches its bottom, the upward
@@ -228,7 +254,8 @@ internal fun MusicPlayerContent(
     onOpenEqualizer: (() -> Unit)?,
     onOpenMusicSearch: (() -> Unit)?,
     onOpenMyMusic: (() -> Unit)?,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    ambientAccent: Color = beyGramPalette().surface
 ) {
     val source = rememberPlaybackSourceLabel(
         origin = player.item.origin,
@@ -236,10 +263,9 @@ internal fun MusicPlayerContent(
         // Not a state: read again on each recomposition, which every queue change causes.
         radio = PlaybackEngine.activeRadio
     )
-    BackHandler(enabled = panel == PlayerPanel.Queue) { onPanel(PlayerPanel.Player) }
+    BackHandler(enabled = panel != PlayerPanel.Player) { onPanel(PlayerPanel.Player) }
     // The endless radio (a wave) gets soft drifting ribbons behind the player while it is audible.
     val endless = PlaybackEngine.activeRadio != null && PlaybackEngine.currentQueueIsEndless()
-    val waveRibbons = endless && player.playing
     val palette = beyGramPalette()
     val queueSpec = rememberMotionSpec(MotionToken.PlayerExpand)
     val risePx = with(LocalDensity.current) { QUEUE_RISE_DP.toPx() }
@@ -281,7 +307,7 @@ internal fun MusicPlayerContent(
         }
         settled = panel
     }
-    val moving = settled != panel
+    val moving = (settled == PlayerPanel.Queue) != (panel == PlayerPanel.Queue)
     // The mini bar's shared elements do not fly while the queue moves; the container still does.
     SideEffect { PlayerExpansion.queueBusy = moving }
     DisposableEffect(Unit) {
@@ -292,15 +318,124 @@ internal fun MusicPlayerContent(
     }
     val showPlayer = settled == PlayerPanel.Player || panel == PlayerPanel.Player
     val showQueue = settled == PlayerPanel.Queue || panel == PlayerPanel.Queue
+    val lyricsVisible = panel == PlayerPanel.Lyrics
+    val playerOverlayAlpha by animateFloatAsState(
+        targetValue = if (lyricsVisible) 0f else 1f,
+        animationSpec = queueSpec.animationSpec(),
+        label = "playerLyricsFade"
+    )
+    // Precomputed lightweight gradient from the cached cover palette: no realtime blur, single draw pass.
+    val ambientBrush = remember(ambientAccent, palette.surface) {
+        if (ambientAccent == palette.surface) null
+        else Brush.verticalGradient(
+            0.0f to ambientAccent,
+            0.55f to palette.surface,
+            1.0f to palette.surface
+        )
+    }
     // Kept across Player and Queue, so the list keeps its place while the overlay stays open.
     val queueList = rememberSaveable(saver = LazyListState.Saver) { LazyListState() }
     var queuePlaced by rememberSaveable { mutableStateOf(false) }
-    Box(modifier.fillMaxWidth().onGloballyPositioned { contentCoords = it }) {
-        if (waveRibbons) {
-            WaveBackdrop(
-                color = palette.accent,
-                secondary = palette.accentSoft,
-                modifier = Modifier.matchParentSize().alpha(0.5f),
+    val fallbackDurationMs = player.item.durationSeconds.coerceAtLeast(0) * 1000L
+    val rhythmSignal = rememberBgRhythmSignal(
+        item = player.item,
+        playing = player.playing,
+        speed = player.speed,
+        fallbackDurationMs = fallbackDurationMs,
+        active = panel == PlayerPanel.Player,
+    )
+    val rhythmGlowBrush = remember(palette.accent) {
+        Brush.verticalGradient(
+            0.0f to palette.accent,
+            0.65f to palette.accent.copy(alpha = 0.2f),
+            1.0f to Color.Transparent,
+        )
+    }
+    val (canvasMode, canvasState) = rememberBgCanvasState(
+        item = player.item,
+        active = panel == PlayerPanel.Player,
+    )
+    val cardCanvasState = if (canvasMode == BgCanvasMode.Card) canvasState else CanvasLoadState.Idle
+    var fullscreenCanvasVisualState by remember(player.item.key, canvasMode) {
+        mutableStateOf(CanvasVisualState.Inactive)
+    }
+    var cardCanvasVisualState by remember(player.item.key, canvasMode) {
+        mutableStateOf(CanvasVisualState.Inactive)
+    }
+    val activeCanvasVisualState = when (canvasMode) {
+        BgCanvasMode.Fullscreen -> fullscreenCanvasVisualState
+        BgCanvasMode.Card -> cardCanvasVisualState
+        BgCanvasMode.Off -> CanvasVisualState.Inactive
+    }
+    val resumed = rememberLifecycleResumed()
+    val powerSave = rememberPowerSaveMode(resumed)
+    val reducedMotion = rememberSystemReducedMotion()
+    val motionSettings = LocalMotionSettings.current
+    val mediaMotionAllowed = motionSettings.enabled && MotionCategory.Media !in motionSettings.disabledCategories
+    val backdropPolicy = resolvePlayerBackdropPolicy(
+        waveEligible = endless,
+        canvasMode = canvasMode,
+        canvasLoadState = canvasState,
+        canvasVisualState = activeCanvasVisualState,
+        panel = panel,
+        playing = player.playing,
+        resumed = resumed,
+        reducedMotion = reducedMotion,
+        mediaMotionAllowed = mediaMotionAllowed,
+        powerSave = powerSave,
+    )
+    val animatedWaveAlpha by animateFloatAsState(
+        targetValue = backdropPolicy.waveAlpha,
+        animationSpec = queueSpec.animationSpec(),
+        label = "playerWaveAlpha",
+    )
+    val animatedScrimAlpha by animateFloatAsState(
+        targetValue = backdropPolicy.fullscreenScrimAlpha,
+        animationSpec = queueSpec.animationSpec(),
+        label = "playerCanvasScrimAlpha",
+    )
+    val darkBackdrop = remember(palette.surface) { palette.surface.luminance() < 0.5f }
+    val wavePrimary = if (ambientAccent != palette.surface) ambientAccent else palette.accent
+    Box(
+        modifier
+            .fillMaxWidth()
+            .then(if (ambientBrush != null) Modifier.drawBehind { drawRect(ambientBrush) } else Modifier)
+            .drawBehind {
+                val glowScale = backdropPolicy.rhythmGlowScale
+                if (glowScale > 0f && rhythmSignal.isActive && rhythmSignal.phraseEnergy > 0f) {
+                    drawRect(
+                        brush = rhythmGlowBrush,
+                        alpha = (rhythmSignal.phraseEnergy * 0.16f * glowScale).coerceIn(0f, 0.16f),
+                    )
+                }
+            }
+            .onGloballyPositioned { contentCoords = it }
+    ) {
+        if (backdropPolicy.fullscreenCanvasVisible) {
+            BgCanvasOverlay(
+                state = canvasState,
+                playing = player.playing,
+                modifier = Modifier.matchParentSize(),
+                onVisualStateChange = { fullscreenCanvasVisualState = it },
+            )
+            Box(
+                Modifier
+                    .matchParentSize()
+                    .graphicsLayer { alpha = animatedScrimAlpha }
+                    .background(Color.Black)
+            )
+        }
+        if (endless || animatedWaveAlpha > 0.005f) {
+            PlayerWaveBackdrop(
+                primary = wavePrimary,
+                secondary = palette.accent,
+                tertiary = palette.accentSoft,
+                darkTheme = darkBackdrop,
+                trackKey = player.item.key,
+                animate = backdropPolicy.waveAnimate,
+                alphaProvider = { animatedWaveAlpha },
+                rhythmSignalProvider = { rhythmSignal },
+                modifier = Modifier.matchParentSize(),
             )
         }
         Box(
@@ -314,21 +449,48 @@ internal fun MusicPlayerContent(
                 Column(
                     Modifier
                         .fillMaxSize()
-                        .graphicsLayer { alpha = 1f - ramp(queueMotion.value, 0f, 0.45f) }
-                        .blockInputWhile(moving)
+                        .graphicsLayer { alpha = (1f - ramp(queueMotion.value, 0f, 0.45f)) * playerOverlayAlpha }
+                        .blockInputWhile(moving || lyricsVisible)
                 ) {
+                    val openProviderAlbum = LocalOpenProviderAlbum.current
+                    val providerAlbumId = remember(player.item.key) {
+                        ProviderTracks.byKey(player.item.key)
+                            ?.takeIf { ProviderTracks.isProviderKey(player.item.key) }
+                            ?.albumId
+                            ?.takeIf { it.isNotBlank() }
+                    }
+                    val openSourceAction: (() -> Unit)? = when {
+                        player.item.origin != null -> {
+                            val origin = player.item.origin
+                            { PlaybackEngine.requestShowInChat(origin); onLeave() }
+                        }
+                        providerAlbumId != null && openProviderAlbum != null -> {
+                            { onLeave(); openProviderAlbum(providerAlbumId) }
+                        }
+                        else -> null
+                    }
+                    val openSourceLabel = if (player.item.origin != null) {
+                        stringResource(R.string.media_show_in_chat)
+                    } else {
+                        stringResource(R.string.music_provider_open_album)
+                    }
                     PlayerHeader(
                         player = player,
                         source = source,
                         onCollapse = onCollapse,
                         onLeave = onLeave,
-                        onOpenSource = player.item.origin?.let { origin -> { PlaybackEngine.requestShowInChat(origin); onLeave() } },
+                        onOpenSource = openSourceAction,
+                        openSourceLabel = openSourceLabel,
                         onOpenMyMusic = onOpenMyMusic?.let { open -> { onLeave(); open() } }
                     )
                     PlayerBody(
                         modifier = Modifier.weight(1f),
                         player = player,
+                        rhythmSignal = rhythmSignal,
+                        cardCanvasState = cardCanvasState,
+                        onCardCanvasVisualStateChange = { cardCanvasVisualState = it },
                         onOpenQueue = { onPanel(PlayerPanel.Queue) },
+                        onOpenLyrics = { onPanel(PlayerPanel.Lyrics) },
                         onOpenEqualizer = onOpenEqualizer?.let { open ->
                             {
                                 // Leave the player before navigating to the equalizer route; otherwise it stays
@@ -340,6 +502,18 @@ internal fun MusicPlayerContent(
                         onShowInChat = player.item.origin?.let { origin -> { PlaybackEngine.requestShowInChat(origin); onLeave() } }
                     )
                 }
+            }
+            AnimatedVisibility(
+                visible = lyricsVisible,
+                enter = queueSpec.fadeEnter(),
+                exit = queueSpec.fadeExit(),
+                modifier = Modifier.fillMaxSize()
+            ) {
+                LyricsPanel(
+                    player = player,
+                    onBack = { onPanel(PlayerPanel.Player) },
+                    modifier = Modifier.fillMaxSize()
+                )
             }
             if (showQueue) {
                 // The queue fades in while it rises; it starts only after the player has faded, so the two never overlap.
@@ -417,13 +591,13 @@ private fun PlayerHeader(
     onCollapse: () -> Unit,
     onLeave: () -> Unit,
     onOpenSource: (() -> Unit)?,
+    openSourceLabel: String = stringResource(R.string.media_show_in_chat),
     onOpenMyMusic: (() -> Unit)?
 ) {
     val palette = beyGramPalette()
     val closeFocus = remember { FocusRequester() }
     LaunchedEffect(Unit) { runCatching { closeFocus.requestFocus() } }
     val sourceLabel = source.caption ?: stringResource(R.string.player_source_from)
-    val openSourceLabel = stringResource(R.string.media_show_in_chat)
     Row(
         Modifier.fillMaxWidth().heightIn(min = 56.dp).padding(horizontal = 4.dp),
         verticalAlignment = Alignment.CenterVertically
@@ -457,15 +631,26 @@ private fun PlayerHeader(
                     textAlign = TextAlign.Center
                 )
             }
-            Text(
-                source.text,
-                color = palette.textPrimary,
-                fontSize = 13.sp,
-                fontWeight = FontWeight.Medium,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-                textAlign = TextAlign.Center
-            )
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    source.text,
+                    color = palette.textPrimary,
+                    fontSize = 13.sp,
+                    fontWeight = FontWeight.Medium,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    textAlign = TextAlign.Center,
+                    modifier = Modifier.weight(1f, fill = false)
+                )
+                if (onOpenSource != null) {
+                    Icon(
+                        Icons.AutoMirrored.Rounded.KeyboardArrowRight,
+                        contentDescription = null,
+                        tint = palette.textSecondary.copy(alpha = 0.75f),
+                        modifier = Modifier.size(15.dp)
+                    )
+                }
+            }
         }
         PlayerTrackMenu(item = player.item, onCollapse = onLeave, onOpenMyMusic = onOpenMyMusic)
     }
@@ -599,7 +784,11 @@ internal const val SLEEP_EXTEND_MINUTES = 15
 @Composable
 private fun PlayerBody(
     player: MusicPlayerUi,
+    rhythmSignal: BgRhythmSignal,
+    cardCanvasState: CanvasLoadState,
+    onCardCanvasVisualStateChange: (CanvasVisualState) -> Unit,
     onOpenQueue: () -> Unit,
+    onOpenLyrics: () -> Unit,
     onOpenEqualizer: (() -> Unit)?,
     onShowInChat: (() -> Unit)?,
     modifier: Modifier = Modifier
@@ -613,7 +802,7 @@ private fun PlayerBody(
                 Modifier.fillMaxSize().padding(horizontal = 20.dp, vertical = 4.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                PlayerArtwork(player, artwork, mediaMotion)
+                PlayerArtwork(player, artwork, mediaMotion, rhythmSignal, cardCanvasState, onCardCanvasVisualStateChange)
                 Spacer(Modifier.width(28.dp))
                 Column(
                     Modifier
@@ -628,13 +817,14 @@ private fun PlayerBody(
                         player = player,
                         mediaMotion = mediaMotion,
                         onOpenQueue = onOpenQueue,
+                        onOpenLyrics = onOpenLyrics,
                         onOpenEqualizer = onOpenEqualizer,
                         onShowInChat = onShowInChat
                     )
                 }
             }
         } else {
-            val artwork = minOf(maxWidth - 64.dp, maxHeight * 0.36f, 360.dp).coerceAtLeast(140.dp)
+            val artwork = minOf(maxWidth - 64.dp, maxHeight * 0.40f, 360.dp).coerceAtLeast(140.dp)
             Box(Modifier.fillMaxSize().padding(horizontal = 24.dp)) {
                 Column(
                     Modifier
@@ -647,12 +837,13 @@ private fun PlayerBody(
                         .padding(top = 4.dp, bottom = 12.dp),
                     horizontalAlignment = Alignment.CenterHorizontally
                 ) {
-                    PlayerArtwork(player, artwork, mediaMotion)
+                    PlayerArtwork(player, artwork, mediaMotion, rhythmSignal, cardCanvasState, onCardCanvasVisualStateChange)
                     Spacer(Modifier.height(18.dp))
                     PlayerDetails(
                         player = player,
                         mediaMotion = mediaMotion,
                         onOpenQueue = onOpenQueue,
+                        onOpenLyrics = onOpenLyrics,
                         onOpenEqualizer = onOpenEqualizer,
                         onShowInChat = onShowInChat
                     )
@@ -667,6 +858,7 @@ private fun PlayerDetails(
     player: MusicPlayerUi,
     mediaMotion: MotionSpec,
     onOpenQueue: () -> Unit,
+    onOpenLyrics: () -> Unit,
     onOpenEqualizer: (() -> Unit)?,
     onShowInChat: (() -> Unit)?
 ) {
@@ -686,24 +878,39 @@ private fun PlayerDetails(
     Spacer(Modifier.height(6.dp))
     TransportControls(player, mediaMotion)
     Spacer(Modifier.height(14.dp))
+    PlayerActions(player, onOpenQueue, onOpenLyrics, onOpenEqualizer)
+    Spacer(Modifier.height(10.dp))
     BgBeatSection(
         item = player.item,
         playbackFractionProvider = playedProvider,
+        onSeekFraction = { fraction ->
+            PlaybackEngine.seekTo(fraction.coerceIn(0f, 1f), fallbackDurationMs = fallbackDurationMs)
+        },
         modifier = Modifier.padding(horizontal = 4.dp)
     )
-    Spacer(Modifier.height(10.dp))
-    // Lyrics only for tracks of the Yandex Music provider (DEV build); other tracks get no extra row.
-    if (YANDEX_LYRICS_ENABLED && player.item.key.startsWith(YANDEX_TRACK_KEY_PREFIX)) {
-        YandexLyricsSection(key = player.item.key, positionState = positionState)
-        Spacer(Modifier.height(10.dp))
-    }
-    PlayerActions(player, onOpenQueue, onOpenEqualizer)
+}
+
+internal const val ARTWORK_DOUBLE_TAP_SEEK_MS = 10_000L
+
+/** Computes the clamped target seek fraction for a relative seek delta, or null when duration is unknown. */
+internal fun seekDeltaFraction(positionMs: Long, durationMs: Long, deltaMs: Long): Float? {
+    if (durationMs <= 0L) return null
+    val target = (positionMs + deltaMs).coerceIn(0L, durationMs)
+    return (target.toFloat() / durationMs.toFloat()).coerceIn(0f, 1f)
 }
 
 @Composable
-private fun PlayerArtwork(player: MusicPlayerUi, size: Dp, mediaMotion: MotionSpec) {
+private fun PlayerArtwork(
+    player: MusicPlayerUi,
+    size: Dp,
+    mediaMotion: MotionSpec,
+    rhythmSignal: BgRhythmSignal,
+    cardCanvasState: CanvasLoadState = CanvasLoadState.Idle,
+    onCardCanvasVisualStateChange: (CanvasVisualState) -> Unit = {},
+) {
     val palette = beyGramPalette()
     val density = LocalDensity.current
+    val haptic = LocalHapticFeedback.current
     val targets = PlayerExpansion.targets
     SideEffect {
         targets.artworkBackground = palette.accentSoft
@@ -713,45 +920,295 @@ private fun PlayerArtwork(player: MusicPlayerUi, size: Dp, mediaMotion: MotionSp
     }
     DisposableEffect(Unit) { onDispose { targets.artwork = null } }
     val reduced = mediaMotion.isInstant
-    val scale = remember(player.item.key) {
-        Animatable(if (reduced) 1f else 1f - 0.06f * mediaMotion.intensity)
+    val coroutineScope = rememberCoroutineScope()
+    val travelDistancePx = with(density) { (size * 0.78f).toPx().coerceAtLeast(180f) }
+    val offsetFraction = remember { Animatable(0f) }
+    var pendingCommit by remember { mutableStateOf<PendingSwipeCommit?>(null) }
+    var suppressEntryScaleKey by remember { mutableStateOf<String?>(null) }
+    var activeGestureJob by remember { mutableStateOf<Job?>(null) }
+    val skipEntryScale = reduced || suppressEntryScaleKey == player.item.key
+    val entryScale = remember(player.item.key) {
+        Animatable(if (skipEntryScale) 1f else 1f - 0.06f * mediaMotion.intensity)
     }
     LaunchedEffect(player.item.key, reduced) {
-        if (reduced) scale.snapTo(1f)
-        else scale.animateTo(1f, mediaMotion.animationSpec())
+        if (reduced || suppressEntryScaleKey == player.item.key) {
+            entryScale.snapTo(1f)
+            if (suppressEntryScaleKey == player.item.key) suppressEntryScaleKey = null
+        } else {
+            entryScale.animateTo(1f, mediaMotion.animationSpec())
+        }
     }
+    val playing = player.playing || player.intentPlaying
+    val breatheScale by animateFloatAsState(
+        targetValue = if (reduced || playing) 1f else 0.94f,
+        animationSpec = mediaMotion.animationSpec(),
+        label = "artworkBreathe"
+    )
+    val elevation by animateDpAsState(
+        targetValue = if (reduced || playing) 10.dp else 4.dp,
+        animationSpec = mediaMotion.animationSpec(),
+        label = "artworkElevation"
+    )
+    val playbackState by PlaybackEngine.state.collectAsStateWithLifecycle()
+    val nextAdjacent = remember(playbackState.queue, playbackState.queueIndex, player.canNext) {
+        if (player.canNext) adjacentQueueItem(playbackState, -1) else null
+    }
+    val prevAdjacent = remember(playbackState.queue, playbackState.queueIndex, player.canPrevious) {
+        if (player.canPrevious) adjacentQueueItem(playbackState, 1) else null
+    }
+    // Preload adjacent provider covers so static artwork appears immediately during swipe.
+    val nextProviderCover = rememberProviderCover(nextAdjacent?.let { ProviderTracks.byKey(it.key)?.coverUrl })
+    val prevProviderCover = rememberProviderCover(prevAdjacent?.let { ProviderTracks.byKey(it.key)?.coverUrl })
+    LaunchedEffect(player.item.key, pendingCommit) {
+        val commit = pendingCommit ?: return@LaunchedEffect
+        if (player.item.key == commit.targetKey) {
+            offsetFraction.snapTo(0f)
+            pendingCommit = null
+        } else {
+            delay(350L)
+            if (pendingCommit == commit) {
+                pendingCommit = null
+                offsetFraction.animateTo(0f, mediaMotion.animationSpec())
+            }
+        }
+    }
+    LaunchedEffect(playbackState.queue) {
+        val commit = pendingCommit ?: return@LaunchedEffect
+        if (playbackState.queue.none { it.key == commit.targetKey }) {
+            pendingCommit = null
+            offsetFraction.animateTo(0f, mediaMotion.animationSpec())
+        }
+    }
+    // Short visual feedback badge when double-tapping left/right half of the artwork (±10s).
+    var seekFlashDirection by remember(player.item.key) { mutableIntStateOf(0) }
+    var seekFlashNonce by remember(player.item.key) { mutableIntStateOf(0) }
+    LaunchedEffect(seekFlashNonce) {
+        if (seekFlashNonce > 0) {
+            delay(650L)
+            seekFlashDirection = 0
+        }
+    }
+    val fallbackDurationMs = player.item.durationSeconds.coerceAtLeast(0) * 1000L
     Box(
         Modifier
             .size(size)
-            .shadow(6.dp, styledShape(20.dp), clip = false)
-            .graphicsLayer {
-                scaleX = scale.value
-                scaleY = scale.value
+            .pointerInput(player.item.key, fallbackDurationMs) {
+                detectTapGestures(
+                    onDoubleTap = { offset ->
+                        val state = PlaybackEngine.state.value
+                        val duration = state.durationMs.takeIf { it > 0L } ?: fallbackDurationMs
+                        val forward = offset.x >= this.size.width / 2f
+                        val delta = if (forward) ARTWORK_DOUBLE_TAP_SEEK_MS else -ARTWORK_DOUBLE_TAP_SEEK_MS
+                        val fraction = seekDeltaFraction(state.positionMs, duration, delta) ?: return@detectTapGestures
+                        haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                        PlaybackEngine.seekTo(fraction, fallbackDurationMs = fallbackDurationMs)
+                        seekFlashDirection = if (forward) 1 else -1
+                        seekFlashNonce += 1
+                    }
+                )
+            }
+            .pointerInput(player.item.key, player.canNext, player.canPrevious, nextAdjacent?.key, prevAdjacent?.key) {
+                var totalDrag = 0f
+                var startFraction = 0f
+                var velocityTracker = VelocityTracker()
+                detectHorizontalDragGestures(
+                    onDragStart = {
+                        activeGestureJob?.cancel()
+                        if (pendingCommit != null) {
+                            pendingCommit = null
+                            activeGestureJob = coroutineScope.launch { offsetFraction.snapTo(0f) }
+                        }
+                        startFraction = offsetFraction.value
+                        totalDrag = 0f
+                        velocityTracker = VelocityTracker()
+                    },
+                    onDragCancel = {
+                        totalDrag = 0f
+                        activeGestureJob?.cancel()
+                        activeGestureJob = coroutineScope.launch {
+                            offsetFraction.animateTo(0f, mediaMotion.animationSpec())
+                        }
+                    },
+                    onDragEnd = {
+                        val vx = velocityTracker.calculateVelocity().x
+                        val decision = resolveCarouselSwipeDecision(
+                            offsetFraction = offsetFraction.value,
+                            velocityPxPerSec = vx,
+                            canNext = player.canNext,
+                            canPrevious = player.canPrevious,
+                        )
+                        val incoming = when (decision) {
+                            -1 -> nextAdjacent
+                            1 -> prevAdjacent
+                            else -> null
+                        }
+                        activeGestureJob?.cancel()
+                        if (decision == 0 || incoming == null) {
+                            activeGestureJob = coroutineScope.launch {
+                                offsetFraction.animateTo(0f, mediaMotion.animationSpec())
+                            }
+                        } else {
+                            suppressEntryScaleKey = incoming.key
+                            val incomingCover = if (decision < 0) nextProviderCover else prevProviderCover
+                            activeGestureJob = coroutineScope.launch {
+                                if (reduced) {
+                                    offsetFraction.snapTo(decision.toFloat())
+                                } else {
+                                    offsetFraction.animateTo(decision.toFloat(), mediaMotion.animationSpec())
+                                }
+                                pendingCommit = PendingSwipeCommit(
+                                    targetKey = incoming.key,
+                                    direction = decision,
+                                    incomingItem = incoming,
+                                    incomingProviderCover = incomingCover,
+                                )
+                                haptic.performHapticFeedback(HapticFeedbackType.ContextClick)
+                                if (decision < 0) PlaybackEngine.next() else PlaybackEngine.previous()
+                            }
+                        }
+                    },
+                    onHorizontalDrag = { change, dragAmount ->
+                        change.consume()
+                        velocityTracker.addPosition(change.uptimeMillis, change.position)
+                        totalDrag += dragAmount
+                        val raw = startFraction + totalDrag / travelDistancePx
+                        val nextFraction = applyCarouselEdgeResistance(raw, player.canNext, player.canPrevious)
+                        activeGestureJob = coroutineScope.launch { offsetFraction.snapTo(nextFraction) }
+                    }
+                )
             }
             .onGloballyPositioned { targets.artwork = it }
-            .graphicsLayer { alpha = if (PlayerExpansion.fullSharedHidden(FlightRole.Artwork)) 0f else 1f }
     ) {
-        TrackArtwork(
-            artworkPath = player.item.artworkPath,
-            audioPath = player.item.path.takeIf { it.isNotBlank() },
-            modifier = Modifier.fillMaxSize(),
-            background = palette.accentSoft,
-            tint = palette.accentInk,
-            symbolSize = size * 0.22f,
-            cornerRadius = 20.dp,
-            border = palette.divider.copy(alpha = 0.55f)
-        )
-        MascotOverlay(
-            item = player.item,
-            modifier = Modifier
+        val activeCommit = pendingCommit
+        if (activeCommit != null && player.item.key != activeCommit.targetKey) {
+            Box(
+                Modifier
+                    .fillMaxSize()
+                    .graphicsLayer {
+                        scaleX = breatheScale
+                        scaleY = breatheScale
+                        alpha = if (PlayerExpansion.fullSharedHidden(FlightRole.Artwork)) 0f else 1f
+                    }
+                    .shadow(elevation, styledShape(20.dp), clip = false)
+            ) {
+                TrackArtwork(
+                    artworkPath = activeCommit.incomingItem.artworkPath?.takeIf { it.isNotBlank() }
+                        ?: activeCommit.incomingProviderCover,
+                    audioPath = activeCommit.incomingItem.path.takeIf { it.isNotBlank() },
+                    modifier = Modifier.fillMaxSize(),
+                    background = palette.accentSoft,
+                    tint = palette.accentInk,
+                    symbolSize = size * 0.22f,
+                    cornerRadius = 20.dp,
+                    border = palette.divider.copy(alpha = 0.55f)
+                )
+            }
+            return@Box
+        }
+
+        val offset = if (reduced) 0f else offsetFraction.value
+        val adjacentItem = when {
+            offset < -0.001f -> nextAdjacent
+            offset > 0.001f -> prevAdjacent
+            else -> null
+        }
+        if (adjacentItem != null && !PlayerExpansion.fullSharedHidden(FlightRole.Artwork)) {
+            val adjCover = if (offset < 0f) nextProviderCover else prevProviderCover
+            val adjSlot = (if (offset < 0f) 1f else -1f) + offset
+            val adjTransform = carouselCardTransform(adjSlot, travelDistancePx, reduced)
+            TrackArtwork(
+                artworkPath = adjacentItem.artworkPath?.takeIf { it.isNotBlank() } ?: adjCover,
+                audioPath = adjacentItem.path.takeIf { it.isNotBlank() },
+                modifier = Modifier
+                    .fillMaxSize()
+                    .zIndex(adjTransform.zIndex)
+                    .graphicsLayer {
+                        translationX = adjTransform.translationX
+                        scaleX = adjTransform.scale
+                        scaleY = adjTransform.scale
+                        rotationY = adjTransform.rotationY
+                        cameraDistance = 12f * density.density
+                        alpha = adjTransform.alpha
+                    },
+                background = palette.accentSoft,
+                tint = palette.accentInk,
+                symbolSize = size * 0.22f,
+                cornerRadius = 20.dp,
+                border = palette.divider.copy(alpha = 0.45f)
+            )
+        }
+        val currentTransform = carouselCardTransform(offset, travelDistancePx, reduced)
+        Box(
+            Modifier
                 .fillMaxSize()
-                .clip(styledShape(20.dp))
-        )
-        MascotToggleChip(
-            modifier = Modifier
-                .align(Alignment.BottomEnd)
-                .padding(10.dp)
-        )
+                .zIndex(currentTransform.zIndex)
+                .graphicsLayer {
+                    val rhythmScale = if (rhythmSignal.isActive) {
+                        1f + rhythmSignal.beatPulse * 0.025f + rhythmSignal.downbeatPulse * 0.015f
+                    } else {
+                        1f
+                    }
+                    val combined = entryScale.value * breatheScale * rhythmScale * currentTransform.scale
+                    scaleX = combined
+                    scaleY = combined
+                    translationX = currentTransform.translationX
+                    rotationY = currentTransform.rotationY
+                    cameraDistance = 12f * density.density
+                    alpha = if (PlayerExpansion.fullSharedHidden(FlightRole.Artwork)) 0f else currentTransform.alpha
+                }
+                .shadow(elevation, styledShape(20.dp), clip = false)
+        ) {
+            TrackArtwork(
+                artworkPath = player.item.artworkPath,
+                audioPath = player.item.path.takeIf { it.isNotBlank() },
+                modifier = Modifier.fillMaxSize(),
+                background = palette.accentSoft,
+                tint = palette.accentInk,
+                symbolSize = size * 0.22f,
+                cornerRadius = 20.dp,
+                border = palette.divider.copy(alpha = 0.55f)
+            )
+            BgCanvasOverlay(
+                state = cardCanvasState,
+                playing = player.playing,
+                modifier = Modifier
+                    .fillMaxSize()
+                    .clip(styledShape(20.dp)),
+                onVisualStateChange = onCardCanvasVisualStateChange,
+            )
+            MascotOverlay(
+                item = player.item,
+                modifier = Modifier
+                    .fillMaxSize()
+                    .clip(styledShape(20.dp))
+            )
+            AnimatedVisibility(
+                visible = seekFlashDirection != 0,
+                enter = mediaMotion.fadeEnter(),
+                exit = mediaMotion.fadeExit(),
+                modifier = Modifier
+                    .align(if (seekFlashDirection < 0) Alignment.CenterStart else Alignment.CenterEnd)
+                    .padding(horizontal = 18.dp)
+            ) {
+                Surface(
+                    color = Color.Black.copy(alpha = 0.58f),
+                    shape = RoundedCornerShape(50)
+                ) {
+                    Text(
+                        text = if (seekFlashDirection < 0) "−10s" else "+10s",
+                        color = Color.White,
+                        fontSize = 14.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp)
+                    )
+                }
+            }
+            MascotToggleChip(
+                modifier = Modifier
+                    .align(Alignment.BottomEnd)
+                    .padding(10.dp)
+            )
+        }
     }
 }
 
@@ -854,10 +1311,14 @@ private fun PlayerStatusLine(player: MusicPlayerUi) {
     val palette = beyGramPalette()
     val sleepTimer by PlaybackEngine.sleepTimer.collectAsStateWithLifecycle()
     val minutesRemaining = rememberSleepMinutes(sleepTimer)
-    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+    Column(
+        modifier = Modifier.heightIn(min = 24.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.Center
+    ) {
     when {
         player.failed -> Row(
-            Modifier.padding(top = 6.dp),
+            Modifier.padding(top = 4.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
             Text(stringResource(R.string.player_failed), color = palette.danger, fontSize = 13.sp)
@@ -867,7 +1328,7 @@ private fun PlayerStatusLine(player: MusicPlayerUi) {
         }
 
         player.waitingForNetwork -> Row(
-            Modifier.padding(top = 6.dp),
+            Modifier.padding(top = 4.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
             CircularProgressIndicator(Modifier.size(14.dp), strokeWidth = 2.dp, color = palette.accent)
@@ -876,7 +1337,7 @@ private fun PlayerStatusLine(player: MusicPlayerUi) {
         }
 
         player.intentPlaying && player.buffering -> Row(
-            Modifier.padding(top = 6.dp),
+            Modifier.padding(top = 4.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
             CircularProgressIndicator(Modifier.size(14.dp), strokeWidth = 2.dp, color = palette.accent)
@@ -888,65 +1349,97 @@ private fun PlayerStatusLine(player: MusicPlayerUi) {
             stringResource(R.string.player_ended),
             color = palette.textSecondary,
             fontSize = 13.sp,
-            modifier = Modifier.padding(top = 6.dp)
+            modifier = Modifier.padding(top = 4.dp)
         )
     }
     val activeSpeed = player.speed.takeIf { it != 1f }?.let { stringResource(R.string.player_speed_option, speedLabel(it)) }
     val sleepText = sleepTimer?.let { sleepTimerStatusText(it, minutesRemaining) }
     val statusParts = listOfNotNull(activeSpeed, sleepText)
-    if (statusParts.isNotEmpty()) {
-        Text(
-            statusParts.joinToString(" · "),
-            color = palette.textSecondary,
-            fontSize = 12.sp,
-            modifier = Modifier.padding(top = 4.dp)
-        )
-    }
-    if (player.bgMix || player.bgMixPreparing) {
-        var explain by remember { mutableStateOf(false) }
-        // Two letters instead of a badge: grey while BG Mix prepares the track, the theme accent once BG Mix plays it.
-        val active = player.bgMix
-        val markDescription = stringResource(if (active) R.string.player_bgmix_icon_active else R.string.player_bgmix_icon_preparing)
-        Text(
-            stringResource(R.string.player_bgmix_mark),
-            color = if (active) palette.accent else palette.textSecondary.copy(alpha = 0.6f),
-            fontSize = 12.sp,
-            fontWeight = FontWeight.Bold,
-            letterSpacing = 0.5.sp,
-            modifier = Modifier
-                .padding(top = 4.dp)
-                .clip(styledShape(6.dp))
-                .clickable(role = Role.Button) { explain = true }
-                .semantics { contentDescription = markDescription }
-                .padding(horizontal = 6.dp, vertical = 4.dp)
-        )
-        if (explain) BeyGramDialog(
-            onDismissRequest = { explain = false },
-            title = stringResource(R.string.player_bgmix_badge),
-            message = stringResource(if (player.bgMix) R.string.player_bgmix_explain else R.string.player_bgmix_preparing_explain),
-            confirmText = stringResource(R.string.common_close),
-            onConfirm = { explain = false }
-        )
+    val showBgMix = player.bgMix || player.bgMixPreparing
+    if (statusParts.isNotEmpty() || showBgMix) {
+        Row(
+            modifier = Modifier.padding(top = 4.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            if (statusParts.isNotEmpty()) {
+                Text(
+                    statusParts.joinToString(" · "),
+                    color = palette.textSecondary,
+                    fontSize = 12.sp
+                )
+            }
+            if (showBgMix) {
+                var explain by remember { mutableStateOf(false) }
+                // Two letters instead of a badge: grey while BG Mix prepares the track, the theme accent once BG Mix plays it.
+                val active = player.bgMix
+                val markDescription = stringResource(if (active) R.string.player_bgmix_icon_active else R.string.player_bgmix_icon_preparing)
+                Text(
+                    stringResource(R.string.player_bgmix_mark),
+                    color = if (active) palette.accent else palette.textSecondary.copy(alpha = 0.6f),
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.Bold,
+                    letterSpacing = 0.5.sp,
+                    modifier = Modifier
+                        .clip(styledShape(6.dp))
+                        .clickable(role = Role.Button) { explain = true }
+                        .semantics { contentDescription = markDescription }
+                        .padding(horizontal = 6.dp, vertical = 2.dp)
+                )
+                if (explain) BeyGramDialog(
+                    onDismissRequest = { explain = false },
+                    title = stringResource(R.string.player_bgmix_badge),
+                    message = stringResource(if (player.bgMix) R.string.player_bgmix_explain else R.string.player_bgmix_preparing_explain),
+                    confirmText = stringResource(R.string.common_close),
+                    onConfirm = { explain = false }
+                )
+            }
+        }
     }
     }
 }
 
 @Composable
-private fun PlayerSeekSection(player: MusicPlayerUi) {
-    // The drag lives here, so the time labels follow the finger as well as the thumb.
-    var dragging by remember { mutableStateOf<Float?>(null) }
+internal fun PlayerSeekSection(player: MusicPlayerUi, modifier: Modifier = Modifier) {
+    // The drag and pending seek live here, so the time labels and thumb stay in sync without snapping back on release.
+    var dragging by remember(player.item.key) { mutableStateOf<Float?>(null) }
+    var pendingSeek by remember(player.item.key) { mutableStateOf<Float?>(null) }
     val position = rememberPlaybackPositionUi()
     val fallbackDurationMs = player.item.durationSeconds.coerceAtLeast(0) * 1000L
     val duration = position.durationMs.takeIf { it > 0L } ?: fallbackDurationMs
     val smooth = rememberSmoothPositionMs(position.positionMs, duration, player.playing, player.speed)
-    PlayerSeekBar(
-        fallbackDurationSeconds = player.item.durationSeconds,
-        contentLabel = stringResource(R.string.player_progress),
-        dragging = dragging,
-        onDragging = { dragging = it },
-        smoothMs = smooth
-    )
-    PlayerTimeRow(fallbackDurationSeconds = player.item.durationSeconds, dragFraction = dragging, smoothMs = smooth)
+    LaunchedEffect(position.positionMs) {
+        if (pendingSeek != null) pendingSeek = null
+    }
+    LaunchedEffect(pendingSeek) {
+        if (pendingSeek != null) {
+            delay(600L)
+            pendingSeek = null
+        }
+    }
+    val overrideFraction = dragging ?: pendingSeek
+    Column(modifier.fillMaxWidth()) {
+        PlayerSeekBar(
+            position = position,
+            fallbackDurationSeconds = player.item.durationSeconds,
+            contentLabel = stringResource(R.string.player_progress),
+            dragging = dragging,
+            overrideFraction = overrideFraction,
+            onDragging = { dragging = it },
+            onSeekCommitted = { fraction ->
+                pendingSeek = fraction
+                PlaybackEngine.seekTo(fraction.coerceIn(0f, 1f), fallbackDurationMs = fallbackDurationMs)
+            },
+            smoothMs = smooth
+        )
+        PlayerTimeRow(
+            position = position,
+            fallbackDurationSeconds = player.item.durationSeconds,
+            overrideFraction = overrideFraction,
+            isDragging = dragging != null,
+            smoothMs = smooth
+        )
+    }
 }
 
 /**
@@ -955,7 +1448,7 @@ private fun PlayerSeekSection(player: MusicPlayerUi) {
  * and corrected by each new tick.
  */
 @Composable
-private fun rememberSmoothPositionMs(positionMs: Long, durationMs: Long, playing: Boolean, speed: Float): State<Long> {
+internal fun rememberSmoothPositionMs(positionMs: Long, durationMs: Long, playing: Boolean, speed: Float): State<Long> {
     val shown = remember { mutableLongStateOf(positionMs) }
     LaunchedEffect(positionMs, durationMs, playing, speed) {
         shown.longValue = positionMs
@@ -973,19 +1466,33 @@ private fun rememberSmoothPositionMs(positionMs: Long, durationMs: Long, playing
 
 @Composable
 private fun PlayerSeekBar(
+    position: PlaybackPositionUi,
     fallbackDurationSeconds: Int,
     contentLabel: String,
     dragging: Float?,
+    overrideFraction: Float?,
     onDragging: (Float?) -> Unit,
+    onSeekCommitted: (Float) -> Unit,
     smoothMs: State<Long>
 ) {
     val palette = beyGramPalette()
-    val position = rememberPlaybackPositionUi()
+    val haptic = LocalHapticFeedback.current
+    val microMotion = rememberMotionSpec(MotionToken.MicroFeedback)
     val fallbackDurationMs = (fallbackDurationSeconds.coerceAtLeast(0) * 1000L)
     val duration = position.durationMs.takeIf { it > 0L } ?: fallbackDurationMs
     val enabled = duration > 0L
-    val played = dragging ?: if (duration > 0L) (smoothMs.value.toFloat() / duration).coerceIn(0f, 1f) else 0f
+    val played = overrideFraction ?: if (duration > 0L) (smoothMs.value.toFloat() / duration).coerceIn(0f, 1f) else 0f
     val buffered = if (duration > 0L) position.bufferedFraction.coerceIn(0f, 1f) else 0f
+    val trackHeightDp by animateDpAsState(
+        targetValue = if (dragging != null) 6.dp else 4.dp,
+        animationSpec = microMotion.animationSpec(),
+        label = "seekTrackHeight"
+    )
+    val thumbRadiusDp by animateDpAsState(
+        targetValue = if (dragging != null) 9.dp else 7.dp,
+        animationSpec = microMotion.animationSpec(),
+        label = "seekThumbRadius"
+    )
     val stateText = stringResource(
         R.string.player_progress_a11y,
         playbackClock((played * duration).toLong()),
@@ -995,7 +1502,7 @@ private fun PlayerSeekBar(
     val horizontalPaddingPx = with(density) { 10.dp.toPx() }
     fun seekTo(fraction: Float) {
         if (!enabled) return
-        PlaybackEngine.seekTo(fraction.coerceIn(0f, 1f), fallbackDurationMs = fallbackDurationMs)
+        onSeekCommitted(fraction.coerceIn(0f, 1f))
     }
     Box(
         Modifier
@@ -1034,6 +1541,7 @@ private fun PlayerSeekBar(
                     val width = (size.width - horizontalPadding * 2f).coerceAtLeast(1f)
                     fun fractionAt(x: Float): Float = ((x - horizontalPadding) / width).coerceIn(0f, 1f)
                     var current: Float = fractionAt(down.position.x)
+                    haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
                     onDragging(current)
                     down.consume()
                     while (true) {
@@ -1046,8 +1554,9 @@ private fun PlayerSeekBar(
                         }
                         if (!change.pressed) break
                     }
-                    onDragging(null)
+                    haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
                     seekTo(current)
+                    onDragging(null)
                 }
             },
         contentAlignment = Alignment.Center
@@ -1069,7 +1578,7 @@ private fun PlayerSeekBar(
             val padding = 10.dp.toPx()
             val trackWidth = (size.width - padding * 2f).coerceAtLeast(1f)
             val centerY = size.height / 2f
-            val trackHeight = 4.dp.toPx()
+            val trackHeight = trackHeightDp.toPx()
             val start = Offset(padding, centerY)
             fun barEnd(fraction: Float) = Offset(padding + trackWidth * fraction, centerY)
             val track = if (enabled) palette.divider else palette.divider.copy(alpha = 0.5f)
@@ -1095,12 +1604,12 @@ private fun PlayerSeekBar(
             if (enabled) {
                 drawCircle(
                     color = palette.accent,
-                    radius = 7.dp.toPx(),
+                    radius = thumbRadiusDp.toPx(),
                     center = Offset(barEnd(played).x, centerY)
                 )
                 drawCircle(
                     color = palette.surface,
-                    radius = 3.dp.toPx(),
+                    radius = (thumbRadiusDp * 0.42f).toPx(),
                     center = Offset(barEnd(played).x, centerY)
                 )
             }
@@ -1109,19 +1618,33 @@ private fun PlayerSeekBar(
 }
 
 @Composable
-private fun PlayerTimeRow(fallbackDurationSeconds: Int, dragFraction: Float?, smoothMs: State<Long>) {
+private fun PlayerTimeRow(
+    position: PlaybackPositionUi,
+    fallbackDurationSeconds: Int,
+    overrideFraction: Float?,
+    isDragging: Boolean,
+    smoothMs: State<Long>
+) {
     val palette = beyGramPalette()
-    val position = rememberPlaybackPositionUi()
     val fallbackDurationMs = (fallbackDurationSeconds.coerceAtLeast(0) * 1000L)
     val duration = position.durationMs.takeIf { it > 0L } ?: fallbackDurationMs
     // Whole seconds only, so the labels recompose once a second even though the playhead moves every frame.
     val playedSecond by remember(smoothMs) { derivedStateOf { smoothMs.value / 1_000L } }
-    // While the thumb is dragged, the labels show the place under the finger, not the place the music is at.
-    val shownMs = dragFraction?.let { (it * duration).toLong() } ?: (playedSecond * 1_000L)
+    // While the thumb is dragged or settling, the labels show the target time, not the old position.
+    val shownMs = overrideFraction?.let { (it * duration).toLong() } ?: (playedSecond * 1_000L)
+    val timeStyle = remember { TextStyle(fontSize = 12.sp, fontFeatureSettings = "tnum") }
     Column(Modifier.fillMaxWidth()) {
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-            Text(playbackClock(shownMs), color = if (dragFraction != null) palette.accent else palette.textSecondary, fontSize = 12.sp)
-            Text(playbackRemaining(shownMs, duration), color = palette.textSecondary, fontSize = 12.sp)
+            Text(
+                playbackClock(shownMs),
+                color = if (isDragging) palette.accent else palette.textSecondary,
+                style = timeStyle
+            )
+            Text(
+                playbackRemaining(shownMs, duration),
+                color = palette.textSecondary,
+                style = timeStyle
+            )
         }
         if (duration <= 0L) {
             Text(
@@ -1258,15 +1781,16 @@ private fun PlayPauseButton(player: MusicPlayerUi, mediaMotion: MotionSpec) {
     Box(
         Modifier
             .size(72.dp)
+            .onGloballyPositioned { PlayerExpansion.targets.play = it }
+            // Must sit before clip/background so the static circle hides completely while the flight circle animates.
+            .graphicsLayer { alpha = if (PlayerExpansion.fullSharedHidden(FlightRole.Play)) 0f else 1f }
             .clip(CircleShape)
             .background(palette.accent)
             .clickable(role = Role.Button) { PlaybackEngine.togglePlayPause() }
             .semantics {
                 contentDescription = label
                 stateDescription = stateText
-            }
-            .onGloballyPositioned { PlayerExpansion.targets.play = it }
-            .graphicsLayer { alpha = if (PlayerExpansion.fullSharedHidden(FlightRole.Play)) 0f else 1f },
+            },
         contentAlignment = Alignment.Center
     ) {
         val targets = PlayerExpansion.targets
@@ -1294,10 +1818,48 @@ private fun PlayPauseButton(player: MusicPlayerUi, mediaMotion: MotionSpec) {
     }
 }
 
+internal enum class PlayerActionKind {
+    ProviderLike,
+    TelegramFavorite,
+    RadioDislike,
+    AddToPlaylist,
+    Lyrics,
+    Queue,
+    Sound
+}
+
+/**
+ * Pure policy for which bottom-row actions are shown for a track, ensuring unified UX across Telegram and Yandex
+ * Music while exposing only capabilities that genuinely depend on the source.
+ */
+internal fun resolvePlayerActionKinds(
+    isProviderTrack: Boolean,
+    isEndlessRadio: Boolean,
+    lyricsEnabled: Boolean
+): List<PlayerActionKind> = buildList {
+    add(if (isProviderTrack) PlayerActionKind.ProviderLike else PlayerActionKind.TelegramFavorite)
+    when {
+        isProviderTrack && isEndlessRadio -> {
+            add(PlayerActionKind.RadioDislike)
+            if (lyricsEnabled) add(PlayerActionKind.Lyrics)
+        }
+        isProviderTrack -> {
+            if (lyricsEnabled) add(PlayerActionKind.Lyrics)
+        }
+        else -> {
+            add(PlayerActionKind.AddToPlaylist)
+            if (lyricsEnabled) add(PlayerActionKind.Lyrics)
+        }
+    }
+    add(PlayerActionKind.Queue)
+    add(PlayerActionKind.Sound)
+}
+
 @Composable
 private fun PlayerActions(
     player: MusicPlayerUi,
     onOpenQueue: () -> Unit,
+    onOpenLyrics: () -> Unit,
     onOpenEqualizer: (() -> Unit)?
 ) {
     val item = player.item
@@ -1305,9 +1867,7 @@ private fun PlayerActions(
     val scope = rememberCoroutineScope()
     val queueLabel = stringResource(R.string.player_queue)
     val soundLabel = stringResource(R.string.player_sound)
-    // Heart and add need a Telegram origin and a loaded library for this account. When they cannot be offered, their
-    // place stays in the row and the button is off, so the row never shifts.
-    // Items of a chat with protected content are never kept in the library, so they stay off too.
+    val lyricsLabel = stringResource(R.string.player_lyrics)
     val originChat = rememberOriginChat(item.origin)
     val protectedChat = originChat?.hasProtectedContent == true
     val track = remember(item.occurrenceId, item.origin) { item.toPlaylistTrack() }?.takeUnless { protectedChat }
@@ -1319,10 +1879,12 @@ private fun PlayerActions(
     val favoriteOnState = stringResource(R.string.music_favorite_state_on)
     val favoriteOffState = stringResource(R.string.music_favorite_state_off)
     val addLabel = stringResource(R.string.music_playlist_label)
-    // A track of an endless radio gets a heart. It toggles the like on the service, not the library.
-    val radioTrack = ProviderTracks.byKey(item.key)?.takeIf { ProviderTracks.isProviderKey(item.key) && PlaybackEngine.currentQueueIsEndless() }
+    // Provider tracks (radio, album, playlist, search) all support liking on the service; dislike is radio-only.
+    val isProviderKey = ProviderTracks.isProviderKey(item.key)
+    val providerTrack = ProviderTracks.byKey(item.key)?.takeIf { isProviderKey }
+    val isEndlessRadio = isProviderKey && PlaybackEngine.currentQueueIsEndless()
     val likes by ProviderTracks.liked.collectAsStateWithLifecycle()
-    val radioLiked = radioTrack?.let { likes[it.trackId] ?: it.liked ?: false }
+    val providerLiked = providerTrack?.let { likes[it.trackId] ?: it.liked ?: false }
     val likeLabel = stringResource(R.string.music_provider_like)
     val likeFailed = stringResource(R.string.music_provider_like_failed)
     val dislikeLabel = stringResource(R.string.music_radio_dislike)
@@ -1333,56 +1895,85 @@ private fun PlayerActions(
         if (timer.untilTrackEnd) stringResource(R.string.player_sleep_until_track_end)
         else stringResource(R.string.player_sleep_minutes_short, minutesRemaining)
     } ?: player.speed.takeIf { it != 1f }?.let { stringResource(R.string.player_speed_option, speedLabel(it)) }
-    val libraryTrack = track != null && library != null && radioTrack == null
-    val likeSlot = when {
-        radioTrack != null && radioLiked != null -> PlayerActionUi(
-            icon = if (radioLiked) Icons.Rounded.Favorite else Icons.Rounded.FavoriteBorder,
-            label = likeLabel,
-            onClick = {
-                ProviderTracks.setLikedInBackground(context, radioTrack, !radioLiked) {
-                    Toast.makeText(context.applicationContext, likeFailed, Toast.LENGTH_SHORT).show()
-                }
-            },
-            active = radioLiked,
-            stateDescription = if (radioLiked) favoriteOnState else favoriteOffState
-        )
-        track != null && library != null && radioTrack == null -> PlayerActionUi(
-            icon = if (favorite) Icons.Rounded.Star else Icons.Rounded.StarBorder,
-            label = favoriteLabel,
-            onClick = { scope.launch { context.reportMusicOutcome(MusicLibraries.get(context).toggleFavorite(track)) } },
-            active = favorite,
-            stateDescription = if (favorite) favoriteOnState else favoriteOffState
-        )
-        else -> PlayerActionUi(
-            icon = if (radioTrack != null) Icons.Rounded.FavoriteBorder else Icons.Rounded.StarBorder,
-            label = if (radioTrack != null) likeLabel else favoriteLabel,
-            onClick = {},
-            enabled = false
-        )
+    val libraryTrack = track != null && library != null && !isProviderKey
+
+    val kinds = resolvePlayerActionKinds(
+        isProviderTrack = isProviderKey,
+        isEndlessRadio = isEndlessRadio,
+        lyricsEnabled = if (isProviderKey) YANDEX_LYRICS_ENABLED else (item.isMusic && !item.systemPrivate)
+    )
+    val actions = kinds.map { kind ->
+        when (kind) {
+            PlayerActionKind.ProviderLike -> if (providerTrack != null && providerLiked != null) {
+                PlayerActionUi(
+                    icon = if (providerLiked) Icons.Rounded.Favorite else Icons.Rounded.FavoriteBorder,
+                    label = likeLabel,
+                    onClick = {
+                        ProviderTracks.setLikedInBackground(context, providerTrack, !providerLiked) {
+                            Toast.makeText(context.applicationContext, likeFailed, Toast.LENGTH_SHORT).show()
+                        }
+                    },
+                    active = providerLiked,
+                    stateDescription = if (providerLiked) favoriteOnState else favoriteOffState
+                )
+            } else {
+                PlayerActionUi(
+                    icon = Icons.Rounded.FavoriteBorder,
+                    label = likeLabel,
+                    onClick = {},
+                    enabled = false
+                )
+            }
+            PlayerActionKind.TelegramFavorite -> if (libraryTrack && track != null) {
+                PlayerActionUi(
+                    icon = if (favorite) Icons.Rounded.Star else Icons.Rounded.StarBorder,
+                    label = favoriteLabel,
+                    onClick = { scope.launch { context.reportMusicOutcome(MusicLibraries.get(context).toggleFavorite(track)) } },
+                    active = favorite,
+                    stateDescription = if (favorite) favoriteOnState else favoriteOffState
+                )
+            } else {
+                PlayerActionUi(
+                    icon = Icons.Rounded.StarBorder,
+                    label = favoriteLabel,
+                    onClick = {},
+                    enabled = false
+                )
+            }
+            PlayerActionKind.RadioDislike -> PlayerActionUi(
+                icon = Icons.Rounded.ThumbDown,
+                label = dislikeLabel,
+                onClick = { providerTrack?.let { ProviderTracks.dislikeWithUndo(context, it) } },
+                enabled = providerTrack != null
+            )
+            PlayerActionKind.AddToPlaylist -> PlayerActionUi(
+                icon = Icons.Rounded.Add,
+                label = addLabel,
+                onClick = { addOpen = true },
+                enabled = libraryTrack
+            )
+            PlayerActionKind.Lyrics -> PlayerActionUi(
+                icon = Icons.Rounded.Lyrics,
+                label = lyricsLabel,
+                onClick = onOpenLyrics
+            )
+            PlayerActionKind.Queue -> PlayerActionUi(
+                icon = Icons.Rounded.QueueMusic,
+                label = queueLabel,
+                onClick = onOpenQueue
+            )
+            PlayerActionKind.Sound -> PlayerActionUi(
+                icon = Icons.Rounded.Tune,
+                label = soundStatus ?: soundLabel,
+                onClick = { soundOpen = true },
+                active = soundStatus != null
+            )
+        }
     }
-    // In a radio this slot dislikes the track instead: it is skipped at once and an undo offer shows for a few seconds.
-    val playlistSlot = if (radioTrack != null) PlayerActionUi(
-        icon = Icons.Rounded.ThumbDown,
-        label = dislikeLabel,
-        onClick = { ProviderTracks.dislikeWithUndo(context, radioTrack) }
-    ) else PlayerActionUi(
-        icon = Icons.Rounded.Add,
-        label = addLabel,
-        onClick = { addOpen = true },
-        enabled = libraryTrack
-    )
-    val queueSlot = PlayerActionUi(Icons.Rounded.QueueMusic, queueLabel, onOpenQueue)
-    val soundSlot = PlayerActionUi(
-        icon = Icons.Rounded.Tune,
-        label = soundStatus ?: soundLabel,
-        onClick = { soundOpen = true },
-        active = soundStatus != null
-    )
     val pendingDislike by ProviderTracks.pendingDislike.collectAsStateWithLifecycle()
     if (pendingDislike != null) DislikeUndoBar(onUndo = { ProviderTracks.undoDislike(context) })
-    // Always four places, in the same order for every source.
-    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        listOf(likeSlot, playlistSlot, queueSlot, soundSlot).forEach { action ->
+    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+        actions.forEach { action ->
             PlayerAction(action, Modifier.weight(1f))
         }
     }
@@ -1462,8 +2053,36 @@ private fun QueuePanel(
     var dropTarget by remember { mutableIntStateOf(-1) }
     var queueMenuOpen by remember { mutableStateOf(false) }
     var saveQueueOpen by remember { mutableStateOf(false) }
+    var searchOpen by rememberSaveable { mutableStateOf(false) }
+    var searchQuery by rememberSaveable { mutableStateOf("") }
+    val scope = rememberCoroutineScope()
+    LaunchedEffect(current.size) {
+        if (current.size <= 1) {
+            searchOpen = false
+            searchQuery = ""
+        }
+    }
     // Tracks that already played stay reachable above the current one; with shuffle there is no meaningful "before".
     val playedRows = if (current.shuffleEnabled || current.currentIndex <= 0) emptyList() else current.rows.take(current.currentIndex)
+    val normalizedQuery = searchQuery.trim()
+    val filtering = normalizedQuery.isNotEmpty()
+    val visiblePlayed = remember(playedRows, normalizedQuery) { filterQueueRows(playedRows, normalizedQuery) }
+    val visibleCurrent = remember(current.current, normalizedQuery) {
+        current.current?.takeIf { filterQueueRows(listOf(it), normalizedQuery).isNotEmpty() }
+    }
+    val visibleUpcoming = remember(current.upcoming, normalizedQuery) { filterQueueRows(current.upcoming, normalizedQuery) }
+    val currentCardListIndex = if (playedRows.isEmpty()) 1 else playedRows.size + 2
+    val showJumpToCurrent by remember(current.current, normalizedQuery, currentCardListIndex) {
+        derivedStateOf {
+            val visibleIndices = listState.layoutInfo.visibleItemsInfo.map { it.index }
+            shouldShowJumpToCurrent(
+                currentItemListIndex = currentCardListIndex,
+                visibleIndices = visibleIndices,
+                queryBlank = normalizedQuery.isEmpty(),
+                hasCurrent = current.current != null,
+            )
+        }
+    }
     // The first open starts at the current track; later opens keep the place the list was left at.
     LaunchedEffect(Unit) {
         if (!placed) {
@@ -1500,7 +2119,8 @@ private fun QueuePanel(
                 Text(
                     stringResource(R.string.queue_back_to_player),
                     color = palette.textSecondary,
-                    maxLines = 1
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
                 )
             }
             Column(Modifier.weight(1.2f), horizontalAlignment = Alignment.CenterHorizontally) {
@@ -1520,27 +2140,41 @@ private fun QueuePanel(
                     fontSize = 11.sp
                 )
             }
-            Box(Modifier.weight(1f), contentAlignment = Alignment.CenterEnd) {
-                IconButton(onClick = { queueMenuOpen = true }) {
-                    Icon(Icons.Rounded.MoreVert, stringResource(R.string.queue_actions), tint = palette.textSecondary)
+            Row(Modifier.weight(1f), horizontalArrangement = Arrangement.End, verticalAlignment = Alignment.CenterVertically) {
+                if (current.size > 1) {
+                    IconButton(onClick = {
+                        searchOpen = !searchOpen
+                        if (!searchOpen) searchQuery = ""
+                    }) {
+                        Icon(
+                            if (searchOpen) Icons.Rounded.Close else Icons.Rounded.Search,
+                            stringResource(R.string.queue_search_action),
+                            tint = if (searchOpen) palette.accent else palette.textSecondary
+                        )
+                    }
                 }
-                BeyGramPopover(expanded = queueMenuOpen, onDismissRequest = { queueMenuOpen = false }) {
-                    BeyGramPopoverItem(
-                        text = stringResource(R.string.queue_clear),
-                        enabled = current.size > 1,
-                        onClick = {
-                            queueMenuOpen = false
-                            PlaybackEngine.clearUpcoming()
-                        }
-                    )
-                    BeyGramPopoverItem(
-                        text = stringResource(R.string.queue_save_as_playlist),
-                        enabled = current.rows.any { it.item.toPlaylistTrack() != null },
-                        onClick = {
-                            queueMenuOpen = false
-                            saveQueueOpen = true
-                        }
-                    )
+                Box {
+                    IconButton(onClick = { queueMenuOpen = true }) {
+                        Icon(Icons.Rounded.MoreVert, stringResource(R.string.queue_actions), tint = palette.textSecondary)
+                    }
+                    BeyGramPopover(expanded = queueMenuOpen, onDismissRequest = { queueMenuOpen = false }) {
+                        BeyGramPopoverItem(
+                            text = stringResource(R.string.queue_clear),
+                            enabled = current.size > 1,
+                            onClick = {
+                                queueMenuOpen = false
+                                PlaybackEngine.clearUpcoming()
+                            }
+                        )
+                        BeyGramPopoverItem(
+                            text = stringResource(R.string.queue_save_as_playlist),
+                            enabled = current.rows.any { it.item.toPlaylistTrack() != null },
+                            onClick = {
+                                queueMenuOpen = false
+                                saveQueueOpen = true
+                            }
+                        )
+                    }
                 }
             }
         }
@@ -1557,6 +2191,26 @@ private fun QueuePanel(
                 modifier = Modifier.weight(1f)
             )
         }
+        if (searchOpen) {
+            androidx.compose.material3.OutlinedTextField(
+                value = searchQuery,
+                onValueChange = { searchQuery = it },
+                singleLine = true,
+                placeholder = { Text(stringResource(R.string.queue_search_hint), fontSize = 14.sp) },
+                leadingIcon = { Icon(Icons.Rounded.Search, null, tint = palette.textSecondary) },
+                trailingIcon = {
+                    if (searchQuery.isNotEmpty()) {
+                        IconButton(onClick = { searchQuery = "" }) {
+                            Icon(Icons.Rounded.Close, stringResource(R.string.queue_search_clear), tint = palette.textSecondary)
+                        }
+                    }
+                },
+                shape = styledShape(14.dp),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp, vertical = 6.dp)
+            )
+        }
         if (current.shuffleEnabled) {
             Text(
                 stringResource(
@@ -1568,27 +2222,28 @@ private fun QueuePanel(
                 modifier = Modifier.padding(horizontal = 20.dp, vertical = 4.dp)
             )
         }
+        Box(Modifier.weight(1f).fillMaxWidth()) {
         LazyColumn(
-            Modifier.weight(1f).fillMaxWidth(),
+            Modifier.fillMaxSize(),
             state = listState,
-            contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 6.dp, bottom = 16.dp)
+            contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 6.dp, bottom = 56.dp)
         ) {
-            if (playedRows.isNotEmpty()) {
+            if (visiblePlayed.isNotEmpty()) {
                 item(key = "played-heading") { QueueSectionTitle(stringResource(R.string.queue_played)) }
-                items(playedRows, key = { "played:${it.item.occurrenceId}:${it.index}" }) { row ->
+                items(visiblePlayed, key = { "played:${it.item.occurrenceId}:${it.index}" }) { row ->
                     QueuePlayedRow(row) { PlaybackEngine.playQueueItem(row.item.key) }
                 }
             }
-            item(key = "current-heading") {
-                QueueSectionTitle(stringResource(R.string.queue_now_playing))
-            }
-            item(key = "current-${current.current?.item?.occurrenceId}") {
-                current.current?.let { row ->
+            if (visibleCurrent != null) {
+                item(key = "current-heading") {
+                    QueueSectionTitle(stringResource(R.string.queue_now_playing))
+                }
+                item(key = "current-${visibleCurrent.item.occurrenceId}") {
                     QueueCurrentCard(
-                        row = row,
-                        showSourcePosition = current.shuffleEnabled && row.index >= 0,
+                        row = visibleCurrent,
+                        showSourcePosition = current.shuffleEnabled && visibleCurrent.index >= 0,
                         onPlayPause = { PlaybackEngine.togglePlayPause() },
-                        onShowInChat = row.item.origin?.let { origin ->
+                        onShowInChat = visibleCurrent.item.origin?.let { origin ->
                             {
                                 PlaybackEngine.requestShowInChat(origin)
                                 onDismiss()
@@ -1597,10 +2252,29 @@ private fun QueuePanel(
                     )
                 }
             }
-            item(key = "next-heading") {
-                QueueSectionTitle(stringResource(R.string.queue_next))
+            if (!filtering || visibleUpcoming.isNotEmpty()) {
+                item(key = "next-heading") {
+                    QueueSectionTitle(stringResource(R.string.queue_next))
+                }
             }
-            if (current.upcoming.isEmpty() && !loadingOlder) {
+            if (filtering && visiblePlayed.isEmpty() && visibleCurrent == null && visibleUpcoming.isEmpty()) {
+                item(key = "queue-search-empty") {
+                    Column(
+                        modifier = Modifier.fillMaxWidth().padding(horizontal = 4.dp, vertical = 20.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally
+                    ) {
+                        Text(
+                            stringResource(R.string.queue_search_empty),
+                            color = palette.textSecondary,
+                            fontSize = 13.sp,
+                            textAlign = TextAlign.Center
+                        )
+                        TextButton(onClick = { searchQuery = "" }, modifier = Modifier.padding(top = 4.dp)) {
+                            Text(stringResource(R.string.queue_search_clear))
+                        }
+                    }
+                }
+            } else if (!filtering && visibleUpcoming.isEmpty() && !loadingOlder) {
                 item(key = "queue-empty") {
                     Column(
                         modifier = Modifier.fillMaxWidth().padding(horizontal = 4.dp, vertical = 12.dp),
@@ -1620,7 +2294,7 @@ private fun QueuePanel(
                     }
                 }
             }
-            items(current.upcoming, key = { "${it.item.occurrenceId}:${it.index}" }) { row ->
+            items(visibleUpcoming, key = { "${it.item.occurrenceId}:${it.index}" }) { row ->
                 val swipeState = rememberSwipeToDismissBoxState(
                     confirmValueChange = { value ->
                         if (value == SwipeToDismissBoxValue.EndToStart && row.index >= 0) {
@@ -1644,7 +2318,7 @@ private fun QueuePanel(
                 ) {
                 QueueUpcomingRow(
                     row = row,
-                    reorderEnabled = !current.shuffleEnabled,
+                    reorderEnabled = !current.shuffleEnabled && !filtering,
                     dragging = dragFrom == row.index,
                     highlighted = dropTarget == row.index,
                     canMoveUp = row.index > current.currentIndex + 1,
@@ -1714,12 +2388,46 @@ private fun QueuePanel(
                 }
             }
         }
+        androidx.compose.animation.AnimatedVisibility(
+            visible = showJumpToCurrent,
+            enter = androidx.compose.animation.fadeIn(),
+            exit = androidx.compose.animation.fadeOut(),
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .padding(bottom = 14.dp)
+        ) {
+            Row(
+                Modifier
+                    .heightIn(min = 40.dp)
+                    .shadow(6.dp, styledShape(20.dp))
+                    .clip(styledShape(20.dp))
+                    .background(palette.accent, styledShape(20.dp))
+                    .clickable(role = Role.Button) {
+                        scope.launch {
+                            listState.animateScrollToItem(if (playedRows.isEmpty()) 0 else playedRows.size + 1)
+                        }
+                    }
+                    .padding(horizontal = 16.dp, vertical = 10.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(6.dp)
+            ) {
+                Icon(Icons.Rounded.PlayArrow, null, tint = palette.accentInk, modifier = Modifier.size(16.dp))
+                Text(
+                    stringResource(R.string.queue_jump_to_current),
+                    color = palette.accentInk,
+                    fontSize = 13.sp,
+                    fontWeight = FontWeight.SemiBold
+                )
+            }
+        }
+        }
     }
 }
 
 @Composable
 private fun QueuePlayedRow(row: QueueItemUi, onPlay: () -> Unit) {
     val palette = beyGramPalette()
+    val artist = row.item.musicArtist()
     Row(
         Modifier
             .fillMaxWidth()
@@ -1732,14 +2440,24 @@ private fun QueuePlayedRow(row: QueueItemUi, onPlay: () -> Unit) {
     ) {
         QueueArtwork(row.item, 36.dp, palette)
         Spacer(Modifier.width(12.dp))
-        Text(
-            row.item.title,
-            color = palette.textPrimary,
-            fontSize = 14.sp,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-            modifier = Modifier.weight(1f)
-        )
+        Column(Modifier.weight(1f)) {
+            Text(
+                row.item.musicTitle(),
+                color = palette.textPrimary,
+                fontSize = 14.sp,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+            if (artist.isNotBlank()) {
+                Text(
+                    artist,
+                    color = palette.textSecondary,
+                    fontSize = 11.sp,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
+        }
     }
 }
 
@@ -2119,3 +2837,38 @@ private fun queueStatusText(status: QueueItemStatus): String = stringResource(
         QueueItemStatus.Unavailable -> R.string.queue_unavailable
     }
 )
+
+internal fun filterQueueRows(rows: List<QueueItemUi>, query: String): List<QueueItemUi> {
+    val needle = query.trim()
+    if (needle.isEmpty()) return rows
+    return rows.filter { row ->
+        row.item.musicTitle().contains(needle, ignoreCase = true) ||
+            row.item.musicArtist()?.contains(needle, ignoreCase = true) == true ||
+            row.item.album?.contains(needle, ignoreCase = true) == true
+    }
+}
+
+internal fun shouldShowJumpToCurrent(
+    currentItemListIndex: Int,
+    visibleIndices: List<Int>,
+    queryBlank: Boolean,
+    hasCurrent: Boolean,
+): Boolean =
+    hasCurrent &&
+        queryBlank &&
+        currentItemListIndex >= 0 &&
+        visibleIndices.isNotEmpty() &&
+        currentItemListIndex !in visibleIndices
+
+internal fun adjacentQueueItem(state: PlaybackState, direction: Int): PlaybackItem? {
+    val idx = state.queueIndex
+    if (idx < 0) return null
+    return when {
+        direction < 0 -> state.queue.getOrNull(idx + 1)
+        direction > 0 -> if (idx > 0) state.queue.getOrNull(idx - 1) else null
+        else -> null
+    }
+}
+
+internal fun artworkSwipeProgress(dragOffsetPx: Float, maxShiftPx: Float): Float =
+    (kotlin.math.abs(dragOffsetPx) / maxShiftPx.coerceAtLeast(1f)).coerceIn(0f, 1f)
