@@ -96,6 +96,19 @@ internal fun ChatPeekSheet(
         }
     }
     val dismiss: () -> Unit = { closing = true }
+    var actionRunning by remember(chat.id) { mutableStateOf(false) }
+    fun runQuickAction(action: suspend () -> Unit) {
+        if (closing || actionRunning) return
+        actionRunning = true
+        scope.launch {
+            try {
+                action()
+                dismiss()
+            } finally {
+                actionRunning = false
+            }
+        }
+    }
 
     val enterSpec = rememberMotionSpec(MotionToken.SheetEnter)
     val exitSpec = rememberMotionSpec(MotionToken.SheetExit)
@@ -132,11 +145,18 @@ internal fun ChatPeekSheet(
                         PeekQuickActionsBar(
                             chat = chat,
                             palette = palette,
-                            onOpenChat = onOpenChat?.let { action -> { dismiss(); action() } },
-                            onToggleMute = onToggleMute?.let { action -> { scope.launch { action(); dismiss() } } },
-                            onTogglePin = onTogglePin?.let { action -> { scope.launch { action(); dismiss() } } },
+                            onOpenChat = onOpenChat?.let { action ->
+                                {
+                                    if (!closing && !actionRunning) {
+                                        dismiss()
+                                        action()
+                                    }
+                                }
+                            },
+                            onToggleMute = onToggleMute?.let { action -> { runQuickAction(action) } },
+                            onTogglePin = onTogglePin?.let { action -> { runQuickAction(action) } },
                             onMarkRead = onMarkRead?.takeIf { chat.unreadCount > 0 || chat.isMarkedAsUnread }
-                                ?.let { action -> { scope.launch { action(); dismiss() } } }
+                                ?.let { action -> { runQuickAction(action) } }
                         )
                     }
                 }
@@ -261,7 +281,7 @@ private fun PeekQuickActionsBar(
         onOpenChat?.let {
             PeekActionButton(
                 icon = Icons.AutoMirrored.Rounded.OpenInNew,
-                label = stringResource(R.string.media_open_file),
+                label = stringResource(R.string.chat_peek_open_chat),
                 tint = palette.accent,
                 palette = palette,
                 onClick = it,

@@ -91,6 +91,10 @@ import com.beykus.beygram.ui.screens.bgmusic.BgMusicChatDocument
 import com.beykus.beygram.ui.screens.bgmusic.isBgMusicDocument
 import com.beykus.beygram.diagnostics.StructuredEventLog
 import com.beykus.beygram.diagnostics.report.EventKind
+import com.beykus.beygram.playback.UserRangeCoordinator
+import com.beykus.beygram.playback.canPlayProgressively
+import com.beykus.beygram.playback.isPermanentProgressiveRejection
+import com.beykus.beygram.playback.readableBytesAt
 import com.beykus.beygram.playback.VideoPlaybackMetrics
 import com.beykus.beygram.playback.VideoStartBufferSettings
 import com.beykus.beygram.playback.ProgressiveAttemptDiagnostics
@@ -153,6 +157,7 @@ import com.beykus.beygram.data.media.Mp4StreamingReason
 import com.beykus.beygram.data.settings.AutoDownloadSettingsStore
 import com.beykus.beygram.domain.model.AutoDownloadRequest
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.coroutines.flow.first
 import com.beykus.beygram.domain.model.MediaFileState
@@ -1036,7 +1041,9 @@ internal fun MediaViewer(
     /** Screen bounds of the tapped thumbnail. When set, the page grows out of it and returns there on close. */
     originBounds: Rect? = null,
     /** Keep the entire viewer window protected, even when every page is ordinary media. */
-    forceSecure: Boolean = false
+    forceSecure: Boolean = false,
+    /** Range-aware playback: verifies bytes per position and points TDLib's window at what the player reads. */
+    playbackCoordinator: UserRangeCoordinator? = null
 ) {
     // The source can shrink asynchronously while LazyLayout still holds indices from the previous frame.
     // Keep the count, keys and content aligned to the same immutable snapshot for this composition.
@@ -1290,8 +1297,8 @@ internal fun MediaViewer(
                         // Compose may request an index belonging to the preceding page count during an update.
                         // Never index the backing list until this page exists in our current snapshot.
                         currentPages.getOrNull(page)?.let { item ->
-                            MediaViewerPage(item, observeFile, downloadFile, autoDownload, canExport = canExport, active = page == safeSettledPage,
-                                fullFileOnlyWhenActive = fullFileOnlyWhenActive,
+                            MediaViewerPage(item, observeFile, downloadFile, autoDownload, playbackCoordinator, canExport = canExport, active = page == safeSettledPage,
+                                fullFileOnlyWhenActive = fullFileOnlyWhenActive, forceSecure = forceSecure,
                                 revealed = item.messageId in revealedSpoilers, onReveal = { revealedSpoilers += item.messageId },
                                 onOpenFile = { path -> openExternal(item, path) }, onViewed = onViewed,
                                 onDismiss = ::requestClose, onToggleControls = { controlsVisible = !controlsVisible },
@@ -1431,11 +1438,13 @@ internal fun MediaViewer(
 private fun MediaViewerPage(
     item: MediaViewerItem, observeFile: (Int) -> StateFlow<MediaFileState>, downloadFile: (Int) -> Unit,
     autoDownloadFile: (AutoDownloadRequest) -> Unit,
-    canExport: Boolean, active: Boolean, fullFileOnlyWhenActive: Boolean, revealed: Boolean, onReveal: () -> Unit, onOpenFile: (String) -> Unit, onViewed: (Long) -> Unit,
+    playbackCoordinator: UserRangeCoordinator?,
+    canExport: Boolean, active: Boolean, fullFileOnlyWhenActive: Boolean, forceSecure: Boolean, revealed: Boolean, onReveal: () -> Unit, onOpenFile: (String) -> Unit, onViewed: (Long) -> Unit,
     onDismiss: () -> Unit, onToggleControls: () -> Unit, onDismissProgress: (Float) -> Unit, showZoomControls: Boolean, zoomControlsBottomPadding: Dp, onUserInteraction: () -> Unit
 ) {
     val media = item.media
     val context = LocalContext.current
+    val scope = rememberCoroutineScope()
     val reduced = systemReducedMotion()
     val accountId = LocalPlaybackAccountId.current
     val policySettings by remember(context, accountId) {
@@ -1449,6 +1458,9 @@ private fun MediaViewerPage(
     // Миниатюра показывается вместо оригинала, пока тот грузится.
     val thumbId = previewId ?: media.fileId
     val thumb by remember(thumbId) { observeFile(thumbId) }.collectAsStateWithLifecycle()
+    val pipAccountId = accountId.takeIf {
+        MediaViewerPolicy.canOpenPip(media, item.viewOnce, forceSecure)
+    }
     val exportable = canExport && !media.isSecret
     // Спойлер не грузится и не показывается, пока пользователь не раскроет именно эту страницу.
     val spoilerHidden = media.hasSpoiler && !media.isSecret && !revealed
@@ -1523,26 +1535,30 @@ private fun MediaViewerPage(
         val reason = info?.reason
         diagnostics.probeFinished(reason?.name ?: "none", probe.second)
         when {
-            info?.streamable == true -> {
+            // A fast-start file starts from the prefix; a file with the index at the end is opened through the
+            // range-aware source, and Media3's own extractor fetches that index by seeking to the end.
+            canPlayProgressively(info, rangesAvailable = playbackCoordinator != null) -> {
                 progressivePath = partialPath
                 progressiveUnlocked = true
                 diagnostics.unlocked()
             }
-            reason != null && reason in setOf(
-                Mp4StreamingReason.NotMp4,
-                Mp4StreamingReason.MoovAfterMediaData,
-                Mp4StreamingReason.MoovTooLarge,
-                Mp4StreamingReason.NoVideoTrack,
-                Mp4StreamingReason.UnsupportedVideoCodec
-            ) -> {
+            isPermanentProgressiveRejection(info, rangesAvailable = playbackCoordinator != null) -> {
                 progressiveRejected = true
-                diagnostics.rejected(reason.name)
+                diagnostics.rejected(reason?.name.orEmpty())
             }
         }
     }
     val unlockedPath = progressivePath
     // The player may keep an earlier source instance, so the lambda reads the latest page state.
     val activeNow by rememberUpdatedState(active)
+    val ranges = playbackCoordinator
+    // Leaving the page (or switching to another video) releases the single TDLib window; a stale request must not keep
+    // a download alive for a screen nobody looks at. The page takes a token: a loader thread that was already inside
+    // Media3 when this screen closed arrives with an older token and cannot request a window for it (#1195).
+    val pageOwner = remember(media.fileId, ranges) { ranges?.owner(media.fileId) }
+    DisposableEffect(media.fileId, ranges, pageOwner) {
+        onDispose { ranges?.reset(media.fileId, pageOwner) }
+    }
     val progressive = if (progressiveUnlocked && unlockedPath != null) {
         ProgressiveVideoSource(
             fileId = media.fileId,
@@ -1550,11 +1566,33 @@ private fun MediaViewerPage(
             totalSize = file.size,
             completed = { observeFile(media.fileId).value.localPath != null },
             downloading = { observeFile(media.fileId).value.isDownloading },
-            readablePrefix = { observeFile(media.fileId).value.downloadedPrefixBytes },
+            // With range support the answer is asked for the exact position the player wants to read: TDLib reports
+            // availability per offset, and a sparse file must never be read outside that answer. The old prefix value
+            // stays only as a fallback for repositories that cannot answer the question.
+            readableAt = { position ->
+                if (ranges != null) {
+                    // The read must never outlive the data source's own stall deadline: a single TDLib request may take
+                    // much longer than a frame budget, so it is bounded here and a timeout is reported as "no bytes
+                    // yet", which keeps the existing wait/abort logic in charge.
+                    runCatching {
+                        runBlocking { withTimeoutOrNull(RANGE_QUERY_TIMEOUT_MS) { ranges.readableFrom(media.fileId, position) } }
+                    }.getOrNull() ?: 0L
+                } else {
+                    (observeFile(media.fileId).value.downloadedPrefixBytes - position).coerceAtLeast(0L)
+                }
+            },
             // The opened page is user-initiated and keeps downloading on any network. A neighbouring
             // page that the player prepares in the background stays under the auto-download policy.
-            onNeedMore = {
-                if (activeNow) downloadFile(media.fileId)
+            onNeedMore = { position ->
+                if (ranges != null) {
+                    // The coordinator keeps the single TDLib window at the playback position and applies the
+                    // user/background priority rules, retries and backoff.
+                    scope.launch {
+                        runCatching {
+                            ranges.ensureReadable(media.fileId, position, RANGE_READ_AHEAD_BYTES, activeNow, owner = pageOwner)
+                        }
+                    }
+                } else if (activeNow) downloadFile(media.fileId)
                 else autoDownloadFile(
                     AutoDownloadRequest(
                         fileId = media.fileId,
@@ -1605,6 +1643,7 @@ private fun MediaViewerPage(
                 streamSource.path, loop = media.kind == MediaKind.Animation, active = active,
                 onStarted = { currentOnViewed(item.messageId) }, progressive = streamSource,
                 onManualDownload = { downloadFile(media.fileId) },
+                pipAccountId = pipAccountId.takeIf { path != null },
                 onOpenPipDismiss = onDismiss
             )
             path == null && media.mimeType.startsWith("image/") -> PhotoPreview(file, thumb.localPath) { downloadFile(media.fileId) }
@@ -1641,7 +1680,11 @@ private fun MediaViewerPage(
                 showZoomControls = showZoomControls, zoomControlsBottomPadding = zoomControlsBottomPadding, onUserInteraction = onUserInteraction,
                 contentDescription = media.kind.label(context))
             media.kind == MediaKind.Video || media.kind == MediaKind.Animation || media.mimeType.startsWith("video/") ->
-                LocalVideo(path, media.kind == MediaKind.Animation, active, onStarted = { currentOnViewed(item.messageId) }, onOpenPipDismiss = onDismiss)
+                LocalVideo(
+                    path, media.kind == MediaKind.Animation, active,
+                    onStarted = { currentOnViewed(item.messageId) },
+                    pipAccountId = pipAccountId, onOpenPipDismiss = onDismiss
+                )
             else -> Column(horizontalAlignment = Alignment.CenterHorizontally) {
                 Text(formatMediaSize(file.size), color = Color.LightGray)
                 if (exportable) TextButton(onClick = { onOpenFile(path) }) { Text(stringResource(R.string.media_open_file)) }
@@ -1892,6 +1935,12 @@ internal fun clampImageOffset(offset: Offset, scale: Float, size: IntSize): Offs
 
 private const val VIDEO_PROGRESS_INTERVAL_MS = 250L
 
+/** How far ahead of the read position a playback window is requested. */
+private const val RANGE_READ_AHEAD_BYTES = 2L * 1024 * 1024
+
+/** Upper bound for one availability query; the data source's own stall deadline stays authoritative. */
+private const val RANGE_QUERY_TIMEOUT_MS = 2_000L
+
 /** A partially downloaded fast-start video: [path] grows while TDLib downloads the rest. */
 private data class ProgressiveVideoSource(
     val fileId: Int,
@@ -1899,9 +1948,13 @@ private data class ProgressiveVideoSource(
     val totalSize: Long,
     val completed: () -> Boolean,
     val downloading: () -> Boolean,
-    /** TDLib's contiguous readable prefix; bytes beyond it may be unwritten or garbage. */
-    val readablePrefix: () -> Long,
-    val onNeedMore: () -> Unit,
+    /**
+     * Bytes TDLib confirms are readable starting exactly at the given position. When the repository can answer
+     * per offset (range-aware playback), this is the only source of truth; bytes outside the answer are never read.
+     */
+    val readableAt: (Long) -> Long,
+    /** Asks for more data at the position the player is about to read. */
+    val onNeedMore: (Long) -> Unit,
     /** Диагностика попытки (Issue #1174); пусто, если источник не нужен для записи. */
     val diagnostics: ProgressiveAttemptDiagnostics? = null
 )
@@ -1918,8 +1971,8 @@ private class ProgressiveFileDataSource(
     private val totalSize: Long,
     private val isComplete: () -> Boolean,
     private val isDownloading: () -> Boolean,
-    private val readablePrefix: () -> Long,
-    private val onNeedMore: () -> Unit,
+    private val readableAt: (Long) -> Long,
+    private val onNeedMore: (Long) -> Unit,
     private val onBytesRead: (Int) -> Unit = {},
     private val diagnostics: ProgressiveAttemptDiagnostics? = null
 ) : DataSource {
@@ -1949,11 +2002,15 @@ private class ProgressiveFileDataSource(
         var requestedAt = 0L
         var waited = false
         while (true) {
-            // TDLib documents that an incomplete file may contain unavailable/garbage regions:
-            // only downloadedPrefixSize is guaranteed readable. Never use file.length() as a boundary
-            // before completion.
-            val readable = if (isComplete()) opened.length() else minOf(readablePrefix(), opened.length())
-            val available = readable - position
+            // TDLib documents that an incomplete file may contain unavailable/garbage regions. Completion makes
+            // the local file authoritative; before that only the range confirmed for this exact position may be
+            // read. A sparse file can contain holes, so file.length() and downloadedSize are never proof.
+            val available = readableBytesAt(
+                position = position,
+                fileLength = opened.length(),
+                complete = isComplete(),
+                confirmedFromPosition = if (isComplete()) 0L else readableAt(position),
+            )
             if (available > 0L) {
                 val toRead = minOf(available, length.toLong()).toInt()
                 val read = opened.read(buffer, offset, toRead)
@@ -1977,7 +2034,7 @@ private class ProgressiveFileDataSource(
             if (now - requestedAt >= REQUEST_INTERVAL_MS) {
                 requestedAt = now
                 diagnostics?.onNeedMore()
-                onNeedMore()
+                onNeedMore(position)
             }
             if (now - startedAt >= STALL_TIMEOUT_MS) {
                 diagnostics?.onStall("timeout")
@@ -2016,12 +2073,23 @@ private fun LocalVideo(
     onStarted: () -> Unit,
     progressive: ProgressiveVideoSource? = null,
     onManualDownload: (() -> Unit)? = null,
+    pipAccountId: String? = null,
     onOpenPipDismiss: () -> Unit = {}
 ) {
     val context = LocalContext.current
     val lifecycle = LocalLifecycleOwner.current.lifecycle
     val currentOnStarted by rememberUpdatedState(onStarted)
     val currentActive by rememberUpdatedState(active)
+    val brightnessWindow = (context as? android.app.Activity)?.window
+    val originalBrightness = remember(brightnessWindow, active) { mutableStateOf<Float?>(null) }
+    DisposableEffect(brightnessWindow, active) {
+        onDispose {
+            val brightness = originalBrightness.value
+            if (brightnessWindow != null && brightness != null) {
+                brightnessWindow.attributes = brightnessWindow.attributes.apply { screenBrightness = brightness }
+            }
+        }
+    }
     val sourceKey = progressive?.fileId ?: -1
     // Стартовый буфер: по умолчанию не задан (Media3), выбирается только в диагностическом режиме (Issue #1121).
     val startBuffer = remember(context) { VideoStartBufferSettings.load(context) }
@@ -2082,7 +2150,7 @@ private fun LocalVideo(
                         totalSize = growth.totalSize,
                         isComplete = growth.completed,
                         isDownloading = growth.downloading,
-                        readablePrefix = growth.readablePrefix,
+                        readableAt = growth.readableAt,
                         onNeedMore = growth.onNeedMore,
                         onBytesRead = metrics::onBytesRead,
                         diagnostics = growth.diagnostics
@@ -2211,7 +2279,8 @@ private fun LocalVideo(
                                     }
                                 )
                             }
-                            .pointerInput(context, path) {
+                            .pointerInput(context, path, active) {
+                                if (!active) return@pointerInput
                                 val audioManager = context.getSystemService(android.content.Context.AUDIO_SERVICE) as? android.media.AudioManager
                                 val maxVol = (audioManager?.getStreamMaxVolume(android.media.AudioManager.STREAM_MUSIC) ?: 15).coerceAtLeast(1)
                                 var mode = 0 // -1 = brightness, 1 = volume
@@ -2227,8 +2296,7 @@ private fun LocalVideo(
                                             else -> 0
                                         }
                                         if (mode == -1) {
-                                            val window = (context as? android.app.Activity)?.window
-                                            val cur = window?.attributes?.screenBrightness ?: 0.5f
+                                            val cur = brightnessWindow?.attributes?.screenBrightness ?: 0.5f
                                             startLevel = if (cur in 0f..1f) cur else 0.5f
                                         } else if (mode == 1 && audioManager != null) {
                                             startLevel = audioManager.getStreamVolume(android.media.AudioManager.STREAM_MUSIC).toFloat() / maxVol
@@ -2244,8 +2312,14 @@ private fun LocalVideo(
                                         val next = (startLevel + totalDy / range).coerceIn(0.05f, 1f)
                                         val pct = (next * 100f).toInt().coerceIn(0, 100)
                                         if (mode == -1) {
-                                            val window = (context as? android.app.Activity)?.window
-                                            window?.attributes = window?.attributes?.apply { screenBrightness = next }
+                                            if (brightnessWindow != null) {
+                                                val attrs = brightnessWindow.attributes
+                                                if (originalBrightness.value == null) {
+                                                    originalBrightness.value = attrs.screenBrightness
+                                                }
+                                                attrs.screenBrightness = next
+                                                brightnessWindow.attributes = attrs
+                                            }
                                             gestureHud = "$brightnessLabel $pct%"
                                         } else if (mode == 1 && audioManager != null) {
                                             val targetVol = (next * maxVol).toInt().coerceIn(0, maxVol)
@@ -2287,11 +2361,14 @@ private fun LocalVideo(
             state = video,
             onAction = { action -> if (action == VideoAction.Pause) player.pause() else play() },
             onSeek = ::seek,
-            onOpenPip = {
-                player.pause()
-                InAppVideoPip.open(path, player.currentPosition)
-                onOpenPipDismiss()
-            },
+            onOpenPip = if (active && pipAccountId != null) {
+                {
+                    if (InAppVideoPip.open(path, player.currentPosition, pipAccountId)) {
+                        player.pause()
+                        onOpenPipDismiss()
+                    }
+                }
+            } else null,
             modifier = Modifier.align(Alignment.BottomCenter)
         )
     }

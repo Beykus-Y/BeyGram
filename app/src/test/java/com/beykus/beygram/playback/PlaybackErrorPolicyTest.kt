@@ -58,4 +58,14 @@ class PlaybackErrorPolicyTest {
         assertEquals(15_000L, queuePageRetryDelayMs(2))
         assertNull(queuePageRetryDelayMs(3))
     }
+
+    @Test
+    fun endlessQueuePageRetriesUseControlledBoundedBackoff() {
+        assertEquals(2_000L, endlessQueuePageRetryDelayMs(0))
+        assertEquals(5_000L, endlessQueuePageRetryDelayMs(1))
+        assertEquals(15_000L, endlessQueuePageRetryDelayMs(2))
+        assertEquals(30_000L, endlessQueuePageRetryDelayMs(3))
+        assertEquals(60_000L, endlessQueuePageRetryDelayMs(4))
+        assertNull(endlessQueuePageRetryDelayMs(5))
+    }
 }

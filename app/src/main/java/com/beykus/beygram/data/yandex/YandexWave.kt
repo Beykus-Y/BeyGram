@@ -142,7 +142,8 @@ internal class YandexWaveSession(
     suspend fun more(): List<ProviderTrack> = lock.withLock {
         repeat(YandexWave.MAX_EMPTY_BATCHES) {
             val id = sessionId
-            val result = if (id == null) start(seeds, given.toList()) else next(id, given.toList())
+            val hint = queueHint()
+            val result = if (id == null) start(seeds, hint) else next(id, hint)
             val batch = when (result) {
                 is ProviderResult.Failure -> throw YandexWaveException(result.failure)
                 is ProviderResult.Success -> result.value
@@ -159,7 +160,14 @@ internal class YandexWaveSession(
             val fresh = accept(batch.tracks, batch.batchId)
             if (fresh.isNotEmpty()) return@withLock fresh
         }
+        // Reset the exhausted session so the next recovery attempt opens a fresh session with the latest queue hint.
+        sessionId = null
         emptyList()
+    }
+
+    /** Most recent [YandexWave.QUEUE_HINT] track IDs, so the service avoids repeats without unbounded request payloads. */
+    private fun queueHint(): List<String> = synchronized(given) {
+        if (given.size <= YandexWave.QUEUE_HINT) given.toList() else given.toList().takeLast(YandexWave.QUEUE_HINT)
     }
 
     /** The tracks given so far, as `id:albumId`, oldest first, for saving the wave. */

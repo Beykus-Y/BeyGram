@@ -18,6 +18,9 @@ internal object MediaViewerPolicy {
     fun secureWhileShowing(settled: MessageMedia, viewOnce: Boolean = false, forceSecure: Boolean = false): Boolean =
         forceSecure || settled.isSecret || viewOnce
 
+    fun canOpenPip(media: MessageMedia, viewOnce: Boolean, forceSecure: Boolean): Boolean =
+        !secureWhileShowing(media, viewOnce, forceSecure) && !media.isSecretChat && !media.hasSpoiler
+
     /**
      * Права действуют только для того сообщения, для которого их загрузили. Ответ на соседнее вложение, пришедший позже
      * переключения, сюда не попадает, а действия над текущим вложением закрыты, пока не придёт его собственный ответ.

@@ -429,4 +429,7 @@ interface TelegramRepository : ConversationRepository, NotificationRepository, R
      * download window at the position it is about to play. It never creates a second cache.
      */
     val playbackRanges: com.beykus.beygram.playback.PlaybackRanges? get() = null
+
+    /** The player-facing coordinator over [playbackRanges]; null when the backend cannot report ranges. */
+    val playbackCoordinator: com.beykus.beygram.playback.UserRangeCoordinator? get() = null
 }

@@ -46,6 +46,16 @@ class MediaViewerPolicyTest {
         assertTrue(MediaViewerPolicy.secureWhileShowing(secretVideo, forceSecure = true))
     }
 
+    @Test fun pipIsAvailableOnlyForUnprotectedMedia() {
+        val video = secretVideo.copy(isSecret = false)
+        assertTrue(MediaViewerPolicy.canOpenPip(video, viewOnce = false, forceSecure = false))
+        assertFalse(MediaViewerPolicy.canOpenPip(secretVideo, viewOnce = false, forceSecure = false))
+        assertFalse(MediaViewerPolicy.canOpenPip(video.copy(isSecretChat = true), viewOnce = false, forceSecure = false))
+        assertFalse(MediaViewerPolicy.canOpenPip(video.copy(hasSpoiler = true), viewOnce = false, forceSecure = false))
+        assertFalse(MediaViewerPolicy.canOpenPip(video, viewOnce = true, forceSecure = false))
+        assertFalse(MediaViewerPolicy.canOpenPip(video, viewOnce = false, forceSecure = true))
+    }
+
     @Test fun purchasedGalleryUsesDistinctOccurrenceIdsForDuplicateFiles() {
         val paid = MessagePaidMediaInfo(
             starCount = 5L, itemCount = 3, isPurchased = true,

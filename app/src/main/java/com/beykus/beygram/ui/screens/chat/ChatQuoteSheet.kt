@@ -50,17 +50,29 @@ import com.beykus.beygram.ui.motion.motionEntrance
 
 @Stable
 internal class ChatQuoteState {
-    var quote by mutableStateOf<Pair<String, Int>?>(null)
+    private data class Quote(val messageId: Long, val text: String, val position: Int)
+    private var quote by mutableStateOf<Quote?>(null)
     var pickerTarget by mutableStateOf<ChatMessage?>(null)
+
+    fun select(messageId: Long, text: String, position: Int) {
+        quote = Quote(messageId, text, position)
+    }
+
+    fun textFor(replyId: Long?): String? = quote?.takeIf { it.messageId == replyId }?.text
+
+    fun keepOnlyFor(replyId: Long?) {
+        if (quote?.messageId != replyId) clear()
+    }
 
     fun clear() {
         quote = null
     }
 
-    fun consumeInto(options: MessageSendOptions): MessageSendOptions {
-        val current = quote ?: return options
-        quote = null
-        return options.copy(replyQuote = current.first, replyQuotePosition = current.second)
+    fun consumeInto(options: MessageSendOptions, replyId: Long?): MessageSendOptions {
+        val current = quote
+        clear()
+        if (current == null || current.messageId != replyId) return options
+        return options.copy(replyQuote = current.text, replyQuotePosition = current.position)
     }
 }
 
@@ -73,7 +85,7 @@ internal fun ChatQuoteHost(
     ChatQuoteSheet(
         sourceText = target.text,
         onQuoteSelected = { q, pos ->
-            state.quote = q to pos
+            state.select(target.id, q, pos)
             state.pickerTarget = null
             onApplyQuote(target.id)
         },
@@ -125,9 +137,9 @@ internal fun extractQuoteCandidates(fullText: String): List<String> {
     return if (parts.size <= 1) listOf(trimmed) else parts.take(8)
 }
 
-/** Finds the character offset of [quote] inside [source], or 0 when edited freely. */
-internal fun quoteOffsetIn(source: String, quote: String): Int =
-    source.indexOf(quote).coerceAtLeast(0)
+/** Finds an exact quote's UTF-16 offset in the source message. */
+internal fun quoteOffsetIn(source: String, quote: String): Int? =
+    quote.takeUnless(String::isBlank)?.let { source.indexOf(it).takeIf { offset -> offset >= 0 } }
 
 /**
  * Sheet for picking a specific fragment of a message to quote-reply via TDLib's InputTextQuote.
@@ -144,6 +156,8 @@ internal fun ChatQuoteSheet(
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     val candidates = remember(sourceText) { extractQuoteCandidates(sourceText) }
     var quote by remember(sourceText) { mutableStateOf(candidates.firstOrNull() ?: sourceText.trim()) }
+    val selectedText = quote.trim()
+    val selectedOffset = quoteOffsetIn(sourceText, selectedText)
 
     BeyGramSheet(
         onDismissRequest = onDismiss,
@@ -212,12 +226,9 @@ internal fun ChatQuoteSheet(
                 }
                 TextButton(
                     onClick = {
-                        val cleaned = quote.trim()
-                        if (cleaned.isNotEmpty()) {
-                            onQuoteSelected(cleaned, quoteOffsetIn(sourceText, cleaned))
-                        }
+                        if (selectedOffset != null) onQuoteSelected(selectedText, selectedOffset)
                     },
-                    enabled = quote.isNotBlank()
+                    enabled = selectedOffset != null
                 ) {
                     Text(stringResource(R.string.chat_quote_action), color = palette.accent, fontWeight = FontWeight.SemiBold)
                 }

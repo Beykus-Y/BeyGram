@@ -50,6 +50,13 @@
     <string name="recorder_preview_previous">Retour</string>
     <string name="recorder_preview_size">Taille totale : %1$s</string>
     <string name="recorder_preview_title">Aperçu de l’enregistrement</string>
+    <!-- P0 #1228 : la raison de l'échec d'envoi est visible dans l'aperçu. -->
+    <string name="recorder_send_in_progress">Envoi…</string>
+    <!-- P0 #1228 : pourquoi une vidéo n'a pas pu être traitée. -->
+    <string name="recorder_unreadable_video">L’enregistrement est endommagé : sa vidéo est illisible</string>
+    <string name="recorder_unsupported_codec">Le codec de l’enregistrement n’est pas pris en charge</string>
+    <string name="recorder_retry_send">Renvoyer</string>
+    <string name="recorder_preview_unavailable">Impossible de lire l’enregistrement</string>
     <string name="recorder_processing_busy">L’enregistrement précédent est encore en cours de traitement</string>
     <string name="recorder_queue_progress">Envoi de %1$d sur %2$d</string>
     <string name="recorder_queue_sent">Acceptés pour envoi : %1$d sur %2$d</string>
@@ -71,4 +78,5 @@
     <string name="recorder_too_short">L’enregistrement est trop court</string>
     <string name="recorder_video_note_unavailable">L’enregistrement de messages vidéo est temporairement indisponible</string>
     <string name="recorder_zoom_value">%1$.1f×</string>
+    <string name="chat_peek_open_chat">Ouvrir la discussion</string>
 </resources>

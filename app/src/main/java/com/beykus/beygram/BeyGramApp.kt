@@ -166,6 +166,8 @@ import com.beykus.beygram.ui.screens.chat.isWaveChat
 import com.beykus.beygram.ui.screens.chat.preparedTimeline
 import com.beykus.beygram.ui.screens.chat.LocalChatAnimationPreferences
 import com.beykus.beygram.ui.screens.chat.LocalAutoDownloadFile
+import com.beykus.beygram.ui.screens.chat.VideoNoteDelivery
+import com.beykus.beygram.ui.screens.chat.VideoNoteExportCenter
 import com.beykus.beygram.ui.screens.chat.MessageThreadScreen
 import com.beykus.beygram.ui.screens.chat.ForumTopicsScreen
 import com.beykus.beygram.ui.screens.chat.ForumTopicsLoadingScreen
@@ -460,6 +462,21 @@ internal fun BeyGramAppContent(
     // No caller of a secondary route may fall back to the first account.
     val unavailableAccountRepository = remember { UnavailableTelegramRepository() }
     val repository = repositorySelection ?: unavailableAccountRepository
+    // Delivery of auto-approved video notes is owned by the app, not by an open chat screen (#1228). Bind it to the
+    // account whose repository is actually available; drafts of other accounts stay queued until they become active.
+    LaunchedEffect(repositorySelection, selectedAccountId) {
+        val active = repositorySelection
+        if (active == null) {
+            // No repository yet for the newly selected account: never keep delivering the previous one.
+            VideoNoteExportCenter.unbindDelivery()
+        } else {
+            VideoNoteExportCenter.bindDelivery(
+                VideoNoteDelivery(selectedAccountId) { chatId, topicId, media, reply ->
+                    active.sendMedia(chatId, media, "", reply, forumTopicId = topicId).map { Unit }
+                }
+            )
+        }
+    }
     val authState by repository.authState.collectAsStateWithLifecycle()
     val legacyAuthState by legacyRepository.authState.collectAsStateWithLifecycle()
     // ---- Автопроверка обновлений ---------------------------------------------
@@ -474,13 +491,24 @@ internal fun BeyGramAppContent(
         runCatching { context.packageManager.getPackageInfo(context.packageName, 0).longVersionCode }
             .getOrDefault(0L)
     }
+    val updateSnoozedUntil = remember(updateNoticeStore, updateSnoozeRevision) { updateNoticeStore.snoozedUntil() }
+    LaunchedEffect(updateSnoozedUntil) {
+        val until = updateSnoozedUntil ?: return@LaunchedEffect
+        var remaining = until - System.currentTimeMillis()
+        if (remaining <= 0L) return@LaunchedEffect
+        while (remaining > 0L) {
+            delay(remaining)
+            remaining = until - System.currentTimeMillis()
+        }
+        updateSnoozeRevision++
+    }
     val updateBanner = remember(updateUiState, installedUpdateCode, updateSnoozeRevision) {
         updateBannerState(
             state = updateUiState,
             installedCode = installedUpdateCode,
             now = System.currentTimeMillis(),
             snoozedCode = updateNoticeStore.snoozedVersionCode(),
-            snoozedUntil = updateNoticeStore.snoozedUntil(),
+            snoozedUntil = updateSnoozedUntil,
         )
     }
     // Keyed by the account's repository: a question asked for one account is dropped when the user switches to another.
@@ -2479,6 +2507,7 @@ internal fun BeyGramAppContent(
                             observeFile = repository::observeFile,
                             onDownloadFile = repository::downloadFile,
                             onAutoDownloadFile = repository::autoDownloadFile,
+                            playbackCoordinator = repository.playbackCoordinator,
                             onBack = {
                                 if (!restoreLinkReturnChat()) {
                                     // Back from the feed returns to the topic list, or to the open topic in a panel view.
@@ -3800,7 +3829,7 @@ GlobalSearchScreen(
             }
         }
         PlayerExpansionHost()
-        com.beykus.beygram.ui.screens.chat.InAppVideoPipHost()
+        com.beykus.beygram.ui.screens.chat.InAppVideoPipHost(selectedAccountId)
     }
     }
     AccountSwitcherSheet(

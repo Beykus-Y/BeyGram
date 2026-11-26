@@ -21,6 +21,7 @@ import androidx.compose.material.icons.rounded.PlayArrow
 import androidx.compose.material3.Icon
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -41,8 +42,15 @@ import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.media3.common.AudioAttributes
+import androidx.media3.common.C
 import androidx.media3.common.MediaItem
+import androidx.media3.common.PlaybackException
+import androidx.media3.common.Player
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.ui.AspectRatioFrameLayout
 import androidx.media3.ui.PlayerView
@@ -57,9 +65,10 @@ import kotlinx.coroutines.flow.asStateFlow
 import java.io.File
 import kotlin.math.roundToInt
 
-internal data class InAppVideoPipRequest(
+internal class InAppVideoPipRequest(
     val path: String,
-    val startPositionMs: Long = 0L
+    val startPositionMs: Long,
+    val accountId: String
 )
 
 /** Process-local controller for the draggable in-app mini video window. */
@@ -67,13 +76,18 @@ internal object InAppVideoPip {
     private val _current = MutableStateFlow<InAppVideoPipRequest?>(null)
     val current: StateFlow<InAppVideoPipRequest?> = _current.asStateFlow()
 
-    fun open(path: String, positionMs: Long = 0L) {
-        if (path.isBlank() || !File(path).isFile) return
-        _current.value = InAppVideoPipRequest(path, positionMs.coerceAtLeast(0L))
+    fun open(path: String, positionMs: Long, accountId: String): Boolean {
+        if (path.isBlank() || !File(path).isFile) return false
+        val previous = _current.value
+        val request = InAppVideoPipRequest(path, positionMs.coerceAtLeast(0L), accountId)
+        PlaybackEngine.beginInterruption(request)
+        _current.value = request
+        if (previous != null) PlaybackEngine.endInterruption(previous)
+        return true
     }
 
-    fun close() {
-        _current.value = null
+    fun close(request: InAppVideoPipRequest) {
+        if (_current.compareAndSet(request, null)) PlaybackEngine.endInterruption(request)
     }
 }
 
@@ -96,10 +110,14 @@ internal object VideoNoteInlineSurfaceRegistry {
  * and off-screen playing video notes (кружки) from [PlaybackEngine].
  */
 @Composable
-internal fun InAppVideoPipHost() {
+internal fun InAppVideoPipHost(accountId: String) {
     val request by InAppVideoPip.current.collectAsStateWithLifecycle()
-    if (request != null) {
-        FloatingVideoPip(request!!)
+    val active = request
+    LaunchedEffect(active, accountId) {
+        if (active != null && active.accountId != accountId) InAppVideoPip.close(active)
+    }
+    if (active != null && active.accountId == accountId) {
+        FloatingVideoPip(active)
         return
     }
     val playback by PlaybackEngine.state.collectAsStateWithLifecycle()
@@ -107,6 +125,7 @@ internal fun InAppVideoPipHost() {
     val item = playback.item
     val showVideoNotePip = item != null &&
         item.kind == MediaKind.VideoNote &&
+        !item.systemPrivate &&
         !playback.ended &&
         !playback.failed &&
         inlineOwners.isEmpty()
@@ -122,17 +141,44 @@ private fun FloatingVideoPip(active: InAppVideoPipRequest) {
     val pipWidthDp = 196.dp
     val pipHeightDp = 116.dp
 
-    val player = remember(active.path) {
-        ExoPlayer.Builder(context.applicationContext).build().apply {
-            setMediaItem(MediaItem.fromUri(android.net.Uri.fromFile(File(active.path))))
-            prepare()
-            if (active.startPositionMs > 0L) seekTo(active.startPositionMs)
-            playWhenReady = true
-        }
+    val lifecycle = LocalLifecycleOwner.current.lifecycle
+    val player = remember(active) {
+        ExoPlayer.Builder(context.applicationContext)
+            .setAudioAttributes(
+                AudioAttributes.Builder().setUsage(C.USAGE_MEDIA).setContentType(C.AUDIO_CONTENT_TYPE_MOVIE).build(),
+                true
+            )
+            .setHandleAudioBecomingNoisy(true)
+            .build()
     }
-    var playing by remember(active.path) { mutableStateOf(true) }
-    DisposableEffect(player) {
-        onDispose { player.release() }
+    var playing by remember(active) { mutableStateOf(false) }
+    DisposableEffect(player, lifecycle) {
+        val listener = object : Player.Listener {
+            override fun onPlayWhenReadyChanged(playWhenReady: Boolean, reason: Int) {
+                playing = playWhenReady
+            }
+
+            override fun onPlaybackStateChanged(playbackState: Int) {
+                if (playbackState == Player.STATE_ENDED) InAppVideoPip.close(active)
+            }
+
+            override fun onPlayerError(error: PlaybackException) {
+                InAppVideoPip.close(active)
+            }
+        }
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_STOP) player.pause()
+        }
+        player.addListener(listener)
+        lifecycle.addObserver(observer)
+        player.setMediaItem(MediaItem.fromUri(android.net.Uri.fromFile(File(active.path))), active.startPositionMs)
+        player.prepare()
+        if (lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED)) player.play()
+        onDispose {
+            lifecycle.removeObserver(observer)
+            player.removeListener(listener)
+            player.release()
+        }
     }
 
     BoxWithConstraints(Modifier.fillMaxSize()) {
@@ -179,13 +225,7 @@ private fun FloatingVideoPip(active: InAppVideoPipRequest) {
                     .clip(CircleShape)
                     .background(Color.Black.copy(alpha = 0.45f))
                     .clickable(role = Role.Button) {
-                        if (playing) {
-                            player.pause()
-                            playing = false
-                        } else {
-                            player.play()
-                            playing = true
-                        }
+                        if (playing) player.pause() else player.play()
                     },
                 contentAlignment = Alignment.Center
             ) {
@@ -203,7 +243,7 @@ private fun FloatingVideoPip(active: InAppVideoPipRequest) {
                     .size(28.dp)
                     .clip(CircleShape)
                     .background(Color.Black.copy(alpha = 0.55f))
-                    .clickable(role = Role.Button) { InAppVideoPip.close() },
+                    .clickable(role = Role.Button) { InAppVideoPip.close(active) },
                 contentAlignment = Alignment.Center
             ) {
                 Icon(

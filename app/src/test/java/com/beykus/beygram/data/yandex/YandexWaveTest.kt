@@ -120,4 +120,52 @@ class YandexWaveTest {
         assertTrue(session.more().isEmpty())
         assertEquals(YandexWave.MAX_EMPTY_BATCHES, calls)
     }
+
+    @Test
+    fun moreCapsQueueHintToLatestWindowWhileKeepingFullDedup() = runTest {
+        val sentQueues = mutableListOf<List<String>>()
+        val initialTracks = (1..132).map { track(it.toString()) }
+        val session = YandexWaveSession(
+            seeds = listOf(YandexWave.MY_WAVE_SEED),
+            start = { _, _ ->
+                ProviderResult.Success(YandexWaveBatch("s1", "b1", initialTracks, unknownSession = false, terminated = false))
+            },
+            next = { _, queue ->
+                sentQueues += queue
+                // Returns an old track (#1) and a brand-new track (#133); #1 must still be deduplicated.
+                batch("1", "133")
+            },
+        )
+        assertEquals(132, (session.first() as ProviderResult.Success).value.size)
+        val fresh = session.more()
+        assertEquals(listOf("133"), fresh.map { it.trackId })
+        assertEquals(1, sentQueues.size)
+        assertEquals(YandexWave.QUEUE_HINT, sentQueues.first().size)
+        assertEquals("83:a83", sentQueues.first().first())
+        assertEquals("132:a132", sentQueues.first().last())
+    }
+
+    @Test
+    fun exhaustedSessionResetsAndRecoversWithFreshStartOnNextMore() = runTest {
+        var starts = 0
+        var nextCalls = 0
+        val session = YandexWaveSession(
+            seeds = listOf(YandexWave.MY_WAVE_SEED),
+            start = { _, _ ->
+                starts++
+                if (starts == 1) batch("1", session = "s1") else batch("2", session = "s2")
+            },
+            next = { _, _ ->
+                nextCalls++
+                batch("1")
+            },
+        )
+        session.first()
+        assertTrue(session.more().isEmpty())
+        assertEquals(YandexWave.MAX_EMPTY_BATCHES, nextCalls)
+        // Next recovery attempt must open a fresh session via start() instead of polling the exhausted s1.
+        assertEquals(listOf("2"), session.more().map { it.trackId })
+        assertEquals(2, starts)
+        assertEquals("s2", session.currentSessionId)
+    }
 }
