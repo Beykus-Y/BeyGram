@@ -849,42 +849,25 @@ fun ChatScreen(
     val searchSenders = remember(messages, searching) { if (searching) chatSearchSenders(messages) else emptyList() }
     // Album grouping reads only the messages, so a pending video note does not regroup the whole loaded history.
     val waveChat = isWaveChat(chat)
-    // Rows keep their instances across content-only updates, so untouched bubbles skip recomposition; see ChatTimelineGrouper.
-    val timelineGrouper = remember(chat.id, forumTopicId) { ChatTimelineGrouper() }
-    // BeyGramApp groups the history off the main thread; this screen groups it only for the first frame or a mismatch.
-    val timelineRows = remember(messages, waveChat, timelineGrouper, preparedTimeline) {
-        preparedTimeline?.takeIf { it.history.messages === messages && it.waveFiltered == waveChat }?.rows
-            ?: timelineGrouper.group(if (waveChat) messages.filterNot(::isBgWaveSignalMessage) else messages)
-    }
-    val albumItems = timelineRows.items
-    val visibleTextAttempts = remember(queuedTextAttempts, history) {
-        visiblePendingTextAttempts(queuedTextAttempts, history)
-    }
-    val localTextAttemptIds = remember(visibleTextAttempts) {
-        visibleTextAttempts.associateBy { -it.attemptId }
-    }
-    // Кружки в обработке стоят в списке первыми (внизу ленты), чтобы индексы прокрутки и дат учитывали их тоже.
-    val rawMessageItems = remember(albumItems, pendingVideoNotes, visibleTextAttempts) {
-        pendingVideoNotes.map { ChatMessageListItem("pending-video:${it.sessionName}", emptyList(), pendingVideoNote = it) } +
-            visibleTextAttempts.map { ChatMessageListItem("pending-text:${it.attemptId}", listOf(it.toChatMessage())) } +
-            albumItems
-    }
-    val messageListItems = remember(rawMessageItems, scrollPosition.readBoundaryId) {
-        scrollPosition.readBoundaryId?.let { withUnreadSeparator(rawMessageItems, it) } ?: rawMessageItems
-    }
-    // Keyed by the row structure, not the list: a content-only update leaves days and sender headers unchanged.
-    val daySeparators = remember(timelineRows.structureVersion, timelineGrouper, pendingVideoNotes, visibleTextAttempts, scrollPosition.readBoundaryId, history.hasOlderMessages) {
-        chatDaySeparators(messageListItems, showOldestDay = !history.hasOlderMessages)
-    }
-    // In a private chat the peer is already named in the header; groups need the author once per block, not per bubble.
-    // The all-messages feed names the topic above the first message of each run that belongs to one topic.
-    val feedTopicOf: (ChatMessage) -> Long = { message -> forumFeedTopicId(message, feedGeneralTopic?.id ?: 0L) }
-    val feedTopicHeaders = remember(timelineRows.structureVersion, timelineGrouper, pendingVideoNotes, visibleTextAttempts, scrollPosition.readBoundaryId, forumAllMessages, feedGeneralTopic) {
-        if (forumAllMessages) forumFeedTopicHeaders(messageListItems, feedTopicOf) else emptyMap<String, Long>()
-    }
-    val senderHeaderByKey = remember(timelineRows.structureVersion, timelineGrouper, pendingVideoNotes, visibleTextAttempts, scrollPosition.readBoundaryId, chat.isGroup, chat.isChannel, chat.isSavedMessages, forumAllMessages, feedGeneralTopic) {
-        senderHeaderVisibility(chat, messageListItems, if (forumAllMessages) feedTopicOf else null)
-    }
+    val timeline = rememberChatTimelineContent(
+        accountId = accountId,
+        chat = chat,
+        forumTopicId = forumTopicId,
+        history = history,
+        preparedTimeline = preparedTimeline,
+        waveFiltered = waveChat,
+        pendingVideoNotes = pendingVideoNotes,
+        queuedTextAttempts = queuedTextAttempts,
+        readBoundaryId = scrollPosition.readBoundaryId,
+        forumAllMessages = forumAllMessages,
+        generalTopicId = feedGeneralTopic?.id ?: 0L
+    )
+    val messageListItems = timeline.items
+    val rawMessageItems = timeline.itemsWithoutUnreadSeparator
+    val daySeparators = timeline.daySeparators
+    val feedTopicHeaders = timeline.feedTopicHeaders
+    val senderHeaderByKey = timeline.senderHeaderByKey
+    val localTextAttemptIds = timeline.localTextAttemptIds
     // The position is saved by message as well as by index: history changes move indexes, not the message on screen.
     val currentListItems by rememberUpdatedState(messageListItems)
     val bottomThresholdPx = with(LocalDensity.current) { 48.dp.roundToPx() }
