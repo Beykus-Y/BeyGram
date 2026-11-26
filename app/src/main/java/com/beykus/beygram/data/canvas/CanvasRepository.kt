@@ -8,6 +8,7 @@ import com.beykus.beygram.data.music.provider.ProviderTrack
 import com.beykus.beygram.data.music.provider.ProviderTracks
 import com.beykus.beygram.domain.music.TrackAudioSource
 import com.beykus.beygram.domain.music.TrackIdentity
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -26,6 +27,7 @@ class CanvasRepository(
     private val trackLookup: (String) -> ProviderTrack? = { key -> ProviderTracks.byKey(key) },
     private val trackFetcher: suspend (String) -> ProviderTrack? = { null },
     private val isDataSaverActive: () -> Boolean = { false },
+    private val isMeteredNetwork: () -> Boolean = { false },
     private val now: () -> Long = { System.currentTimeMillis() },
     private val negativeTtlMs: Long = NEGATIVE_TTL_MS,
 ) {
@@ -74,14 +76,20 @@ class CanvasRepository(
                 emit(CanvasLoadState.Unavailable(CanvasUnavailableReason.NotAvailable))
                 return@flow
             }
-            if (settings.respectDataSaver && isDataSaverActive()) {
+            if (settings.respectDataSaver && (isDataSaverActive() || isMeteredNetwork())) {
                 recordUnavailable(CanvasUnavailableReason.DataSaver)
                 emit(CanvasLoadState.Unavailable(CanvasUnavailableReason.DataSaver))
                 return@flow
             }
             emittedLoading = true
             emit(CanvasLoadState.Loading)
-            track = runCatching { trackFetcher(trackId) }.getOrNull()
+            track = try {
+                trackFetcher(trackId)
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (_: Throwable) {
+                null
+            }
             if (track != null) {
                 synchronized(diagLock) { diagMetadataRestored += 1 }
             }
@@ -116,7 +124,7 @@ class CanvasRepository(
             return@flow
         }
 
-        if (settings.respectDataSaver && isDataSaverActive()) {
+        if (settings.respectDataSaver && (isDataSaverActive() || isMeteredNetwork())) {
             recordUnavailable(CanvasUnavailableReason.DataSaver)
             emit(CanvasLoadState.Unavailable(CanvasUnavailableReason.DataSaver))
             return@flow
@@ -158,10 +166,16 @@ class CanvasRepository(
     suspend fun prefetch(identity: TrackIdentity, settings: CanvasSourceSettings) {
         if (settings.mode == BgCanvasMode.Off) return
         if (identity.privacy.systemPrivate || identity.audioSource != TrackAudioSource.YandexMusic) return
-        if (settings.respectDataSaver && isDataSaverActive()) return
+        if (settings.respectDataSaver && (isDataSaverActive() || isMeteredNetwork())) return
         val track = trackLookup(identity.playbackKey) ?: run {
             val trackId = identity.providerTrackId ?: return
-            runCatching { trackFetcher(trackId) }.getOrNull()?.also {
+            try {
+                trackFetcher(trackId)
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (_: Throwable) {
+                null
+            }?.also {
                 synchronized(diagLock) { diagMetadataRestored += 1 }
             }
         } ?: return
@@ -283,6 +297,7 @@ object AppCanvasRepository {
                     }
                 },
                 isDataSaverActive = { isAndroidDataSaverOn(app) },
+                isMeteredNetwork = { isAndroidNetworkMetered(app) },
             )
             MusicProviders.yandex(app)?.let { provider ->
                 scope.launch {
@@ -301,5 +316,12 @@ object AppCanvasRepository {
     private fun isAndroidDataSaverOn(context: Context): Boolean = runCatching {
         val cm = context.getSystemService(Context.CONNECTIVITY_SERVICE) as? android.net.ConnectivityManager
         cm?.restrictBackgroundStatus == android.net.ConnectivityManager.RESTRICT_BACKGROUND_STATUS_ENABLED
+    }.getOrDefault(false)
+
+    private fun isAndroidNetworkMetered(context: Context): Boolean = runCatching {
+        val cm = context.getSystemService(Context.CONNECTIVITY_SERVICE) as? android.net.ConnectivityManager ?: return false
+        val active = cm.activeNetwork ?: return false
+        val caps = cm.getNetworkCapabilities(active) ?: return false
+        !caps.hasCapability(android.net.NetworkCapabilities.NET_CAPABILITY_NOT_METERED) && cm.isActiveNetworkMetered
     }.getOrDefault(false)
 }

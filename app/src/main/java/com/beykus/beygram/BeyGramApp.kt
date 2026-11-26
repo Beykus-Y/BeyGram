@@ -909,6 +909,17 @@ internal fun BeyGramAppContent(
     val currentAuthState by rememberUpdatedState(authState)
     // Выход из аккаунта останавливает общий плеер: его файл и «Показать в чате» относятся к прошлой сессии.
     LaunchedEffect(authState) { if (authState != AuthState.Ready) PlaybackEngine.stop() }
+    val readyAccountsForLyricsCleanup = remember { mutableSetOf<String>() }
+    LaunchedEffect(selectedAccountId, authState) {
+        when (authState) {
+            is AuthState.Ready -> readyAccountsForLyricsCleanup += selectedAccountId
+            is AuthState.WaitingForPhone -> if (readyAccountsForLyricsCleanup.remove(selectedAccountId)) {
+                com.beykus.beygram.data.lyrics.AppLyricsRepository.get(context)
+                    .clearAccountCacheOffMain(selectedAccountId)
+            }
+            else -> Unit
+        }
+    }
     // Смена выбранного аккаунта не должна оставлять музыку/очередь прошлого аккаунта в общем плеере.
     LaunchedEffect(selectedAccountId) {
         PlaybackEngine.setActiveAccount(selectedAccountId)
@@ -3632,6 +3643,8 @@ GlobalSearchScreen(
                                                 // Never erase the primary TDLib database here. TDLib rebuilds
                                                 // the closed legacy client and publishes WaitPhoneNumber; the
                                                 // composition effect opens the sign-in screen through Start.
+                                                com.beykus.beygram.data.lyrics.AppLyricsRepository.get(context)
+                                                    .clearAccountCacheOffMain(securityAccountId)
                                                 AccountDeletionTracker.finish(
                                                     securityAccountId,
                                                     serverDeleted = true
@@ -3645,6 +3658,8 @@ GlobalSearchScreen(
                                                         securityAccountId,
                                                         serverDeleted = true
                                                     )
+                                                    com.beykus.beygram.data.lyrics.AppLyricsRepository.get(context)
+                                                        .clearAccountCacheOffMain(securityAccountId)
                                                 }
                                             } catch (cancelled: CancellationException) {
                                                 throw cancelled

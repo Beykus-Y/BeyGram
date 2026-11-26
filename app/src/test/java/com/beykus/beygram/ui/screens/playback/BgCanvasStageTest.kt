@@ -92,6 +92,10 @@ class BgCanvasStageTest {
 
     @Test
     fun reactsToLivePowerSaveToggleAndLifecyclePauseResume() {
+        val cm = context.getSystemService(Context.CONNECTIVITY_SERVICE) as android.net.ConnectivityManager
+        cm.getNetworkCapabilities(cm.activeNetwork)?.let { caps ->
+            Shadows.shadowOf(caps).addCapability(android.net.NetworkCapabilities.NET_CAPABILITY_NOT_METERED)
+        }
         CanvasSettingsStore.setMode(context, BgCanvasMode.Card)
         val owner = TestLifecycleOwner(Lifecycle.State.RESUMED)
         var active by mutableStateOf(true)

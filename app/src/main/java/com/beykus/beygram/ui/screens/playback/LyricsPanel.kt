@@ -1232,24 +1232,37 @@ private fun LyricRow(
         }
         val words = richLine?.words.orEmpty()
         if (isActive && !reduced && words.isNotEmpty() && positionMs != null) {
-            val pos = positionMs.value
-            val annotated = buildAnnotatedString {
-                var cursor = 0
-                for (w in words) {
-                    if (w.startCharIndex > cursor) {
-                        withStyle(SpanStyle(color = palette.textPrimary.copy(alpha = 0.55f))) {
-                            append(text.substring(cursor, w.startCharIndex))
-                        }
+            val highlightedWordCount by remember(words, positionMs) {
+                derivedStateOf {
+                    val pos = positionMs.value
+                    var count = 0
+                    for (w in words) {
+                        if (pos >= w.startMs) count++ else break
                     }
-                    val wordColor = if (pos >= w.startMs) palette.accent else palette.textPrimary.copy(alpha = 0.55f)
-                    withStyle(SpanStyle(color = wordColor)) {
-                        append(text.substring(w.startCharIndex, w.endCharIndexExclusive))
-                    }
-                    cursor = w.endCharIndexExclusive
+                    count
                 }
-                if (cursor < text.length) {
-                    withStyle(SpanStyle(color = palette.textPrimary.copy(alpha = 0.55f))) {
-                        append(text.substring(cursor))
+            }
+            val dimColor = palette.textPrimary.copy(alpha = 0.55f)
+            val accentColor = palette.accent
+            val annotated = remember(text, words, highlightedWordCount, accentColor, dimColor) {
+                buildAnnotatedString {
+                    var cursor = 0
+                    for ((index, w) in words.withIndex()) {
+                        if (w.startCharIndex > cursor) {
+                            withStyle(SpanStyle(color = dimColor)) {
+                                append(text.substring(cursor, w.startCharIndex))
+                            }
+                        }
+                        val wordColor = if (index < highlightedWordCount) accentColor else dimColor
+                        withStyle(SpanStyle(color = wordColor)) {
+                            append(text.substring(w.startCharIndex, w.endCharIndexExclusive))
+                        }
+                        cursor = w.endCharIndexExclusive
+                    }
+                    if (cursor < text.length) {
+                        withStyle(SpanStyle(color = dimColor)) {
+                            append(text.substring(cursor))
+                        }
                     }
                 }
             }
