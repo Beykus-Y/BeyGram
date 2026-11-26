@@ -128,13 +128,13 @@ internal fun MessageBubble(message: ChatMessage, observeFile: (Int) -> StateFlow
     val overlayMeta = !circle && !hasText && message.reply == null && message.sendState != MessageSendState.Failed &&
         message.media?.kind?.let { it == MediaKind.Photo || it == MediaKind.Video || it == MediaKind.Animation } == true
     val compactCollection = message.media?.let { com.beykus.beygram.ui.screens.bgmusic.isBgMusicDocument(it) } == true && !hasText && message.reply == null && renderedSpecial == null && message.linkPreview == null && translation == null
-    val inlineMeta = useInlineTextMetadata(
-        message,
-        hasSenderHeader = showSenderHeader && !message.isOutgoing && message.senderName.isNotBlank(),
-        hasTranslation = translation != null
-    )
-    // Preserve the existing cheap one-line path; measure actual final lines only for the other plain text bubbles.
-    val lastLineMeta = showText && !inlineMeta && useLastLineTextMetadata(message, hasTranslation = translation != null)
+    val lastLineMeta = showText && useLastLineTextMetadata(message, hasTranslation = translation != null)
+    val showAuthor = showSenderHeader && !message.isOutgoing && message.senderName.isNotBlank()
+    val bodyTopInset = when {
+        circle -> metrics.circleTopInset
+        lastLineMeta && (showAuthor || message.isForwarded) -> minOf(4.dp, metrics.textTopInset)
+        else -> metrics.textTopInset
+    }
     val openMediaLabel = stringResource(R.string.a11y_open_attachment)
     val openStickerSetLabel = if (sticker && onStickerOpen != null) stringResource(R.string.sticker_picker_open_set) else null
     val longPressLabel = stringResource(if (longPressSelects) R.string.message_action_select else R.string.a11y_message_actions)
@@ -198,13 +198,12 @@ internal fun MessageBubble(message: ChatMessage, observeFile: (Int) -> StateFlow
                             onLongClick = if (selectionMode) onToggleSelection else onActions
                         ),
                     overlayMeta = overlayMeta,
-                    // Short one-line text only: prevent awkward bubble width on formatted or wrapped text.
-                    inlineMeta = inlineMeta,
                     body = {
                     Column {
-                        if (showSenderHeader && !message.isOutgoing && message.senderName.isNotBlank()) Text(message.senderName, color = palette.accentInk, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis,
-                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp)
-                                .then(if (onSenderClick != null) Modifier.clickable { onSenderClick?.invoke() } else Modifier))
+                        if (showAuthor) Text(message.senderName, color = palette.accentInk, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis,
+                            modifier = (if (lastLineMeta) Modifier.padding(horizontal = metrics.textInset).padding(top = 6.dp)
+                            else Modifier.padding(horizontal = 12.dp, vertical = 4.dp))
+                                .then(if (onSenderClick != null) Modifier.clickable { onSenderClick() } else Modifier))
                         ForwardedMessageHeader(message)
                         // Media sits flush against the bubble's top and side edges; text keeps its own padding.
                         message.media?.let { media ->
@@ -247,11 +246,11 @@ internal fun MessageBubble(message: ChatMessage, observeFile: (Int) -> StateFlow
                         }
                         message.expiredMediaKind?.let { kind -> ExpiredMediaCard(kind) }
                         // Без текста и ответа под фото нет строки: время уже стоит поверх него.
-                        if (showText || renderedSpecial != null || message.reply != null || (!overlayMeta && !compactCollection)) Column(Modifier.padding(start = metrics.textInset, end = metrics.textInset, top = if (circle) metrics.circleTopInset else metrics.textTopInset)) {
+                        if (showText || renderedSpecial != null || message.reply != null || (!overlayMeta && !compactCollection)) Column(Modifier.padding(start = metrics.textInset, end = metrics.textInset, top = bodyTopInset)) {
                             message.reply?.let { reply ->
                                 ReplyQuote(
                                     reply = reply,
-                                    modifier = Modifier.padding(bottom = 5.dp),
+                                    modifier = Modifier.padding(bottom = 4.dp),
                                     onClick = { if (selectionMode) onToggleSelection() else onReplyClick(reply) },
                                     onLongClick = if (selectionMode) onToggleSelection else onActions,
                                     onClickLabel = selectionLabel,
@@ -284,7 +283,7 @@ internal fun MessageBubble(message: ChatMessage, observeFile: (Int) -> StateFlow
                                     if (lastLineMeta) {
                                         PlainMessageWithMeta(message.text, modifier = if (message.reply != null) Modifier.fillMaxWidth() else Modifier) {
                                             BubbleMeta(message, isRead, retryAvailable = false, overlay = false,
-                                                onRetry = onRetry, inline = true, insideTextInsets = true)
+                                                onRetry = onRetry, inline = true, insideTextInsets = true, connectionState = connectionState)
                                         }
                                     } else if (showText) FormattedMessageText(message, observeCustomEmoji, observeFile, onDownloadFile,
                                         onOpenEntity = onOpenMessageEntity, entityClicksEnabled = !selectionMode)
@@ -307,7 +306,7 @@ internal fun MessageBubble(message: ChatMessage, observeFile: (Int) -> StateFlow
                 },
                 meta = {
                     if (!inCircle && !lastLineMeta) BubbleMeta(message, isRead, retryAvailable = message.isOutgoing && message.sendState == MessageSendState.Failed,
-                        overlay = overlayMeta, onRetry = onRetry, inline = inlineMeta,
+                        overlay = overlayMeta, onRetry = onRetry,
                         onShowVersions = if (onLoadVersions != null) openVersions else null,
                         connectionState = connectionState, onShowFailureDetails = onShowFailureDetails, compactDocument = compactCollection)
                 },

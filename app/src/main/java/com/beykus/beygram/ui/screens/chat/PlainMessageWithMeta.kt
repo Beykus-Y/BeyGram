@@ -21,8 +21,9 @@ import com.beykus.beygram.ui.components.beyGramPalette
 import com.beykus.beygram.ui.theme.LocalMessageLineSpacing
 import com.beykus.beygram.ui.theme.LocalMessageTextSize
 import kotlin.math.ceil
+import kotlin.math.floor
 
-/** Rich entities, media, memory labels and non-final send states keep the existing renderer and metadata row. */
+/** Rich entities, media, memory labels and failed sends keep the existing renderer and metadata row. */
 internal fun useLastLineTextMetadata(message: ChatMessage, hasTranslation: Boolean): Boolean =
     message.text.isNotBlank() &&
         message.entities.isEmpty() &&
@@ -32,21 +33,21 @@ internal fun useLastLineTextMetadata(message: ChatMessage, hasTranslation: Boole
         message.expiredMediaKind == null &&
         message.inlineKeyboard.isEmpty() &&
         message.memory == null &&
-        message.sendState == MessageSendState.Sent &&
+        message.sendState != MessageSendState.Failed &&
         !hasTranslation
 
 internal fun lastLineMetadataFits(
-    lastLineRight: Int,
+    lastLineWidth: Int,
     metaWidth: Int,
     gap: Int,
     maxWidth: Int,
-): Boolean = lastLineRight >= 0 && metaWidth > 0 && gap >= 0 &&
-    lastLineRight.toLong() + gap + metaWidth <= maxWidth.toLong()
+): Boolean = lastLineWidth >= 0 && metaWidth > 0 && gap >= 0 &&
+    lastLineWidth.toLong() + gap + metaWidth <= maxWidth.toLong()
 
 /**
  * Place actual message metadata beside the measured final text line when it fits.
  * The message remains a single accessible Text node; no invisible spaces or placeholder characters are appended.
- * RTL paragraphs and metadata taller than the final line keep a separate row rather than risk overlap.
+ * Mixed paragraph/layout directions and oversized metadata use the next row.
  */
 @Composable
 internal fun PlainMessageWithMeta(
@@ -70,18 +71,21 @@ internal fun PlainMessageWithMeta(
         val result = measurer.measure(AnnotatedString(text), style = style, constraints = loose)
         val line = result.lineCount - 1
         val gap = 4.dp.roundToPx()
-        val lastRight = ceil(result.getLineRight(line)).toInt().coerceAtLeast(0)
+        val paragraph = result.getParagraphDirection(result.getLineStart(line).coerceAtMost(text.lastIndex))
+        val sameDirection = if (layoutDirection == LayoutDirection.Ltr) paragraph == ResolvedTextDirection.Ltr
+            else paragraph == ResolvedTextDirection.Rtl
+        // Align the text and timestamp from the same logical edge, including when the bubble widens in RTL.
+        val lastLineWidth = if (layoutDirection == LayoutDirection.Ltr) ceil(result.getLineRight(line)).toInt()
+            else textPlaceable.width - floor(result.getLineLeft(line)).toInt()
         val metaBaseline = metaPlaceable[LastBaseline]
         val textBaseline = textPlaceable[LastBaseline]
         val top = if (metaBaseline != AlignmentLine.Unspecified && textBaseline != AlignmentLine.Unspecified)
             textBaseline - metaBaseline else -1
-        val paragraphLtr = result.getParagraphDirection(result.getLineStart(line).coerceAtMost(text.lastIndex)) ==
-            ResolvedTextDirection.Ltr
-        val inline = layoutDirection == LayoutDirection.Ltr && paragraphLtr &&
+        val inline = sameDirection &&
             result.size == androidx.compose.ui.unit.IntSize(textPlaceable.width, textPlaceable.height) &&
             top >= result.getLineTop(line).toInt() &&
-            lastLineMetadataFits(lastRight, metaPlaceable.width, gap, loose.maxWidth)
-        val desiredWidth = if (inline) maxOf(textPlaceable.width, lastRight + gap + metaPlaceable.width)
+            lastLineMetadataFits(lastLineWidth, metaPlaceable.width, gap, loose.maxWidth)
+        val desiredWidth = if (inline) maxOf(textPlaceable.width, lastLineWidth + gap + metaPlaceable.width)
             else maxOf(textPlaceable.width, metaPlaceable.width)
         val width = desiredWidth.coerceIn(constraints.minWidth, constraints.maxWidth)
         val metaTop = if (inline) top else textPlaceable.height

@@ -45,12 +45,6 @@ class ChatContextUxPolicyTest {
     }
 
     @Test
-    fun forwardedShortTextDoesNotPutTimestampBesideHeader() {
-        val forwarded = message(1L, "hello").copy(isForwarded = true, forwardedFromName = "Original")
-        assertFalse(useInlineTextMetadata(forwarded, false, false))
-    }
-
-    @Test
     fun lastLineMetadataSupportsWrappedAndForwardedPlainText() {
         val long = message(1L, "A long forwarded message\nShort last line").copy(
             isForwarded = true, forwardedFromName = "Original",
@@ -65,11 +59,11 @@ class ChatContextUxPolicyTest {
 
     @Test
     fun lastLineMetadataUsesMeasuredWidthAndGap() {
-        assertTrue(lastLineMetadataFits(lastLineRight = 120, metaWidth = 50, gap = 4, maxWidth = 200))
-        assertTrue(lastLineMetadataFits(lastLineRight = 146, metaWidth = 50, gap = 4, maxWidth = 200))
-        assertFalse(lastLineMetadataFits(lastLineRight = 147, metaWidth = 50, gap = 4, maxWidth = 200))
-        assertFalse(lastLineMetadataFits(lastLineRight = Int.MAX_VALUE, metaWidth = 20, gap = 4, maxWidth = 200))
-        assertFalse(lastLineMetadataFits(lastLineRight = 120, metaWidth = 0, gap = 4, maxWidth = 200))
+        assertTrue(lastLineMetadataFits(lastLineWidth = 120, metaWidth = 50, gap = 4, maxWidth = 200))
+        assertTrue(lastLineMetadataFits(lastLineWidth = 146, metaWidth = 50, gap = 4, maxWidth = 200))
+        assertFalse(lastLineMetadataFits(lastLineWidth = 147, metaWidth = 50, gap = 4, maxWidth = 200))
+        assertFalse(lastLineMetadataFits(lastLineWidth = Int.MAX_VALUE, metaWidth = 20, gap = 4, maxWidth = 200))
+        assertFalse(lastLineMetadataFits(lastLineWidth = 120, metaWidth = 0, gap = 4, maxWidth = 200))
     }
 
     @Test
