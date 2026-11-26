@@ -199,4 +199,23 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
-        run: gh pr edit "$PR_NUMBER" --repo "$GITHUB_REPOSITORY" --remove-label record-screenshots || true
+          LABEL: ${{ github.event.label.name }}
+        run: gh pr edit "$PR_NUMBER" --repo "$GITHUB_REPOSITORY" --remove-label "$LABEL" || true
+
+  cleanup:
+    name: Remove a capture label
+    needs: record
+    # Capture labels request review PNGs, not a golden commit. Without this job they stayed on the PR forever.
+    if: >-
+      always() &&
+      contains(fromJSON('["capture-screenshots","capture-stealth","capture-profile"]'), github.event.label.name)
+    runs-on: ubuntu-24.04
+    permissions:
+      pull-requests: write
+    steps:
+      - name: Remove the label
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          LABEL: ${{ github.event.label.name }}
+        run: gh pr edit "$PR_NUMBER" --repo "$GITHUB_REPOSITORY" --remove-label "$LABEL" || true
