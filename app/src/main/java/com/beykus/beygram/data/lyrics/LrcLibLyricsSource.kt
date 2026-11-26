@@ -27,7 +27,7 @@ import java.net.URL
 import java.net.URLEncoder
 import kotlin.coroutines.coroutineContext
 
-data class LrcLibHttpResponse(val code: Int, val body: String)
+data class LrcLibHttpResponse(val code: Int, val body: String, val retryAfterSeconds: Long? = null)
 
 fun interface LrcLibHttpClient {
     suspend fun get(url: String, userAgent: String): LrcLibHttpResponse
@@ -74,7 +74,10 @@ class LrcLibLyricsSource(
                 return@withContext LyricsFetchResult.Found(doc, score)
             }
         } else if (getResponse.code == 429 || getResponse.code >= 500) {
-            return@withContext LyricsFetchResult.Unavailable(retryable = true)
+            return@withContext LyricsFetchResult.Unavailable(
+                retryable = true,
+                retryAfterMs = retryAfterMsFor(getResponse),
+            )
         } else if (getResponse.code != 404) {
             return@withContext LyricsFetchResult.Unavailable(retryable = false)
         }
@@ -87,7 +90,10 @@ class LrcLibLyricsSource(
             return@withContext LyricsFetchResult.Unavailable(retryable = true)
         }
         if (searchResponse.code == 429 || searchResponse.code >= 500) {
-            return@withContext LyricsFetchResult.Unavailable(retryable = true)
+            return@withContext LyricsFetchResult.Unavailable(
+                retryable = true,
+                retryAfterMs = retryAfterMsFor(searchResponse),
+            )
         }
         if (searchResponse.code !in 200..299) {
             return@withContext LyricsFetchResult.NotFound
@@ -180,7 +186,14 @@ class LrcLibLyricsSource(
     private fun encode(value: String): String = URLEncoder.encode(value, "UTF-8")
 
     companion object {
+        private fun retryAfterMsFor(response: LrcLibHttpResponse): Long =
+            (response.retryAfterSeconds?.takeIf { it > 0L }?.times(1_000L) ?: DEFAULT_RETRY_AFTER_MS)
+                .coerceIn(MIN_RETRY_AFTER_MS, MAX_RETRY_AFTER_MS)
+
         private const val BASE_URL = "https://lrclib.net"
+        private const val DEFAULT_RETRY_AFTER_MS = 60_000L
+        private const val MIN_RETRY_AFTER_MS = 15_000L
+        private const val MAX_RETRY_AFTER_MS = 10 * 60_000L
         private const val DEFAULT_USER_AGENT = "BeyGram/Android (https://github.com/Beykus-Y/BeyGram)"
         private const val CONNECT_TIMEOUT_MS = 8_000
         private const val READ_TIMEOUT_MS = 10_000

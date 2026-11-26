@@ -72,6 +72,7 @@ class LyricsDiskCache(
         if (ttlMs <= 0L) return
         val payload = JSONObject()
             .put("formatVersion", LyricsDocument.CURRENT_FORMAT_VERSION)
+            .put("accountId", cacheKey.substringBefore('|'))
             .put("storedAtMs", nowMs)
             .put("ttlMs", ttlMs)
             .put("document", serializeDocument(document))
@@ -108,6 +109,20 @@ class LyricsDiskCache(
         synchronized(lock) {
             generation += 1
             rootDir.listFiles()?.forEach { it.delete() }
+        }
+    }
+
+    /** Removes all cached lyrics entries belonging to [accountId] without disturbing other accounts. */
+    fun removeByAccount(accountId: String) {
+        if (accountId.isBlank()) return
+        synchronized(lock) {
+            generation += 1
+            rootDir.listFiles()?.forEach { file ->
+                if (!file.isFile || file.name.endsWith(".tmp")) return@forEach
+                val raw = runCatching { file.readText(StandardCharsets.UTF_8) }.getOrNull() ?: return@forEach
+                val owner = runCatching { JSONObject(raw).optString("accountId", "") }.getOrDefault("")
+                if (owner == accountId) file.delete()
+            }
         }
     }
 

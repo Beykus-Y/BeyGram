@@ -142,7 +142,7 @@ sealed interface LyricsFetchResult {
     data class Found(val document: LyricsDocument, val matchScore: Float = 1f) : LyricsFetchResult
     object NotFound : LyricsFetchResult
     object AuthRequired : LyricsFetchResult
-    data class Unavailable(val retryable: Boolean) : LyricsFetchResult
+    data class Unavailable(val retryable: Boolean, val retryAfterMs: Long? = null) : LyricsFetchResult
 }
 
 interface LyricsSource {
