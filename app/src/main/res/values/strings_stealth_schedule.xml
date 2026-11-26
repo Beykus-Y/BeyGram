@@ -32,6 +32,6 @@
     <string name="stealth_diagnostic_send_blocked">В режиме невидимки эта проверка недоступна: она отправляет сообщение сразу. Выключите отправку в невидимке и повторите.</string>
 
     <string name="stealth_schedule_status_pending">Ожидает подтверждения Telegram</string>
-    <string name="stealth_schedule_status_queued">В очереди по данным TDLib</string>
+    <string name="stealth_schedule_status_queued">Запланировано</string>
     <string name="stealth_schedule_status_unknown">Текущий статус неизвестен</string>
 </resources>

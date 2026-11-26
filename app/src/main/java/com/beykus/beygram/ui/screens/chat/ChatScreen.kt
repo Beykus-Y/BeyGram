@@ -1,15 +1,10 @@
 package com.beykus.beygram.ui.screens.chat
 
 import com.beykus.beygram.ui.components.BeyGramDialog
-import com.beykus.beygram.ui.components.BeyGramPopover
-import com.beykus.beygram.ui.components.BeyGramPopoverItem
-import com.beykus.beygram.ui.design.panelFill
-import com.beykus.beygram.ui.design.PanelFloor
 import com.beykus.beygram.ui.design.ComposerVariant
 import com.beykus.beygram.ui.design.signatureChrome
 import com.beykus.beygram.ui.design.HairlineEdge
 import android.content.ClipData
-import com.beykus.beygram.ui.design.styledShape
 import android.content.ClipboardManager
 import android.widget.Toast
 import java.text.DateFormat
@@ -32,14 +27,7 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.rounded.ArrowDownward
-import androidx.compose.material.icons.rounded.BarChart
-import androidx.compose.material.icons.rounded.CheckCircleOutline
-import androidx.compose.material.icons.rounded.Download
-import androidx.compose.material.icons.rounded.Forum
-import androidx.compose.material.icons.rounded.MarkChatUnread
-import androidx.compose.material.icons.rounded.Tune
 import androidx.compose.material.icons.rounded.Call
 import androidx.compose.material.icons.rounded.ChatBubbleOutline
 import androidx.compose.material.icons.rounded.ChevronRight
@@ -47,9 +35,6 @@ import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.Done
 import androidx.compose.material.icons.rounded.DoneAll
-import androidx.compose.material.icons.rounded.Lock
-import androidx.compose.material.icons.rounded.MoreVert
-import androidx.compose.material.icons.rounded.PushPin
 import androidx.compose.material.icons.rounded.Schedule
 import androidx.compose.material.icons.rounded.Search
 import androidx.compose.material.icons.automirrored.rounded.Send
@@ -79,7 +64,6 @@ import com.beykus.beygram.ui.design.squareSendButton
 import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.geometry.Rect
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.LayoutCoordinates
 import androidx.compose.ui.layout.boundsInWindow
@@ -87,7 +71,6 @@ import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalWindowInfo
-import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.clearAndSetSemantics
@@ -128,16 +111,11 @@ import com.beykus.beygram.data.settings.translationTargetLanguage
 import com.beykus.beygram.playback.PlaybackEngine
 import com.beykus.beygram.playback.PlaybackItem
 import com.beykus.beygram.playback.PlaybackQueueSource
-import com.beykus.beygram.playback.PlaybackOrigin
-import com.beykus.beygram.playback.LocalPlaybackAccountId
 import com.beykus.beygram.data.music.PlaylistTrack
 import com.beykus.beygram.ui.screens.music.AddToPlaylistSheet
 import com.beykus.beygram.security.AppLockManager
 import com.beykus.beygram.ui.accessibility.errorAnnouncement
-import com.beykus.beygram.ui.components.ChatAvatar
 import com.beykus.beygram.ui.components.LocalWindowLayout
-import com.beykus.beygram.ui.components.WindowLayout
-import com.beykus.beygram.ui.components.WindowNavigation
 import com.beykus.beygram.ui.motion.MotionToken
 import com.beykus.beygram.ui.motion.motionEntrance
 import com.beykus.beygram.ui.motion.fadeEnter
@@ -148,7 +126,6 @@ import com.beykus.beygram.ui.motion.scrollToItemRespectingMotion
 import com.beykus.beygram.ui.components.beyGramPalette
 import com.beykus.beygram.ui.screens.playback.NowPlayingBar
 import com.beykus.beygram.ui.screens.playback.PlayerExpansion
-import com.beykus.beygram.ui.screens.playback.parseShareTimecodeMs
 import com.beykus.beygram.ui.screens.playback.receiptsAllowedOf
 import com.beykus.beygram.ui.text.resolve
 import com.beykus.beygram.ui.text.userMessage
@@ -162,7 +139,6 @@ import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
-import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.flow.distinctUntilChanged
@@ -739,7 +715,7 @@ fun ChatScreen(
         else -> chat.canSendPolls || info?.kind == ProfileKind.Bot
     }
     ComposerExtraPickers(chat.id, pollsAllowed, conversation, attachments, remember(accountId, chat.isSecret) { if (chat.isSecret) null else ComposerMusicSource(accountId, observeFile, onDownloadFile) })
-    val videoNote = rememberVideoNoteRecorder(recordingSettings, recordingRecovery.processingScope, chat.id, sendForumTopicId, accountId = accountId, replyToMessageId = replyId, recordedInFeed = forumAllMessages, onError = { error = it })
+    val videoNote = rememberVideoNoteRecorder(recordingSettings, recordingRecovery.processingScope, chat.id, sendForumTopicId, accountId = accountId, replyToMessageId = replyId, onError = { error = it })
     // Video delivery, including TDLib send retries, belongs to the app-wide center.
     // Only automatic notes are claimed here; preview and failed notes remain visible.
     // A note goes to the topic it was recorded in, so another topic never claims it; the feed claims the notes of every topic.
@@ -747,14 +723,12 @@ fun ChatScreen(
         launch {
             VideoNoteExportCenter.results.collect { list ->
                 list.filter { it.claimedBy(chat.id, accountId, videoClaimTopicId) && !it.requiresPreview && !it.sending }.forEach { item ->
-                    val reply = item.sendReplyId(feedSender = forumAllMessages, composerReplyId = replyId)
                     noteLocalSend()
-                    val started = VideoNoteExportCenter.send(item.chatId, item.sessionName, reply, accountId) { media, targetReply ->
+                    val started = VideoNoteExportCenter.send(item.chatId, item.sessionName, accountId) { media, targetReply ->
                         conversation.sendMedia(item.chatId, media, "", targetReply, forumTopicId = item.topicId).map { Unit }
                     }
                     // Clear the composer's reply only when this note used it; a reply set after the note was recorded stays.
-                    // AlreadySending means the app-level sender won the race: the note still used the composer's reply.
-                    if (started != VideoNoteSendStart.NotFound && reply == replyId) clearReply()
+                    if (started == VideoNoteSendStart.Started && item.replyToMessageId != null && item.replyToMessageId == replyId) clearReply()
                 }
             }
         }
@@ -3050,12 +3024,11 @@ fun ChatScreen(
             onSelect = recordingRecovery::select,
             onDelete = { VideoNoteExportCenter.discard(video.chatId, video.sessionName, accountId) },
             onSend = {
-                val reply = video.sendReplyId(feedSender = forumAllMessages, composerReplyId = replyId)
                 noteLocalSend()
-                val started = VideoNoteExportCenter.send(video.chatId, video.sessionName, reply, accountId) { media, targetReply ->
+                val started = VideoNoteExportCenter.send(video.chatId, video.sessionName, accountId) { media, targetReply ->
                     conversation.sendMedia(video.chatId, media, "", targetReply, forumTopicId = video.topicId).map { Unit }
                 }
-                if (started == VideoNoteSendStart.Started && reply == replyId) clearReply()
+                if (started == VideoNoteSendStart.Started && video.nextIndex == 0 && video.replyToMessageId != null && video.replyToMessageId == replyId) clearReply()
             }
         )
     }
@@ -3563,257 +3536,6 @@ private fun ReadOnlyChatBar(message: String) {
     }
 }
 
-/** A caller without custom-emoji delivery still gets a stable flow instead of a fresh one on every recomposition. */
-private val NoCustomEmoji: StateFlow<CustomEmoji?> = MutableStateFlow(null)
-private val NoCustomEmojiLookup: (Long) -> StateFlow<CustomEmoji?> = { NoCustomEmoji }
-
-@Composable
-private fun ChatTopBar(
-    chat: ChatPreview, info: ProfileInfo?, lastSeenStyle: LastSeenStyle, onBack: () -> Unit, onInfo: () -> Unit, onSearch: () -> Unit,
-    observeFile: (Int) -> StateFlow<MediaFileState>, downloadFile: (Int) -> Unit, forumTopicTitle: String? = null,
-    observeCustomEmoji: (Long) -> StateFlow<CustomEmoji?> = NoCustomEmojiLookup,
-    forumTopic: ForumTopic? = null,
-    hasUnread: Boolean = false, onSelectMessages: () -> Unit = {}, onMarkUnread: () -> Unit = {}, onJumpUnread: () -> Unit = {},
-    onScheduled: () -> Unit = {}, onChatSettings: () -> Unit = {}, onStatistics: (() -> Unit)? = null,
-    onExport: () -> Unit = {}, secretChat: SecretChatDetails? = null,
-    /** The pinned preview is drawn directly under this header, so it closes the group with the one hairline. */
-    pinnedBelow: Boolean = false,
-    /** Pins in the chat: above zero the overflow menu can open the pinned list even while the bar is hidden. */
-    pinnedCount: Int = 0,
-    onPinnedHeaderMeasured: (Rect?) -> Unit = {},
-    onOpenPinned: () -> Unit = {},
-    /** False in the split layout: the list is already on screen, so an arrow that "goes back" would promise nothing new. */
-    showBack: Boolean = true,
-    /** A short window: one 48 dp line with the status beside the title instead of under it. */
-    compact: Boolean = false,
-    /** The forum's view of its topics for the menu item; ordinary chats pass null and get no such item. */
-    forumNavigationMode: ForumNavigationMode? = null,
-    onForumNavigationMode: ((ForumNavigationMode) -> Unit)? = null,
-    /** The all-messages feed: the subtitle names the feed instead of the chat's presence. */
-    forumAllMessages: Boolean = false,
-    /** The shared-element transition to the profile (#999); null keeps the header reporting off. */
-    profileTransition: com.beykus.beygram.ui.motion.ChatProfileHeaderSource? = null
-) {
-    val palette = beyGramPalette()
-    val design = LocalDesignSystem.current
-    var menuOpen by remember { mutableStateOf(false) }
-    var modeSheetOpen by remember { mutableStateOf(false) }
-    // Время в строке статуса пересчитывается отдельно от экрана: тик перерисовывает только шапку.
-    val now by rememberPresenceClock(info?.status is ProfilePresence.LastSeen)
-    val chatInfoLabel = stringResource(R.string.a11y_chat_info)
-    val headerView = androidx.compose.ui.platform.LocalView.current
-    val reportHeader by androidx.compose.runtime.rememberUpdatedState(onPinnedHeaderMeasured)
-    DisposableEffect(chat.id, forumTopicTitle) { onDispose { reportHeader(null) } }
-    val onGlass = LocalChatChromeOnGlass.current
-    // The window identity the header bounds are captured with; a resize invalidates them.
-    val transitionFingerprint = profileTransition?.let {
-        val container = androidx.compose.ui.platform.LocalWindowInfo.current.containerSize
-        val densityScale = LocalDensity.current.density
-        remember(container, densityScale) {
-            com.beykus.beygram.ui.motion.ChatProfileWindowFingerprint(container.width, container.height, densityScale)
-        }
-    }
-    Column(Modifier.fillMaxWidth().then(
-        if (onGlass) Modifier else when (design.components.topBar) {
-            TopBarVariant.Elevated -> Modifier.shadow(design.surfaces.barElevation).background(palette.surface)
-            TopBarVariant.Glass -> Modifier.background(design.surfaces.panelFill(palette.surface, PanelFloor.Bar))
-            // Signature: the header shares the canvas with the messages, one hairline marks where it ends. The pinned
-            // preview below closes the group, so its own hairline is the single edge of the two.
-            TopBarVariant.Signature -> if (pinnedBelow) Modifier.background(palette.screen)
-                else Modifier.signatureChrome(palette.screen, palette.divider, HairlineEdge.Bottom)
-            TopBarVariant.Flat -> Modifier.background(palette.surface)
-        }
-    )) {
-        Row(
-            Modifier.fillMaxWidth().onGloballyPositioned { reportHeader(it.pinnedBoundsOnScreen(headerView)) }
-                .padding(start = 8.dp, end = 8.dp, top = if (compact) 0.dp else 6.dp, bottom = if (compact) 0.dp else 10.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            if (showBack) IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, stringResource(R.string.common_back), tint = palette.textPrimary) }
-            // Avatar and title share one focus stop: TalkBack should not visit the same "chat info" target twice.
-            // While a flight carries the header elements they are invisible, so they must not be tappable either.
-            Row(
-                Modifier
-                    .weight(1f).heightIn(min = 48.dp)
-                    .graphicsLayer { alpha = profileTransition?.headerVisibility() ?: 1f }
-                    .clickable(
-                        role = Role.Button,
-                        onClickLabel = chatInfoLabel,
-                        enabled = profileTransition == null || !profileTransition.flightActive(),
-                        onClick = onInfo
-                    )
-                    .semantics(mergeDescendants = true) { role = Role.Button },
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                // A topic is identified by its own server icon; the parent group moves into the subtitle instead of
-                // pretending that the group's presence is the topic's status.
-                val statusText = when {
-                    forumTopic != null -> stringResource(R.string.forum_topic_in_group, chat.title)
-                    forumAllMessages -> stringResource(R.string.forum_all_messages)
-                    chat.isSecret -> secretChatStatusLine(secretChat)
-                    else -> chatPresenceLine(chat, info, lastSeenStyle, now).resolve()
-                }
-                val avatarSize = if (compact) 32.dp else 40.dp
-                val avatarReport = if (profileTransition != null && transitionFingerprint != null) {
-                    Modifier.onGloballyPositioned { coordinates ->
-                        profileTransition.reportAvatar(coordinates.boundsInWindow(), transitionFingerprint)
-                    }
-                } else Modifier
-                if (forumTopic != null) {
-                    ForumTopicIcon(
-                        topic = forumTopic,
-                        size = avatarSize,
-                        observeFile = observeFile,
-                        downloadFile = downloadFile,
-                        observeCustomEmoji = observeCustomEmoji,
-                        modifier = Modifier.clearAndSetSemantics {}.then(avatarReport)
-                    )
-                } else {
-                    ChatAvatar(chat, avatarSize, observeFile, downloadFile, Modifier.clearAndSetSemantics {}.then(avatarReport))
-                }
-                Spacer(Modifier.width(if (compact) 10.dp else 12.dp))
-                // At a large font the compact line gives up the status before it cuts the title.
-                // The parent group is the topic's only context; it keeps its own line even in the compact header.
-                val statusInline = compact && forumTopic == null && LocalDensity.current.fontScale < 1.3f
-                val topicTitle = forumTopic?.let { forumTopicDisplayTitle(it) }
-                val titleText = topicTitle ?: forumTopicTitle?.takeIf { it.isNotBlank() } ?: chat.title
-                val titleRow: @Composable () -> Unit = {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Text(titleText, color = palette.textPrimary, fontSize = 17.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier
-                            .weight(1f, fill = false)
-                            .then(if (profileTransition != null && transitionFingerprint != null) {
-                                Modifier.onGloballyPositioned { coordinates ->
-                                    profileTransition.reportTitle(coordinates.boundsInWindow(), transitionFingerprint)
-                                }
-                            } else Modifier))
-                        if (forumTopic?.isClosed == true) {
-                            Spacer(Modifier.width(6.dp))
-                            Icon(
-                                Icons.Rounded.Lock,
-                                contentDescription = stringResource(R.string.forum_topic_closed),
-                                tint = palette.textSecondary,
-                                modifier = Modifier.size(14.dp)
-                            )
-                        }
-                        if (chat.isSecret && forumTopicTitle == null) {
-                            Spacer(Modifier.width(6.dp))
-                            Icon(
-                                Icons.Rounded.Lock,
-                                contentDescription = stringResource(R.string.a11y_secret_chat_lock),
-                                tint = palette.accent,
-                                modifier = Modifier.size(15.dp)
-                            )
-                        }
-                        if (statusInline) {
-                            Text(
-                                " · $statusText",
-                                color = palette.textSecondary,
-                                fontSize = 13.sp,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis,
-                                modifier = Modifier
-                                    .weight(1f, fill = false)
-                                    .then(if (profileTransition != null && transitionFingerprint != null) {
-                                        Modifier.onGloballyPositioned { coordinates ->
-                                            profileTransition.reportStatus(coordinates.boundsInWindow(), transitionFingerprint)
-                                        }
-                                    } else Modifier)
-                            )
-                        }
-                    }
-                }
-                Column(Modifier.weight(1f)) {
-                    titleRow()
-                    if (!compact || forumTopic != null) {
-                        Text(
-                            statusText,
-                            color = palette.textSecondary,
-                            fontSize = 13.sp,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                            modifier = Modifier
-                                .then(if (profileTransition != null && transitionFingerprint != null) {
-                                    Modifier.onGloballyPositioned { coordinates ->
-                                        profileTransition.reportStatus(coordinates.boundsInWindow(), transitionFingerprint)
-                                    }
-                                } else Modifier)
-                        )
-                    }
-                }
-            }
-            // Scheduled messages stay accessible from overflow, without permanently consuming
-            // an entire title-width action slot in every ordinary chat.
-            IconButton(onClick = onSearch) { Icon(Icons.Rounded.Search, stringResource(R.string.chat_search_description), tint = palette.textSecondary) }
-            Box {
-                IconButton(onClick = { menuOpen = true }) { Icon(Icons.Rounded.MoreVert, stringResource(R.string.feature_more_actions), tint = palette.textSecondary) }
-                BeyGramPopover(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
-                    BeyGramPopoverItem(
-                        text = stringResource(R.string.chat_jump_to_unread),
-                        leadingIcon = { Icon(Icons.Rounded.ArrowDownward, contentDescription = null, tint = if (hasUnread) palette.textSecondary else palette.textSecondary.copy(alpha = 0.4f)) },
-                        enabled = hasUnread,
-                        onClick = { menuOpen = false; onJumpUnread() }
-                    )
-                    if (!chat.isSecret) BeyGramPopoverItem(
-                        text = stringResource(R.string.chat_scheduled_title),
-                        leadingIcon = { Icon(Icons.Rounded.Schedule, contentDescription = null, tint = palette.textSecondary) },
-                        onClick = { menuOpen = false; onScheduled() }
-                    )
-                    BeyGramPopoverItem(
-                        text = stringResource(R.string.chat_mark_unread),
-                        leadingIcon = { Icon(Icons.Rounded.MarkChatUnread, contentDescription = null, tint = palette.textSecondary) },
-                        onClick = { menuOpen = false; onMarkUnread() }
-                    )
-                    // The pinned list stays reachable even when the bar is hidden locally.
-                    if (pinnedCount > 0) BeyGramPopoverItem(
-                        text = stringResource(R.string.chat_pinned_title),
-                        leadingIcon = { Icon(Icons.Rounded.PushPin, contentDescription = null, tint = palette.textSecondary) },
-                        onClick = { menuOpen = false; onOpenPinned() }
-                    )
-                    BeyGramPopoverItem(
-                        text = stringResource(R.string.chat_export_title),
-                        leadingIcon = { Icon(Icons.Rounded.Download, contentDescription = null, tint = palette.textSecondary) },
-                        onClick = { menuOpen = false; onExport() }
-                    )
-                    BeyGramPopoverItem(
-                        text = stringResource(R.string.message_action_select),
-                        leadingIcon = { Icon(Icons.Rounded.CheckCircleOutline, contentDescription = null, tint = palette.textSecondary) },
-                        onClick = { menuOpen = false; onSelectMessages() }
-                    )
-                    BeyGramPopoverItem(
-                        text = stringResource(R.string.chat_settings_title),
-                        leadingIcon = { Icon(Icons.Rounded.Tune, contentDescription = null, tint = palette.textSecondary) },
-                        onClick = { menuOpen = false; onChatSettings() }
-                    )
-                    if (forumNavigationMode != null && onForumNavigationMode != null) BeyGramPopoverItem(
-                        text = stringResource(R.string.forum_navigation_title),
-                        leadingIcon = { Icon(Icons.Rounded.Forum, contentDescription = null, tint = palette.textSecondary) },
-                        onClick = { menuOpen = false; modeSheetOpen = true }
-                    )
-                    if (onStatistics != null) BeyGramPopoverItem(
-                        text = stringResource(R.string.channel_statistics_title),
-                        leadingIcon = { Icon(Icons.Rounded.BarChart, contentDescription = null, tint = palette.textSecondary) },
-                        onClick = { menuOpen = false; onStatistics() }
-                    )
-                }
-                val currentMode = forumNavigationMode
-                val setMode = onForumNavigationMode
-                if (modeSheetOpen && currentMode != null && setMode != null) {
-                    ForumNavigationModeSheet(
-                        current = currentMode,
-                        onSelect = { mode ->
-                            modeSheetOpen = false
-                            setMode(mode)
-                        },
-                        onDismiss = { modeSheetOpen = false }
-                    )
-                }
-            }
-        }
-        // Liquid Glass with the pinned preview below: the preview's own hairline is the single edge of the group.
-        if (!onGlass && !pinnedBelow) HorizontalDivider(color = palette.divider)
-    }
-}
-
 /**
  * The comments affordance is the bottom strip of a channel post's bubble, spanning the bubble's full width as in
  * Telegram; reactions stay below the bubble, so the strip never pushes the next post further away.
@@ -3844,365 +3566,4 @@ internal fun ChannelCommentsBar(count: Int, onClick: () -> Unit) {
             Icon(Icons.Rounded.ChevronRight, contentDescription = null, tint = palette.accent, modifier = Modifier.size(20.dp))
         }
     }
-}
-
-/** One chat bubble: regular text/media, special cards, and the placeholder for expired self-destructing media. */
-@Composable
-internal fun MessageBubble(message: ChatMessage, observeFile: (Int) -> StateFlow<MediaFileState>, onDownloadFile: (Int) -> Unit,
-    isRead: Boolean = false, highlighted: Boolean = false, onOpen: () -> Unit, onActions: (() -> Unit)? = null,
-    /** Chat bubbles start multi-select on long press; other callers keep their own long-press action. */
-    longPressSelects: Boolean = false, onReplyClick: (MessageReply) -> Unit = {}, onPlayed: () -> Unit = {}, onRetry: () -> Unit = {}, onReply: ((Long) -> Unit)? = null, onReaction: (Long, ReactionOption) -> Unit, observeCustomEmoji: (Long) -> StateFlow<CustomEmoji?>, inlineContent: @Composable () -> Unit = {},
-    onSenderClick: (() -> Unit)? = null,
-    /** Callers pass the chat/grouping decision; the sender name itself stays available for replies, search and profiles. */
-    showSenderHeader: Boolean = true,
-    /** Music link cards (Yandex Music) are drawn only where the caller turns them on: the chat list, not secret chats. */
-    musicLinkCards: Boolean = false,
-    waveAccountId: String? = null,
-    onBubblePositioned: ((LayoutCoordinates) -> Unit)? = null,
-    /** Reports the layout of a bubble that carries media, so the viewer can open from it. */
-    onMediaBounds: ((LayoutCoordinates) -> Unit)? = null,
-    translation: TranslationUiState? = null,
-    onTranslationRetry: (() -> Unit)? = null,
-    onTranslationCancel: (() -> Unit)? = null,
-    onTranslationDismiss: (() -> Unit)? = null,
-    transcriptionRequestPending: Boolean = false,
-    transcriptionRequestError: SpeechRecognitionFailure? = null,
-    transcriptionRated: Boolean = false,
-    onTranscribe: (() -> Unit)? = null,
-    onRateTranscription: ((Boolean) -> Unit)? = null,
-    speechRecognitionUi: SpeechRecognitionUi = SpeechRecognitionUi(),
-    onAutoDownloadFile: ((AutoDownloadRequest) -> Unit)? = null,
-    onMusicPlay: ((PlaybackItem, Long?) -> Unit)? = null,
-    commentsBar: (@Composable () -> Unit)? = null,
-    selectionMode: Boolean = false,
-    selected: Boolean = false,
-    onToggleSelection: () -> Unit = {},
-    onPollVote: ((Long, List<Int>) -> Unit)? = null,
-    onPollStop: ((Long) -> Unit)? = null,
-    onStopLiveLocation: ((ChatMessage) -> Unit)? = null,
-    onWriteContact: ((Long) -> Unit)? = null,
-    onLoadPollVoters: (suspend (messageId: Long, optionIndex: Int, offset: Int) -> Result<PollVotersPage>)? = null,
-    onAddPollOption: (suspend (messageId: Long, text: String) -> Result<Unit>)? = null,
-    /** Opens the set of a sticker message; when absent a sticker tap does not fall through to the media viewer. */
-    onStickerOpen: ((MessageMedia) -> Unit)? = null,
-    animateSpecial: Boolean = false,
-    diceAnimationId: Long = 0L,
-    onOpenMessageEntity: ((MessageEntityLink) -> Unit)? = null,
-    paidContent: PaidContentActions? = null,
-    /** Loads the earlier texts that Chat Memory kept for this message; without it a bubble shows no versions link. */
-    onLoadVersions: (suspend (chatId: Long, messageId: Long) -> List<ChatMemoryVersion>)? = null,
-    connectionState: TelegramConnectionState = TelegramConnectionState.Connected,
-    onShowFailureDetails: (() -> Unit)? = null,
-    composerMediaLaunch: ComposerMediaLaunch? = null,
-    onComposerMediaLaunchFinished: (ComposerMediaLaunch) -> Unit = {}
-) {
-    val palette = beyGramPalette()
-    val metrics = LocalBubbleMetrics.current
-    // The versions sheet belongs to the bubble that opened it, and is composed only while it is open.
-    var showVersions by remember(message.id) { mutableStateOf(false) }
-    val loadVersions = onLoadVersions
-    if (showVersions && loadVersions != null) ChatMemoryVersionsSheet(message, loadVersions, onDismiss = { showVersions = false })
-    val openVersions: () -> Unit = { showVersions = true }
-    val shape = bubbleShape(message.isOutgoing, metrics)
-    val hasText = message.text.isNotBlank()
-    val special = message.special
-    // Expired media owns its card; unknown content still gets the explicit fallback, never an empty bubble.
-    val renderedSpecial = resolvedSpecialContent(message)
-    // A BG Wave invitation is drawn as a card; its hidden service link is never shown as text or as a page preview.
-    val isWave = remember(message.id, message.text, message.entities, message.isForwarded, message.senderId, waveAccountId) { waveAccountId != null && bgWaveStateOf(message) != null }
-    val showText = hasText && special !is MessageSpecialContent.Contact && !isWave
-    val circle = message.media?.kind == MediaKind.VideoNote
-    // Стикер лежит без пузыря: ни цвета, ни ширины фото.
-    val stickerMedia = message.media?.takeIf { it.kind == MediaKind.Sticker }
-    val sticker = stickerMedia != null
-    // Время и статус кружка находятся под кругом, вне обрезки видео.
-    val inCircle = circle && message.sendState != MessageSendState.Failed
-    // Пока сообщение отправляется или не ушло, его id временный и потом меняется: место для общего плеера не ставим.
-    val playbackOrigin = if (message.sendState == MessageSendState.Sent) PlaybackOrigin(message.chatId, message.id, LocalPlaybackAccountId.current) else null
-    val statusIcon = when {
-        !message.isOutgoing -> null
-        message.sendState == MessageSendState.Sending -> Icons.Rounded.Schedule
-        message.sendState == MessageSendState.Sent -> if (isRead) Icons.Rounded.DoneAll else Icons.Rounded.Done
-        else -> null
-    }
-    // Фото, видео и гифки без подписи: время ставится поверх нижнего правого угла, как в Telegram.
-    val overlayMeta = !circle && !hasText && message.reply == null && message.sendState != MessageSendState.Failed &&
-        message.media?.kind?.let { it == MediaKind.Photo || it == MediaKind.Video || it == MediaKind.Animation } == true
-    val compactCollection = message.media?.let { com.beykus.beygram.ui.screens.bgmusic.isBgMusicDocument(it) } == true && !hasText && message.reply == null && renderedSpecial == null && message.linkPreview == null && translation == null
-    val inlineMeta = useInlineTextMetadata(
-        message,
-        hasSenderHeader = showSenderHeader && !message.isOutgoing && message.senderName.isNotBlank(),
-        hasTranslation = translation != null
-    )
-    // Preserve the existing cheap one-line path; measure actual final lines only for the other plain text bubbles.
-    val lastLineMeta = showText && !inlineMeta && useLastLineTextMetadata(message, hasTranslation = translation != null)
-    val openMediaLabel = stringResource(R.string.a11y_open_attachment)
-    val openStickerSetLabel = if (sticker && onStickerOpen != null) stringResource(R.string.sticker_picker_open_set) else null
-    val longPressLabel = stringResource(if (longPressSelects) R.string.message_action_select else R.string.a11y_message_actions)
-    val selectionLabel = if (selectionMode) stringResource(if (selected) R.string.message_selection_deselect else R.string.message_selection_select) else null
-    val selectionState = if (selectionMode) stringResource(if (selected) R.string.message_selection_selected else R.string.message_selection_not_selected) else null
-    var captionPlay by remember(message.id) { mutableStateOf<AudioPlayRequest?>(null) }
-    // On a tablet the pane is wide: a bubble grows with it (70 % of the pane, 292 to 480 dp) instead of hugging the edge.
-    val bubbleMax = chatBubbleMaxWidthDp(com.beykus.beygram.ui.screens.chats.LocalChatPaneWidthDp.current ?: chatPaneWidthDp(LocalWindowLayout.current)).dp
-    val mediaFlightModifier = composerMediaLaunchModifier(composerMediaLaunch, onComposerMediaLaunchFinished)
-    Column(Modifier.fillMaxWidth().then(if (circle) Modifier else Modifier.padding(horizontal = metrics.sideInset)), horizontalAlignment = if (message.isOutgoing) Alignment.End else Alignment.Start) {
-        val haptics = androidx.compose.ui.platform.LocalHapticFeedback.current
-        SwipeToReply(
-            enabled = onReply != null && message.sendState == MessageSendState.Sent,
-            outgoing = message.isOutgoing,
-            onReply = { onReply?.invoke(message.id) }
-        ) { swipe ->
-            // Голосовое и кружок управляются своими элементами в пузыре и не открывают просмотрщик.
-            Box(swipe) {
-                BubbleLayout(
-                    Modifier.testTag("message-bubble:${message.id}")
-                        .widthIn(max = if (circle) androidx.compose.ui.unit.Dp.Infinity else bubbleMax)
-                        .then(if (message.media != null && !circle && !sticker)
-                             Modifier.width(if (message.media.kind == MediaKind.Audio) 280.dp else 244.dp) else Modifier)
-                        .then(mediaFlightModifier).clip(shape)
-                        .background(if (circle || sticker) Color.Transparent else if (message.isOutgoing) palette.outgoingBubble else palette.incomingBubble)
-                        .then(if (message.memory?.deletedAtMillis != null) Modifier.alpha(0.6f) else Modifier)
-                        .then(if ((selected || highlighted) && !circle) Modifier.border(2.dp, palette.accent, shape) else Modifier)
-                        .then(if (onBubblePositioned != null) Modifier.onGloballyPositioned { onBubblePositioned(it) } else Modifier)
-                        .then(if (onMediaBounds != null && message.media != null) Modifier.onGloballyPositioned { onMediaBounds(it) } else Modifier)
-                        .semantics {
-                            if (selectionMode) {
-                                this.selected = selected
-                                if (selectionState != null) stateDescription = selectionState
-                            }
-                        }
-                        .combinedClickable(
-                            onClickLabel = when {
-                                selectionMode -> selectionLabel
-                                sticker -> openStickerSetLabel
-                                message.media?.kind == MediaKind.Audio -> null
-                                message.media != null && !message.media.kind.playsInline() -> openMediaLabel
-                                else -> null
-                            },
-                            onLongClickLabel = if (selectionMode) selectionLabel else longPressLabel,
-                            onClick = {
-                                when {
-                                    selectionMode -> onToggleSelection()
-                                    sticker -> stickerMedia?.let { onStickerOpen?.invoke(it) }
-                                    // A tap on the caption of a track, such as a shared timecode, plays it in the music player.
-                                    message.media?.kind == MediaKind.Audio ->
-                                        captionPlay = AudioPlayRequest(parseShareTimecodeMs(message.text, message.media.durationSeconds))
-                                    message.media != null && !message.media.kind.playsInline() -> onOpen()
-                                }
-                            },
-                            onDoubleClick = if (!selectionMode && message.sendState == MessageSendState.Sent) {
-                                {
-                                    haptics.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.TextHandleMove)
-                                    onReaction(message.id, ReactionOption("❤"))
-                                }
-                            } else null,
-                            onLongClick = if (selectionMode) onToggleSelection else onActions
-                        ),
-                    overlayMeta = overlayMeta,
-                    // Short one-line text only: prevent awkward bubble width on formatted or wrapped text.
-                    inlineMeta = inlineMeta,
-                    body = {
-                    Column {
-                        if (showSenderHeader && !message.isOutgoing && message.senderName.isNotBlank()) Text(message.senderName, color = palette.accentInk, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis,
-                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp)
-                                .then(if (onSenderClick != null) Modifier.clickable { onSenderClick?.invoke() } else Modifier))
-                        ForwardedMessageHeader(message)
-                        // Media sits flush against the bubble's top and side edges; text keeps its own padding.
-                        message.media?.let { media ->
-                            if (media.kind == MediaKind.VideoNote) VideoNoteBubble(media, observeFile, onDownloadFile,
-                                onPlayed = onPlayed,
-                                onLongPress = if (selectionMode) onToggleSelection else onActions,
-                                time = if (inCircle) message.time else "", statusIcon = if (inCircle) statusIcon else null,
-                                statusDescription = when {
-                                    !message.isOutgoing -> null
-                                    message.sendState == MessageSendState.Sending -> stringResource(R.string.chat_sending_description)
-                                    isRead -> stringResource(R.string.chat_read_description)
-                                    else -> stringResource(R.string.chat_sent_description)
-                                }, unseen = !message.isOutgoing && !media.isViewed, highlighted = highlighted, origin = playbackOrigin,
-                                transcriptionRequestPending = transcriptionRequestPending,
-                                transcriptionRequestError = transcriptionRequestError,
-                                transcriptionRated = transcriptionRated,
-                                onTranscribe = onTranscribe,
-                                onRateTranscription = onRateTranscription,
-                                speechRecognitionUi = speechRecognitionUi,
-                                autoDownloadFile = onAutoDownloadFile)
-                            else MediaPreview(media, observeFile, onDownloadFile,
-                                onOpen = if (selectionMode) onToggleSelection else onOpen,
-                                onLongPress = if (selectionMode) onToggleSelection else onActions,
-                                onPlayed = onPlayed, origin = playbackOrigin,
-                                transcriptionRequestPending = transcriptionRequestPending,
-                                transcriptionRequestError = transcriptionRequestError,
-                                transcriptionRated = transcriptionRated,
-                                onTranscribe = onTranscribe,
-                                onRateTranscription = onRateTranscription,
-                                speechRecognitionUi = speechRecognitionUi,
-                                viewOnce = message.isViewOnce,
-                                autoDownloadFile = onAutoDownloadFile,
-                                onMusicPlay = onMusicPlay,
-                                externalPlay = captionPlay,
-                                onStickerOpen = onStickerOpen?.let { callback ->
-                                    stickerMedia?.let { stickerMedia ->
-                                        { if (selectionMode) onToggleSelection() else callback(stickerMedia) }
-                                    }
-                                }, selectionActive = selectionMode)
-                        }
-                        message.expiredMediaKind?.let { kind -> ExpiredMediaCard(kind) }
-                        // Без текста и ответа под фото нет строки: время уже стоит поверх него.
-                        if (showText || renderedSpecial != null || message.reply != null || (!overlayMeta && !compactCollection)) Column(Modifier.padding(start = metrics.textInset, end = metrics.textInset, top = if (circle) metrics.circleTopInset else metrics.textTopInset)) {
-                            message.reply?.let { reply ->
-                                ReplyQuote(
-                                    reply = reply,
-                                    modifier = Modifier.padding(bottom = 5.dp),
-                                    onClick = { if (selectionMode) onToggleSelection() else onReplyClick(reply) },
-                                    onLongClick = if (selectionMode) onToggleSelection else onActions,
-                                    onClickLabel = selectionLabel,
-                                    onLongClickLabel = if (selectionMode) selectionLabel else longPressLabel,
-                                )
-                            }
-                            renderedSpecial?.let { content ->
-                                SpecialMessageContentView(
-                                    special = content,
-                                    message = message,
-                                    onPollVote = onPollVote,
-                                    onPollStop = onPollStop,
-                                    onStopLiveLocation = onStopLiveLocation,
-                                    onWriteContact = onWriteContact,
-                                    onLoadPollVoters = onLoadPollVoters,
-                                    onAddPollOption = onAddPollOption,
-                                    observeFile = observeFile,
-                                    downloadFile = onDownloadFile,
-                                    autoDownloadFile = onAutoDownloadFile,
-                                    animateDice = animateSpecial,
-                                    diceAnimationId = diceAnimationId,
-                                    paidContent = paidContent
-                                )
-                            }
-                            if (isWave && waveAccountId != null) BgWaveMessageCard(message, waveAccountId)
-                            else MessageMusicLinkCard(
-                                message, observeFile, onDownloadFile, autoDownloadFile = onAutoDownloadFile,
-                                onOpenEntity = onOpenMessageEntity, enabled = musicLinkCards,
-                                messageText = {
-                                    if (lastLineMeta) {
-                                        PlainMessageWithMeta(message.text, modifier = if (message.reply != null) Modifier.fillMaxWidth() else Modifier) {
-                                            BubbleMeta(message, isRead, retryAvailable = false, overlay = false,
-                                                onRetry = onRetry, inline = true, insideTextInsets = true)
-                                        }
-                                    } else if (showText) FormattedMessageText(message, observeCustomEmoji, observeFile, onDownloadFile,
-                                        onOpenEntity = onOpenMessageEntity, entityClicksEnabled = !selectionMode)
-                                }
-                            )
-                            translation?.let { state ->
-                                TranslationBlock(
-                                    state = state,
-                                    onRetry = { onTranslationRetry?.invoke() },
-                                    onCancel = { onTranslationCancel?.invoke() },
-                                    onDismiss = { onTranslationDismiss?.invoke() },
-                                    messageId = message.id,
-                                    observeCustomEmoji = observeCustomEmoji,
-                                    observeFile = observeFile,
-                                    downloadFile = onDownloadFile
-                                )
-                            }
-                        }
-                    }
-                },
-                meta = {
-                    if (!inCircle && !lastLineMeta) BubbleMeta(message, isRead, retryAvailable = message.isOutgoing && message.sendState == MessageSendState.Failed,
-                        overlay = overlayMeta, onRetry = onRetry, inline = inlineMeta,
-                        onShowVersions = if (onLoadVersions != null) openVersions else null,
-                        connectionState = connectionState, onShowFailureDetails = onShowFailureDetails, compactDocument = compactCollection)
-                },
-                footer = {
-                    // Inline keyboards and reactions must stack, never paint over one another.
-                    Column {
-                        inlineContent()
-                        // Reactions stay inside the clipped bubble and close to its bottom edge.
-                        // Compact pills keep their Compose-expanded touch targets.
-                        if (!selectionMode) MessageReactionChips(
-                            message.reactions, observeCustomEmoji, observeFile, onDownloadFile,
-                            onToggle = { onReaction(message.id, it) },
-                            modifier = Modifier.padding(start = 6.dp, end = 6.dp, bottom = 2.dp)
-                        )
-                    }
-                },
-                bottomBar = { if (!circle && !sticker) commentsBar?.invoke() }
-            )
-                // Media previews own tap gestures (play, open, video note). In selection mode a transparent overlay
-                // makes the whole bubble selectable and keeps playback/download controls out of the way.
-                if (selectionMode && message.media != null) Box(
-                    Modifier.matchParentSize().combinedClickable(
-                        onClickLabel = selectionLabel,
-                        onLongClickLabel = selectionLabel,
-                        onClick = onToggleSelection,
-                        onLongClick = onToggleSelection
-                    )
-                )
-                if (selectionMode) SelectionCheckBadge(selected, Modifier.align(Alignment.TopEnd).padding(6.dp))
-            }
-        }
-        // Кружок и стикер лежат без пузыря: полосе комментариев нужна своя подложка того же цвета.
-        if (circle || sticker) commentsBar?.let { bar ->
-            Box(Modifier.padding(top = 2.dp).width(244.dp).clip(RoundedCornerShape(metrics.replyRadius))
-                .background(if (message.isOutgoing) palette.outgoingBubble else palette.incomingBubble)) { bar() }
-        }
-     }
-}
-
-
-/** A Telegram call is an event with a direction and result, not an empty message bubble. */
-@Composable
-private fun CallMessageChip(text: String, time: String) {
-    val palette = beyGramPalette()
-    Row(
-        Modifier.fillMaxWidth().padding(horizontal = 32.dp, vertical = 7.dp),
-        horizontalArrangement = Arrangement.Center
-    ) {
-        Row(
-            Modifier.clip(styledShape(16.dp))
-                .background(palette.surface.copy(alpha = 0.92f))
-                .padding(horizontal = 14.dp, vertical = 9.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Icon(Icons.Rounded.Call, contentDescription = null, tint = palette.accent, modifier = Modifier.size(18.dp))
-            Spacer(Modifier.width(9.dp))
-            Column {
-                Text(text, color = palette.textPrimary, fontSize = 13.sp, lineHeight = 18.sp, maxLines = 2)
-                Text(time, color = palette.textSecondary, fontSize = 11.sp)
-            }
-        }
-    }
-}
-
-/** Telegram service actions have no sender bubble, read checks or swipe-to-reply affordances. */
-@Composable
-internal fun ServiceMessageChip(text: String, userId: Long = 0L, onOpenUser: (Long) -> Unit = {}) {
-    val palette = beyGramPalette()
-    Box(Modifier.fillMaxWidth().padding(horizontal = 32.dp, vertical = 7.dp), contentAlignment = Alignment.Center) {
-        Text(
-            text = text,
-            textAlign = TextAlign.Center,
-            color = palette.textSecondary,
-            fontSize = 12.sp,
-            lineHeight = 17.sp,
-            modifier = Modifier.clip(styledShape(14.dp))
-                .background(palette.surface.copy(alpha = 0.87f))
-                .then(if (userId > 0L) Modifier.clickable { onOpenUser(userId) } else Modifier)
-                .padding(horizontal = 13.dp, vertical = 7.dp)
-        )
-    }
-}
-
-
-/** A bubble is 70 % of the chat pane, never narrower than the phone's 292 dp and never wider than 480 dp. */
-internal fun chatBubbleMaxWidthDp(paneWidthDp: Float): Float = (paneWidthDp * 0.7f).coerceIn(292f, 480f)
-
-/** The width the chat pane gets in [layout]: the whole window on a phone, what the rail and the list leave in two panes. */
-internal fun chatPaneWidthDp(layout: WindowLayout): Float {
-    if (!layout.twoPane) return layout.widthDp
-    val rail = when (layout.navigation) {
-        WindowNavigation.SlimRail -> 56f
-        WindowNavigation.Rail -> 80f
-        else -> 0f
-    }
-    return layout.widthDp - rail - com.beykus.beygram.ui.screens.chats.chatListPaneWidthDp(layout.widthDp, layout.heightCompact) - 1f
 }

@@ -30,6 +30,6 @@
     <string name="stealth_diagnostic_send_blocked">Diese Prüfung ist im Unsichtbar-Modus nicht verfügbar, weil sie sofort eine Nachricht sendet. Schalte das unsichtbare Senden aus und versuche es erneut.</string>
 
     <string name="stealth_schedule_status_pending">Bestätigung von Telegram ausstehend</string>
-    <string name="stealth_schedule_status_queued">Laut TDLib in der Warteschlange</string>
+    <string name="stealth_schedule_status_queued">Geplant</string>
     <string name="stealth_schedule_status_unknown">Aktueller Status unbekannt</string>
 </resources>
