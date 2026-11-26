@@ -960,7 +960,7 @@ internal class TdConversationActions(
         if (chatId == 0L) throw UserMessageException(UiText.Res(R.string.err_message_original_unavailable))
         val collected = LinkedHashMap<Long, TdApi.Message>()
         var fromMessageId = 0L
-        repeat(3) {
+        for (attempt in 1..3) {
             val remaining = (PEEK_MESSAGE_LIMIT - collected.size).coerceAtLeast(1)
             val req = if (fromMessageId == 0L) {
                 peekHistoryRequest(chatId, remaining)
@@ -968,12 +968,12 @@ internal class TdConversationActions(
                 TdApi.GetChatHistory(chatId, fromMessageId, 0, remaining, false)
             }
             val page = request(req).messages.orEmpty().filterNotNull()
-            if (page.isEmpty()) return@repeat
+            if (page.isEmpty()) break
             val before = collected.size
             for (msg in page) collected.putIfAbsent(msg.id, msg)
             val oldest = page.minOf { it.id }
             if (collected.size >= PEEK_MESSAGE_LIMIT || oldest == fromMessageId || (fromMessageId != 0L && collected.size == before)) {
-                return@repeat
+                break
             }
             fromMessageId = oldest
         }

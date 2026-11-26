@@ -1,8 +1,11 @@
 package com.beykus.beygram.data.update
 
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.test.StandardTestDispatcher
+import kotlinx.coroutines.test.advanceTimeBy
 import kotlinx.coroutines.test.advanceUntilIdle
+import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
@@ -64,7 +67,7 @@ class AutomaticUpdateChecksTest {
         storage: FakeStorage,
         scope: kotlinx.coroutines.CoroutineScope,
         now: () -> Long,
-        outcome: () -> AutomaticCheckOutcome,
+        outcome: suspend () -> AutomaticCheckOutcome,
         announced: MutableList<StableRelease> = mutableListOf(),
         withdrawn: MutableList<Unit> = mutableListOf(),
     ) = AutomaticUpdateChecks(
@@ -208,6 +211,49 @@ class AutomaticUpdateChecksTest {
         subject.onForeground()
         advanceUntilIdle()
         assertEquals(1, checked)
+    }
+
+    @Test
+    fun `launch waits for a running resume and retries when it was skipped`() = runTest {
+        val storage = FakeStorage()
+        val resume = CompletableDeferred<AutomaticCheckOutcome>()
+        var checked = 0
+        val subject = checks(storage, backgroundScope, { 1_000L }, {
+            checked++
+            if (checked == 1) resume.await() else AutomaticCheckOutcome.Current
+        })
+
+        subject.onForeground()
+        runCurrent()
+        subject.onLaunch()
+        runCurrent()
+        assertEquals(1, checked)
+
+        resume.complete(AutomaticCheckOutcome.Skipped)
+        runCurrent()
+        assertEquals(2, checked)
+    }
+
+    @Test
+    fun `the ticker checks thirty minutes after an attempt made after startup`() = runTest {
+        val interval = UpdateAutoCheckPolicy.FOREGROUND_INTERVAL_MS
+        val storage = FakeStorage()
+        var checked = 0
+        val subject = checks(storage, backgroundScope, { testScheduler.currentTime + 1_000L }, {
+            checked++
+            AutomaticCheckOutcome.Current
+        })
+
+        subject.start()
+        runCurrent()
+        advanceTimeBy(60_000L)
+        subject.onForeground()
+        runCurrent()
+        assertEquals(1, checked)
+
+        advanceTimeBy(interval)
+        runCurrent()
+        assertEquals(2, checked)
     }
 
     @Test

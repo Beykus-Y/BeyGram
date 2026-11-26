@@ -491,13 +491,24 @@ internal fun BeyGramAppContent(
         runCatching { context.packageManager.getPackageInfo(context.packageName, 0).longVersionCode }
             .getOrDefault(0L)
     }
+    val updateSnoozedUntil = remember(updateNoticeStore, updateSnoozeRevision) { updateNoticeStore.snoozedUntil() }
+    LaunchedEffect(updateSnoozedUntil) {
+        val until = updateSnoozedUntil ?: return@LaunchedEffect
+        var remaining = until - System.currentTimeMillis()
+        if (remaining <= 0L) return@LaunchedEffect
+        while (remaining > 0L) {
+            delay(remaining)
+            remaining = until - System.currentTimeMillis()
+        }
+        updateSnoozeRevision++
+    }
     val updateBanner = remember(updateUiState, installedUpdateCode, updateSnoozeRevision) {
         updateBannerState(
             state = updateUiState,
             installedCode = installedUpdateCode,
             now = System.currentTimeMillis(),
             snoozedCode = updateNoticeStore.snoozedVersionCode(),
-            snoozedUntil = updateNoticeStore.snoozedUntil(),
+            snoozedUntil = updateSnoozedUntil,
         )
     }
     // Keyed by the account's repository: a question asked for one account is dropped when the user switches to another.
@@ -3818,7 +3829,7 @@ GlobalSearchScreen(
             }
         }
         PlayerExpansionHost()
-        com.beykus.beygram.ui.screens.chat.InAppVideoPipHost()
+        com.beykus.beygram.ui.screens.chat.InAppVideoPipHost(selectedAccountId)
     }
     }
     AccountSwitcherSheet(
