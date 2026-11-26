@@ -65,7 +65,7 @@ internal class UpdateNoticeStore(context: Context) : UpdateNoticeStorage {
 
     override fun snoozedUntil(): Long? = long("$KEY_SNOOZED_UNTIL:$scope")
 
-    /** "РџРѕР·Р¶Рµ" hides the in-app banner for this build only, and only until the window ends. */
+    /** "Позже" hides the in-app banner for this build only, and only until the window ends. */
     override fun snoozeBanner(code: Long, until: Long) = edit {
         putLong("$KEY_SNOOZED_CODE:$scope", code)
         putLong("$KEY_SNOOZED_UNTIL:$scope", until)
@@ -101,7 +101,7 @@ internal class UpdateNoticeStore(context: Context) : UpdateNoticeStorage {
         private const val KEY_SNOOZED_UNTIL = "snoozedUntil"
         private const val KEY_AUTO_CHECK = "autoCheckEnabled"
 
-        /** How long "РџРѕР·Р¶Рµ" hides the banner. A different build appears immediately. */
+        /** How long "Позже" hides the banner. A different build appears immediately. */
         const val BANNER_SNOOZE_MS = 24L * 60 * 60 * 1000
     }
 }
