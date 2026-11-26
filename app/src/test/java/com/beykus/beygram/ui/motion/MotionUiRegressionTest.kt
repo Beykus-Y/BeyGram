@@ -516,6 +516,7 @@ class MotionUiRegressionTest {
         ended = false,
         canNext = true,
         durationSeconds = 180,
+        isVideoNote = false,
         origin = null
     )
 }
