@@ -30,6 +30,6 @@
     <string name="stealth_diagnostic_send_blocked">Esta comprobación no está disponible en el modo invisible, porque envía un mensaje de inmediato. Desactiva el envío invisible e inténtalo de nuevo.</string>
 
     <string name="stealth_schedule_status_pending">Pendiente de confirmación de Telegram</string>
-    <string name="stealth_schedule_status_queued">En la cola según TDLib</string>
+    <string name="stealth_schedule_status_queued">Programado</string>
     <string name="stealth_schedule_status_unknown">Estado actual desconocido</string>
 </resources>

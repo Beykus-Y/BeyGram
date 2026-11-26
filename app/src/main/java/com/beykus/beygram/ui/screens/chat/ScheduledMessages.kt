@@ -329,12 +329,15 @@ internal fun ScheduledMessagesDialog(
     }
 }
 
-internal fun scheduledMessageStatus(sendState: MessageSendState, queueKnown: Boolean): Int =
-    if (!queueKnown) R.string.stealth_schedule_status_unknown else when (sendState) {
-        MessageSendState.Sending -> R.string.stealth_schedule_status_pending
-        MessageSendState.Failed -> R.string.chat_scheduled_failed
-        MessageSendState.Sent -> R.string.stealth_schedule_status_queued
-    }
+/**
+ * A failed scheduled message is a local fact and never becomes "unknown": hiding it behind a stale queue would tell
+ * the user the message may still be sent. Only successful states depend on the freshly loaded queue.
+ */
+internal fun scheduledMessageStatus(sendState: MessageSendState, queueKnown: Boolean): Int = when (sendState) {
+    MessageSendState.Failed -> R.string.chat_scheduled_failed
+    MessageSendState.Sending -> if (queueKnown) R.string.stealth_schedule_status_pending else R.string.stealth_schedule_status_unknown
+    MessageSendState.Sent -> if (queueKnown) R.string.stealth_schedule_status_queued else R.string.stealth_schedule_status_unknown
+}
 
 @Composable
 private fun ScheduledMessageRow(
@@ -354,7 +357,7 @@ private fun ScheduledMessageRow(
         Text(scheduledTimeLabel(message), color = palette.textSecondary, fontSize = 12.sp, modifier = Modifier.padding(top = 2.dp))
         Text(
             stringResource(scheduledMessageStatus(message.sendState, queueKnown)),
-            color = if (queueKnown && failed) palette.danger else palette.textSecondary,
+            color = if (failed) palette.danger else palette.textSecondary,
             fontSize = 12.sp,
             modifier = Modifier.padding(top = 2.dp)
         )
