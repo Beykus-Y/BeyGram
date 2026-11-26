@@ -158,7 +158,7 @@ class BgBeatManager(
     }
 
     private fun handleStateOrSettingsChange(state: PlaybackState, isEnabled: Boolean) {
-        if (!isEnabled) {
+        if (!isEnabled || isPowerSaveActive()) {
             cancelCurrentAnalysis()
             cancelLookahead()
             sequenceId.incrementAndGet()
@@ -172,6 +172,11 @@ class BgBeatManager(
         handleCurrent(state)
         scheduleLookahead(state)
     }
+
+    private fun isPowerSaveActive(): Boolean = runCatching {
+        val pm = context.getSystemService(Context.POWER_SERVICE) as? android.os.PowerManager
+        pm?.isPowerSaveMode == true
+    }.getOrDefault(false)
 
     private fun handleCurrent(state: PlaybackState) {
         val item = state.item
