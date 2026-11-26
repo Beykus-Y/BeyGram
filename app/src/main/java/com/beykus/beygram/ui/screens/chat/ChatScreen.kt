@@ -286,7 +286,8 @@ fun ChatScreen(
     var replyFocusRequest by remember(chat.id) { mutableIntStateOf(0) }
     // The message of the latest swipe; a slower capability check for an older swipe is ignored.
     var swipedReplyId by remember(chat.id) { mutableLongStateOf(0L) }
-    var actionsId by rememberSaveable(chat.id) { mutableStateOf<Long?>(null) }
+    val messageActions = rememberChatMessageActions(accountId, chat.id, forumTopicId)
+    val actionsId by messageActions::targetId
     var exportOpen by rememberSaveable(chat.id) { mutableStateOf(false) }
     val exportModel: ChatExportViewModel = viewModel(key = "chat-export-$accountId-${chat.id}")
     val exportVisible by remember(exportModel) {
@@ -313,14 +314,13 @@ fun ChatScreen(
     var editText by rememberSaveable(chat.id) { mutableStateOf("") }
     var editBusy by remember { mutableStateOf(false) }
     var editError by remember { mutableStateOf<String?>(null) }
-    var deleting by rememberSaveable(chat.id) { mutableStateOf(false) }
-    var deleteEveryone by remember { mutableStateOf(false) }
-    var deleteBusy by remember { mutableStateOf(false) }
-    var deleteError by remember { mutableStateOf<String?>(null) }
-    var pinConfirm by rememberSaveable(chat.id) { mutableStateOf(false) }
-    var capabilities by remember { mutableStateOf<MessageCapabilities?>(null) }
-    var capabilitiesError by remember { mutableStateOf<String?>(null) }
-    var capabilitiesAttempt by remember { mutableIntStateOf(0) }
+    var deleting by messageActions::deleting
+    var deleteEveryone by messageActions::deleteEveryone
+    var deleteError by messageActions::deleteError
+    var pinConfirm by messageActions::pinConfirm
+    val capabilities by messageActions::capabilities
+    val capabilitiesError by messageActions::capabilitiesError
+    var capabilitiesAttempt by messageActions::capabilitiesAttempt
     var selectedMediaId by rememberSaveable(chat.id) { mutableStateOf<Long?>(null) }
     // Layout of the newest media bubbles; the viewer turns it into a screen rectangle when it opens. A plain map: it must
     // not recompose on scroll.
@@ -471,8 +471,8 @@ fun ChatScreen(
     var webAppSession by remember(chat.id) { mutableStateOf<BotWebAppLaunch?>(null) }
     var pendingWebApp by remember(chat.id) { mutableStateOf<PendingBotWebApp?>(null) }
     var webAppOpening by remember(chat.id) { mutableStateOf(false) }
-    var reactionOptions by remember(conversation, chat.id) { mutableStateOf<List<ReactionOption>>(emptyList()) }
-    var reactionPickerOpen by remember(chat.id) { mutableStateOf(false) }
+    val reactionOptions by messageActions::reactionOptions
+    var reactionPickerOpen by messageActions::reactionPickerOpen
     val paidReactions = rememberPaidReactions(conversation)
     // Reactions, poll votes and bot buttons ask first while hidden presence warns about risky actions; asked once per chat screen (see StealthRiskGuard).
     val riskGuard = rememberStealthRiskGuard(chat.id) { conversation.stealthWarnsBeforeSending() }
@@ -1071,7 +1071,10 @@ fun ChatScreen(
     LaunchedEffect(editId) { editEntities = editMessage?.entities.orEmpty() }
     LaunchedEffect(botKeyboard?.messageId) { if (botKeyboard?.forceReply == true) updateDraft { it.copy(replyToMessageId = botKeyboard?.messageId) } }
     val editLimit = if (editMessage?.media == null) limits.text else limits.caption
-    fun closeActions() { actionsId = null; actionAnchorBounds = null; reactionPickerOpen = false; deleting = false; deleteError = null; capabilities = null; capabilitiesError = null; pinConfirm = false }
+    fun closeActions() {
+        messageActions.close()
+        actionAnchorBounds = null
+    }
     fun enterSelection(message: ChatMessage? = null) {
         closeActions()
         selectionMode = true
@@ -1105,8 +1108,7 @@ fun ChatScreen(
         // Entering Select from the action menu must not lose the original message context.
         selectionAnchorId = messageId
         actionAnchorBounds = bubbleRect(messageId)?.takeIf { !it.isEmpty }
-        actionsId = messageId
-        reactionPickerOpen = false
+        messageActions.open(messageId)
     }
     val singleActionTarget = selectionAnchorId?.takeIf { selectionIds == selectionGroupIds(messages, it) }
     fun toggleSelection(message: ChatMessage) {
@@ -1327,17 +1329,8 @@ fun ChatScreen(
             typedDraft(result.text)
         }
     }
-    LaunchedEffect(actionMessage) {
-        if (actionMessage == null) { deleting = false; deleteError = null; capabilities = null; capabilitiesError = null; pinConfirm = false }
-    }
-    LaunchedEffect(chat.id, actionsId, capabilitiesAttempt) {
-        val id = actionsId ?: return@LaunchedEffect
-        capabilities = null; capabilitiesError = null
-        val result = conversation.messageCapabilities(chat.id, id)
-        if (actionsId == id) {
-            capabilities = result.getOrNull()
-            capabilitiesError = result.exceptionOrNull()?.userMessage(context, R.string.err_chat_actions_load_failed)
-        }
+    ChatMessageActionEffects(messageActions, conversation, chat.id, actionMessage?.id, reactionOwner?.id) {
+        it.userMessage(context, R.string.err_chat_actions_load_failed)
     }
     fun setPinned(message: ChatMessage, pinned: Boolean) {
         pinConfirm = false
@@ -1347,11 +1340,6 @@ fun ChatScreen(
             conversation.setMessagePinned(message.chatId, message.id, pinned)
                 .onFailure { error = it.userMessage(context, R.string.err_chat_pin_failed) }
         }
-    }
-    LaunchedEffect(conversation, chat.id, reactionOwner?.id) {
-        reactionOptions = emptyList()
-        val id = reactionOwner?.id ?: return@LaunchedEffect
-        reactionOptions = conversation.availableReactions(chat.id, id).getOrNull().orEmpty()
     }
     // Фото и видео листаются по всему чату: окно грузится вокруг открытого вложения, а не только по загруженной истории.
     val mediaWindow = remember(conversation, chat.id) {
@@ -2201,7 +2189,7 @@ fun ChatScreen(
             canCopy = selectionCanCopy,
             canSave = selectionCanSave,
             onClose = ::exitSelection,
-            onMore = singleActionTarget?.let { id -> { exitSelection(); actionAnchorBounds = bubbleRect(id); actionsId = id } },
+            onMore = singleActionTarget?.let { id -> { exitSelection(); actionAnchorBounds = bubbleRect(id); messageActions.open(id) } },
             onForward = {
                 val ids = forwardIdsForSelection(messages, selectionIds)
                 if (ids.isNotEmpty()) {
@@ -2801,15 +2789,7 @@ fun ChatScreen(
         }
         val replyTarget = replyId?.let { id -> messages.firstOrNull { it.id == id } }
         if (deleting && actionMessage != null) {
-            val caps = capabilities
-            if (caps != null) DeleteConfirmPanel(caps, deleteEveryone, deleteBusy, deleteError, onChoose = { deleteEveryone = it },
-                onCancel = { deleting = false; deleteError = null }, onConfirm = { scope.launch {
-                    deleteBusy = true; deleteError = null
-                    try {
-                        val result = conversation.deleteMessage(actionMessage.chatId, actionMessage.id, if (deleteEveryone) DeleteMessageScope.ForEveryone else DeleteMessageScope.ForSelf)
-                        if (result.isSuccess) closeActions() else deleteError = result.exceptionOrNull()?.userMessage(context, R.string.err_chat_delete_failed)
-                    } finally { deleteBusy = false }
-                } })
+            ChatMessageDeletePrompt(actionMessage, messageActions, conversation, scope, onDeleted = ::closeActions)
         } else if (editMessage != null) {
             EditBanner(editMessage.text.ifBlank { editMessage.summary() }, editMessage.media != null, editText.codePointCount(0, editText.length), editLimit, editError, onClose = ::closeEdit)
         }
@@ -3153,7 +3133,12 @@ fun ChatScreen(
             canDelete = viewedRights?.let { it.canDeleteForSelf || it.canDeleteForAll } == true,
             onForward = { forwardAsCopy = false; forwardId = viewed.id; selectedMediaId = null },
             onEdit = { editId = viewed.id; editText = viewed.text; selectedMediaId = null },
-            onDelete = { deleteEveryone = viewedRights?.canDeleteForSelf == false; actionsId = viewed.id; deleting = true; selectedMediaId = null }
+            onDelete = {
+                messageActions.open(viewed.id)
+                deleteEveryone = viewedRights?.canDeleteForSelf == false
+                deleting = true
+                selectedMediaId = null
+            }
         ) }, onShowInChat = { id -> selectedMediaId = null; jumpToMessage(id, R.string.err_chat_history_load_failed) },
             autoDownloadFile = onAutoDownloadFile)
     StickerSetOverlay(
