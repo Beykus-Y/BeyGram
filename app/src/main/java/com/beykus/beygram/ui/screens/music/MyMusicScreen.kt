@@ -27,6 +27,7 @@ import androidx.compose.material.icons.rounded.DownloadDone
 import androidx.compose.material.icons.rounded.History
 import androidx.compose.material.icons.rounded.NewReleases
 import androidx.compose.material.icons.rounded.Restore
+import androidx.compose.material.icons.rounded.Settings
 import androidx.compose.material.icons.rounded.Star
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.material.icons.rounded.WarningAmber
@@ -92,7 +93,8 @@ internal fun MyMusicScreen(
     onSearch: (providerFirst: Boolean) -> Unit,
     onOpenPlaylist: (String) -> Unit,
     onProviderSignIn: () -> Unit = {},
-    onOpenCollection: ((String) -> Unit)? = null
+    onOpenCollection: ((String) -> Unit)? = null,
+    onOpenSettings: () -> Unit = {}
 ) {
     val palette = beyGramPalette()
     val context = LocalContext.current
@@ -151,6 +153,15 @@ internal fun MyMusicScreen(
                         )
                     }
                 },
+                actions = {
+                    IconButton(onClick = onOpenSettings) {
+                        Icon(
+                            Icons.Rounded.Settings,
+                            stringResource(R.string.music_settings_title),
+                            tint = palette.textPrimary
+                        )
+                    }
+                },
                 colors = TopAppBarDefaults.topAppBarColors(containerColor = palette.surface)
             )
         }
@@ -162,11 +173,14 @@ internal fun MyMusicScreen(
             enabled = providerTab,
             refreshing = refreshing,
             onRefresh = { providerHost?.refresh() },
-            modifier = Modifier.fillMaxSize().padding(padding)
+            modifier = Modifier.fillMaxSize().padding(top = padding.calculateTopPadding())
         ) {
         BoxWithConstraints(Modifier.fillMaxSize()) {
             val gridColumns = coverColumns(maxWidth)
-            LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 24.dp)) {
+            LazyColumn(
+                Modifier.fillMaxSize(),
+                contentPadding = PaddingValues(bottom = 24.dp + padding.calculateBottomPadding())
+            ) {
                 item(key = "search") {
                     Box(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp)) {
                         SearchFieldButton(

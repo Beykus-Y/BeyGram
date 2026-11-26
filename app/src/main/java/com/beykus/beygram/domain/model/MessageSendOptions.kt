@@ -23,7 +23,11 @@ data class MessageSendOptions(
     /** ForwardMessages only; removing a media caption implicitly sends a copy without author. */
     val removeForwardCaption: Boolean = false,
     /** Share sessions must not retry a partially acknowledged album blindly. */
-    val shareDelivery: Boolean = false
+    val shareDelivery: Boolean = false,
+    /** Optional quoted fragment of the replied-to message (TDLib InputTextQuote). */
+    val replyQuote: String? = null,
+    /** Character offset of [replyQuote] inside the replied-to message text. */
+    val replyQuotePosition: Int = 0
 ) {
     companion object {
         /**

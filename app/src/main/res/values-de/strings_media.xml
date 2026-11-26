@@ -50,6 +50,13 @@
     <string name="recorder_preview_previous">Zurück</string>
     <string name="recorder_preview_size">Gesamtgröße: %1$s</string>
     <string name="recorder_preview_title">Aufnahmevorschau</string>
+    <!-- P0 #1228: der Grund des Sendefehlers ist in der Vorschau sichtbar. -->
+    <string name="recorder_send_in_progress">Wird gesendet…</string>
+    <!-- P0 #1228: Grund, warum eine Video-Nachricht nicht verarbeitet werden konnte. -->
+    <string name="recorder_unreadable_video">Die Aufnahme ist beschädigt: Das Video lässt sich nicht lesen</string>
+    <string name="recorder_unsupported_codec">Der Codec der Aufnahme wird nicht unterstützt</string>
+    <string name="recorder_retry_send">Erneut senden</string>
+    <string name="recorder_preview_unavailable">Die Aufnahme konnte nicht abgespielt werden</string>
     <string name="recorder_processing_busy">Die vorherige Aufnahme wird noch verarbeitet</string>
     <string name="recorder_queue_progress">Wird gesendet: %1$d von %2$d</string>
     <string name="recorder_queue_sent">Zum Senden akzeptiert: %1$d von %2$d</string>

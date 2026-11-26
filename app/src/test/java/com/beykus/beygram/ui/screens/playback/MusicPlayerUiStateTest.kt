@@ -271,4 +271,70 @@ class MusicPlayerUiStateTest {
         assertEquals("-2:00", playbackRemaining(65_000L, 185_000L))
         assertEquals("0:00", playbackRemaining(0L, 0L))
     }
+
+    @Test
+    fun playerActionsUnifyTelegramAndYandexSourcesWithoutDeadSlots() {
+        assertEquals(
+            listOf(
+                PlayerActionKind.TelegramFavorite,
+                PlayerActionKind.AddToPlaylist,
+                PlayerActionKind.Lyrics,
+                PlayerActionKind.Queue,
+                PlayerActionKind.Sound
+            ),
+            resolvePlayerActionKinds(isProviderTrack = false, isEndlessRadio = false, lyricsEnabled = true)
+        )
+        assertEquals(
+            listOf(
+                PlayerActionKind.TelegramFavorite,
+                PlayerActionKind.AddToPlaylist,
+                PlayerActionKind.Queue,
+                PlayerActionKind.Sound
+            ),
+            resolvePlayerActionKinds(isProviderTrack = false, isEndlessRadio = false, lyricsEnabled = false)
+        )
+        assertEquals(
+            listOf(
+                PlayerActionKind.ProviderLike,
+                PlayerActionKind.Lyrics,
+                PlayerActionKind.Queue,
+                PlayerActionKind.Sound
+            ),
+            resolvePlayerActionKinds(isProviderTrack = true, isEndlessRadio = false, lyricsEnabled = true)
+        )
+        assertEquals(
+            listOf(
+                PlayerActionKind.ProviderLike,
+                PlayerActionKind.RadioDislike,
+                PlayerActionKind.Lyrics,
+                PlayerActionKind.Queue,
+                PlayerActionKind.Sound
+            ),
+            resolvePlayerActionKinds(isProviderTrack = true, isEndlessRadio = true, lyricsEnabled = true)
+        )
+        assertEquals(
+            listOf(
+                PlayerActionKind.ProviderLike,
+                PlayerActionKind.Queue,
+                PlayerActionKind.Sound
+            ),
+            resolvePlayerActionKinds(isProviderTrack = true, isEndlessRadio = false, lyricsEnabled = false)
+        )
+    }
+
+    @Test
+    fun lyricLinePhaseDistinguishesPastActiveAndUpcoming() {
+        assertEquals(LyricLinePhase.Upcoming, lyricLinePhase(index = 0, activeIndex = -1))
+        assertEquals(LyricLinePhase.Past, lyricLinePhase(index = 0, activeIndex = 2))
+        assertEquals(LyricLinePhase.Active, lyricLinePhase(index = 2, activeIndex = 2))
+        assertEquals(LyricLinePhase.Upcoming, lyricLinePhase(index = 3, activeIndex = 2))
+    }
+
+    @Test
+    fun seekDeltaFractionClampsWithinTrackBoundsAndRejectsUnknownDuration() {
+        assertNull(seekDeltaFraction(positionMs = 10_000L, durationMs = 0L, deltaMs = 10_000L))
+        assertEquals(0.25f, seekDeltaFraction(positionMs = 15_000L, durationMs = 100_000L, deltaMs = 10_000L)!!, 0.001f)
+        assertEquals(0f, seekDeltaFraction(positionMs = 4_000L, durationMs = 100_000L, deltaMs = -10_000L)!!, 0.001f)
+        assertEquals(1f, seekDeltaFraction(positionMs = 95_000L, durationMs = 100_000L, deltaMs = 10_000L)!!, 0.001f)
+    }
 }

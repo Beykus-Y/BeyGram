@@ -17,8 +17,13 @@ import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.type
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.WindowInsetsSides
+import androidx.compose.foundation.layout.consumeWindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.navigationBars
+import androidx.compose.foundation.layout.only
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.runtime.Composable
@@ -41,6 +46,10 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.saveable.rememberSaveableStateHolder
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.focusProperties
+import androidx.compose.ui.input.pointer.PointerEventPass
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.material3.CircularProgressIndicator
@@ -65,6 +74,10 @@ import com.beykus.beygram.data.tdlib.TdLibTelegramRepository
 import com.beykus.beygram.data.tdlib.TdSecondaryAccountController
 import com.beykus.beygram.data.tdlib.TdAccountRegistry
 import com.beykus.beygram.data.tdlib.TdAccountStorageLayout
+import com.beykus.beygram.data.update.AutomaticUpdateChecks
+import com.beykus.beygram.data.update.UpdateCoordinator
+import com.beykus.beygram.data.update.UpdateNoticeStore
+import com.beykus.beygram.data.update.updateBannerState
 import com.beykus.beygram.data.unavailable.UnavailableTelegramRepository
 import com.beykus.beygram.deeplink.MessageEntityLink
 import com.beykus.beygram.deeplink.YandexMusicTarget
@@ -154,6 +167,8 @@ import com.beykus.beygram.ui.screens.chat.isWaveChat
 import com.beykus.beygram.ui.screens.chat.preparedTimeline
 import com.beykus.beygram.ui.screens.chat.LocalChatAnimationPreferences
 import com.beykus.beygram.ui.screens.chat.LocalAutoDownloadFile
+import com.beykus.beygram.ui.screens.chat.VideoNoteDelivery
+import com.beykus.beygram.ui.screens.chat.VideoNoteExportCenter
 import com.beykus.beygram.ui.screens.chat.MessageThreadScreen
 import com.beykus.beygram.ui.screens.chat.ForumTopicsScreen
 import com.beykus.beygram.ui.screens.chat.ForumTopicsLoadingScreen
@@ -209,7 +224,9 @@ import com.beykus.beygram.ui.screens.settings.StableUpdatesScreen
 import com.beykus.beygram.ui.screens.start.StartScreen
 import com.beykus.beygram.ui.screens.profile.ChannelStatisticsScreen
 import com.beykus.beygram.ui.screens.profile.ChatMembersScreen
+import com.beykus.beygram.ui.screens.profile.GiftFileAccess
 import com.beykus.beygram.ui.screens.profile.GiftsScreen
+import com.beykus.beygram.ui.screens.profile.ProvideGiftFileAccess
 import com.beykus.beygram.ui.screens.profile.PremiumScreen
 import com.beykus.beygram.ui.screens.profile.GroupManagementScreen
 import com.beykus.beygram.ui.screens.profile.LocalAddProfileAudio
@@ -236,6 +253,7 @@ import com.beykus.beygram.data.settings.ForumNavigationStore
 import com.beykus.beygram.data.settings.TranslationSettingsStore
 import com.beykus.beygram.data.appearance.AppearanceConfig
 import com.beykus.beygram.data.presence.LastSeenSettingsStore
+import com.beykus.beygram.data.settings.StealthSettingsStore
 import com.beykus.beygram.ui.screens.proxy.ProxyConnectScreen
 import com.beykus.beygram.ui.screens.proxy.ProxyConnectTab
 import com.beykus.beygram.ui.screens.proxy.ProxyListScreen
@@ -258,6 +276,8 @@ import com.beykus.beygram.ui.screens.playback.LocalOpenMyMusic
 import com.beykus.beygram.ui.screens.bgmusic.LocalOpenMusicPlaylist
 import com.beykus.beygram.ui.screens.music.ProviderMusicHosts
 import com.beykus.beygram.ui.screens.music.LocalOpenProviderAlbum
+import com.beykus.beygram.ui.screens.music.LocalOpenMusicSettings
+import com.beykus.beygram.ui.screens.music.MusicSettingsScreen
 import com.beykus.beygram.ui.screens.music.MyMusicScreen
 import com.beykus.beygram.ui.screens.music.MusicPlaylistScreen
 import com.beykus.beygram.ui.screens.music.ChatLibraryLink
@@ -305,7 +325,10 @@ fun BeyGramApp(
     onDeepLinkBound: (Long, String) -> Unit = { _, _ -> },
     onDeepLinkHandled: (Long) -> Unit = {},
     onSecureScreenChange: (Boolean) -> Unit = {},
-    locked: Boolean = false
+    locked: Boolean = false,
+    /** A tap on the update notification. Consumed only once the Updates screen is actually shown. */
+    openUpdates: Boolean = false,
+    onOpenUpdatesHandled: () -> Unit = {}
 ) {
     val context = LocalContext.current
     val videoMessageSettings = remember(context) { VideoMessageSettingsStore(context) }
@@ -352,12 +375,14 @@ fun BeyGramApp(
         onDeepLinkBound = onDeepLinkBound,
         onDeepLinkHandled = onDeepLinkHandled,
         onSecureScreenChange = onSecureScreenChange,
-        locked = locked
+        locked = locked,
+        openUpdates = openUpdates,
+        onOpenUpdatesHandled = onOpenUpdatesHandled
     )
 }
 
 @Composable
-private fun BeyGramAppContent(
+internal fun BeyGramAppContent(
     legacyRepository: TelegramRepository,
     tdLibReadiness: TdLibReadiness,
     appearance: AppearanceConfig,
@@ -374,7 +399,13 @@ private fun BeyGramAppContent(
     onDeepLinkBound: (Long, String) -> Unit,
     onDeepLinkHandled: (Long) -> Unit,
     onSecureScreenChange: (Boolean) -> Unit,
-    locked: Boolean
+    locked: Boolean,
+    // Defaults keep existing callers (including tests added by other work) source-compatible.
+    openUpdates: Boolean = false,
+    onOpenUpdatesHandled: () -> Unit = {},
+    stealthStoreForRepository: (TelegramRepository) -> StealthSettingsStore? = {
+        (it as? TdLibTelegramRepository)?.stealthSettings
+    }
 ) {
     val context = LocalContext.current
     // ---- Реактивное состояние ------------------------------------------------
@@ -432,8 +463,44 @@ private fun BeyGramAppContent(
     // No caller of a secondary route may fall back to the first account.
     val unavailableAccountRepository = remember { UnavailableTelegramRepository() }
     val repository = repositorySelection ?: unavailableAccountRepository
+    // Delivery of auto-approved video notes is owned by the app, not by an open chat screen (#1228). Bind it to the
+    // account whose repository is actually available; drafts of other accounts stay queued until they become active.
+    LaunchedEffect(repositorySelection, selectedAccountId) {
+        val active = repositorySelection
+        if (active == null) {
+            // No repository yet for the newly selected account: never keep delivering the previous one.
+            VideoNoteExportCenter.unbindDelivery()
+        } else {
+            VideoNoteExportCenter.bindDelivery(
+                VideoNoteDelivery(selectedAccountId) { chatId, topicId, media, reply ->
+                    active.sendMedia(chatId, media, "", reply, forumTopicId = topicId).map { Unit }
+                }
+            )
+        }
+    }
     val authState by repository.authState.collectAsStateWithLifecycle()
     val legacyAuthState by legacyRepository.authState.collectAsStateWithLifecycle()
+    // ---- Автопроверка обновлений ---------------------------------------------
+    // One process-wide coordinator, one stored release, one snooze record. The banner is a projection of that state,
+    // it never creates a second source of "an update is available".
+    val updateCoordinator = remember(context) { UpdateCoordinator.get(context) }
+    val updateUiState by updateCoordinator.state.collectAsStateWithLifecycle()
+    val updateNoticeStore = remember(context) { UpdateNoticeStore(context) }
+    var updateSnoozeRevision by remember { mutableIntStateOf(0) }
+    // The installed version decides whether an offer is still an offer; it changes only after an install.
+    val installedUpdateCode = remember(updateUiState.status) {
+        runCatching { context.packageManager.getPackageInfo(context.packageName, 0).longVersionCode }
+            .getOrDefault(0L)
+    }
+    val updateBanner = remember(updateUiState, installedUpdateCode, updateSnoozeRevision) {
+        updateBannerState(
+            state = updateUiState,
+            installedCode = installedUpdateCode,
+            now = System.currentTimeMillis(),
+            snoozedCode = updateNoticeStore.snoozedVersionCode(),
+            snoozedUntil = updateNoticeStore.snoozedUntil(),
+        )
+    }
     // Keyed by the account's repository: a question asked for one account is dropped when the user switches to another.
     val markReadConfirmation = remember(repository) { MarkReadConfirmationState() }
     val stealthSettings by rememberStealthSettings((repository as? TdLibTelegramRepository)?.stealthSettings)
@@ -493,6 +560,7 @@ private fun BeyGramAppContent(
     // Where Back from the playlist goes: My Music, the chat whose `.bgmusic` preview opened it, or the chat info
     // when the playlist is a chat's collection.
     var musicPlaylistReturnRouteName by rememberSaveable { mutableStateOf(AppRoute.MyMusic.name) }
+    var musicSettingsReturnRouteName by rememberSaveable { mutableStateOf(AppRoute.MyMusic.name) }
     // The account that opened the playlist. Playlists belong to an account, so a switch leaves the playlist behind.
     var musicPlaylistAccountId by rememberSaveable { mutableStateOf("") }
     LaunchedEffect(selectedAccountId) {
@@ -507,6 +575,17 @@ private fun BeyGramAppContent(
     var accountSwitcherVisible by rememberSaveable { mutableStateOf(false) }
     var accountSwitcherAddMode by rememberSaveable { mutableStateOf(false) }
     var accountSwitcherRouteAccountId by rememberSaveable { mutableStateOf<String?>(null) }
+
+    fun openAccountsFrom(source: String) {
+        if (MultiAccountDiagnostics.isVerbose()) {
+            MultiAccountDiagnostics.milestone(
+                code = "account_switcher_open",
+                stage = "requested",
+                attrs = mapOf("source" to source, "ready" to (!locked).toString())
+            )
+        }
+        accountSwitcherVisible = true
+    }
     // A restored secondary account may be selected before its native session is up.
     var recoveryBusy by remember { mutableStateOf(false) }
     var recoveryError by remember { mutableStateOf<UiText?>(null) }
@@ -1376,6 +1455,19 @@ private fun BeyGramAppContent(
             deepLinkProxy = null
         }
     }
+    // A tap on the update notification opens the existing Updates screen. Until the account is ready and the app lock is
+    // gone the request stays pending, so the screen is never opened behind a lock or before login.
+    LaunchedEffect(openUpdates, authState, locked) {
+        if (!openUpdates || locked) return@LaunchedEffect
+        if (authState != AuthState.Ready) return@LaunchedEffect
+        routeName = AppRoute.Updates.name
+        onOpenUpdatesHandled()
+    }
+    // The first drawn frame is the user's own launch: the one moment a check may ignore how recent the last one was.
+    LaunchedEffect(Unit) {
+        AutomaticUpdateChecks.get(context, (context.applicationContext as BeyGramApplication).applicationScope)
+            .onLaunch()
+    }
     if (authState == AuthState.Ready && !locked) NotificationPermissionCoordinator(notificationRuntime)
     LaunchedEffect(authState, legacyAuthState, notificationRequest?.token, accountRegistryReady) {
         if (!accountRegistryReady || accountRegistryError) return@LaunchedEffect
@@ -1758,6 +1850,7 @@ private fun BeyGramAppContent(
     }
     BackHandler(enabled = route == AppRoute.MusicCollection) { closeMusicCollection() }
     BackHandler(enabled = route == AppRoute.MusicPlaylist) { routeName = musicPlaylistReturnRouteName }
+    BackHandler(enabled = route == AppRoute.MusicSettings) { routeName = musicSettingsReturnRouteName }
     BackHandler(enabled = route == AppRoute.AutoDownloadSettings) { routeName = AppRoute.Settings.name }
     BackHandler(enabled = route == AppRoute.Language || route == AppRoute.Sessions) { routeName = AppRoute.Settings.name }
     BackHandler(enabled = route == AppRoute.AppLock) { routeName = AppRoute.Settings.name }
@@ -1826,7 +1919,7 @@ private fun BeyGramAppContent(
             // Same route as a chat tap, but the chat opens on the topic that the row names.
             onForumTopicClick = { chat -> openDeepLinkChat(chat.id, 0L, chat.lastMessageForumTopicId) },
             onMyProfile = { routeName = AppRoute.MyProfile.name },
-            onAccountPicker = { accountSwitcherVisible = true },
+            onAccountPicker = { openAccountsFrom("chats") },
             onArchiveClick = { routeName = AppRoute.Archive.name },
             onMarkRead = markChatRead,
             onMarkAllRead = { chats ->
@@ -1863,6 +1956,17 @@ private fun BeyGramAppContent(
                 linkReturnChatId = 0L
                 chatBackRouteName = AppRoute.Chats.name
                 routeName = AppRoute.Chat.name
+            },
+            updateBanner = updateBanner,
+            onUpdateBannerOpen = { routeName = AppRoute.Updates.name },
+            onUpdateBannerSnooze = {
+                updateBanner?.let { banner ->
+                    updateNoticeStore.snoozeBanner(
+                        banner.versionCode,
+                        System.currentTimeMillis() + UpdateNoticeStore.BANNER_SNOOZE_MS,
+                    )
+                    updateSnoozeRevision++
+                }
             },
             highlightedChatId = chatListHighlightedId(
                 showChat = twoPane && chatOpen,
@@ -1917,7 +2021,7 @@ private fun BeyGramAppContent(
             onSessions = { routeName = AppRoute.Sessions.name },
             onPrivacy = { routeName = AppRoute.PrivacySettings.name },
             onAccountSecurity = { routeName = AppRoute.AccountSecurity.name },
-            onSecondaryAccounts = { accountSwitcherVisible = true },
+            onSecondaryAccounts = { openAccountsFrom("settings") },
             onAppLock = { routeName = AppRoute.AppLock.name },
             onEqualizer = { routeName = AppRoute.Equalizer.name },
             onExperiments = { routeName = AppRoute.Experiments.name },
@@ -2393,6 +2497,7 @@ private fun BeyGramAppContent(
                             observeFile = repository::observeFile,
                             onDownloadFile = repository::downloadFile,
                             onAutoDownloadFile = repository::autoDownloadFile,
+                            playbackCoordinator = repository.playbackCoordinator,
                             onBack = {
                                 if (!restoreLinkReturnChat()) {
                                     // Back from the feed returns to the topic list, or to the open topic in a panel view.
@@ -2431,6 +2536,8 @@ private fun BeyGramAppContent(
                             forumTopic = selectedTopic,
                             topicCanPost = selectedTopic?.canWrite ?: true,
                             topicUnreadCount = selectedTopic?.unreadCount ?: 0,
+                            topicUnreadMentionCount = selectedTopic?.unreadMentionCount ?: 0,
+                            topicUnreadReactionCount = selectedTopic?.unreadReactionCount ?: 0,
                             onServiceUser = { userId -> openUserProfile(userId, AppRoute.Chat) },
                             isPremiumAccount = myAccount.info?.isPremium == true,
                             onPremium = { openPremium(AppRoute.Chat) },
@@ -2731,6 +2838,10 @@ private fun BeyGramAppContent(
         LocalOpenProviderAlbum provides { albumId: String ->
             ProviderMusicHosts.yandex()?.let { host -> openMusicCollection(host.albumRef(albumId)) }
         },
+        LocalOpenMusicSettings provides {
+            musicSettingsReturnRouteName = routeName
+            routeName = AppRoute.MusicSettings.name
+        },
         LocalRailCreateChat provides { routeName = AppRoute.NewChat.name },
         LocalOpenMyMusic provides {
             if (routeName == AppRoute.MyMusic.name) {
@@ -2866,7 +2977,24 @@ GlobalSearchScreen(
     Box(Modifier.fillMaxSize()) {
         PlayerModalUnderlay {
             Column(Modifier.fillMaxSize()) {
-                BoxWithConstraints(Modifier.weight(1f).fillMaxWidth()) {
+                val externalPlayerBar = route !in playerBarHostRoutes
+                val externalPlayerBarVisible = externalPlayerBar &&
+                    com.beykus.beygram.ui.screens.playback.rememberBottomPlayerBarVisible(hideWhenImeVisible = true)
+                BoxWithConstraints(
+                    Modifier
+                        .weight(1f)
+                        .fillMaxWidth()
+                        .then(
+                            // When the external bottom mini-player owns the navigation-bar inset below the screen,
+                            // consume it here so inner Scaffolds (MyMusic, playlists, collections) never reserve
+                            // a duplicate empty strip directly above the mini-player.
+                            if (externalPlayerBarVisible) {
+                                Modifier.consumeWindowInsets(WindowInsets.navigationBars.only(WindowInsetsSides.Bottom))
+                            } else {
+                                Modifier
+                            }
+                        )
+                ) {
                     // One window class for the whole tree: the width and the height are read here once, so the list, the
                     // navigation and the chat chrome can never disagree about the layout they are in.
                     val windowLayout = WindowLayout(maxWidth.value, maxHeight.value)
@@ -2887,6 +3015,10 @@ GlobalSearchScreen(
                     val pushSpec = rememberMotionSpec(MotionToken.NavigationPush)
                     val popSpec = rememberMotionSpec(MotionToken.NavigationPop)
                     val tabSpec = rememberMotionSpec(MotionToken.TabSelect)
+                    // Hoisted above key(selectedAccountId, routeTwoPane) so rotation / twoPane layout switches
+                    // preserve the visited root-tab state and active tab across single-pane <-> two-pane (#1117).
+                    var phoneTabsVisited by rememberSaveable(selectedAccountId) { mutableStateOf(false) }
+                    var lastMountedMainTabName by rememberSaveable(selectedAccountId) { mutableStateOf(MainTab.Chats.name) }
                     when {
                         !accountRegistryReady -> CircularProgressIndicator(Modifier.align(Alignment.Center))
                         accountRegistryError -> Text(
@@ -2993,28 +3125,34 @@ GlobalSearchScreen(
                             }
                         val profFlags by com.beykus.beygram.perf.ProfDiagnostics.flags.collectAsStateWithLifecycle()
                         val currentFrame = RouteTransitionFrame(route, routeTwoPane)
-                        var lastMountedMainTab by remember(selectedAccountId) { mutableStateOf(MainTab.Chats) }
                         if (usesSharedPhoneTabs(currentFrame)) {
-                            lastMountedMainTab = MainTab.entries.first { it.route == route }
+                            phoneTabsVisited = true
+                            lastMountedMainTabName = MainTab.entries.first { it.route == route }.name
                         }
-                        val keepTabsAlive = profFlags.keepTabsMounted && !routeTwoPane &&
-                            (usesSharedPhoneTabs(currentFrame) || route == AppRoute.Chat)
+                        val lastMountedMainTab = MainTab.entries.firstOrNull { it.name == lastMountedMainTabName } ?: MainTab.Chats
+                        // PROF switches the persistent host off to compare H4 with the previous behaviour; other
+                        // builds always keep DEV's default.
+                        val keepPhoneTabsMounted = shouldKeepPhoneTabsMounted(currentFrame, phoneTabsVisited) &&
+                            (!com.beykus.beygram.perf.ProfDiagnostics.isProfBuild || profFlags.keepTabsMounted)
+                        val phoneTabsCovered = keepPhoneTabsMounted && !usesSharedPhoneTabs(currentFrame)
                         Box(Modifier.fillMaxSize()) {
-                        if (keepTabsAlive) {
-                            MainTabsHost(
-                                accountId = selectedAccountId,
-                                selected = lastMountedMainTab,
-                                visibility = tabVisibility,
-                                onSelect = selectTab,
-                                stateHolder = tabStateHolder,
-                                tabMotion = tabSpec,
-                                tabDirection = routeHistory.tabDirection
-                            ) { tab ->
-                                when (tab) {
-                                    MainTab.Chats -> chatsList(false, false)
-                                    MainTab.Calls -> callsTabContent()
-                                    MainTab.Contacts -> contactsTabContent()
-                                    MainTab.Settings -> settingsTabContent()
+                        if (keepPhoneTabsMounted) {
+                            PersistentPhoneTabsBackdrop(covered = phoneTabsCovered) {
+                                MainTabsHost(
+                                    accountId = selectedAccountId,
+                                    selected = lastMountedMainTab,
+                                    visibility = tabVisibility,
+                                    onSelect = selectTab,
+                                    stateHolder = tabStateHolder,
+                                    tabMotion = tabSpec,
+                                    tabDirection = routeHistory.tabDirection
+                                ) { tab ->
+                                    when (tab) {
+                                        MainTab.Chats -> chatsList(false, false)
+                                        MainTab.Calls -> callsTabContent()
+                                        MainTab.Contacts -> contactsTabContent()
+                                        MainTab.Settings -> settingsTabContent()
+                                    }
                                 }
                             }
                         }
@@ -3029,10 +3167,13 @@ GlobalSearchScreen(
                         ) { frame ->
                         val screenRoute = frame.route
                         if (usesSharedPhoneTabs(frame)) {
-                            if (keepTabsAlive) {
-                                // Persistent MainTabsHost is already mounted directly below this transparent slot.
+                            if (keepPhoneTabsMounted) {
+                                // Single MainTabsHost lives in PersistentPhoneTabsBackdrop directly below this
+                                // transparent slot, so returning from any non-auth route never disposes or duplicates
+                                // MainTabsHost inside AnimatedContent (#1109).
                                 Box(Modifier.fillMaxSize())
                             } else {
+                                // PROF H4 off: the slot owns its tabs host, as DEV did before the persistent host.
                                 MainTabsHost(
                                     accountId = selectedAccountId,
                                     selected = MainTab.entries.first { it.route == screenRoute },
@@ -3257,6 +3398,15 @@ GlobalSearchScreen(
                         AppRoute.MemberProfile -> memberProfileRoute()
                         AppRoute.MyProfile -> {
                             LaunchedEffect(repository) { repository.refreshMyProfile() }
+                            var myShowcaseGifts by remember(selectedAccountId) {
+                                mutableStateOf(emptyList<com.beykus.beygram.domain.model.ReceivedGiftItem>())
+                            }
+                            LaunchedEffect(selectedAccountId, myProfile.info?.id) {
+                                val id = myProfile.info?.id ?: return@LaunchedEffect
+                                repository.receivedGiftsForUser(id, "").onSuccess { page ->
+                                    myShowcaseGifts = page.gifts
+                                }
+                            }
                             ProfileScreen(myProfile, true, repository::observeFile, repository::downloadFile, onOpenMessageEntity = openMessageEntity,
                                 onBack = { routeName = AppRoute.Chats.name }, onRefresh = repository::refreshMyProfile,
                                 onEdit = { routeName = AppRoute.EditProfile.name }, setPhoto = repository::setMyProfilePhoto,
@@ -3273,7 +3423,8 @@ GlobalSearchScreen(
                                 onPremium = { openPremium(AppRoute.MyProfile) },
                                 onStars = { openStars(AppRoute.MyProfile) },
                                 onGifts = { profileId, self, title -> openGifts(profileId, self, title, AppRoute.MyProfile) },
-                                autoDownloadFile = repository::autoDownloadFile)
+                                autoDownloadFile = repository::autoDownloadFile,
+                                profileGifts = myShowcaseGifts)
                         }
                         AppRoute.Premium -> PremiumScreen(
                             accountId = selectedAccountId,
@@ -3293,6 +3444,7 @@ GlobalSearchScreen(
                         AppRoute.Gifts -> if (giftsProfileId == 0L) {
                             LaunchedEffect(Unit) { routeName = AppRoute.MyProfile.name }
                         } else {
+                            ProvideGiftFileAccess(GiftFileAccess(repository::observeFile, repository::downloadFile)) {
                             GiftsScreen(
                                 accountId = selectedAccountId,
                                 title = stringResource(
@@ -3308,6 +3460,8 @@ GlobalSearchScreen(
                                 submitBid = repository::submitGiftAuctionBid,
                                 loadResale = repository::resaleGifts,
                                 buyResale = repository::buyResoldGift,
+                                toggleGiftSaved = repository::toggleGiftSaved,
+                                setPinnedGifts = repository::setPinnedGifts,
                                 send = { giftId, text, isPrivate ->
                                     repository.sendGift(giftsProfileId, giftsProfileSelf, giftId, text, isPrivate)
                                 },
@@ -3316,6 +3470,7 @@ GlobalSearchScreen(
                                 onOpenStars = { openStars(AppRoute.Gifts) },
                                 onBack = { routeName = giftsReturnRouteName }
                             )
+                            }
                         }
                         AppRoute.Appearance -> ThemeSettingsScreen(
                             saved = appearance,
@@ -3358,7 +3513,15 @@ GlobalSearchScreen(
                                 musicSignInReturnRouteName = AppRoute.MyMusic.name
                                 routeName = AppRoute.MusicAccountSignIn.name
                             },
-                            onOpenCollection = ::openMusicCollection
+                            onOpenCollection = ::openMusicCollection,
+                            onOpenSettings = {
+                                musicSettingsReturnRouteName = AppRoute.MyMusic.name
+                                routeName = AppRoute.MusicSettings.name
+                            }
+                        )
+                        AppRoute.MusicSettings -> MusicSettingsScreen(
+                            onBack = { routeName = musicSettingsReturnRouteName },
+                            onOpenEqualizer = { routeName = AppRoute.Equalizer.name }
                         )
                         AppRoute.MusicCollection -> {
                             // Reachable only when the build has a music source; its screen draws the collection.
@@ -3619,8 +3782,14 @@ GlobalSearchScreen(
                             )
                         }
                         AppRoute.StealthSettings -> key(selectedAccountId) {
+                            val currentProfile by repository.myProfile.collectAsStateWithLifecycle()
+                            val activeChats by repository.chats.collectAsStateWithLifecycle()
+                            val archivedChats by repository.archivedChats.collectAsStateWithLifecycle()
+                            val exceptionChats = remember(activeChats, archivedChats) { activeChats + archivedChats }
                             StealthSettingsScreen(
                                 store = (repository as? TdLibTelegramRepository)?.stealthSettings,
+                                accountName = currentProfile.info?.title?.takeIf { it.isNotBlank() },
+                                exceptionChats = exceptionChats,
                                 delayStore = (repository as? TdLibTelegramRepository)?.let { DelayedSendSettingsStore.forAccount(context, it.accountId) },
                                 onServerPrivacy = { routeName = AppRoute.PrivacySettings.name },
                                 onBack = { routeName = AppRoute.PrivacySettings.name }
@@ -3678,10 +3847,13 @@ GlobalSearchScreen(
             }
         }
         PlayerExpansionHost()
+        com.beykus.beygram.ui.screens.chat.InAppVideoPipHost()
     }
     }
     AccountSwitcherSheet(
         visible = accountSwitcherVisible && !locked,
+        stealthStore = stealthStoreForRepository(repository).takeIf { authState == AuthState.Ready },
+        onOpenStealth = { routeName = AppRoute.StealthSettings.name },
         currentAccountId = selectedAccountId,
         legacyReady = legacyAuthState == AuthState.Ready,
         snapshot = accountChoice,
@@ -3930,6 +4102,66 @@ internal fun routeTransitionMove(
 /** Single-pane root tabs share one outer route slot; only their inner page is animated. */
 internal fun usesSharedPhoneTabs(frame: RouteTransitionFrame): Boolean =
     !frame.twoPane && frame.route in tabRootRoutes
+
+/** Auth routes where the main tab host must never remain mounted. */
+private val phoneAuthRoutes = setOf(
+    AppRoute.Start,
+    AppRoute.LoginPhone,
+    AppRoute.LoginCode,
+    AppRoute.LoginPassword
+)
+
+/**
+ * Keeps the single [MainTabsHost] mounted beneath non-auth single-pane routes once the user has visited a root tab,
+ * avoiding costly full subcomposition on Back navigation (#1109).
+ *
+ * Cold deep links / pushes directly into [AppRoute.Chat] before any root tab was visited keep [phoneTabsVisited] false
+ * so the tab host is not eagerly composed underneath the cold-start chat. Auth routes and two-pane layouts never mount
+ * this layer.
+ */
+internal fun shouldKeepPhoneTabsMounted(frame: RouteTransitionFrame, phoneTabsVisited: Boolean): Boolean =
+    !frame.twoPane && (frame.route in tabRootRoutes || (phoneTabsVisited && frame.route !in phoneAuthRoutes))
+
+/** True when the persistent single-pane [MainTabsHost] is covered by an overlay route (Chat, Profile, etc.). */
+val LocalMainTabsCovered = androidx.compose.runtime.compositionLocalOf { false }
+
+/**
+ * Hosts the persistent single-pane [MainTabsHost] beneath overlay routes and blocks TalkBack semantics,
+ * hardware/keyboard focus, modal windows ([LocalMainTabsCovered]), and pointer input at [PointerEventPass.Initial]
+ * whenever [covered] is true (including during partial slide or predictive Back transitions).
+ */
+@Composable
+internal fun PersistentPhoneTabsBackdrop(
+    covered: Boolean,
+    modifier: Modifier = Modifier,
+    content: @Composable () -> Unit
+) {
+    CompositionLocalProvider(LocalMainTabsCovered provides covered) {
+        Box(modifier.fillMaxSize()) {
+            Box(
+                Modifier
+                    .fillMaxSize()
+                    .focusProperties { canFocus = !covered }
+                    .then(if (covered) Modifier.clearAndSetSemantics {} else Modifier)
+            ) {
+                content()
+            }
+            if (covered) {
+                Box(
+                    Modifier
+                        .fillMaxSize()
+                        .pointerInput(Unit) {
+                            awaitPointerEventScope {
+                                while (true) {
+                                    awaitPointerEvent(PointerEventPass.Initial).changes.forEach { it.consume() }
+                                }
+                            }
+                        }
+                )
+            }
+        }
+    }
+}
 
 private object SharedPhoneTabsSlot
 

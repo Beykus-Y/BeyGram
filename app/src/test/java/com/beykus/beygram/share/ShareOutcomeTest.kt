@@ -36,6 +36,10 @@ class ShareOutcomeTest {
         assertTrue(classified?.cause === error)
     }
 
+    @Test fun notHandedOffWrapperIsSafeEvenAroundUncertainCause() {
+        assertFalse(isShareOutcomeUnknown(ShareMediaNotHandedOffException(ShareOutcomeUncertainException())))
+    }
+
     @Test fun afterHandoffFailureMustKeepTdlibFiles() {
         val error = ShareOutcomeUncertainException()
         val handoff = ShareMediaHandoff()

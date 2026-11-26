@@ -10,15 +10,21 @@ import com.beykus.beygram.data.media.VideoMessageSettings
 import com.beykus.beygram.data.media.VideoNoteProcessor
 import com.beykus.beygram.data.media.VideoNoteDiagnostics
 import com.beykus.beygram.data.media.VideoNoteSendTracking
+import com.beykus.beygram.data.media.VideoNoteExportException
+import com.beykus.beygram.data.media.VideoNoteOutputIssue
 import com.beykus.beygram.data.media.VideoNoteStatus
 import com.beykus.beygram.diagnostics.recordAppEvent
 import com.beykus.beygram.diagnostics.report.EventKind
 import com.beykus.beygram.diagnostics.report.Severity
+import com.beykus.beygram.domain.UiText
+import com.beykus.beygram.domain.UserMessageException
 import com.beykus.beygram.domain.model.OutgoingMedia
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.flow.collect
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -30,6 +36,55 @@ import kotlinx.coroutines.sync.withLock
 import java.io.File
 
 private const val TAG = "BeyGramRecorder"
+
+/**
+ * Why a video note is still owned by the export center instead of being delivered (#1228).
+ *
+ * A failed send used to only flip the draft back into the preview, so the user saw a dialog that did nothing on every
+ * "Send" and had no idea why. The reason is kept with the draft until the next attempt: [message] is what the dialog
+ * shows, [detail] is the exception class/message for the diagnostics report and a bug report.
+ */
+internal enum class VideoNoteFailureStage { Processing, Send }
+
+internal data class VideoNoteFailure(
+    val stage: VideoNoteFailureStage,
+    val message: UiText,
+    val detail: String = ""
+)
+
+/** Technical detail of a failure without a localized message: exception class plus its own message. */
+internal fun failureDetail(error: Throwable?): String =
+    error?.let { it.javaClass.simpleName + ": " + (it.message ?: "") }.orEmpty()
+
+/** A send failure keeps the user-facing text TDLib already produced; anything else gets the generic line. */
+internal fun videoNoteSendFailure(error: Throwable?): VideoNoteFailure = VideoNoteFailure(
+    stage = VideoNoteFailureStage.Send,
+    message = (error as? UserMessageException)?.text ?: UiText.Res(R.string.chat_video_note_send_failed),
+    detail = failureDetail(error)
+)
+
+/** Outcome of asking the center to deliver a draft; never a silent no-op on the caller's side. */
+internal enum class VideoNoteSendStart { Started, AlreadySending, NotFound }
+
+/** A failed export: the raw recording is kept, the user only needs the reason the note is not in the chat. */
+internal data class VideoNoteProcessingFailure(
+    val accountId: String,
+    val chatId: Long,
+    val topicId: Long,
+    val failure: VideoNoteFailure
+)
+
+/** Maps the typed export rejection to a line the user can act on; unknown failures keep the generic text. */
+internal fun videoNoteExportFailure(error: Throwable): VideoNoteFailure {
+    val issue = (error as? VideoNoteExportException)?.issue
+    val message = when (issue) {
+        VideoNoteOutputIssue.EmptyFile, VideoNoteOutputIssue.NoDecodableFrame ->
+            UiText.Res(R.string.recorder_unreadable_video)
+        VideoNoteOutputIssue.NotH264 -> UiText.Res(R.string.recorder_unsupported_codec)
+        else -> UiText.Res(R.string.recorder_save_failed)
+    }
+    return VideoNoteFailure(VideoNoteFailureStage.Processing, message, failureDetail(error))
+}
 
 internal data class VideoNoteExportResult(
     val chatId: Long,
@@ -47,15 +102,20 @@ internal data class VideoNoteExportResult(
     /** The reply the note was recorded with. The all-messages feed sends with it, not with the composer's current reply. */
     val replyToMessageId: Long? = null,
     /** Recorded in the all-messages feed: any screen that sends it uses [replyToMessageId], see [sendReplyId]. */
-    val recordedInFeed: Boolean = false
+    val recordedInFeed: Boolean = false,
+    /** Why the last attempt did not deliver this note; null while it is being processed or has not been tried yet. */
+    val failure: VideoNoteFailure? = null,
+    /** The untouched recording this draft was exported from; kept until acceptance or explicit deletion. */
+    val rawPath: String? = null
 )
 
 /** Pure transitions shared by the app-level sender and regression tests. */
 internal fun VideoNoteExportResult.markSegmentSent(): VideoNoteExportResult =
-    copy(nextIndex = (nextIndex + 1).coerceAtMost(media.size))
+    copy(nextIndex = (nextIndex + 1).coerceAtMost(media.size), failure = null)
 
-internal fun VideoNoteExportResult.markSendFailed(): VideoNoteExportResult =
-    copy(sending = false, requiresPreview = true)
+/** Keeps the draft and its reason: the dialog shows the reason and offers another attempt. */
+internal fun VideoNoteExportResult.markSendFailed(failure: VideoNoteFailure): VideoNoteExportResult =
+    copy(sending = false, requiresPreview = true, failure = failure)
 
 /** Автоматический кружок до приёма TDLib: [processing] — идёт обработка, иначе кружок ждёт отправки. */
 internal data class PendingVideoNote(val chatId: Long, val sessionName: String, val processing: Boolean, val previewPath: String? = null, val topicId: Long = 0L, val accountId: String = com.beykus.beygram.data.tdlib.TdAccountStorageLayout.LEGACY_ACCOUNT_ID)
@@ -85,6 +145,22 @@ internal fun initialSendReply(nextIndex: Int, replyId: Long?): Long? = if (nextI
 
 private val exportMutex = Mutex()
 
+/** How long an unsent raw recording may stay on disk before a later export cleans it up. */
+internal const val RAW_RECORDING_MAX_AGE_MS = 7L * 24 * 60 * 60 * 1000
+
+/**
+ * Raw recording folders that are safe to delete: sessions with files whose newest change is older than [maxAgeMs].
+ * A folder that is still being written, or one that only holds booking files, is never a candidate.
+ */
+internal fun abandonedRecordingSessions(
+    root: File,
+    now: Long,
+    maxAgeMs: Long = RAW_RECORDING_MAX_AGE_MS
+): List<File> = root.listFiles { file -> file.isDirectory }.orEmpty().filter { folder ->
+    val files = folder.listFiles().orEmpty()
+    files.isNotEmpty() && files.maxOfOrNull { it.lastModified() }?.let { now - it > maxAgeMs } == true
+}
+
 /** Process-wide count of queued/running exports, used to block further recording. */
 internal object VideoNoteExportGate {
     var activeExports by mutableStateOf(0)
@@ -113,19 +189,70 @@ internal fun CoroutineScope.launchExclusiveExport(block: suspend () -> Unit): Jo
  * The queue survives chat navigation/configuration, not Android process death. Disk-backed
  * recovery of process kills and failed transcodes remains a separate task.
  */
+/**
+ * Turns an accepted draft into a TDLib message. Bound by the app for the active account, so delivery does not depend on
+ * a chat screen being open: a note recorded just before navigating away still reaches its chat (#1228).
+ */
+internal class VideoNoteDelivery(
+    val accountId: String,
+    val send: suspend (chatId: Long, topicId: Long, media: OutgoingMedia, replyId: Long?) -> Result<Unit>
+)
+
 internal object VideoNoteExportCenter {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
 
     private val _results = MutableStateFlow<List<VideoNoteExportResult>>(emptyList())
     val results: StateFlow<List<VideoNoteExportResult>> = _results.asStateFlow()
 
-    /** Failed exports as (chatId, topicId): only the topic the note was recorded in reports it. */
-    private val _failures = MutableStateFlow<List<Triple<String, Long, Long>>>(emptyList())
-    val failures: StateFlow<List<Triple<String, Long, Long>>> = _failures.asStateFlow()
+    /** Failed exports with their reason: only the topic the note was recorded in reports it. */
+    private val _failures = MutableStateFlow<List<VideoNoteProcessingFailure>>(emptyList())
+    val failures: StateFlow<List<VideoNoteProcessingFailure>> = _failures.asStateFlow()
 
     private val _pendingNotes = MutableStateFlow<List<PendingVideoNote>>(emptyList())
     /** Автоматические кружки, которые TDLib ещё не принял: лента показывает их сразу, с индикатором. */
     val pendingNotes: StateFlow<List<PendingVideoNote>> = _pendingNotes.asStateFlow()
+
+    /**
+     * The app-bound sender for automatic delivery; null until the app binds the active account. A flow, not a plain
+     * field: binding another account must deliver the drafts that were already published while it was inactive, and a
+     * collector over `_results` alone would only notice them on the next change (#1231 review).
+     */
+    private val delivery = MutableStateFlow<VideoNoteDelivery?>(null)
+    private var deliveryJob: Job? = null
+
+    /**
+     * Binds delivery for the active account and starts the once-per-process collector. Auto-approved drafts are sent
+     * without waiting for a screen; a draft that failed stays in the preview until the user retries or deletes it.
+     */
+    fun bindDelivery(next: VideoNoteDelivery) {
+        delivery.value = next
+        synchronized(this) {
+            if (deliveryJob != null) return
+            deliveryJob = scope.launch {
+                combine(_results, delivery) { results, delivery -> results to delivery }
+                    .collect { (results, current) ->
+                        if (current == null) return@collect
+                        results.filter { it.accountId == current.accountId && !it.requiresPreview && !it.sending }
+                            .forEach { item ->
+                                // Without a composer there is only the reply stored with the note; a reply typed after
+                                // recording belongs to whatever the user writes next.
+                                val reply = item.sendReplyId(feedSender = false, composerReplyId = null)
+                                send(item.chatId, item.sessionName, reply, item.accountId) { media, targetReply ->
+                                    current.send(item.chatId, item.topicId, media, targetReply)
+                                }
+                            }
+                    }
+            }
+        }
+    }
+
+    /**
+     * Stops delivering for an account that is no longer active; its drafts stay queued. A null [accountId] detaches
+     * whatever is bound, which is what the app does while the newly selected account has no repository yet.
+     */
+    fun unbindDelivery(accountId: String? = null) {
+        if (accountId == null || delivery.value?.accountId == accountId) delivery.value = null
+    }
 
     /** Used both by the real exporter and deterministic queue tests. */
     internal fun publish(result: VideoNoteExportResult) {
@@ -140,6 +267,12 @@ internal object VideoNoteExportCenter {
         // Автоматический кружок виден в ленте сразу после отпускания, а не когда обработка закончится.
         if (!previewFirst) _pendingNotes.update { it + PendingVideoNote(chatId, sessionName, processing = true, topicId = topicId, accountId = accountId) }
         scope.launchExclusiveExport {
+            // A recording whose delivery never happened must not stay on disk forever. Cheap enough to run per export:
+            // the raw folders are in no_backup and no other janitor scans them.
+            runCatching {
+                abandonedRecordingSessions(File(appContext.noBackupFilesDir, "uploads"), System.currentTimeMillis())
+                    .forEach { folder -> folder.deleteRecursively() }
+            }
             try {
                 val outputDirectory = File(appContext.filesDir, "uploads").resolve(sessionName).apply {
                     check(mkdirs()) { "Cannot create video-note output directory" }
@@ -150,14 +283,14 @@ internal object VideoNoteExportCenter {
                 Log.i(TAG, "video_processing_completed session=" + sessionName + " segments=" + media.size)
                 recordAppEvent(EventKind.OTHER, "video_note_processed", "Кружок: обработка завершена", attrs = mapOf("segments" to media.size.toString()))
                 VideoNoteDiagnostics.append(sessionName, VideoNoteDiagnostics.text(R.string.vn_entry_export_succeeded, media.size), if (previewFirst) VideoNoteStatus.PREVIEW else VideoNoteStatus.READY)
-                publish(VideoNoteExportResult(chatId, media, previewFirst, sessionName, topicId = topicId, accountId = accountId, replyToMessageId = replyToMessageId, recordedInFeed = recordedInFeed))
+                publish(VideoNoteExportResult(chatId, media, previewFirst, sessionName, topicId = topicId, accountId = accountId, replyToMessageId = replyToMessageId, recordedInFeed = recordedInFeed, rawPath = source.absolutePath))
             } catch (failure: CancellationException) {
                 throw failure
             } catch (failure: Exception) {
                 Log.e(TAG, "video_processing_failed session=" + sessionName, failure)
                 VideoNoteDiagnostics.append(sessionName, VideoNoteDiagnostics.text(R.string.vn_entry_export_failed, failure.javaClass.simpleName), VideoNoteStatus.PROCESSING_FAILED)
                 recordAppEvent(EventKind.OTHER, "video_note_processing_failed", "Кружок: обработка не удалась", Severity.ERROR, mapOf("cause" to failure.javaClass.simpleName))
-                _failures.update { it + Triple(accountId, chatId, topicId) }
+                _failures.update { it + VideoNoteProcessingFailure(accountId, chatId, topicId, videoNoteExportFailure(failure)) }
             } finally {
                 _pendingNotes.update { current -> current.filterNot { it.sessionName == sessionName && it.accountId == accountId } }
             }
@@ -183,12 +316,12 @@ internal object VideoNoteExportCenter {
         replyId: Long?,
         accountId: String = com.beykus.beygram.data.tdlib.TdAccountStorageLayout.LEGACY_ACCOUNT_ID,
         sender: suspend (OutgoingMedia, Long?) -> Result<Unit>
-    ): Boolean {
+    ): VideoNoteSendStart {
         val initial: VideoNoteExportResult = synchronized(this) {
             val current = _results.value.firstOrNull { it.chatId == chatId && it.sessionName == sessionName && it.accountId == accountId }
-                ?: return false
-            if (current.sending) return false
-            updateResult(sessionName, accountId) { it.copy(sending = true) }
+                ?: return VideoNoteSendStart.NotFound
+            if (current.sending) return VideoNoteSendStart.AlreadySending
+            updateResult(sessionName, accountId) { it.copy(sending = true, failure = null) }
             current
         }
         VideoNoteDiagnostics.append(sessionName, VideoNoteDiagnostics.text(R.string.vn_entry_send_requested, initial.media.size - initial.nextIndex), VideoNoteStatus.SENDING)
@@ -200,8 +333,9 @@ internal object VideoNoteExportCenter {
                     val sent = sender(initial.media[index], reply)
                     if (sent.isFailure) {
                         VideoNoteSendTracking.tracker.forget(sessionName)
-                        VideoNoteDiagnostics.append(sessionName, VideoNoteDiagnostics.text(R.string.vn_entry_send_failed, sent.exceptionOrNull()?.javaClass?.simpleName ?: "?"), VideoNoteStatus.SEND_FAILED)
-                        updateResult(sessionName, accountId) { it.markSendFailed() }
+                        val reason = videoNoteSendFailure(sent.exceptionOrNull())
+                        VideoNoteDiagnostics.append(sessionName, VideoNoteDiagnostics.text(R.string.vn_entry_send_failed, reason.detail.ifBlank { "?" }), VideoNoteStatus.SEND_FAILED)
+                        updateResult(sessionName, accountId) { it.markSendFailed(reason) }
                         return@launch
                     }
                     updateResult(sessionName, accountId) { it.markSegmentSent() }
@@ -209,20 +343,36 @@ internal object VideoNoteExportCenter {
                     reply = null
                 }
                 updateResult(sessionName, accountId) { null } // ACK only after all segments were accepted.
+                // Nothing needs the raw recording any more: the note is stored and its files were handed to TDLib.
+                deleteRaw(initial.rawPath)
                 VideoNoteDiagnostics.append(sessionName, VideoNoteDiagnostics.text(R.string.vn_entry_send_all_accepted), VideoNoteStatus.SENT)
             } catch (cancelled: CancellationException) {
                 VideoNoteDiagnostics.append(sessionName, VideoNoteDiagnostics.text(R.string.vn_entry_send_cancelled), VideoNoteStatus.CANCELLED)
-                updateResult(sessionName, accountId) { it.markSendFailed() }
+                updateResult(sessionName, accountId) { it.markSendFailed(videoNoteSendFailure(cancelled)) }
                 throw cancelled
             } catch (failure: Exception) {
                 Log.e(TAG, "video_note_send_failed session=" + sessionName, failure)
                 VideoNoteSendTracking.tracker.forget(sessionName)
-                VideoNoteDiagnostics.append(sessionName, VideoNoteDiagnostics.text(R.string.vn_entry_send_failed, failure.javaClass.simpleName), VideoNoteStatus.SEND_FAILED)
+                val reason = videoNoteSendFailure(failure)
+                VideoNoteDiagnostics.append(sessionName, VideoNoteDiagnostics.text(R.string.vn_entry_send_failed, reason.detail.ifBlank { "?" }), VideoNoteStatus.SEND_FAILED)
                 recordAppEvent(EventKind.OTHER, "video_note_send_failed", "Кружок: отправка прервалась", Severity.ERROR, mapOf("cause" to failure.javaClass.simpleName))
-                updateResult(sessionName, accountId) { it.markSendFailed() }
+                updateResult(sessionName, accountId) { it.markSendFailed(reason) }
+            } finally {
+                // Never leave a draft marked as sending if the job ends through an unexpected path: the dialog would stay
+                // disabled and the user could neither retry nor delete it.
+                updateResult(sessionName, accountId) { it.copy(sending = false) }
             }
         }
-        return true
+        return VideoNoteSendStart.Started
+    }
+
+    /** The raw recording goes away only with the draft it belongs to; its empty session folder goes with it. */
+    private fun deleteRaw(path: String?) {
+        val file = path?.let(::File) ?: return
+        runCatching {
+            file.delete()
+            file.parentFile?.takeIf { it.listFiles().isNullOrEmpty() }?.delete()
+        }
     }
 
     /** Explicit dismissal of an unsent draft; never delete a job while it is sending. */
@@ -235,6 +385,7 @@ internal object VideoNoteExportCenter {
             current
         }
         scope.launch(Dispatchers.IO) {
+            deleteRaw(discarded.rawPath)
             // Previously accepted parts may still be in TDLib's upload queue; delete only unsent.
             discarded.media.drop(discarded.nextIndex).forEach { media ->
                 runCatching { File(media.path).delete() }
@@ -246,17 +397,18 @@ internal object VideoNoteExportCenter {
         }
     }
 
-    fun consumeFailure(chatId: Long, topicId: Long = 0L, accountId: String = com.beykus.beygram.data.tdlib.TdAccountStorageLayout.LEGACY_ACCOUNT_ID): Boolean {
-        val key = Triple(accountId, chatId, topicId)
-        val had = key in _failures.value
-        if (had) _failures.update { current -> current - key }
-        return had
+    fun consumeFailure(chatId: Long, topicId: Long = 0L, accountId: String = com.beykus.beygram.data.tdlib.TdAccountStorageLayout.LEGACY_ACCOUNT_ID): VideoNoteFailure? {
+        val match = _failures.value.firstOrNull {
+            it.accountId == accountId && it.chatId == chatId && it.topicId == topicId
+        } ?: return null
+        _failures.update { current -> current - match }
+        return match.failure
     }
 
-    /** Feed variant: consumes failures of every topic of the chat for this account. */
-    fun consumeFailureForChat(chatId: Long, accountId: String = com.beykus.beygram.data.tdlib.TdAccountStorageLayout.LEGACY_ACCOUNT_ID): Boolean {
-        val had = _failures.value.any { it.first == accountId && it.second == chatId }
-        if (had) _failures.update { current -> current.filterNot { it.first == accountId && it.second == chatId } }
-        return had
+    /** Feed variant: consumes the oldest failure of any topic of the chat for this account. */
+    fun consumeFailureForChat(chatId: Long, accountId: String = com.beykus.beygram.data.tdlib.TdAccountStorageLayout.LEGACY_ACCOUNT_ID): VideoNoteFailure? {
+        val match = _failures.value.firstOrNull { it.accountId == accountId && it.chatId == chatId } ?: return null
+        _failures.update { current -> current - match }
+        return match.failure
     }
 }

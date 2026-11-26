@@ -192,6 +192,21 @@ android {
                 enable = providers.gradleProperty("profR8").orNull == "true"
             }
         }
+        /**
+         * Release-like build for Macrobenchmark and Baseline Profile generation (#1119). Never published: it is
+         * signed with the debug key, keeps R8 and resource shrinking exactly as release (both off), and is only
+         * reachable through `:macrobenchmark` and `scripts/baseline-profile.ps1`.
+         */
+        create("benchmark") {
+            initWith(getByName("release"))
+            signingConfig = signingConfigs.getByName("debug")
+            isDebuggable = false
+            matchingFallbacks += listOf("release")
+            // A benchmark build must never share the application id with Dev or Stable: installing it would
+            // overwrite the owner's signed app and, with a debug key, could not even update it. Its own id also gives
+            // the benchmarks isolated data and an uninstall that cannot touch the real account.
+            applicationIdSuffix = ".benchmark"
+        }
     }
     // libmihomo-android loads libclash.so from ApplicationInfo.nativeLibraryDir
     // by absolute path, so require PackageManager to extract JNI libs on install.
@@ -218,6 +233,11 @@ android {
                 test.systemProperty("roborazzi.test.$mode", "true")
                 test.inputs.files(fileTree(goldens)).withPropertyName("screenshotGoldens")
                 test.maxHeapSize = "2g"
+                // CI fills this directory with checksum-verified SDK jars first (scripts/robolectric-prefetch.sh), so the
+                // tests never ask Maven for one. Local builds leave the variable unset and keep Robolectric's download.
+                providers.environmentVariable("BEYGRAM_ROBOLECTRIC_DIR").orNull?.let { dir ->
+                    test.systemProperty("robolectric.dependency.dir", dir)
+                }
             }
         }
     }

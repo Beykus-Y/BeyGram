@@ -50,6 +50,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
@@ -65,6 +66,8 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.beykus.beygram.R
+import com.beykus.beygram.data.settings.StealthSettingsStore
+import com.beykus.beygram.diagnostics.MultiAccountDiagnostics
 import com.beykus.beygram.data.tdlib.TdAccountStorageLayout
 import com.beykus.beygram.data.tdlib.TdSecondaryAccountController
 import com.beykus.beygram.data.tdlib.TdSecondaryAccountsSnapshot
@@ -74,6 +77,7 @@ import com.beykus.beygram.ui.components.TelegramAvatar
 import com.beykus.beygram.ui.components.beyGramPalette
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
@@ -98,12 +102,22 @@ internal fun AccountSwitcherSheet(
     onSwitch: suspend (String) -> Result<Unit>,
     onAccountReady: (String) -> Unit,
     onAccountDeleted: (String) -> Unit,
-    onDismiss: () -> Unit
+    onDismiss: () -> Unit,
+    stealthStore: StealthSettingsStore? = null,
+    onOpenStealth: () -> Unit = {}
 ) {
     if (!visible) return
     val palette = beyGramPalette()
     val scope = rememberCoroutineScope()
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+
+    LaunchedEffect(sheetState) {
+        if (MultiAccountDiagnostics.isVerbose()) {
+            MultiAccountDiagnostics.milestone(code = "account_switcher_open", stage = "mounted")
+            snapshotFlow { sheetState.isVisible }.first { it }
+            MultiAccountDiagnostics.milestone(code = "account_switcher_open", stage = "visible")
+        }
+    }
 
     var authAccountId by rememberSaveable { mutableStateOf<String?>(null) }
     var addMode by rememberSaveable { mutableStateOf(false) }
@@ -385,6 +399,10 @@ internal fun AccountSwitcherSheet(
 
     BeyGramSheet(
         onDismissRequest = {
+
+            if (MultiAccountDiagnostics.isVerbose()) {
+                MultiAccountDiagnostics.milestone(code = "account_switcher_open", stage = "dismiss_requested")
+            }
             if (busyAccountId == null && !addBusy && !switchInProgress &&
                 preparingAccountId == null && !authActionBusy
             ) {
@@ -474,7 +492,12 @@ internal fun AccountSwitcherSheet(
                 onConfigureRoute = { routeAccountId = it },
                 onDisconnect = { confirmDisconnectId = it },
                 onLogout = { confirmLogoutId = it },
-                onDeleteIncomplete = { confirmDiscardId = it }
+                onDeleteIncomplete = { confirmDiscardId = it },
+                stealthStore = stealthStore,
+                onOpenStealth = {
+                    dismissSheet()
+                    onOpenStealth()
+                }
             )
         }
     }
@@ -602,7 +625,9 @@ internal fun AccountSwitcherContent(
     onConfigureRoute: (String) -> Unit,
     onDisconnect: (String) -> Unit,
     onLogout: (String) -> Unit,
-    onDeleteIncomplete: (String) -> Unit
+    onDeleteIncomplete: (String) -> Unit,
+    stealthStore: StealthSettingsStore? = null,
+    onOpenStealth: () -> Unit = {}
 ) {
     val palette = beyGramPalette()
     Column(Modifier.fillMaxWidth()) {
@@ -642,6 +667,9 @@ internal fun AccountSwitcherContent(
             }
         }
         LazyColumn(Modifier.fillMaxWidth().heightIn(max = 520.dp)) {
+            if (!busy && stealthStore != null) {
+                item(key = "stealth") { StealthQuickAccess(stealthStore, onOpenStealth) }
+            }
             items(rows, key = { it.accountId }) { row ->
                 AccountSwitcherRowItem(
                     row = row,

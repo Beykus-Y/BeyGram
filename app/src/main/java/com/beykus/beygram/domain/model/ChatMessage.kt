@@ -28,6 +28,8 @@ data class ChatMessage(
     val reactions: List<MessageReaction> = emptyList(),
     /** Text of a Telegram service event; unlike a regular chat message it renders as a centered event chip. */
     val serviceText: String? = null,
+    /** Structured gift facts for a gift message (Gifts 2.0, #1142); [serviceText] stays for search and fallback. */
+    val gift: GiftChatContent? = null,
     /** TDLib call event: render separately from ordinary service messages. */
     val isCallEvent: Boolean = false,
     /** User referred to by a service action, if available, for clickable profile navigation. */

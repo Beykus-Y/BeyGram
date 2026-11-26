@@ -75,6 +75,15 @@ internal class TdConversationEffects(private val client: () -> Client, private v
             synchronized(lock) { viewed[chatId]?.removeAll(batch.toSet()) }
         }
     }
+    /** Drops [messageId] from the ids already reported in this visit, so its next view is sent again. */
+    fun forgetViewed(chatId: Long, messageId: Long) = synchronized(lock) { viewed[chatId]?.remove(messageId); Unit }
+
+    /** Reports [messageId] as viewed even if it was reported before in this visit. */
+    fun viewAgain(chatId: Long, messageId: Long) {
+        forgetViewed(chatId, messageId)
+        visible(chatId, listOf(messageId))
+    }
+
     fun contentOpened(chatId: Long, messageId: Long) = synchronized(lock) {
         if (policy.allows(InteractionEffect.OpenContent, chatId)) sendOpenContentLocked(chatId, messageId)
     }

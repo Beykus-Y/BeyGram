@@ -517,6 +517,47 @@ fun StarsTopUpStep.next(event: StarsTopUpEvent): StarsTopUpStep = when (this) {
  * A gift that TDLib currently sells directly. Resale and auction-only gifts are
  * represented but cannot be bought from this screen.
  */
+/**
+ * The real sticker of a gift (TGS animation, WebP or WebM) as TDLib file ids. The emoji stays the fallback when a gift
+ * carries no sticker or its file has not been registered. The file itself is downloaded by the media layer on demand.
+ */
+data class GiftVisual(
+    val fileId: Int,
+    val format: StickerFileFormat,
+    val thumbnailFileId: Int?,
+    val width: Int,
+    val height: Int
+)
+
+/** Rarity tier of a collectible attribute, as TDLib names it; a per-mille share is kept separately. */
+enum class GiftRarityTier { Uncommon, Rare, Epic, Legendary }
+
+/**
+ * What an upgraded (collectible) gift shows beside its model artwork: the symbol sticker, the backdrop colours (RGB,
+ * without alpha), the model's rarity and the gift number. Null for a regular gift.
+ */
+data class GiftCollectibleDetails(
+    val number: Int,
+    val symbol: GiftVisual?,
+    val backdropCenterColor: Int?,
+    val backdropEdgeColor: Int?,
+    val backdropSymbolColor: Int?,
+    val backdropTextColor: Int?,
+    val modelRarityPerMille: Int?,
+    val modelRarityTier: GiftRarityTier?,
+    val slug: String = "",
+    val title: String = "",
+    val totalUpgradedCount: Int = 0,
+    val maxUpgradedCount: Int = 0,
+    val modelName: String = "",
+    val symbolName: String = "",
+    val symbolRarityPerMille: Int? = null,
+    val symbolRarityTier: GiftRarityTier? = null,
+    val backdropName: String = "",
+    val backdropRarityPerMille: Int? = null,
+    val backdropRarityTier: GiftRarityTier? = null
+)
+
 data class GiftCatalogItem(
     val id: Long,
     val emoji: String,
@@ -530,7 +571,8 @@ data class GiftCatalogItem(
     val resaleCount: Int = 0,
     /** Minimum resale price in Stars equivalent; not a purchase quote. */
     val minResaleStarCount: Long = 0L,
-    val resaleTitle: String = ""
+    val resaleTitle: String = "",
+    val visual: GiftVisual? = null
 )
 
 data class ReceivedGiftItem(
@@ -544,7 +586,12 @@ data class ReceivedGiftItem(
     val isPrivate: Boolean,
     val isSaved: Boolean,
     val isUpgraded: Boolean,
-    val wasRefunded: Boolean
+    val wasRefunded: Boolean,
+    val visual: GiftVisual? = null,
+    val collectible: GiftCollectibleDetails? = null,
+    val isPinned: Boolean = false,
+    val canBeUpgraded: Boolean = false,
+    val canBeTransferred: Boolean = false
 )
 
 data class GiftCollectionItem(
@@ -762,6 +809,52 @@ fun formatStarAmount(starCount: Long, nanostarCount: Int = 0): String =
 
 private const val PREMIUM_GIFT_CODE_MAX_LENGTH = 128
 private const val GIFT_TEXT_MAX_LENGTH_CEILING = 4096L
+
+enum class GiftCatalogFilter { All, Available, Resale, Auction, Limited }
+
+fun filterGiftCatalog(
+    items: List<GiftCatalogItem>,
+    filter: GiftCatalogFilter,
+    query: String
+): List<GiftCatalogItem> {
+    val needle = query.trim().lowercase(Locale.ROOT)
+    return items.filter { item ->
+        val matchesFilter = when (filter) {
+            GiftCatalogFilter.All -> true
+            GiftCatalogFilter.Available -> !item.isSoldOut && !item.isAuctionOnly
+            GiftCatalogFilter.Resale -> item.resaleCount > 0
+            GiftCatalogFilter.Auction -> item.isAuctionOnly || !item.auctionId.isNullOrBlank()
+            GiftCatalogFilter.Limited -> item.remainingCount != null || item.isSoldOut
+        }
+        val matchesQuery = needle.isEmpty() ||
+            item.resaleTitle.lowercase(Locale.ROOT).contains(needle) ||
+            item.emoji.contains(needle) ||
+            item.starCount.toString().contains(needle)
+        matchesFilter && matchesQuery
+    }
+}
+
+fun sortProfileShowcaseGifts(gifts: List<ReceivedGiftItem>, limit: Int = 6): List<ReceivedGiftItem> {
+    if (limit <= 0) return emptyList()
+    val visible = gifts.filterNot { it.wasRefunded }
+    val pinned = visible.filter { it.isPinned }
+    val unpinned = visible.filterNot { it.isPinned }
+    return (pinned + unpinned).take(limit)
+}
+
+fun togglePinnedGiftIds(
+    gifts: List<ReceivedGiftItem>,
+    targetId: String,
+    maxPinned: Int = 6
+): List<String> {
+    if (targetId.isBlank() || maxPinned <= 0) return gifts.filter { it.isPinned && it.id.isNotBlank() }.map { it.id }
+    val currentPinned = gifts.filter { it.isPinned && it.id.isNotBlank() }.map { it.id }
+    return if (targetId in currentPinned) {
+        currentPinned.filterNot { it == targetId }
+    } else {
+        (listOf(targetId) + currentPinned).distinct().take(maxPinned)
+    }
+}
 private const val PAYMENT_URL_MAX_LENGTH = 4096
 private const val PAYMENT_HOST_MAX_LENGTH = 253
 private const val PAYMENT_HOST_LABEL_MAX_LENGTH = 63

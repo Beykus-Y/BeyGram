@@ -67,7 +67,9 @@ data class MediaFileState(
     /** TDLib's path while the download is still running; may contain only a prefix of the file. */
     val downloadPath: String? = null,
     /** Contiguous bytes from the beginning of [downloadPath]. Used by the progressive player. */
-    val downloadedPrefixBytes: Long = 0
+    val downloadedPrefixBytes: Long = 0,
+    /** TDLib's download offset. Only a zero offset makes [downloadedPrefixBytes] a prefix of the file. Diagnostics read it. */
+    val downloadOffset: Long = 0
 ) {
     val downloadProgress: Float get() = if (size > 0) (downloadedBytes.toFloat() / size).coerceIn(0f, 1f) else 0f
     val uploadProgress: Float get() = if (size > 0) (uploadedBytes.toFloat() / size).coerceIn(0f, 1f) else 0f
@@ -107,5 +109,7 @@ data class OutgoingMedia(
     val title: String = "",
     val performer: String = "",
     /** Per-occurrence identity for duplicate server-side media staged in the composer. */
-    val stagingKey: String = ""
+    val stagingKey: String = "",
+    /** Sends photo/video/animation covered by Telegram's spoiler shimmer. */
+    val hasSpoiler: Boolean = false
 ) : Serializable

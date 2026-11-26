@@ -2,6 +2,8 @@ package com.beykus.beygram.media.bgbeat
 
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -22,13 +24,20 @@ import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.input.pointer.positionChanged
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -72,9 +81,11 @@ internal fun BgBeatSection(
     item: PlaybackItem,
     playbackFractionProvider: () -> Float,
     modifier: Modifier = Modifier,
-    colors: NowPlayingColors? = null
+    colors: NowPlayingColors? = null,
+    onSeekFraction: ((Float) -> Unit)? = null
 ) {
     val context = LocalContext.current
+    val haptic = LocalHapticFeedback.current
     val manager = BgBeatManager.getInstance(context)
     val uiState by manager.uiState.collectAsStateWithLifecycle()
     val palette = beyGramPalette()
@@ -112,20 +123,51 @@ internal fun BgBeatSection(
         }
         is BgBeatUiState.Ready -> {
             val analysis = s.analysis
+            var dragFraction by remember(item.key) { mutableStateOf<Float?>(null) }
+            val shownFraction = dragFraction ?: playbackFractionProvider()
             Column(modifier.fillMaxWidth()) {
                 BgBeatWaveformCanvas(
                     waveform = analysis.waveform,
                     beats = analysis.beats,
                     durationSeconds = analysis.duration,
-                    playbackFraction = playbackFractionProvider(),
+                    playbackFraction = shownFraction,
                     accentColor = accentColor,
-                    barColor = secondaryColor.copy(alpha = 0.45f),
+                    barColor = secondaryColor.copy(alpha = 0.42f),
                     cursorColor = primaryColor,
                     modifier = Modifier
                         .fillMaxWidth()
                         .height(40.dp)
                         .clip(RoundedCornerShape(8.dp))
                         .background(accentSoftColor.copy(alpha = 0.2f))
+                        .then(
+                            if (onSeekFraction != null) {
+                                Modifier.pointerInput(item.key, onSeekFraction) {
+                                    awaitEachGesture {
+                                        val down = awaitFirstDown()
+                                        val width = size.width.toFloat().coerceAtLeast(1f)
+                                        var current = (down.position.x / width).coerceIn(0f, 1f)
+                                        haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                        dragFraction = current
+                                        down.consume()
+                                        while (true) {
+                                            val event = awaitPointerEvent()
+                                            val change = event.changes.firstOrNull { it.id == down.id } ?: break
+                                            if (change.positionChanged()) {
+                                                current = (change.position.x / width).coerceIn(0f, 1f)
+                                                dragFraction = current
+                                                change.consume()
+                                            }
+                                            if (!change.pressed) break
+                                        }
+                                        haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                        onSeekFraction(current)
+                                        dragFraction = null
+                                    }
+                                }
+                            } else {
+                                Modifier
+                            }
+                        )
                 )
                 Row(
                     modifier = Modifier.fillMaxWidth(),
@@ -196,8 +238,9 @@ private fun BgBeatWaveformCanvas(
                 val barHeight = amp * (height * 0.75f)
 
                 val x = i * barWidth
+                val barProgress = (i + 0.5f) / count
                 drawRect(
-                    color = barColor,
+                    color = if (barProgress <= playbackFraction) accentColor.copy(alpha = 0.72f) else barColor,
                     topLeft = Offset(x, centerY - barHeight / 2f),
                     size = Size(max(1f, barWidth - 0.5f), barHeight)
                 )

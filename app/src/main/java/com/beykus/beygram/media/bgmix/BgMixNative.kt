@@ -61,8 +61,20 @@ object BgMixNative {
     @JvmStatic
     external fun nativeStatus(handle: Long): ByteArray?
 
+    /** Immediate switch to a native queue item without crossfade. Returns one of the MANUAL_* codes. */
+    @JvmStatic
+    external fun nativeManualSelect(handle: Long, queueItemId: Long): Int
+
+    /** Immediate switch to the next prepared-or-pending item after the logical target. Returns one of the MANUAL_* codes. */
+    @JvmStatic
+    external fun nativeManualNext(handle: Long): Int
+
     const val ACTION_PLAY = 0
     const val ACTION_PAUSE = 1
     const val ACTION_NEXT = 2
     const val ACTION_STOP = 3
+
+    const val MANUAL_ACCEPTED = 0
+    const val MANUAL_NOT_FOUND = 1
+    const val MANUAL_NOT_READY = 2
 }

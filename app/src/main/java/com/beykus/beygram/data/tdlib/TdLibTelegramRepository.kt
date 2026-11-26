@@ -47,6 +47,8 @@ import com.beykus.beygram.domain.model.SpeechRecognitionException
 import com.beykus.beygram.domain.model.SpeechRecognitionFailure
 import com.beykus.beygram.domain.model.SpeechRecognitionFailureReason
 import com.beykus.beygram.domain.model.SpeechRecognitionTrial
+import com.beykus.beygram.playback.PlaybackRanges
+import com.beykus.beygram.playback.UserRangeCoordinator
 import com.beykus.beygram.domain.model.MessageDraft
 import com.beykus.beygram.domain.model.MessageThread
 import com.beykus.beygram.domain.model.MessageThreadPage
@@ -258,10 +260,12 @@ class TdLibTelegramRepository private constructor(
     private val mihomoProxyPrefs = context.applicationContext.getSharedPreferences(if (isLegacyAccount) "mihomo_tdlib_proxy" else "mihomo_tdlib_proxy_$accountId", Context.MODE_PRIVATE)
     private val loopbackCredentials = LoopbackProxyCredentials.get(context.applicationContext)
     private val tdRequests = TdRequests { client }
+    /** Range-aware playback reads over the same client and cache; no second downloader is created. */
+    override val playbackRanges: PlaybackRanges = tdPlaybackRanges(tdRequests) { client }
+    override val playbackCoordinator: UserRangeCoordinator = UserRangeCoordinator(playbackRanges)
     private val accountSecurity = TdAccountSecurity(tdRequests)
     private val secretChatDirectory = TdSecretChats(tdRequests)
     @Volatile private var secretChatSession = 0L
-    private val payments = TdPayments(tdRequests)
     private val paidReactions = TdPaidReactions { tdRequests(it) }
     private val videoNoteLossTransport = TdVideoNoteLossTransport(tdRequests,
         stealthActive = { stealthSettings.current.scheduledSendDelay != null })
@@ -514,6 +518,7 @@ class TdLibTelegramRepository private constructor(
         { profiles.me.value.info?.isPremium == true }
     )
     private val stickerCatalog = TdStickerCatalog(tdRequests, mediaFiles)
+    private val payments = TdPayments(tdRequests, mediaFiles)
 
     init {
         autoDownloadNetworkMonitor.start()
@@ -1734,6 +1739,8 @@ class TdLibTelegramRepository private constructor(
     override suspend fun messageContext(chatId: Long, messageId: Long) = conversationActions.context(chatId, messageId)
     override suspend fun singleMessage(chatId: Long, messageId: Long) = conversationActions.single(chatId, messageId)
     override suspend fun linkedDiscussionChatId(chatId: Long) = conversationActions.linkedDiscussionChatId(chatId)
+    override suspend fun nextUnreadMention(chatId: Long, forumTopicId: Long) = conversationActions.nextUnreadMention(chatId, forumTopicId)
+    override suspend fun nextUnreadReaction(chatId: Long, forumTopicId: Long) = conversationActions.nextUnreadReaction(chatId, forumTopicId)
     override suspend fun loadMessageThread(chatId: Long, messageId: Long) = conversationActions.messageThread(chatId, messageId)
     override suspend fun loadMessageThreadComments(discussionChatId: Long, threadId: Long, fromMessageId: Long) =
         conversationActions.threadComments(discussionChatId, threadId, fromMessageId)
@@ -1836,6 +1843,12 @@ class TdLibTelegramRepository private constructor(
     override suspend fun submitGiftAuctionBid(quote: GiftAuctionQuote, profileId: Long, isSelf: Boolean, total: Long) =
         payments.submitGiftAuctionBid(quote, profileId, isSelf, total)
     override suspend fun receivedGifts(offset: String): Result<ReceivedGiftsPage> = payments.receivedGifts(offset)
+    override suspend fun receivedGiftsForUser(userId: Long, offset: String): Result<ReceivedGiftsPage> =
+        payments.receivedGiftsForUser(userId, offset)
+    override suspend fun toggleGiftSaved(receivedGiftId: String, isSaved: Boolean): Result<Unit> =
+        payments.toggleGiftSaved(receivedGiftId, isSaved)
+    override suspend fun setPinnedGifts(receivedGiftIds: List<String>): Result<Unit> =
+        payments.setPinnedGifts(receivedGiftIds)
     override suspend fun resaleGifts(giftId: Long, offset: String) = payments.resaleGifts(giftId, offset)
     override suspend fun buyResoldGift(profileId: Long, name: String, confirmedStars: Long) =
         payments.buyResoldGift(profileId, name, confirmedStars)
@@ -2682,6 +2695,11 @@ class TdLibTelegramRepository private constructor(
 
     override suspend fun peekMessages(chatId: Long): Result<List<ChatMessage>> = conversationActions.peekMessages(chatId)
 
+    override fun viewMessageAgain(chatId: Long, messageId: Long) = conversationEffects.viewAgain(chatId, messageId)
+
+    override suspend fun readAllMarks(chatId: Long, forumTopicId: Long, mentions: Boolean): Result<Unit> =
+        conversationActions.readAllMarks(chatId, forumTopicId, mentions)
+
     override suspend fun loadMessagesAround(chatId: Long, messageId: Long): Result<Boolean> {
         // Taken before the wait, so a latest load or another jump that starts meanwhile supersedes this one.
         val request = nextHistoryRequest(chatId)
@@ -2847,6 +2865,25 @@ class TdLibTelegramRepository private constructor(
             is TdApi.UpdateChatReadInbox -> {
                 messageHistory.readInbox(update.chatId, update.lastReadInboxMessageId)
                 chatCache[update.chatId]?.let { chatCache[update.chatId] = it.copy(unreadCount = update.unreadCount) }
+                publishChat(update.chatId)
+            }
+            is TdApi.UpdateChatUnreadMentionCount -> {
+                chatCache[update.chatId]?.let { chatCache[update.chatId] = it.copy(unreadMentionCount = update.unreadMentionCount) }
+                publishChat(update.chatId)
+            }
+            is TdApi.UpdateChatUnreadReactionCount -> {
+                chatCache[update.chatId]?.let { chatCache[update.chatId] = it.copy(unreadReactionCount = update.unreadReactionCount) }
+                publishChat(update.chatId)
+            }
+            // TDLib reports a single read mention or a reaction change per message through these, not through the chat totals.
+            is TdApi.UpdateMessageMentionRead -> {
+                chatCache[update.chatId]?.let { chatCache[update.chatId] = it.copy(unreadMentionCount = update.unreadMentionCount) }
+                publishChat(update.chatId)
+            }
+            is TdApi.UpdateMessageUnreadReactions -> {
+                // A message that gets an unread reaction after it was reported as viewed must be reported again when it is seen.
+                conversationEffects.forgetViewed(update.chatId, update.messageId)
+                chatCache[update.chatId]?.let { chatCache[update.chatId] = it.copy(unreadReactionCount = update.unreadReactionCount) }
                 publishChat(update.chatId)
             }
             is TdApi.UpdateChatIsMarkedAsUnread -> {
@@ -3762,6 +3799,7 @@ class TdLibTelegramRepository private constructor(
         val secretChat = isSecretChat(chatId)
         val event = serviceMessages.event(this) { profiles.senderName(TdApi.MessageSenderUser(it)) }
         val service = event?.text
+        val gift = giftChatContent(content, payments::giftVisual, payments::giftCollectible)
         val special = mediaMapper.special(content)?.takeIf { attachment == null && service == null && content !is TdApi.MessageText }
         val scheduledAt = (schedulingState as? TdApi.MessageSchedulingStateSendAtDate)?.sendDate?.takeIf { it > 0 }?.toLong()
         if (event != null) hydrateServiceMember(this, event.userId)
@@ -3794,6 +3832,7 @@ class TdLibTelegramRepository private constructor(
         inlineKeyboard = inlineKeyboard(replyMarkup),
         reactions = messageReactions(interactionInfo),
         serviceText = service,
+        gift = gift,
         isCallEvent = content is TdApi.MessageCall,
         serviceUserId = event?.userId ?: 0L,
         forumTopicId = forumId(this),
@@ -4008,6 +4047,8 @@ class TdLibTelegramRepository private constructor(
             lastMessage = lastMessage?.toTextPreview() ?: UiText.Raw(""),
             lastMessageTime = lastMessage?.toTimeString() ?: "",
             unreadCount = unreadCount,
+            unreadMentionCount = unreadMentionCount,
+            unreadReactionCount = unreadReactionCount,
             avatarColorArgb = id.stableColor(),
             isGroup = type is TdApi.ChatTypeBasicGroup || type is TdApi.ChatTypeSupergroup,
             isChannel = (type as? TdApi.ChatTypeSupergroup)?.isChannel == true,

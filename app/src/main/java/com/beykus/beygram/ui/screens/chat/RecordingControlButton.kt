@@ -167,7 +167,7 @@ internal fun RecordingControlButton(
                     tonal -> palette.accentSoft
                     else -> palette.surface2
                 },
-                CircleShape, embedded = active || canceling
+                CircleShape, embedded = active || canceling, compactControl = true
             )
             Icon(if (mode == ComposerRecordingMode.Voice) Icons.Rounded.Mic else Icons.Rounded.Videocam,
                 contentDescription = null,

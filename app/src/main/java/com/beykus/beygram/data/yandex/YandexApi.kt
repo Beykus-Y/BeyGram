@@ -48,6 +48,8 @@ internal open class YandexApi(
     private val lyricsSignKey: () -> String = { YandexConfig.lyricsSignKey },
     /** Clock for the lyrics timeStamp, in milliseconds. Injectable for tests. */
     private val clock: () -> Long = { System.currentTimeMillis() },
+    /** Optional redacted shape report of video/canvas fields on fetched track arrays. */
+    private val onCanvasDiagnostics: (String) -> Unit = {},
 ) {
 
     open fun account(token: String): ProviderResult<YandexAccount> = call(token, "/account/status") { root ->
@@ -175,6 +177,12 @@ internal open class YandexApi(
                 if (entry.has("liked") && !entry.isNull("liked")) parsed.copy(liked = entry.optBoolean("liked")) else parsed
             }
         }
+        val waveTrackObjects = JSONArray().apply {
+            for (index in 0 until sequence.length()) {
+                sequence.optJSONObject(index)?.optJSONObject("track")?.let(::put)
+            }
+        }
+        trackCanvasShapeSummary(waveTrackObjects)?.let(onCanvasDiagnostics)
         return YandexWaveBatch(
             sessionId = id,
             batchId = result.optString("batchId").takeIf { it.isNotBlank() },
@@ -220,10 +228,15 @@ internal open class YandexApi(
     fun playlistTracks(token: String, uid: String, kind: String): ProviderResult<List<ProviderTrack>> =
         call(token, "/users/$uid/playlists/$kind") { root ->
             val items = root.result().optJSONArray("tracks") ?: JSONArray()
-            (0 until items.length()).mapNotNull { index ->
+            val trackObjects = JSONArray()
+            val parsed = (0 until items.length()).mapNotNull { index ->
                 val item = items.optJSONObject(index) ?: return@mapNotNull null
-                parseTrack(item.optJSONObject("track") ?: item)
+                val trackObj = item.optJSONObject("track") ?: item
+                trackObjects.put(trackObj)
+                parseTrack(trackObj)
             }
+            trackCanvasShapeSummary(trackObjects)?.let(onCanvasDiagnostics)
+            parsed
         }
 
     /**
@@ -353,6 +366,9 @@ internal open class YandexApi(
         }
         val firstAlbum = o.optJSONArray("albums")?.optJSONObject(0)
         val album = firstAlbum?.optString("title")?.takeIf { it.isNotBlank() }
+        val videoUri = o.optString("backgroundVideoUri")
+            .takeIf { it.startsWith("https://", ignoreCase = true) }
+        val videoId = o.idOf("backgroundVideoId")
         return ProviderTrack(
             trackId = id,
             title = title,
@@ -364,6 +380,8 @@ internal open class YandexApi(
             liked = null,
             artistRefs = artistRefs,
             albumId = firstAlbum?.idOf("id"),
+            backgroundVideoUri = videoUri,
+            backgroundVideoId = videoId,
         )
     }
 
@@ -421,8 +439,10 @@ internal open class YandexApi(
 
     private fun JSONObject.resultArray(): JSONArray = optJSONArray("result") ?: JSONArray()
 
-    private fun JSONArray.tracks(): List<ProviderTrack> =
-        (0 until length()).mapNotNull { optJSONObject(it)?.let { obj -> parseTrack(obj) } }
+    private fun JSONArray.tracks(): List<ProviderTrack> {
+        trackCanvasShapeSummary(this)?.let(onCanvasDiagnostics)
+        return (0 until length()).mapNotNull { optJSONObject(it)?.let { obj -> parseTrack(obj) } }
+    }
 
     private fun JSONObject.idOf(name: String): String? =
         if (has(name) && !isNull(name)) opt(name).toString().takeIf { it.isNotBlank() } else null
@@ -518,4 +538,75 @@ internal fun plusSummary(result: JSONObject): String {
         }
     }
     return parts.joinToString(", ")
+}
+
+private val ALLOWED_CANVAS_DIAG_KEYS = setOf(
+    "backgroundVideoUri",
+    "backgroundVideoId",
+    "videoUri",
+    "videoUrl",
+    "coverVideoUri",
+    "motionCover",
+    "canvas",
+)
+
+/**
+ * Redacted summary of video/canvas/motion fields seen on track objects in a Yandex API response.
+ * Reports only aggregated counts and allowlisted key value types (never scalar values, arbitrary key names,
+ * URLs, hostnames, paths, tokens, or track ids).
+ */
+internal fun trackCanvasShapeSummary(tracks: JSONArray): String? {
+    var checked = 0
+    var withBackgroundVideoUri = 0
+    var httpsCount = 0
+    var mp4Count = 0
+    var otherVideoKeys = 0
+    val allowlistedTypes = sortedMapOf<String, String>()
+    for (index in 0 until tracks.length()) {
+        val track = tracks.optJSONObject(index) ?: continue
+        checked += 1
+        val bgUri = track.opt("backgroundVideoUri") as? String
+        if (!bgUri.isNullOrBlank()) {
+            withBackgroundVideoUri += 1
+            if (bgUri.startsWith("https://", ignoreCase = true)) httpsCount += 1
+            val beforeQuery = bgUri.substringBefore('?')
+            if (beforeQuery.endsWith(".mp4", ignoreCase = true)) mp4Count += 1
+        }
+        for (key in track.keys()) {
+            if (key == "backgroundVideoUri") continue
+            val lower = key.lowercase()
+            if ("video" !in lower && "canvas" !in lower && "motion" !in lower) continue
+            if (key !in ALLOWED_CANVAS_DIAG_KEYS) {
+                otherVideoKeys += 1
+                continue
+            }
+            val value = track.opt(key)
+            val type = when (value) {
+                is Boolean -> "boolean"
+                is Number -> "number"
+                is JSONObject -> "object"
+                is JSONArray -> "array"
+                null, JSONObject.NULL -> "null"
+                is String -> if (value.isBlank()) "blank" else "string"
+                else -> "other"
+            }
+            allowlistedTypes.putIfAbsent(key, type)
+        }
+    }
+    if (checked == 0) return null
+    val parts = mutableListOf(
+        "canvas.checked=$checked",
+        "backgroundVideoUri=$withBackgroundVideoUri",
+    )
+    if (withBackgroundVideoUri > 0) {
+        parts += "scheme.https=$httpsCount"
+        parts += "ext.mp4=$mp4Count"
+    }
+    if (allowlistedTypes.isNotEmpty()) {
+        parts += "keys=[${allowlistedTypes.entries.joinToString(", ") { "${it.key}=${it.value}" }}]"
+    }
+    if (otherVideoKeys > 0) {
+        parts += "otherVideoKeys=$otherVideoKeys"
+    }
+    return parts.joinToString("; ")
 }

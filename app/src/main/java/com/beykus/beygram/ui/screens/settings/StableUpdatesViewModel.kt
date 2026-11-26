@@ -4,6 +4,8 @@ import android.app.Application
 import androidx.annotation.StringRes
 import androidx.lifecycle.AndroidViewModel
 import com.beykus.beygram.R
+import com.beykus.beygram.BeyGramApplication
+import com.beykus.beygram.data.update.AutomaticUpdateChecks
 import com.beykus.beygram.data.update.StableRelease
 import com.beykus.beygram.data.update.StableUpdateReason
 import com.beykus.beygram.data.update.UpdateCoordinator
@@ -48,6 +50,7 @@ internal fun updateReasonTextRes(reason: StableUpdateReason): Int = when (reason
 /** Thin: the process-wide [UpdateCoordinator] owns the state and the work; this only forwards actions. */
 class StableUpdatesViewModel(application: Application) : AndroidViewModel(application) {
     private val coordinator = UpdateCoordinator.get(application)
+    private val checks = AutomaticUpdateChecks.get(application, (application as BeyGramApplication).applicationScope)
     val state: StateFlow<UpdateUiState> = coordinator.state
 
     fun check() = coordinator.check()
@@ -56,4 +59,8 @@ class StableUpdatesViewModel(application: Application) : AndroidViewModel(applic
     fun install(release: StableRelease) = coordinator.install(release)
     fun openInstallPermission() = coordinator.openInstallPermission()
     fun onReturnedToApp() = coordinator.onReturnedToApp()
+
+    /** Unattended checks only. The manual check above stays available while this is off. */
+    val autoCheckEnabled: Boolean get() = checks.isAutoCheckEnabled()
+    fun setAutoCheckEnabled(enabled: Boolean) = checks.setAutoCheckEnabled(enabled)
 }

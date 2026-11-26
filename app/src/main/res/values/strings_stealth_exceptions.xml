@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="stealth_exceptions_title">Исключения для чатов</string>
+    <string name="stealth_exceptions_inheritance">Без исключения чат использует настройки аккаунта. Исключения меняют чтение, открытие медиа, набор и просмотры историй. Статус «в сети», предупреждения и расписание действуют на весь аккаунт.</string>
+    <string name="stealth_exceptions_results">Найдено %1$d из %2$d</string>
+    <string name="stealth_exceptions_empty">Нет подходящих исключений</string>
+    <string name="stealth_exceptions_unknown_chat">Чат · %1$d</string>
+    <string name="stealth_exceptions_reset">Сбросить все исключения</string>
+    <string name="stealth_exceptions_all">Все</string>
+    <string name="stealth_exceptions_allow">Разрешено</string>
+    <string name="stealth_exceptions_block">Заблокировано</string>
+    <string name="stealth_exceptions_private">Личные</string>
+</resources>

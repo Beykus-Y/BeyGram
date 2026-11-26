@@ -34,6 +34,12 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.rounded.ArrowDownward
+import androidx.compose.material.icons.rounded.BarChart
+import androidx.compose.material.icons.rounded.CheckCircleOutline
+import androidx.compose.material.icons.rounded.Download
+import androidx.compose.material.icons.rounded.Forum
+import androidx.compose.material.icons.rounded.MarkChatUnread
+import androidx.compose.material.icons.rounded.Tune
 import androidx.compose.material.icons.rounded.Call
 import androidx.compose.material.icons.rounded.ChatBubbleOutline
 import androidx.compose.material.icons.rounded.ChevronRight
@@ -190,10 +196,13 @@ fun ChatScreen(
     // Read only by the forward dialog, so chat list updates don't recompose the chat while it is closed.
     chats: () -> List<ChatPreview>,
     observeFile: (Int) -> StateFlow<MediaFileState>, onDownloadFile: (Int) -> Unit,
+    /** Range-aware playback support from the repository; null keeps the previous whole-prefix behaviour. */
+    playbackCoordinator: com.beykus.beygram.playback.UserRangeCoordinator? = null,
     onBack: () -> Unit, onChatInfo: () -> Unit, onStatistics: (() -> Unit)? = null, connectionState: TelegramConnectionState,
     recordingSettings: VideoMessageSettingsStore, translationSettings: TranslationSettingsStore,
     chatOverrides: ChatOverridesStore, focusMessageId: Long = 0L, onFocusHandled: () -> Unit = {},
     forumTopicId: Long = 0L, forumTopicTitle: String? = null, topicCanPost: Boolean = true, topicUnreadCount: Int = 0,
+    topicUnreadMentionCount: Int = 0, topicUnreadReactionCount: Int = 0,
     /** The topic row the chat was opened from; its server icon and closed state identify the conversation. */
     forumTopic: ForumTopic? = null,
     onServiceUser: (Long) -> Unit = {},
@@ -246,7 +255,11 @@ fun ChatScreen(
     fun updateDraft(transform: (com.beykus.beygram.domain.model.MessageDraft) -> com.beykus.beygram.domain.model.MessageDraft) =
         if (forumTopicId > 0L) conversation.updateForumTopicDraft(chat.id, forumTopicId, transform)
         else conversation.updateMessageDraft(chat.id, transform)
-    fun clearReply() = updateDraft { it.copy(replyToMessageId = null) }
+    val quoteState = remember(chat.id) { ChatQuoteState() }
+    fun clearReply() {
+        quoteState.clear()
+        updateDraft { it.copy(replyToMessageId = null) }
+    }
     // The all-messages feed has no topic of its own. A reply goes into the topic of the message it answers, and any other message
     // goes to the General topic; the composer waits when that topic is hidden or cannot take messages.
     val feedGeneralTopic = remember(forumTopicsById) { forumTopicsById.values.firstOrNull { it.isGeneral } }
@@ -345,6 +358,8 @@ fun ChatScreen(
     var highlighted by remember { mutableStateOf<Long?>(null) }
     // A message outside the loaded history is scrolled to once the window around it reaches the list.
     var pendingJumpId by remember(chat.id, forumTopicId) { mutableStateOf<Long?>(null) }
+    // The message the error shows when the loaded window does not contain pendingJumpId.
+    var pendingJumpFailure by remember(chat.id, forumTopicId) { mutableIntStateOf(R.string.chat_message_unavailable) }
     var jumpGeneration by remember(chat.id, forumTopicId) { mutableIntStateOf(0) }
     var jumpScrollJob by remember(chat.id, forumTopicId) { mutableStateOf<Job?>(null) }
     var jumpLoadJob by remember(chat.id, forumTopicId) { mutableStateOf<Job?>(null) }
@@ -734,11 +749,12 @@ fun ChatScreen(
                 list.filter { it.claimedBy(chat.id, accountId, videoClaimTopicId) && !it.requiresPreview && !it.sending }.forEach { item ->
                     val reply = item.sendReplyId(feedSender = forumAllMessages, composerReplyId = replyId)
                     noteLocalSend()
-                    val accepted = VideoNoteExportCenter.send(item.chatId, item.sessionName, reply, accountId) { media, targetReply ->
+                    val started = VideoNoteExportCenter.send(item.chatId, item.sessionName, reply, accountId) { media, targetReply ->
                         conversation.sendMedia(item.chatId, media, "", targetReply, forumTopicId = item.topicId).map { Unit }
                     }
                     // Clear the composer's reply only when this note used it; a reply set after the note was recorded stays.
-                    if (accepted && reply == replyId) clearReply()
+                    // AlreadySending means the app-level sender won the race: the note still used the composer's reply.
+                    if (started != VideoNoteSendStart.NotFound && reply == replyId) clearReply()
                 }
             }
         }
@@ -746,7 +762,8 @@ fun ChatScreen(
             VideoNoteExportCenter.failures.collect {
                 val failed = if (forumAllMessages) VideoNoteExportCenter.consumeFailureForChat(chat.id, accountId)
                 else VideoNoteExportCenter.consumeFailure(chat.id, sendForumTopicId, accountId)
-                if (failed) error = context.getString(R.string.recorder_save_failed)
+                // The reason matters: "не удалось сохранить" alone cannot distinguish a broken encoder from a full disk.
+                if (failed != null) error = failed.message.resolve(context)
             }
         }
     }
@@ -1337,7 +1354,7 @@ fun ChatScreen(
         reactionOptions = conversation.availableReactions(chat.id, id).getOrNull().orEmpty()
     }
     // Фото и видео листаются по всему чату: окно грузится вокруг открытого вложения, а не только по загруженной истории.
-    val mediaWindow = remember(chat.id) {
+    val mediaWindow = remember(conversation, chat.id) {
         SharedMediaWindow(
             load = { from, newer -> conversation.sharedMessages(chat.id, SharedMediaKind.Media, from, newer) },
             failure = { it.userMessage(context, R.string.err_chat_history_load_failed) }
@@ -1345,14 +1362,32 @@ fun ChatScreen(
     }
     LaunchedEffect(selectedMediaId) {
         val id = selectedMediaId ?: return@LaunchedEffect
-        val kind = currentMessages.firstOrNull { it.id == id }?.media?.kind
+        val selectedMessage = currentMessages.firstOrNull { it.id == id }
+        val kind = selectedMessage?.media?.kind
         // Вложение, которое уже в окне, не перезагружаем: так просмотрщик возвращается к нему на том же месте.
         if (kind != null && kind in viewerSwipeKinds && mediaWindow.messages.none { it.id == id }) {
-            mediaWindow.restart(id)
+            mediaWindow.restart(id, anchorMessage = selectedMessage.takeUnless { it.isViewOnce })
             mediaWindow.loadOlder()
         }
         // Новее догружаем от края: открытое вложение обычно стоит у правого края окна, а прерванная загрузка не оставляет дыр.
-        mediaWindow.loadNear(id)
+        mediaWindow.loadNear(id) { !it.isViewOnce }
+    }
+    var previousHistoryIds by remember(conversation, chat.id) { mutableStateOf<Set<Long>?>(null) }
+    LaunchedEffect(messages, selectedMediaId) {
+        val currentIds = messages.mapTo(HashSet(messages.size)) { it.id }
+        val prevIds = previousHistoryIds
+        if (prevIds != null) {
+            val removed = prevIds - currentIds
+            if (removed.isNotEmpty()) mediaWindow.removeDeleted(removed)
+            if (selectedMediaId != null && mediaWindow.loaded) {
+                val windowMax = mediaWindow.messages.maxOfOrNull { it.id } ?: 0L
+                val hasNewerMedia = messages.any { m ->
+                    m.id !in prevIds && m.id > windowMax && !m.isViewOnce && m.media?.kind in viewerSwipeKinds
+                }
+                if (hasNewerMedia) mediaWindow.refreshNewer()
+            }
+        }
+        previousHistoryIds = currentIds
     }
     LaunchedEffect(selectedMediaId) {
         // Счётчик при свайпе держит прежнее значение до ответа, чтобы не мигал. Права так не держим: см. MediaViewerPolicy.rightsFor.
@@ -1526,6 +1561,8 @@ fun ChatScreen(
             }
         }
     }
+    // Targets land above the bottom edge, where the jump badges and the composer do not cover them.
+    fun targetScrollOffset(): Int = -(listState.layoutInfo.viewportSize.height * UNREAD_SEPARATOR_VIEWPORT_FRACTION).roundToInt()
     // Read marks stay held while a focused message from outside the chat is being opened; its jump decides the position.
     fun settleFocusedOpening() { if (scrollPosition.focusClaimed) scrollPosition.readBoundaryChecked = true }
     LaunchedEffect(pendingJumpId, messageListItems) {
@@ -1533,12 +1570,16 @@ fun ChatScreen(
         val index = messageListItems.indexOfFirst { item -> item.messages.any { it.id == target } }
         if (index < 0) {
             // The window is in place but has no target (for example, a deleted message): release the opening instead of holding read marks.
-            if (!history.isLoading) { settleFocusedOpening(); pendingJumpId = null }
+            if (!history.isLoading) {
+                // The window was replaced around the target, so say why nothing is shown instead of leaving an unexplained position.
+                error = context.getString(pendingJumpFailure)
+                settleFocusedOpening(); pendingJumpId = null
+            }
             return@LaunchedEffect
         }
         // A scroll cancelled by the user's touch still settles the opening, or read marks would stay held for the visit.
         try {
-            listState.scrollToItemRespectingMotion(index, motionInstant = listScrollInstant)
+            listState.scrollToItemRespectingMotion(index, scrollOffset = targetScrollOffset(), motionInstant = listScrollInstant)
             highlighted = target
         } finally {
             settleFocusedOpening()
@@ -1547,12 +1588,6 @@ fun ChatScreen(
         pendingJumpId = null
     }
     LaunchedEffect(highlighted) { if (highlighted != null) { delay(2200); highlighted = null } }
-    fun jump(reply: MessageReply) {
-        if (reply.isUnavailable || reply.messageId <= 0) { error = context.getString(R.string.chat_reply_original_unavailable); return }
-        val index = messageListItems.indexOfFirst { item -> item.messages.any { it.id == reply.messageId && it.chatId == reply.chatId } }
-        if (index >= 0) scope.launch { listState.scrollToItemRespectingMotion(index, motionInstant = listScrollInstant); highlighted = reply.messageId }
-        else { contextChatId = reply.chatId; contextMessageId = reply.messageId }
-    }
     // The reply is checked on the server first: a channel, or a chat without reply rights, must not enter reply mode.
     // Only the latest swipe may apply its answer, so a slower check cannot reopen the composer for an older message.
     fun swipeReply(messageId: Long) {
@@ -1646,7 +1681,7 @@ fun ChatScreen(
         if (index >= 0) {
             jumpScrollJob = scope.launch {
                 try {
-                    listState.scrollToItemRespectingMotion(index, motionInstant = listScrollInstant)
+                    listState.scrollToItemRespectingMotion(index, scrollOffset = targetScrollOffset(), motionInstant = listScrollInstant)
                     if (generation == jumpGeneration) highlighted = messageId
                 } finally {
                     settleFocusedOpening()
@@ -1660,7 +1695,7 @@ fun ChatScreen(
                 (if (forumTopicId > 0L) conversation.loadForumTopicMessagesAround(chat.id, forumTopicId, messageId) else conversation.loadMessagesAround(chat.id, messageId))
                     .onSuccess { applied ->
                         if (generation != jumpGeneration) return@onSuccess
-                        if (applied) pendingJumpId = messageId else settleFocusedOpening()
+                        if (applied) { pendingJumpFailure = failure; pendingJumpId = messageId } else settleFocusedOpening()
                     }
                     .onFailure {
                         if (generation != jumpGeneration) return@onFailure
@@ -1671,6 +1706,15 @@ fun ChatScreen(
                 if (generation == jumpGeneration) jumpLoadJob = null
             }
         }
+    }
+    fun jump(reply: MessageReply) {
+        if (reply.isUnavailable || reply.messageId <= 0) { error = context.getString(R.string.chat_reply_original_unavailable); return }
+        cancelActiveJump()
+        val index = messageListItems.indexOfFirst { item -> item.messages.any { it.id == reply.messageId && it.chatId == reply.chatId } }
+        if (index >= 0) scope.launch { listState.scrollToItemRespectingMotion(index, scrollOffset = targetScrollOffset(), motionInstant = listScrollInstant); highlighted = reply.messageId }
+        // Same chat: load the window around the quoted message and jump there. Other chats keep the context dialog.
+        else if (reply.chatId == chat.id) jumpToMessage(reply.messageId, R.string.chat_reply_original_unavailable)
+        else { contextChatId = reply.chatId; contextMessageId = reply.messageId }
     }
     fun openSearchResult(message: ChatMessage, scrollIndex: Int, scrollOffset: Int) {
         val snapshot = searchResults
@@ -1898,9 +1942,10 @@ fun ChatScreen(
         }
         // View-once is selected in the attachment panel; scheduling or groups silently drop the flag instead of
         // producing a TDLib error, and the composer hides those paths for view-once media.
+        val quotedOptions = quoteState.consumeInto(options)
         val effectiveOptions = if (attachments.active) {
-            options.copy(viewOnce = attachments.viewOnce && ViewOncePolicy.canSend(attachments.pending, isPrivateChat = allowViewOnce, isSecretChat = chat.isSecret, scheduled = options.scheduledAtSeconds != null))
-        } else options
+            quotedOptions.copy(viewOnce = attachments.viewOnce && ViewOncePolicy.canSend(attachments.pending, isPrivateChat = allowViewOnce, isSecretChat = chat.isSecret, scheduled = quotedOptions.scheduledAtSeconds != null))
+        } else quotedOptions
         if (attachments.active) {
             attachments.send(
                 draft, draftEntities, replyId, sendForumTopicId, effectiveOptions,
@@ -2233,6 +2278,10 @@ fun ChatScreen(
                 onDismiss = { reportMessageId = null }
             )
         }
+        ChatQuoteHost(quoteState) { id ->
+            updateDraft { it.copy(replyToMessageId = id) }
+            replyFocusRequest++
+        }
         if (actionMessage != null && !deleting && !reactionPickerOpen && !pinConfirm) {
             val chosenReactions = reactionOwner?.reactions
                 ?.filter { it.isChosen && !it.isPaid }
@@ -2263,7 +2312,8 @@ fun ChatScreen(
                 } else null,
                 onClose = ::closeActions,
                 onRetry = { capabilitiesAttempt++ },
-                onReply = { updateDraft { it.copy(replyToMessageId = actionMessage.id) }; replyFocusRequest++; closeActions() },
+                onReply = { quoteState.clear(); updateDraft { it.copy(replyToMessageId = actionMessage.id) }; replyFocusRequest++; closeActions() },
+                onQuote = if (actionMessage.text.isNotBlank()) { { quoteState.pickerTarget = actionMessage; closeActions() } } else null,
                 onCopy = { clipboard.setPrimaryClip(ClipData.newPlainText(context.getString(R.string.chat_message), actionMessage.text)); closeActions() },
                 onEdit = { editId = actionMessage.id; editText = actionMessage.text; closeActions() },
                 onDelete = { deleteEveryone = capabilities?.canDeleteForSelf == false; deleting = true },
@@ -2628,16 +2678,16 @@ fun ChatScreen(
         }
         if (!searching) FloatingMessageDate(listState, messageListItems, Modifier.align(Alignment.TopCenter).padding(top = 8.dp))
         val away by remember(listState) { derivedStateOf { listState.firstVisibleItemIndex > 3 } }
-        val jumpMotion = rememberMotionSpec(MotionToken.BannerChange)
-        // Qualify the top-level animation: the outer chat ColumnScope overload is not valid in this BoxScope.
-        // The list box ends above the composer and the keyboard, so a bottom-end control stays clear of both.
-        androidx.compose.animation.AnimatedVisibility(
-            visible = away || history.hasNewerMessages,
-            modifier = Modifier.align(Alignment.BottomEnd).padding(end = 12.dp, bottom = 12.dp),
-            enter = if (jumpMotion.isInstant) EnterTransition.None else
-                jumpMotion.fadeEnter() + slideInVertically(jumpMotion.animationSpec()) { it / 2 },
-            exit = if (jumpMotion.isInstant) ExitTransition.None else
-                jumpMotion.fadeExit() + slideOutVertically(jumpMotion.animationSpec()) { it / 2 }
+        ChatJumpControls(
+            chatId = chat.id,
+            forumTopicId = forumTopicId,
+            unreadMentions = if (forumTopicId > 0L) topicUnreadMentionCount else chat.unreadMentionCount,
+            unreadReactions = if (forumTopicId > 0L) topicUnreadReactionCount else chat.unreadReactionCount,
+            showJumpLatest = away || history.hasNewerMessages,
+            conversation = conversation,
+            onJumpToMessage = { id -> jumpToMessage(id, R.string.chat_message_unavailable) },
+            onReadAllFailed = { error = context.getString(R.string.chat_read_all_failed) },
+            modifier = Modifier.align(Alignment.BottomEnd).padding(end = 12.dp, bottom = 12.dp)
         ) {
             JumpToLatestButton(unread = if (forumTopicId > 0L) topicUnreadCount else chat.unreadCount, onClick = {
                 val hasNewerMessages = history.hasNewerMessages
@@ -2646,8 +2696,6 @@ fun ChatScreen(
                     else conversation.loadLatestMessages(chat.id)
                 }
                 scope.launch {
-                    // Honor Motion Off / system reduced motion for the scroll itself,
-                    // not only for the button's entrance and exit.
                     if (shouldAnimateJumpToLatest(listScrollInstant.value, hasNewerMessages)) {
                         listState.scrollToItemRespectingMotion(0, motionInstant = listScrollInstant)
                     } else {
@@ -2767,13 +2815,9 @@ fun ChatScreen(
         }
         // The reply strip lives inside the field container, above the text, as one composer unit.
         val replyHeader: (@Composable () -> Unit)? = if (replyId == null) null else ({
-            Row(Modifier.fillMaxWidth().motionEntrance(MotionToken.BannerChange, 8.dp).padding(start = 12.dp, end = 4.dp, top = 6.dp), verticalAlignment = Alignment.CenterVertically) {
-                Column(Modifier.weight(1f).clip(styledShape(12.dp)).then(if (chatGlass) Modifier.background(palette.surface.copy(alpha = 0.35f)) else Modifier).border(1.dp, palette.accent.copy(alpha = 0.45f), styledShape(12.dp)).padding(horizontal = 10.dp, vertical = 6.dp)) {
-                    Text(stringResource(R.string.chat_reply_label) + " · " + (replyTarget?.senderName?.ifBlank { if (replyTarget.isOutgoing) stringResource(R.string.chat_you) else chat.title } ?: stringResource(R.string.chat_message)), color = palette.accentInk, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
-                    Text(replyTarget?.summary() ?: stringResource(R.string.chat_message_unavailable), color = palette.textSecondary, maxLines = 2, overflow = TextOverflow.Ellipsis, fontSize = 14.sp)
-                }
-                IconButton(enabled = !sending, onClick = ::clearReply) { Icon(Icons.Rounded.Close, stringResource(R.string.chat_cancel_reply_description), tint = palette.textSecondary) }
-            }
+            val senderLabel = stringResource(R.string.chat_reply_label) + " · " + (replyTarget?.senderName?.ifBlank { if (replyTarget.isOutgoing) stringResource(R.string.chat_you) else chat.title } ?: stringResource(R.string.chat_message))
+            val previewText = quoteState.quote?.first?.let { "«$it»" } ?: replyTarget?.summary() ?: stringResource(R.string.chat_message_unavailable)
+            ChatReplyHeaderStrip(senderLabel, previewText, chatGlass, sending, ::clearReply)
         })
         val editing = editMessage != null
         val fieldText = if (editing) editText else draft
@@ -3021,16 +3065,17 @@ fun ChatScreen(
             selectedIndex = recordingPreviewIndex,
             sentPaths = video.media.take(video.nextIndex).mapTo(mutableSetOf()) { it.path },
             sending = video.sending,
+            failure = video.failure,
             progress = (video.nextIndex + 1).coerceAtMost(video.media.size),
             onSelect = recordingRecovery::select,
             onDelete = { VideoNoteExportCenter.discard(video.chatId, video.sessionName, accountId) },
             onSend = {
                 val reply = video.sendReplyId(feedSender = forumAllMessages, composerReplyId = replyId)
                 noteLocalSend()
-                val accepted = VideoNoteExportCenter.send(video.chatId, video.sessionName, reply, accountId) { media, targetReply ->
+                val started = VideoNoteExportCenter.send(video.chatId, video.sessionName, reply, accountId) { media, targetReply ->
                     conversation.sendMedia(video.chatId, media, "", targetReply, forumTopicId = video.topicId).map { Unit }
                 }
-                if (accepted && reply == replyId) clearReply()
+                if (started == VideoNoteSendStart.Started && reply == replyId) clearReply()
             }
         )
     }
@@ -3068,15 +3113,30 @@ fun ChatScreen(
     val historyPages = remember(messages, viewerOpen) {
         if (!viewerOpen) emptyList<MediaViewerItem>() else messages.mapNotNull { m -> m.media?.takeIf { it.kind in viewerSwipeKinds }?.let { MediaViewerItem(m.id, it, m.isViewOnce, chat.id, m.text) } }
     }
-    // Пока окно не пришло или не загрузилось, листаем уже загруженную историю чата; без неё показываем вложение одно.
-    val viewerPages = listOf(windowPages, historyPages).firstOrNull { pages -> pages.any { it.messageId == selectedMediaId } }
-        ?: listOfNotNull(viewed?.let { m -> m.media?.let { MediaViewerItem(m.id, it, m.isViewOnce, chat.id, m.text) } })
+    val historyRange = remember(messages, viewerOpen) {
+        if (!viewerOpen || messages.isEmpty()) null
+        else messages.minOf { it.id }..messages.maxOf { it.id }
+    }
+    val liveHistoryIds = remember(messages, viewerOpen) {
+        if (!viewerOpen) null else messages.mapTo(HashSet(messages.size)) { it.id }
+    }
+    val fallbackItem = viewed?.let { m -> m.media?.let { MediaViewerItem(m.id, it, m.isViewOnce, chat.id, m.text) } }
+    // Объединяем пересекающиеся страницы окна и живой истории чата с дедупликацией, чтобы не терять крайнее фото.
+    val viewerPages = resolveMediaViewerPages(
+        windowPages = windowPages,
+        historyPages = historyPages,
+        selectedId = selectedMediaId,
+        fallbackItem = fallbackItem,
+        historyMessageIdRange = historyRange,
+        liveHistoryIds = liveHistoryIds,
+    )
     val viewOnceGate = rememberViewOnceStealthGate(chat.id)
     val viewOnceAsked = viewed?.takeIf { viewOnceGate.needsConsent(chat.id, it.id, it.isViewOnce, conversation.interactionAllowed(InteractionEffect.OpenContent, chat.id)) }
     if (viewOnceAsked != null) viewOnceGate.ConsentDialog(chat.id, viewOnceAsked.id) { selectedMediaId = null }
     if (viewed != null && viewed.media != null && viewOnceAsked == null) MediaViewer(
         pages = viewOnceGate.swipeable(viewerPages, chat.id, viewed.id, conversation.interactionAllowed(InteractionEffect.OpenContent, chat.id)), selectedId = viewed.id, onSelect = { selectedMediaId = it }, originBounds = mediaOrigin(viewed.id),
         observeFile = observeFile, downloadFile = onDownloadFile,
+        playbackCoordinator = playbackCoordinator,
         onViewed = { id ->
             val once = (messages.firstOrNull { it.id == id } ?: retainedViewOnce)?.isViewOnce == true
             if (!once || id !in openedViewOnceIds) {
@@ -3202,6 +3262,7 @@ fun ChatScreen(
             onClose = { forwardId = null; selectionForwardOpen = false; frozenForwardSelection = longArrayOf(); forwardError = null; forwardAsCopy = false }
         )
     }
+    ChatScreenOverlays {
     contextMessageId?.let { id -> MessageContextDialog(contextChatId, id, conversation, riskGuard, observeFile, onDownloadFile, onClose = { contextMessageId = null }, autoDownloadFile = onAutoDownloadFile, onOpenMessageEntity = onOpenMessageEntity, allowEntityCopy = !chat.hasProtectedContent) }
     playlistTrack?.let { track -> AddToPlaylistSheet(accountId = accountId, track = track, onDismiss = { playlistTrack = null }) }
     if (copyLinks.isNotEmpty()) MessageLinkCopyDialog(
@@ -3357,6 +3418,7 @@ fun ChatScreen(
     botCommandMenu?.let { menu ->
         if (botCommandMenuOpen) BotCommandSheet(chat.title, menu, onDismiss = { botCommandMenuOpen = false }, onInsert = ::insertBotCommand)
     }
+    }
     pendingWebApp?.let { request ->
         BeyGramDialog(
             onDismissRequest = { pendingWebApp = null },
@@ -3445,6 +3507,11 @@ private fun ChatScreenBox(modifier: Modifier, content: @Composable BoxScope.() -
 @Composable
 private fun ChatScreenColumn(modifier: Modifier, content: @Composable ColumnScope.() -> Unit) {
     Column(modifier, content = content)
+}
+
+@Composable
+private fun ChatScreenOverlays(content: @Composable () -> Unit) {
+    content()
 }
 
 /** Keeps the attachment strip and the unified sticker panel out of ChatScreen's own bytecode-heavy composer lambda. */
@@ -3697,6 +3764,7 @@ private fun ChatTopBar(
                 BeyGramPopover(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
                     BeyGramPopoverItem(
                         text = stringResource(R.string.chat_jump_to_unread),
+                        leadingIcon = { Icon(Icons.Rounded.ArrowDownward, contentDescription = null, tint = if (hasUnread) palette.textSecondary else palette.textSecondary.copy(alpha = 0.4f)) },
                         enabled = hasUnread,
                         onClick = { menuOpen = false; onJumpUnread() }
                     )
@@ -3707,6 +3775,7 @@ private fun ChatTopBar(
                     )
                     BeyGramPopoverItem(
                         text = stringResource(R.string.chat_mark_unread),
+                        leadingIcon = { Icon(Icons.Rounded.MarkChatUnread, contentDescription = null, tint = palette.textSecondary) },
                         onClick = { menuOpen = false; onMarkUnread() }
                     )
                     // The pinned list stays reachable even when the bar is hidden locally.
@@ -3717,22 +3786,27 @@ private fun ChatTopBar(
                     )
                     BeyGramPopoverItem(
                         text = stringResource(R.string.chat_export_title),
+                        leadingIcon = { Icon(Icons.Rounded.Download, contentDescription = null, tint = palette.textSecondary) },
                         onClick = { menuOpen = false; onExport() }
                     )
                     BeyGramPopoverItem(
                         text = stringResource(R.string.message_action_select),
+                        leadingIcon = { Icon(Icons.Rounded.CheckCircleOutline, contentDescription = null, tint = palette.textSecondary) },
                         onClick = { menuOpen = false; onSelectMessages() }
                     )
                     BeyGramPopoverItem(
                         text = stringResource(R.string.chat_settings_title),
+                        leadingIcon = { Icon(Icons.Rounded.Tune, contentDescription = null, tint = palette.textSecondary) },
                         onClick = { menuOpen = false; onChatSettings() }
                     )
                     if (forumNavigationMode != null && onForumNavigationMode != null) BeyGramPopoverItem(
                         text = stringResource(R.string.forum_navigation_title),
+                        leadingIcon = { Icon(Icons.Rounded.Forum, contentDescription = null, tint = palette.textSecondary) },
                         onClick = { menuOpen = false; modeSheetOpen = true }
                     )
                     if (onStatistics != null) BeyGramPopoverItem(
                         text = stringResource(R.string.channel_statistics_title),
+                        leadingIcon = { Icon(Icons.Rounded.BarChart, contentDescription = null, tint = palette.textSecondary) },
                         onClick = { menuOpen = false; onStatistics() }
                     )
                 }
@@ -3887,8 +3961,12 @@ internal fun MessageBubble(message: ChatMessage, observeFile: (Int) -> StateFlow
     val bubbleMax = chatBubbleMaxWidthDp(com.beykus.beygram.ui.screens.chats.LocalChatPaneWidthDp.current ?: chatPaneWidthDp(LocalWindowLayout.current)).dp
     val mediaFlightModifier = composerMediaLaunchModifier(composerMediaLaunch, onComposerMediaLaunchFinished)
     Column(Modifier.fillMaxWidth().then(if (circle) Modifier else Modifier.padding(horizontal = metrics.sideInset)), horizontalAlignment = if (message.isOutgoing) Alignment.End else Alignment.Start) {
-        SwipeToReply(enabled = onReply != null && message.sendState == MessageSendState.Sent, outgoing = message.isOutgoing,
-            onReply = { onReply?.invoke(message.id) }) { swipe ->
+        val haptics = androidx.compose.ui.platform.LocalHapticFeedback.current
+        SwipeToReply(
+            enabled = onReply != null && message.sendState == MessageSendState.Sent,
+            outgoing = message.isOutgoing,
+            onReply = { onReply?.invoke(message.id) }
+        ) { swipe ->
             // Голосовое и кружок управляются своими элементами в пузыре и не открывают просмотрщик.
             Box(swipe) {
                 BubbleLayout(
@@ -3927,6 +4005,12 @@ internal fun MessageBubble(message: ChatMessage, observeFile: (Int) -> StateFlow
                                     message.media != null && !message.media.kind.playsInline() -> onOpen()
                                 }
                             },
+                            onDoubleClick = if (!selectionMode && message.sendState == MessageSendState.Sent) {
+                                {
+                                    haptics.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.TextHandleMove)
+                                    onReaction(message.id, ReactionOption("❤"))
+                                }
+                            } else null,
                             onLongClick = if (selectionMode) onToggleSelection else onActions
                         ),
                     overlayMeta = overlayMeta,

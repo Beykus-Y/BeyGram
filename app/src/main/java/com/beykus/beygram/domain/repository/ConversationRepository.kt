@@ -87,6 +87,10 @@ interface ConversationRepository {
     suspend fun loadForumTopicMessagesAround(chatId: Long, forumTopicId: Long, messageId: Long): Result<Boolean>
     /** The linked discussion supergroup of a channel, or zero when the channel has none. */
     suspend fun linkedDiscussionChatId(chatId: Long): Result<Long>
+    /** Returns the message id of the next unread mention in [chatId], or null when none remain. */
+    suspend fun nextUnreadMention(chatId: Long, forumTopicId: Long = 0L): Result<Long?> = Result.success(null)
+    /** Returns the message id of the next unread reaction in [chatId], or null when none remain. */
+    suspend fun nextUnreadReaction(chatId: Long, forumTopicId: Long = 0L): Result<Long?> = Result.success(null)
     /**
      * Opens a channel post's comment thread. TDLib resolves the linked discussion chat and thread id; a post with
      * comments disabled or hidden fails with a user-facing explanation instead of an empty thread.
@@ -118,6 +122,13 @@ interface ConversationRepository {
     suspend fun loadMessagesAround(chatId: Long, messageId: Long): Result<Boolean>
     /** Invalidates any in-flight [loadMessagesAround] or [loadForumTopicMessagesAround] window replacement for this chat or topic. */
     fun cancelMessageJump(chatId: Long, forumTopicId: Long = 0L) {}
+
+    /** Reports [messageId] as viewed again, so a jump to its unread reaction or mention clears it. */
+    fun viewMessageAgain(chatId: Long, messageId: Long) {}
+
+    /** Marks all unread mentions (or reactions) of a chat or forum topic read; called only after the user confirmed it. */
+    suspend fun readAllMarks(chatId: Long, forumTopicId: Long, mentions: Boolean): Result<Unit> =
+        Result.failure(UnsupportedOperationException("read all"))
     /** One page of messages newer than [afterMessageId], oldest first; used to walk toward the first unread target. */
     suspend fun newerMessages(chatId: Long, forumTopicId: Long, afterMessageId: Long): Result<List<ChatMessage>>
     /** Latest messages of a chat for the long-press preview. Reads history only: the chat is not opened and stays unread. */

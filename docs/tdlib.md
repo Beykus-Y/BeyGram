@@ -1,5 +1,11 @@
 # TDLib integration notes
 
+> Reproducibility of the shipped build (version, toolchain, upstream commit range, verification
+> commands) is recorded in [`docs/tdlib-reproducibility.md`](tdlib-reproducibility.md) and
+> [`docs/tdlib-artifacts.json`](tdlib-artifacts.json). Check it with
+> `powershell -File scripts/verify-tdlib-artifacts.ps1 -InspectBinaries` before replacing any
+> `libtdjni.so` or `tdlib-java.jar`.
+
 The project includes generated Java bindings (`app/libs/tdlib-java.jar`) and an Android ARM64 native library (`app/src/main/jniLibs/arm64-v8a/libtdjni.so`). Other ABIs require their own native build. The local `td-master` source checkout and build tool downloads are not part of the repository.
 
 ## Current project hooks

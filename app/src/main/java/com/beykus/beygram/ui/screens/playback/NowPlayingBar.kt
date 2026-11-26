@@ -169,6 +169,28 @@ val LocalOpenMyMusic = compositionLocalOf<(() -> Unit)?> { null }
  * [bottomInset] = true нужен на экранах без собственного нижнего меню или composer: тогда полоса сама держится
  * выше системной навигации и клавиатуры. В чате composer уже применяет IME inset, поэтому полоса не дублирует его.
  */
+/**
+ * Whether an external bottom [NowPlayingBar] is currently occupying the bottom inset (mini-player, undo bar or
+ * live wave listener). Isolated from the 250 ms position stream so hosts can consume the bottom navigation-bar
+ * inset without recomposing on playback ticks.
+ */
+@Composable
+internal fun rememberBottomPlayerBarVisible(hideWhenImeVisible: Boolean = true): Boolean {
+    val isVideoNote = PlaybackEngine.state.collectAsStateWithLifecycle().value.item?.kind == MediaKind.VideoNote
+    val mini = rememberMiniPlayerUi()?.takeUnless { isVideoNote }
+    val keyboardVisible = WindowInsets.ime.getBottom(LocalDensity.current) > 0
+    val undoAvailable by PlaybackEngine.undoClose.collectAsStateWithLifecycle()
+    val wave by BgWaveHub.controller.state.collectAsStateWithLifecycle()
+    val waveListening = wave?.role == BgWaveRole.Listener && wave?.phase == BgWavePhase.Live
+    return resolveNowPlayingBarSlot(
+        hasItem = mini != null,
+        undoAvailable = undoAvailable,
+        hideWhenImeVisible = hideWhenImeVisible,
+        keyboardVisible = keyboardVisible,
+        waveListening = waveListening
+    ) != NowPlayingBarSlot.Hidden
+}
+
 @Composable
 fun NowPlayingBar(
     bottomInset: Boolean = false,
@@ -181,7 +203,8 @@ fun NowPlayingBar(
     /** Compact vertical density used inside an open chat so the bar yields more space to messages. */
     compact: Boolean = false
 ) {
-    val mini = rememberMiniPlayerUi()
+    val isVideoNote = PlaybackEngine.state.collectAsStateWithLifecycle().value.item?.kind == MediaKind.VideoNote
+    val mini = rememberMiniPlayerUi()?.takeUnless { isVideoNote }
     // Root and tab bars yield their space to the keyboard; the chat-integrated bar
     // keeps its own composer layout. Playback and the full-player sheet stay alive.
     val keyboardVisible = WindowInsets.ime.getBottom(LocalDensity.current) > 0
@@ -1019,8 +1042,17 @@ private fun Modifier.miniShared(id: Long, role: FlightRole): Modifier = graphics
  */
 private fun Modifier.miniPlayerGestures(anchorId: Long, onPrevious: () -> Unit, onNext: () -> Unit): Modifier = composed {
     val haptic = androidx.compose.ui.platform.LocalHapticFeedback.current
+    val microSpec = rememberMotionSpec(MotionToken.MicroFeedback)
     val threshold = with(androidx.compose.ui.platform.LocalDensity.current) { 72.dp.toPx() }
-    pointerInput(anchorId) {
+    var dragOffsetX by remember(anchorId) { androidx.compose.runtime.mutableFloatStateOf(0f) }
+    val visualOffsetX by androidx.compose.animation.core.animateFloatAsState(
+        targetValue = if (microSpec.isInstant) 0f else dragOffsetX,
+        animationSpec = microSpec.animationSpec(),
+        label = "miniSwipeOffset"
+    )
+    this
+        .graphicsLayer { translationX = visualOffsetX }
+        .pointerInput(anchorId) {
         awaitEachGesture {
             val down = awaitFirstDown(requireUnconsumed = false)
             var vertical: Boolean? = null
@@ -1035,9 +1067,16 @@ private fun Modifier.miniPlayerGestures(anchorId: Long, onPrevious: () -> Unit, 
             } ?: return@awaitEachGesture
             if (vertical != true) {
                 var total = overSlop.x
-                val completed = horizontalDrag(drag.id) { change ->
-                    total += change.position.x - change.previousPosition.x
-                    change.consume()
+                val maxShift = threshold * 0.45f
+                dragOffsetX = (total * 0.4f).coerceIn(-maxShift, maxShift)
+                val completed = try {
+                    horizontalDrag(drag.id) { change ->
+                        total += change.position.x - change.previousPosition.x
+                        dragOffsetX = (total * 0.4f).coerceIn(-maxShift, maxShift)
+                        change.consume()
+                    }
+                } finally {
+                    dragOffsetX = 0f
                 }
                 if (completed) {
                     when {
