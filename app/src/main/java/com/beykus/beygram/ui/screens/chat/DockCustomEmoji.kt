@@ -2,6 +2,8 @@ package com.beykus.beygram.ui.screens.chat
 
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.grid.GridCells
@@ -35,9 +37,14 @@ import com.beykus.beygram.domain.model.CustomEmojiSetBrief
 import com.beykus.beygram.domain.repository.ConversationRepository
 import com.beykus.beygram.playback.LocalPlaybackAccountId
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 
 internal data class DockCustomEmoji(
     val packs: List<CustomEmojiSetBrief>,
+    val installedIds: Set<Long>,
+    val busyPacks: Set<Long>,
+    val failedPacks: Set<Long>,
+    val changeInstallation: (Long, Boolean) -> Unit,
     val rows: List<PremiumEmojiRow>,
     val recentIds: List<Long>,
     val loadPack: (Long) -> Unit,
@@ -67,22 +74,45 @@ internal fun rememberDockCustomEmoji(
         mutableStateOf(prefs.getString(recentKey, "").orEmpty().split(',')
             .mapNotNull { it.toLongOrNull()?.takeIf { id -> id > 0L } }.distinct().take(36))
     }
-    var packs by remember(conversation) { mutableStateOf<List<CustomEmojiSetBrief>>(emptyList()) }
+    var installed by remember(conversation) { mutableStateOf<List<CustomEmojiSetBrief>>(emptyList()) }
+    var recommended by remember(conversation) { mutableStateOf<List<CustomEmojiSetBrief>>(emptyList()) }
+    var busyPacks by remember(conversation) { mutableStateOf<Set<Long>>(emptySet()) }
+    var failedPacks by remember(conversation) { mutableStateOf<Set<Long>>(emptySet()) }
     var failed by remember(conversation) { mutableStateOf(false) }
     var attempt by remember(conversation) { mutableIntStateOf(0) }
     LaunchedEffect(conversation, attempt, packsVersion) {
         failed = false
         conversation.installedCustomEmojiSets().fold(
-            onSuccess = { values -> packs = values.distinctBy { it.id } },
+            onSuccess = { values -> installed = values.distinctBy { it.id } },
             onFailure = { failed = true }
         )
     }
+    LaunchedEffect(conversation, attempt) {
+        conversation.recommendedCustomEmojiSets().onSuccess { values -> recommended = values.distinctBy { it.id } }
+    }
+    val installedIds = remember(installed) { installed.mapTo(HashSet()) { it.id } }
+    val packs = remember(installed, recommended, installedIds) { installed + recommended.filterNot { it.id in installedIds } }
     val scope = rememberCoroutineScope()
+    fun changeInstallation(setId: Long, install: Boolean) {
+        if (setId in busyPacks) return
+        busyPacks = busyPacks + setId
+        failedPacks = failedPacks - setId
+        scope.launch {
+            try {
+                conversation.changeStickerSet(setId, install)
+                    .onSuccess { attempt++ }
+                    .onFailure { failedPacks = failedPacks + setId }
+            } finally {
+                busyPacks = busyPacks - setId
+            }
+        }
+    }
     val loader = remember(scope, conversation) { CustomEmojiSetLoader(scope, load = conversation::customEmojiSetIds) }
     val states by loader.states.collectAsStateWithLifecycle()
     val rows = remember(packs, states) { premiumEmojiRows(packs, states) }
     return DockCustomEmoji(
-        packs, rows, recents, loader::request, failed, { attempt++ },
+        packs, installedIds, busyPacks, failedPacks, ::changeInstallation,
+        rows, recents, loader::request, failed, { attempt++ },
         conversation::observeCustomEmoji, observeFile, downloadFile
     ) { emoji ->
         if (onPick(emoji)) {
@@ -143,7 +173,7 @@ internal fun DockEmojiSearch(
             items(found.unicode, key = { "unicode-$it" }) { emoji -> EmojiCell(emoji) { onUnicode(emoji) } }
             items(found.custom, key = { "custom-$it" }) { id -> DockCustomEmojiCell(id, dock) }
             for (pack in found.packs) {
-                item(key = "pack-${pack.id}", span = { GridItemSpan(maxLineSpan) }) { EmojiGroupHeader(pack.title) }
+                item(key = "pack-${pack.id}", span = { GridItemSpan(maxLineSpan) }) { DockEmojiPackHeader(pack.id, pack.title, dock) }
                 items(pack.covers.distinct(), key = { "cover-${pack.id}-$it" }) { id -> DockCustomEmojiCell(id, dock) }
             }
             if (found.unicode.isEmpty() && found.custom.isEmpty() && found.packs.isEmpty()) {
@@ -157,6 +187,24 @@ internal fun DockEmojiSearch(
             item(span = { GridItemSpan(maxLineSpan) }) {
                 TextButton(onClick = { attempt++ }) { Text(stringResource(R.string.common_retry)) }
             }
+        }
+    }
+}
+
+@Composable
+internal fun DockEmojiPackHeader(setId: Long, title: String, dock: DockCustomEmoji) {
+    val installed = setId in dock.installedIds
+    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+        Box(Modifier.weight(1f)) { EmojiGroupHeader(title) }
+        TextButton(
+            enabled = setId !in dock.busyPacks,
+            onClick = { dock.changeInstallation(setId, !installed) }
+        ) {
+            Text(stringResource(when {
+                setId in dock.failedPacks -> R.string.common_retry
+                installed -> R.string.sticker_set_remove
+                else -> R.string.sticker_set_add
+            }))
         }
     }
 }

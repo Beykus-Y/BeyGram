@@ -403,6 +403,11 @@ internal class TdConversationActions(
         }
     }
 
+    suspend fun recommendedCustomEmojiSets(): Result<List<CustomEmojiSetBrief>> = requestResult {
+        request(TdApi.GetTrendingStickerSets(TdApi.StickerTypeCustomEmoji(), 0, 20)).sets.orEmpty()
+            .mapNotNull { it?.toCustomEmojiSetBrief() }
+    }
+
     /** The custom emoji sets the account has installed. A set's covers are custom emoji too, so the editor can preview each set. */
     suspend fun installedCustomEmojiSets(): Result<List<CustomEmojiSetBrief>> = requestResult {
         request(TdApi.GetInstalledStickerSets(TdApi.StickerTypeCustomEmoji())).sets.orEmpty()

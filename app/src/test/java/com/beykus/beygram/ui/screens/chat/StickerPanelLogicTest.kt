@@ -213,7 +213,7 @@ class StickerPanelLogicTest {
     }
 
     @Test
-    fun restoringTheEmojiTabAlwaysLandsOnItsPlainRoot() {
+    fun restoringEmojiSearchDropsTheStaleStickerPack() {
         val restored = restoreStickerPanelView(
             tab = StickerPanelTab.Emoji,
             section = StickerPanelSection.Favorites,
@@ -222,7 +222,7 @@ class StickerPanelLogicTest {
             query = "cat"
         )
 
-        assertEquals(StickerPanelView(tab = StickerPanelTab.Emoji), restored)
+        assertEquals(StickerPanelView(tab = StickerPanelTab.Emoji, searchOpen = true, query = "cat"), restored)
     }
 
     @Test

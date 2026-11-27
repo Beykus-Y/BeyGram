@@ -1,4 +1,5 @@
 <resources>
     <string name="sticker_panel_open_keyboard">Open keyboard</string>
     <string name="emoji_custom_recent">Recent custom emoji</string>
+    <string name="emoji_recommended_sets">Recommended packs</string>
 </resources>

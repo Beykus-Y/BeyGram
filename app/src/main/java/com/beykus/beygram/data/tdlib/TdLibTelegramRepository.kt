@@ -2769,6 +2769,7 @@ class TdLibTelegramRepository private constructor(
     override suspend fun forumTopicDefaultIcons(): Result<List<Long>> = conversationActions.forumTopicDefaultIcons()
     override suspend fun searchPickerEmoji(query: String, languages: List<String>) =
         conversationActions.searchPickerEmoji(query, languages)
+    override suspend fun recommendedCustomEmojiSets() = conversationActions.recommendedCustomEmojiSets()
     override suspend fun installedCustomEmojiSets(): Result<List<CustomEmojiSetBrief>> = conversationActions.installedCustomEmojiSets()
     override suspend fun customEmojiSetIds(setId: Long): Result<List<Long>> = conversationActions.customEmojiSetIds(setId)
     override suspend fun setForumTopicClosed(chatId: Long, forumTopicId: Long, closed: Boolean) = conversationActions.closeTopic(chatId, forumTopicId, closed)

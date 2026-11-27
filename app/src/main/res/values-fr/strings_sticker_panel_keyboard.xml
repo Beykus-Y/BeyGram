@@ -1,4 +1,5 @@
 <resources>
     <string name="sticker_panel_open_keyboard">Ouvrir le clavier</string>
     <string name="emoji_custom_recent">Émojis personnalisés récents</string>
+    <string name="emoji_recommended_sets">Packs recommandés</string>
 </resources>

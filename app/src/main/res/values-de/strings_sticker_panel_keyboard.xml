@@ -1,4 +1,5 @@
 <resources>
     <string name="sticker_panel_open_keyboard">Tastatur öffnen</string>
     <string name="emoji_custom_recent">Letzte benutzerdefinierte Emojis</string>
+    <string name="emoji_recommended_sets">Empfohlene Sets</string>
 </resources>

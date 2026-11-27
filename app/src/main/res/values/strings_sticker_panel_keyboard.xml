@@ -1,4 +1,5 @@
 <resources>
     <string name="sticker_panel_open_keyboard">Открыть клавиатуру</string>
     <string name="emoji_custom_recent">Недавние кастомные эмодзи</string>
+    <string name="emoji_recommended_sets">Рекомендованные наборы</string>
 </resources>
