@@ -41,6 +41,18 @@ class MessageContextScenePlacementTest {
         assertNotNull(computeMessageContextScene(Rect(310f, 120f, 450f, 400f), viewport, 500, 140, 248, 8, false))
     }
 
+    @Test fun reactionsAndMenuUseOppositeSidesOfTheMessage() {
+        val message = Rect(400f, 260f, 620f, 420f)
+        val result = requireNotNull(computeMessageContextScene(message, viewport, 240, 140, 248, 8, true, 210, 56))
+        val reactions = requireNotNull(result.reactionBounds)
+        if (result.menu.placedAbove) {
+            assertTrue(reactions.top >= result.messageBounds.bottom + 8)
+        } else {
+            assertTrue(reactions.bottom <= result.messageBounds.top - 8)
+        }
+        assertTrue(reactions.left >= viewport.left && reactions.right <= viewport.right)
+    }
+
     private fun scene(message: Rect) =
         requireNotNull(computeMessageContextScene(message, viewport, 280, 140, 248, 8, true))
 }
