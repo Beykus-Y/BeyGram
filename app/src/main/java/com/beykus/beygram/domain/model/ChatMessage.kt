@@ -211,4 +211,6 @@ data class MessageLimits(
     val paidReactionStarMax: Int? = null
 )
 
+data class UnreadMarkCounts(val mentions: Int, val reactions: Int)
+
 data class PinnedMessagePage(val messages: List<ChatMessage>, val totalCount: Int, val nextFromMessageId: Long)

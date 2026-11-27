@@ -91,6 +91,8 @@ interface ConversationRepository {
     suspend fun nextUnreadMention(chatId: Long, forumTopicId: Long = 0L): Result<Long?> = Result.success(null)
     /** Returns the message id of the next unread reaction in [chatId], or null when none remain. */
     suspend fun nextUnreadReaction(chatId: Long, forumTopicId: Long = 0L): Result<Long?> = Result.success(null)
+    /** Snapshot after an empty unread-mark lookup, scoped to the same chat or forum topic. */
+    suspend fun unreadMarkCounts(chatId: Long, forumTopicId: Long): Result<UnreadMarkCounts?> = Result.success(null)
     /**
      * Opens a channel post's comment thread. TDLib resolves the linked discussion chat and thread id; a post with
      * comments disabled or hidden fails with a user-facing explanation instead of an empty thread.

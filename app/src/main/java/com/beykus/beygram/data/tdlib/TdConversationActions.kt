@@ -96,6 +96,16 @@ internal class TdConversationActions(
         oldestMatch(chatId, forumTopicId, TdApi.SearchMessagesFilterUnreadReaction())
     }
 
+    suspend fun unreadMarkCounts(chatId: Long, forumTopicId: Long): Result<UnreadMarkCounts?> = conversationResult {
+        if (forumTopicId > 0L) {
+            val topic = request(TdApi.GetForumTopic(chatId, forumTopicId.toInt()))
+            UnreadMarkCounts(topic.unreadMentionCount, topic.unreadReactionCount)
+        } else {
+            val chat = request(TdApi.GetChat(chatId))
+            UnreadMarkCounts(chat.unreadMentionCount, chat.unreadReactionCount)
+        }
+    }
+
     /** Marks every unread mention or reaction of a chat, or of a forum topic, as read. The user confirmed it in a dialog. */
     suspend fun readAllMarks(chatId: Long, forumTopicId: Long, mentions: Boolean): Result<Unit> = conversationResult {
         when {

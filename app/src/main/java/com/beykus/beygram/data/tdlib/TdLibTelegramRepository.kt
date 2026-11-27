@@ -1739,6 +1739,8 @@ class TdLibTelegramRepository private constructor(
     override suspend fun messageContext(chatId: Long, messageId: Long) = conversationActions.context(chatId, messageId)
     override suspend fun singleMessage(chatId: Long, messageId: Long) = conversationActions.single(chatId, messageId)
     override suspend fun linkedDiscussionChatId(chatId: Long) = conversationActions.linkedDiscussionChatId(chatId)
+    override suspend fun unreadMarkCounts(chatId: Long, forumTopicId: Long) =
+        conversationActions.unreadMarkCounts(chatId, forumTopicId)
     override suspend fun nextUnreadMention(chatId: Long, forumTopicId: Long) = conversationActions.nextUnreadMention(chatId, forumTopicId)
     override suspend fun nextUnreadReaction(chatId: Long, forumTopicId: Long) = conversationActions.nextUnreadReaction(chatId, forumTopicId)
     override suspend fun loadMessageThread(chatId: Long, messageId: Long) = conversationActions.messageThread(chatId, messageId)
