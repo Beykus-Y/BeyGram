@@ -891,7 +891,8 @@ private fun DeleteChoice(text: String, selected: Boolean, enabled: Boolean, onSe
 @Composable
 internal fun EditBanner(original: String, isCaption: Boolean, count: Int, limit: Int, error: String?, onClose: () -> Unit) {
     val palette = beyGramPalette()
-    Row(Modifier.fillMaxWidth().motionEntrance(MotionToken.BannerChange, 8.dp).chatChromeBackground(palette.surface).padding(start = 18.dp, end = 6.dp, top = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+    ChatFloatingBarHost(Modifier.motionEntrance(MotionToken.BannerChange, 8.dp)) {
+        Row(Modifier.fillMaxWidth().padding(start = 18.dp, end = 6.dp, top = 8.dp), verticalAlignment = Alignment.CenterVertically) {
         Icon(Icons.Rounded.Edit, null, tint = palette.accent, modifier = Modifier.size(20.dp))
         Column(Modifier.weight(1f).padding(start = 12.dp)) {
             Text(if (isCaption) stringResource(R.string.message_edit_caption_banner) else stringResource(R.string.message_edit_banner), color = palette.accentInk, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
@@ -900,6 +901,7 @@ internal fun EditBanner(original: String, isCaption: Boolean, count: Int, limit:
         }
         Text("$count / $limit", color = if (count > limit) palette.danger else palette.textSecondary, fontSize = 12.sp)
         IconButton(onClick = onClose) { Icon(Icons.Rounded.Close, stringResource(R.string.message_edit_cancel_description), tint = palette.textSecondary) }
+        }
     }
 }
 

@@ -378,7 +378,7 @@ internal fun MessageBubble(message: ChatMessage, observeFile: (Int) -> StateFlow
         }
         // Кружок и стикер лежат без пузыря: полосе комментариев нужна своя подложка того же цвета.
         if (circle || sticker) commentsBar?.let { bar ->
-            Box(Modifier.padding(top = 2.dp).width(244.dp).clip(RoundedCornerShape(metrics.replyRadius))
+            Box(Modifier.padding(top = 2.dp).widthIn(max = 244.dp).fillMaxWidth().clip(RoundedCornerShape(metrics.replyRadius))
                 .background(if (message.isOutgoing) palette.outgoingBubble else palette.incomingBubble)) { bar() }
         }
      }

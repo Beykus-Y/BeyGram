@@ -1,9 +1,13 @@
 package com.beykus.beygram.ui.screens.chat
 
 import androidx.compose.animation.core.Animatable
+import com.beykus.beygram.ui.design.GlassEdge
+import com.beykus.beygram.ui.design.GlassPanel
 import com.beykus.beygram.ui.design.LocalDesignSystem
 import com.beykus.beygram.ui.design.glassSheet
 import com.beykus.beygram.ui.design.styledShape
+import com.beykus.beygram.ui.design.styledTopShape
+import com.beykus.beygram.ui.design.usesGlassPanels
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
@@ -11,6 +15,7 @@ import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -680,16 +685,16 @@ private fun StickerPanel(
         }
     }
 
-    Column(
-        Modifier
-            .fillMaxWidth()
-            .onGloballyPositioned { coordinates ->
-                val below = (windowHeightPx - coordinates.boundsInWindow().bottom).roundToInt().coerceAtLeast(0)
-                if (below != belowPanelPx) belowPanelPx = below
-            }
-            .heightIn(max = panelHeight)
-            .glassSheet(LocalDesignSystem.current, palette.surface, palette.textSecondary)
-    ) {
+    val design = LocalDesignSystem.current
+    val onSharedGlass = LocalComposerOnGlassPlane.current || LocalChatChromeOnGlass.current
+    val panelBaseModifier = Modifier
+        .fillMaxWidth()
+        .onGloballyPositioned { coordinates ->
+            val below = (windowHeightPx - coordinates.boundsInWindow().bottom).roundToInt().coerceAtLeast(0)
+            if (below != belowPanelPx) belowPanelPx = below
+        }
+        .heightIn(max = panelHeight)
+    val panelBody: @Composable ColumnScope.() -> Unit = {
         if (view.searchActive) {
             StickerPanelSearchHeader(
                 query = view.query,
@@ -925,6 +930,26 @@ private fun StickerPanel(
                 }
             }
         }
+    }
+    if (design.usesGlassPanels && !onSharedGlass) {
+        GlassPanel(
+            design = design,
+            tint = palette.surface,
+            rim = palette.textSecondary,
+            backdropBase = palette.screen,
+            shape = styledTopShape(20.dp),
+            edge = GlassEdge.TopHairline,
+            lensOnFreeEdge = true,
+            modifier = panelBaseModifier
+        ) {
+            Column(Modifier.fillMaxWidth(), content = panelBody)
+        }
+    } else {
+        Column(
+            if (design.usesGlassPanels) panelBaseModifier.background(palette.surface.copy(alpha = 0.25f))
+            else panelBaseModifier.glassSheet(design, palette.surface, palette.textSecondary),
+            content = panelBody
+        )
     }
 
     if (confirmClearRecent) {
