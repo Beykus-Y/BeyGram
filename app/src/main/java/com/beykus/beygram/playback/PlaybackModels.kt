@@ -206,6 +206,32 @@ internal fun canGoPrevious(
     return repeatMode == PlaybackRepeatMode.All || index > 0
 }
 
+/**
+ * Queue index of the adjacent occurrence in the real play order, for an explicit swipe. Unlike the Previous button it
+ * never restarts the current track, so the edge of a queue with Repeat Off has no neighbour. [order] holds queue indices
+ * in playback order (ExoPlayer's shuffle order); a wrap-around only happens with a repeat mode, matching playback.
+ * [step] is +1 for the following track and -1 for the previous one. Null for an unavailable/malformed order.
+ */
+internal fun adjacentPlaybackQueueIndex(
+    queueSize: Int,
+    currentIndex: Int,
+    order: List<Int> = (0 until queueSize).toList(),
+    repeatMode: PlaybackRepeatMode = PlaybackRepeatMode.Off,
+    step: Int,
+): Int? {
+    if (step == 0 || queueSize <= 1 || currentIndex !in 0 until queueSize) return null
+    val playOrder = order.filter { it in 0 until queueSize }.distinct()
+    if (playOrder.size != queueSize) return null
+    val position = playOrder.indexOf(currentIndex)
+    if (position < 0) return null
+    val target = position + step
+    return when {
+        target in playOrder.indices -> playOrder[target]
+        repeatMode == PlaybackRepeatMode.Off -> null
+        else -> playOrder[((target % queueSize) + queueSize) % queueSize]
+    }
+}
+
 /** Музыка, которую прервало голосовое или кружок. Продолжается с [positionMs], когда прерывающий файл доиграет. */
 internal data class InterruptedMusic(
     val item: PlaybackItem,
