@@ -20,6 +20,13 @@ class MessageMarkupTest {
         assertNull(MessageSendOptions(replyQuote = "word", replyQuotePosition = -1).toInputTextQuote())
     }
 
+    @Test fun `an edited source cannot retarget a quote to another occurrence`() {
+        val quote = OutgoingReplyQuote("word", 8, emptyList())
+        assertTrue(quote.matchesSource("word 😀 word"))
+        assertFalse(quote.matchesSource("word 😀 gone"))
+        assertFalse(quote.matchesSource("word"))
+    }
+
     @Test fun `UTF16 styles and hidden links survive an outgoing incoming round trip`() {
         val text = "😀 hello link"
         val entities = listOf(MessageTextEntity(3, 5, TextStyleKind.Bold), MessageTextEntity(9, 4, TextStyleKind.Url, "https://example.com"))
