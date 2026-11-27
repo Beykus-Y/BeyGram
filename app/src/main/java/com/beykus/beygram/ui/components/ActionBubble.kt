@@ -62,7 +62,8 @@ fun ActionBubble(
     modifier: Modifier = Modifier,
     enabled: Boolean = true,
     active: Boolean = false,
-    entranceIndex: Int = 0
+    entranceIndex: Int = 0,
+    compact: Boolean = false
 ) {
     val palette = beyGramPalette()
     val design = LocalDesignSystem.current
@@ -74,7 +75,8 @@ fun ActionBubble(
         animationSpec = spec.animationSpec()
     )
     val delay = EntranceStepMillis * entranceIndex.coerceIn(0, EntranceMaxSteps)
-    val circleShape = styledShape(BubbleSize / 2)
+    val bubbleSize = if (compact) 38.dp else BubbleSize
+    val circleShape = styledShape(bubbleSize / 2)
     val circleModifier = when {
         active -> Modifier.clip(circleShape).background(palette.accent)
         design.usesGlassPanels -> Modifier.glassCard(design, palette.surface2, palette.textSecondary, circleShape)
@@ -88,7 +90,7 @@ fun ActionBubble(
     Column(
         modifier
             .fillMaxWidth()
-            .defaultMinSize(minHeight = BubbleMinHeight)
+            .defaultMinSize(minHeight = if (compact) 56.dp else BubbleMinHeight)
             .motionEntrance(MotionToken.SheetEnter, EntranceRise, delay)
             .alpha(if (enabled) 1f else 0.38f)
             .clickable(
@@ -98,23 +100,23 @@ fun ActionBubble(
                 indication = null,
                 onClick = onClick
             )
-            .padding(vertical = 6.dp, horizontal = 2.dp),
+            .padding(vertical = if (compact) 3.dp else 6.dp, horizontal = 2.dp),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
         Box(
-            Modifier.size(BubbleSize).scale(pressScale).then(circleModifier),
+            Modifier.size(bubbleSize).scale(pressScale).then(circleModifier),
             contentAlignment = Alignment.Center
         ) {
-            Icon(icon, contentDescription = null, tint = iconTint, modifier = Modifier.size(24.dp))
+            Icon(icon, contentDescription = null, tint = iconTint, modifier = Modifier.size(if (compact) 20.dp else 24.dp))
         }
-        Spacer(Modifier.height(6.dp))
+        Spacer(Modifier.height(if (compact) 3.dp else 6.dp))
         Text(
             label,
             color = palette.textPrimary,
             fontSize = 12.sp,
             fontWeight = FontWeight.Medium,
             textAlign = TextAlign.Center,
-            maxLines = 1,
+            maxLines = if (compact) 2 else 1,
             overflow = TextOverflow.Ellipsis,
             modifier = Modifier.fillMaxWidth()
         )
