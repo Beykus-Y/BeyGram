@@ -1,5 +1,6 @@
 package com.beykus.beygram.ui.screens.chat
 
+import com.beykus.beygram.domain.model.AnimationItem
 import androidx.compose.runtime.saveable.listSaver
 import com.beykus.beygram.domain.model.StickerItem
 
@@ -132,7 +133,7 @@ internal fun updateFavoriteStickers(
 }
 
 /** Size the mosaic before downloads finish so replacing the placeholder never reflows the grid. */
-internal fun gifPickerAspectRatio(item: com.beykus.beygram.domain.model.AnimationItem): Float {
+internal fun gifPickerAspectRatio(item: AnimationItem): Float {
     val ratio = when {
         item.width > 0 && item.height > 0 -> item.width.toFloat() / item.height
         item.thumbnailWidth > 0 && item.thumbnailHeight > 0 -> item.thumbnailWidth.toFloat() / item.thumbnailHeight
