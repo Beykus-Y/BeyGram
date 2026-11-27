@@ -22,6 +22,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.ui.platform.testTag
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -1268,7 +1269,7 @@ internal fun AttachmentButton(state: AttachmentState, enabled: Boolean = true, e
         modifier = Modifier.size(ComposerButtonSize)
             .semantics { contentDescription = context.getString(R.string.composer_attach_description) }
     ) {
-        Box(Modifier.size(ComposerButtonSize), contentAlignment = Alignment.Center) {
+        Box(Modifier.size(ComposerButtonSize).testTag("attachment_composer_button"), contentAlignment = Alignment.Center) {
             ComposerMaterial(
                 if (tonal) palette.accentSoft else palette.surface2,
                 CircleShape,
@@ -1279,7 +1280,7 @@ internal fun AttachmentButton(state: AttachmentState, enabled: Boolean = true, e
                 Icons.Rounded.AttachFile,
                 contentDescription = null,
                 tint = if (state.menuOpen || state.active) palette.accent else palette.textSecondary,
-                modifier = Modifier.size(ComposerIconSize)
+                modifier = Modifier.size(ComposerIconSize).testTag("attachment_composer_glyph")
             )
         }
     }

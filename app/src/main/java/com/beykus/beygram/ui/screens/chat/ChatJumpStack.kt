@@ -39,6 +39,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -240,7 +241,7 @@ internal fun ChatFloatingBadgeButton(
     val palette = beyGramPalette()
     val design = LocalDesignSystem.current
     Box(
-        Modifier.size(44.dp).semantics(mergeDescendants = true) { contentDescription = label },
+        Modifier.size(44.dp).testTag("chat_floating_badge_button").semantics(mergeDescendants = true) { contentDescription = label },
         contentAlignment = Alignment.Center
     ) {
         if (design.usesGlassPanels) {
@@ -253,7 +254,9 @@ internal fun ChatFloatingBadgeButton(
                 modifier = Modifier.fillMaxSize()
                     .combinedClickable(enabled = enabled, role = Role.Button, onClick = onClick, onLongClick = onLongClick)
             ) {
-                Icon(icon, contentDescription = null, tint = palette.accent, modifier = Modifier.align(Alignment.Center).size(20.dp))
+                Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                    Icon(icon, contentDescription = null, tint = palette.accent, modifier = Modifier.size(20.dp).testTag("chat_floating_badge_glyph"))
+                }
             }
         } else {
             Box(
@@ -261,7 +264,7 @@ internal fun ChatFloatingBadgeButton(
                     .combinedClickable(enabled = enabled, role = Role.Button, onClick = onClick, onLongClick = onLongClick),
                 contentAlignment = Alignment.Center
             ) {
-                Icon(icon, contentDescription = null, tint = palette.accent, modifier = Modifier.size(20.dp))
+                Icon(icon, contentDescription = null, tint = palette.accent, modifier = Modifier.size(20.dp).testTag("chat_floating_badge_glyph"))
             }
         }
         if (count > 0) Box(
@@ -340,7 +343,7 @@ internal fun JumpToLatestButton(unread: Int, onClick: () -> Unit) {
     val design = LocalDesignSystem.current
     val label = stringResource(R.string.chat_jump_to_latest)
     Box(
-        Modifier.size(48.dp).semantics(mergeDescendants = true) { contentDescription = label },
+        Modifier.size(48.dp).testTag("jump_to_latest_button").semantics(mergeDescendants = true) { contentDescription = label },
         contentAlignment = Alignment.Center
     ) {
         if (design.usesGlassPanels) {
@@ -352,7 +355,9 @@ internal fun JumpToLatestButton(unread: Int, onClick: () -> Unit) {
                 shape = CircleShape,
                 modifier = Modifier.fillMaxSize().clickable(role = Role.Button, onClick = onClick)
             ) {
-                Icon(Icons.Rounded.ArrowDownward, contentDescription = null, tint = palette.accent, modifier = Modifier.align(Alignment.Center).size(22.dp))
+                Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                    Icon(Icons.Rounded.ArrowDownward, contentDescription = null, tint = palette.accent, modifier = Modifier.size(22.dp).testTag("jump_to_latest_glyph"))
+                }
             }
         } else {
             Box(
@@ -361,7 +366,7 @@ internal fun JumpToLatestButton(unread: Int, onClick: () -> Unit) {
                     .clickable(role = Role.Button, onClick = onClick),
                 contentAlignment = Alignment.Center
             ) {
-                Icon(Icons.Rounded.ArrowDownward, contentDescription = null, tint = palette.accent, modifier = Modifier.size(22.dp))
+                Icon(Icons.Rounded.ArrowDownward, contentDescription = null, tint = palette.accent, modifier = Modifier.size(22.dp).testTag("jump_to_latest_glyph"))
             }
         }
         // The badge sits outside the clipped circle so the corner offset does not crop it.

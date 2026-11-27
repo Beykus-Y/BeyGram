@@ -37,6 +37,7 @@ import com.beykus.beygram.ui.design.LocalDesignSystem
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.platform.LocalViewConfiguration
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.input.pointer.PointerEventPass
 import kotlinx.coroutines.withTimeoutOrNull
 import android.os.SystemClock
@@ -160,7 +161,7 @@ internal fun RecordingControlButton(
             }
         }, contentAlignment = Alignment.Center) {
         Box(Modifier.size(ComposerButtonSize).graphicsLayer { translationX = dragX.floatValue; translationY = dragY.floatValue }
-            .clip(CircleShape), contentAlignment = Alignment.Center) {
+            .clip(CircleShape).testTag("recording_control_button"), contentAlignment = Alignment.Center) {
             ComposerMaterial(
                 when {
                     active || canceling -> palette.danger
@@ -175,7 +176,7 @@ internal fun RecordingControlButton(
                     active || canceling -> palette.onAccent
                     tonal -> palette.accentInk
                     else -> palette.textSecondary
-                }, modifier = Modifier.size(ComposerIconSize))
+                }, modifier = Modifier.size(ComposerIconSize).testTag("recording_control_glyph"))
         }
     }
 }

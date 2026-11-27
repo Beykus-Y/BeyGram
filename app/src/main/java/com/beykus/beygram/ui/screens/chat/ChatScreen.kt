@@ -70,6 +70,7 @@ import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalWindowInfo
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
@@ -2667,12 +2668,12 @@ internal fun SendControlFace(busy: Boolean, canSend: Boolean, editing: Boolean) 
                 rim = palette.onAccent.copy(alpha = 0.65f),
                 backdropBase = palette.screen,
                 shape = CircleShape,
-                modifier = Modifier.size(ComposerButtonSize)
+                modifier = Modifier.size(ComposerButtonSize).testTag("send_control_face")
             ) {
-                Box(Modifier.matchParentSize().background(palette.accent.copy(alpha = activeAlpha)), contentAlignment = Alignment.Center) {
-                    if (busy) CircularProgressIndicator(Modifier.size(20.dp), color = palette.onAccent, strokeWidth = 2.dp)
+                Box(Modifier.fillMaxSize().background(palette.accent.copy(alpha = activeAlpha)), contentAlignment = Alignment.Center) {
+                    if (busy) CircularProgressIndicator(Modifier.size(20.dp).testTag("send_control_glyph"), color = palette.onAccent, strokeWidth = 2.dp)
                     else Icon(if (editing) Icons.Rounded.Check else Icons.AutoMirrored.Rounded.Send, contentDescription = null,
-                        tint = palette.onAccent.copy(alpha = iconAlpha), modifier = Modifier.size(ComposerIconSize))
+                        tint = palette.onAccent.copy(alpha = iconAlpha), modifier = Modifier.size(ComposerIconSize).testTag("send_control_glyph"))
                 }
             }
         } else {
@@ -2680,22 +2681,23 @@ internal fun SendControlFace(busy: Boolean, canSend: Boolean, editing: Boolean) 
                 Modifier.size(ComposerButtonSize)
                     .clip(CircleShape)
                     .background(palette.accent.copy(alpha = if (canSend || busy) 0.84f else 0.36f))
-                    .border(0.75.dp, palette.onAccent.copy(alpha = 0.35f), CircleShape),
+                    .border(0.75.dp, palette.onAccent.copy(alpha = 0.35f), CircleShape)
+                    .testTag("send_control_face"),
                 contentAlignment = Alignment.Center
             ) {
-                if (busy) CircularProgressIndicator(Modifier.size(20.dp), color = palette.onAccent, strokeWidth = 2.dp)
+                if (busy) CircularProgressIndicator(Modifier.size(20.dp).testTag("send_control_glyph"), color = palette.onAccent, strokeWidth = 2.dp)
                 else Icon(if (editing) Icons.Rounded.Check else Icons.AutoMirrored.Rounded.Send, contentDescription = null,
-                    tint = palette.onAccent.copy(alpha = iconAlpha), modifier = Modifier.size(ComposerIconSize))
+                    tint = palette.onAccent.copy(alpha = iconAlpha), modifier = Modifier.size(ComposerIconSize).testTag("send_control_glyph"))
             }
         }
         return
     }
     val fill = if (design.composerTonal) palette.accentSoft else palette.accent
     val ink = if (design.composerTonal) palette.accentInk else palette.onAccent
-    Box(Modifier.size(ComposerButtonSize).clip(if (design.squareSendButton) RoundedCornerShape(design.shapes.button) else CircleShape).background(fill.copy(alpha = if (canSend || busy) 1f else 0.4f)), contentAlignment = Alignment.Center) {
-        if (busy) CircularProgressIndicator(Modifier.size(20.dp), color = ink, strokeWidth = 2.dp)
+    Box(Modifier.size(ComposerButtonSize).clip(if (design.squareSendButton) RoundedCornerShape(design.shapes.button) else CircleShape).background(fill.copy(alpha = if (canSend || busy) 1f else 0.4f)).testTag("send_control_face"), contentAlignment = Alignment.Center) {
+        if (busy) CircularProgressIndicator(Modifier.size(20.dp).testTag("send_control_glyph"), color = ink, strokeWidth = 2.dp)
         else Icon(if (editing) Icons.Rounded.Check else Icons.AutoMirrored.Rounded.Send, contentDescription = null,
-            tint = ink.copy(alpha = if (canSend) 1f else 0.8f), modifier = Modifier.size(ComposerIconSize))
+            tint = ink.copy(alpha = if (canSend) 1f else 0.8f), modifier = Modifier.size(ComposerIconSize).testTag("send_control_glyph"))
     }
 }
 
