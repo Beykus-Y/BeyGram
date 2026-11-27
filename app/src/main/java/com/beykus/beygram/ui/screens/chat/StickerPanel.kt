@@ -1,6 +1,8 @@
 package com.beykus.beygram.ui.screens.chat
 
 import androidx.compose.animation.core.Animatable
+import com.beykus.beygram.ui.design.LocalDesignSystem
+import com.beykus.beygram.ui.design.glassSheet
 import com.beykus.beygram.ui.design.styledShape
 import androidx.compose.foundation.background
 import androidx.compose.foundation.combinedClickable
@@ -37,6 +39,8 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.rounded.Animation
+import androidx.compose.material.icons.rounded.EmojiEmotions
+import androidx.compose.material.icons.rounded.Keyboard
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.History
 import androidx.compose.material.icons.rounded.Refresh
@@ -133,12 +137,14 @@ internal fun StickerPanelEntryButton(open: Boolean, enabled: Boolean, onClick: (
     val palette = beyGramPalette()
     val focus = LocalFocusManager.current
     val keyboard = LocalSoftwareKeyboardController.current
-    val label = stringResource(R.string.sticker_panel_entry)
+    val label = stringResource(if (open) R.string.sticker_panel_open_keyboard else R.string.sticker_panel_entry)
     IconButton(
         onClick = {
-            focus.clearFocus()
-            keyboard?.hide()
             onClick()
+            if (!open) {
+                focus.clearFocus()
+                keyboard?.hide()
+            }
         },
         enabled = enabled,
         modifier = Modifier.size(48.dp)
@@ -150,7 +156,7 @@ internal fun StickerPanelEntryButton(open: Boolean, enabled: Boolean, onClick: (
             }
     ) {
         Icon(
-            Icons.Rounded.Animation,
+            if (open) Icons.Rounded.Keyboard else Icons.Rounded.EmojiEmotions,
             contentDescription = null,
             tint = when {
                 !enabled -> palette.disabled
@@ -177,6 +183,7 @@ internal fun StickerPanelHost(
     downloadFile: (Int) -> Unit,
     scope: CoroutineScope,
     composerReserve: androidx.compose.ui.unit.Dp,
+    keyboardHeightHint: androidx.compose.ui.unit.Dp,
     onReplyConsumed: (Long?) -> Unit,
     onAnimationAttach: (AnimationItem) -> Unit,
     onStickerOptions: (StickerItem) -> Unit,
@@ -197,6 +204,7 @@ internal fun StickerPanelHost(
             error = error,
             scope = scope,
             composerReserve = composerReserve,
+            keyboardHeightHint = keyboardHeightHint,
             onSendSticker = { item ->
                 if (!sending) {
                     val targetReplyId = replyId
@@ -266,6 +274,7 @@ private fun StickerPanel(
     error: String?,
     scope: CoroutineScope,
     composerReserve: androidx.compose.ui.unit.Dp,
+    keyboardHeightHint: androidx.compose.ui.unit.Dp,
     onSendSticker: (StickerItem) -> Unit,
     onStickerOptions: (StickerItem) -> Unit,
     onSendAnimation: (AnimationItem) -> Unit,
@@ -323,14 +332,6 @@ private fun StickerPanel(
     }
     val packTitle = packState.readyValue()?.takeIf { it.id == view.selectedSetId }?.title
         ?: setsState.readyValue()?.firstOrNull { it.id == view.selectedSetId }?.title.orEmpty()
-    val title = when {
-        view.searchActive -> stringResource(R.string.sticker_panel_search_results)
-        view.section == StickerPanelSection.Pack -> packTitle.ifBlank { stringResource(R.string.sticker_panel_title) }
-        view.section == StickerPanelSection.Favorites -> stringResource(R.string.sticker_panel_favorites)
-        view.tab == StickerPanelTab.Emoji -> stringResource(R.string.sticker_panel_tab_emoji)
-        view.tab == StickerPanelTab.Gifs -> stringResource(R.string.sticker_panel_tab_gifs)
-        else -> stringResource(R.string.sticker_panel_title)
-    }
     val searchPlaceholder = stringResource(
         if (view.tab == StickerPanelTab.Gifs) R.string.gif_panel_search else R.string.sticker_panel_search
     )
@@ -343,8 +344,9 @@ private fun StickerPanel(
     val imeHeight = with(density) { WindowInsets.ime.getBottom(density).toDp() }
     val belowPanel = if (belowPanelPx > 0) with(density) { belowPanelPx.toDp() } else imeHeight + composerReserve
     val availableHeight = (windowHeight - belowPanel).coerceAtLeast(MIN_PANEL_WITH_KEYBOARD)
-    val panelHeight = (windowHeight * 0.62f)
-        .coerceIn(PANEL_MIN_HEIGHT, PANEL_MAX_HEIGHT)
+    val preferredHeight = keyboardHeightHint.takeIf { it > 0.dp }?.let { minOf(it, windowHeight * 0.62f) }
+        ?: (windowHeight * 0.62f)
+    val panelHeight = preferredHeight.coerceIn(PANEL_MIN_HEIGHT, PANEL_MAX_HEIGHT)
         .coerceAtMost(availableHeight)
     val displayError = notice ?: error
 
@@ -615,7 +617,7 @@ private fun StickerPanel(
                 if (below != belowPanelPx) belowPanelPx = below
             }
             .heightIn(max = panelHeight)
-            .background(palette.surface)
+            .glassSheet(LocalDesignSystem.current, palette.surface, palette.textSecondary)
     ) {
         if (view.searchActive) {
             StickerPanelSearchHeader(
@@ -632,19 +634,20 @@ private fun StickerPanel(
             )
         } else {
             StickerPanelHeader(
-                title = title,
+                selectedTab = view.tab,
                 canGoBack = view.canGoBack,
                 showSearch = view.tab != StickerPanelTab.Emoji,
                 onBack = ::navigateBack,
                 onSearch = { notice = null; view = view.openSearch() },
-                onClose = ::closePanel
+                onClose = ::closePanel,
+                onSelectTab = { next -> if (next != view.tab) { notice = null; view = view.switchTab(next) } }
             )
-        }
-        if (!view.searchActive) {
-            StickerPanelTabs(
-                selected = view.tab,
-                onSelect = { next -> if (next != view.tab) { notice = null; view = view.switchTab(next) } }
-            )
+            if (view.section == StickerPanelSection.Pack && packTitle.isNotBlank()) {
+                Text(
+                    packTitle, color = palette.textSecondary, fontSize = 12.sp, maxLines = 1,
+                    overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(horizontal = 12.dp, vertical = 2.dp)
+                )
+            }
         }
         if (sending) LinearProgressIndicator(
             Modifier.fillMaxWidth().height(2.dp),
@@ -774,32 +777,22 @@ private fun StickerPanel(
 
 @Composable
 private fun StickerPanelHeader(
-    title: String,
+    selectedTab: StickerPanelTab,
     canGoBack: Boolean,
     showSearch: Boolean,
     onBack: () -> Unit,
     onSearch: () -> Unit,
-    onClose: () -> Unit
+    onClose: () -> Unit,
+    onSelectTab: (StickerPanelTab) -> Unit
 ) {
     val palette = beyGramPalette()
-    Row(
-        Modifier.fillMaxWidth().defaultMinSize(minHeight = 48.dp).padding(start = 4.dp, end = 4.dp, top = 2.dp),
-        verticalAlignment = Alignment.CenterVertically
-    ) {
+    Row(Modifier.fillMaxWidth().padding(horizontal = 2.dp), verticalAlignment = Alignment.CenterVertically) {
         if (canGoBack) {
             IconButton(onClick = onBack, modifier = Modifier.size(48.dp)) {
                 Icon(Icons.AutoMirrored.Rounded.ArrowBack, stringResource(R.string.common_back), tint = palette.textSecondary)
             }
-        } else Spacer(Modifier.width(8.dp))
-        Text(
-            title,
-            color = palette.textPrimary,
-            fontSize = 16.sp,
-            fontWeight = FontWeight.SemiBold,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-            modifier = Modifier.weight(1f)
-        )
+        }
+        StickerPanelTabs(selectedTab, onSelectTab, Modifier.weight(1f))
         if (showSearch) {
             IconButton(onClick = onSearch, modifier = Modifier.size(48.dp)) {
                 Icon(Icons.Rounded.Search, stringResource(R.string.sticker_panel_search), tint = palette.textSecondary)
@@ -865,13 +858,13 @@ private fun StickerPanelSearchHeader(
 }
 
 @Composable
-private fun StickerPanelTabs(selected: StickerPanelTab, onSelect: (StickerPanelTab) -> Unit) {
+private fun StickerPanelTabs(selected: StickerPanelTab, onSelect: (StickerPanelTab) -> Unit, modifier: Modifier) {
     val palette = beyGramPalette()
     Row(
-        Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp)
+        modifier.padding(vertical = 2.dp)
             .clip(styledShape(14.dp))
             .background(palette.surface2)
-            .padding(4.dp)
+            .padding(2.dp)
     ) {
         PanelTab(
             label = stringResource(R.string.sticker_panel_tab_emoji),
@@ -906,9 +899,10 @@ private fun PanelTab(label: String, selected: Boolean, onClick: () -> Unit, modi
         Text(
             label,
             color = if (selected) palette.onAccent else palette.textPrimary,
-            fontSize = 14.sp,
+            fontSize = 12.sp,
             fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
-            maxLines = 1
+            maxLines = 2,
+            textAlign = TextAlign.Center
         )
     }
 }
