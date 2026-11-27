@@ -19,6 +19,7 @@ class MessageContextScenePlacementTest {
         val message = ChatMessage(1, 1, "caption", "", false, media = photo)
         assertTrue(message.supportsContextScene())
         assertTrue(message.copy(text = "", media = photo.copy(kind = MediaKind.Video)).supportsContextScene())
+        assertTrue(message.copy(text = "", media = photo.copy(kind = MediaKind.Document, fileName = "file.pdf")).supportsContextScene())
         assertFalse(message.copy(media = photo.copy(hasSpoiler = true)).supportsContextScene())
         assertFalse(message.copy(media = photo.copy(isSecret = true)).supportsContextScene())
         assertFalse(message.copy(mediaAlbumId = 1L).supportsContextScene())
