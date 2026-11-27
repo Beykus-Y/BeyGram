@@ -33,7 +33,8 @@ internal fun crossfadeMustStop(playerError: Boolean, playWhenReady: Boolean, pla
 internal class TrackCrossfader(
     private val scope: CoroutineScope,
     private val enabled: () -> Boolean,
-    private val busy: () -> Boolean,
+    /** Non-null while another owner holds the primary player (BG Mix, its handover fade, a deferred seek). */
+    private val blocked: () -> CrossfadeOwnershipBlock?,
     private val newPlayer: () -> ExoPlayer?,
     private val trailingMs: (mediaId: String) -> Long?,
     private val nextAfter: (primary: ExoPlayer, mediaId: String) -> CrossfadeNext?,
@@ -65,7 +66,7 @@ internal class TrackCrossfader(
     /** Starts the watch for the playing track. Called on every progress tick; a watch that is running is left alone. */
     fun watch(primary: ExoPlayer) {
         if (current?.job?.isActive == true) return
-        if (!enabled() || busy()) {
+        if (!enabled() || blocked() != null) {
             givenUpMediaId = null
             return
         }
@@ -113,6 +114,16 @@ internal class TrackCrossfader(
     private fun playbackSuppressed(player: ExoPlayer): Boolean =
         player.playbackSuppressionReason != Player.PLAYBACK_SUPPRESSION_REASON_NONE
 
+    /**
+     * Whether the overlap has lost the primary: the setting is off, another owner took it (BG Mix or its handover,
+     * a deferred seek), playback stopped/failed, or [expectedMediaId] is no longer current. Checked before every write
+     * of a gain, so an ownership change at a suspension point can never leave the level half-faded.
+     */
+    private fun lostOwnership(primary: ExoPlayer, expectedMediaId: String?): Boolean =
+        !enabled() || blocked() != null ||
+            crossfadeMustStop(primary.playerError != null, primary.playWhenReady, playbackSuppressed(primary)) ||
+            (expectedMediaId != null && primary.currentMediaItem?.mediaId != expectedMediaId)
+
     private suspend fun run(primary: ExoPlayer, watch: Watch): Outcome {
         // The length chosen in the settings applies to the whole transition, even if the setting changes meanwhile.
         val overlap = overlapMs()
@@ -120,9 +131,7 @@ internal class TrackCrossfader(
         var lockedNext: CrossfadeNext? = null
         var lastPosition: Long? = null
         while (true) {
-            if (!enabled() || busy()) return Outcome.Interrupted
-            if (crossfadeMustStop(primary.playerError != null, primary.playWhenReady, playbackSuppressed(primary))) return Outcome.Interrupted
-            if (primary.currentMediaItem?.mediaId != watch.mediaId) return Outcome.Interrupted
+            if (lostOwnership(primary, watch.mediaId)) return Outcome.Interrupted
             val duration = primary.duration
             if (duration == C.TIME_UNSET || duration <= 0L) {
                 delay(CROSSFADE_IDLE_STEP_MS)
@@ -185,11 +194,11 @@ internal class TrackCrossfader(
     }
 
     private suspend fun fire(primary: ExoPlayer, watch: Watch, tail: ExoPlayer, locked: CrossfadeNext, overlap: Long): Outcome {
+        // Another owner may have committed since the last wake-up. Never write a gain after that.
+        if (lostOwnership(primary, watch.mediaId)) return Outcome.Interrupted
         // The queue may have changed while the tail waited. A different next track keeps this transition a plain cut.
         val target = nextAfter(primary, watch.mediaId)
         if (target == null || target.mediaId != locked.mediaId) return Outcome.GaveUp
-        // Focus lost since the last check: the tail must not start, because it would play without focus.
-        if (crossfadeMustStop(primary.playerError != null, primary.playWhenReady, playbackSuppressed(primary))) return Outcome.Interrupted
         val parameters = primary.playbackParameters
         val speed = parameters.speed.coerceIn(0.25f, 4f)
         // The tail plays at the speed the ramp uses, even if the speed was changed while the tail waited.
@@ -204,16 +213,18 @@ internal class TrackCrossfader(
         while (settled < CROSSFADE_PREROLL_SETTLE_MS) {
             delay(CROSSFADE_ARM_STEP_MS)
             settled += CROSSFADE_ARM_STEP_MS
-            if (crossfadeMustStop(primary.playerError != null, primary.playWhenReady, playbackSuppressed(primary))) return Outcome.Interrupted
-            if (primary.currentMediaItem?.mediaId != watch.mediaId) return Outcome.Interrupted
+            if (lostOwnership(primary, watch.mediaId)) return Outcome.Interrupted
         }
         if (kotlin.math.abs(tail.currentPosition - primary.currentPosition) > CROSSFADE_SYNC_TOLERANCE_MS) return Outcome.GaveUp
 
         // Hand-off: identical audio on both players, volumes traded over a few milliseconds, so there is no click and
         // the outgoing track is never repeated or interrupted.
+        if (lostOwnership(primary, watch.mediaId)) return Outcome.Interrupted
         watch.volumeTouched = true
         val handoffStart = System.nanoTime()
         while (true) {
+            // Re-checked before every gain write: a BG Mix commit can land between two wake-ups here.
+            if (lostOwnership(primary, watch.mediaId)) return Outcome.Interrupted
             val elapsedMs = (System.nanoTime() - handoffStart) / 1_000_000L
             val progress = (elapsedMs.toFloat() / CROSSFADE_HANDOFF_MS).coerceIn(0f, 1f)
             primary.volume = handoffPrimaryGain(progress)
@@ -221,18 +232,19 @@ internal class TrackCrossfader(
             if (progress >= 1f) break
             delay(CROSSFADE_ARM_STEP_MS)
         }
-        if (primary.currentMediaItem?.mediaId != watch.mediaId) return Outcome.Interrupted
         // The queue may have been edited during the pre-roll, so the successor is resolved again for its current index.
         val fresh = nextAfter(primary, watch.mediaId)
         if (fresh == null || fresh.mediaId != target.mediaId) return Outcome.Interrupted
+        // The switch itself must not happen after another owner took the primary: it would move its occurrence.
+        if (lostOwnership(primary, watch.mediaId)) return Outcome.Interrupted
         primary.volume = 0f
         primary.seekTo(fresh.index, fresh.startMs)
         val startedAt = System.nanoTime()
         while (true) {
             val mediaElapsedMs = ((System.nanoTime() - startedAt) / 1_000_000L * speed).toLong()
             if (mediaElapsedMs >= overlap) return Outcome.Finished
-            if (crossfadeMustStop(primary.playerError != null, primary.playWhenReady, playbackSuppressed(primary))) return Outcome.Interrupted
-            if (primary.currentMediaItem?.mediaId != target.mediaId) return Outcome.Interrupted
+            // The primary now plays the incoming track, so ownership is checked against it.
+            if (lostOwnership(primary, target.mediaId)) return Outcome.Interrupted
             val progress = crossfadeProgress(mediaElapsedMs, overlap)
             primary.volume = incomingGain(progress)
             tail.volume = outgoingGain(progress)
