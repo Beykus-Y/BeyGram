@@ -206,8 +206,10 @@ import com.beykus.beygram.playback.speedLabel
 import com.beykus.beygram.ui.components.beyGramPalette
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeoutOrNull
 import com.beykus.beygram.data.music.MusicLibraries
 import com.beykus.beygram.data.music.provider.YANDEX_TRACK_KEY_PREFIX
 import com.beykus.beygram.data.music.MusicOutcome
@@ -894,6 +896,12 @@ private fun PlayerDetails(
 
 internal const val ARTWORK_DOUBLE_TAP_SEEK_MS = 10_000L
 
+/**
+ * How long the artwork waits for an accepted swipe to publish its target occurrence (a slow provider row may take a
+ * moment to open). A refusal is returned by the engine at once, so this is only a safety net, not the success rule.
+ */
+internal const val SWIPE_COMMIT_TIMEOUT_MS = 2_000L
+
 /** Computes the clamped target seek fraction for a relative seek delta, or null when duration is unknown. */
 internal fun seekDeltaFraction(positionMs: Long, durationMs: Long, deltaMs: Long): Float? {
     if (durationMs <= 0L) return null
@@ -951,37 +959,53 @@ private fun PlayerArtwork(
         animationSpec = mediaMotion.animationSpec(),
         label = "artworkElevation"
     )
+    // The preview and the commit share PlaybackEngine.adjacentInPlayOrder: the real occurrence in the actual play order
+// (shuffle/repeat included), not simply queueIndex ± 1.
     val adjacentItems = remember {
-        PlaybackEngine.state.map { state -> adjacentQueueItem(state, -1) to adjacentQueueItem(state, 1) }
-            .distinctUntilChanged()
+        PlaybackEngine.state.map { _ ->
+            PlaybackEngine.adjacentInPlayOrder(-1) to PlaybackEngine.adjacentInPlayOrder(1)
+        }.distinctUntilChanged()
     }
     val adjacent by adjacentItems.collectAsStateWithLifecycle(
-        initialValue = PlaybackEngine.state.value.let { adjacentQueueItem(it, -1) to adjacentQueueItem(it, 1) }
+        initialValue = PlaybackEngine.adjacentInPlayOrder(-1) to PlaybackEngine.adjacentInPlayOrder(1)
     )
-    val nextAdjacent = adjacent.first.takeIf { player.canNext }
-    val prevAdjacent = adjacent.second.takeIf { player.canPrevious }
+    val nextAdjacent = adjacent.first
+    val prevAdjacent = adjacent.second
     val queue by remember {
         PlaybackEngine.state.map { it.queue }.distinctUntilChanged()
     }.collectAsStateWithLifecycle(initialValue = PlaybackEngine.state.value.queue)
     // Preload adjacent provider covers so static artwork appears immediately during swipe.
-    val nextProviderCover = rememberProviderCover(nextAdjacent?.let { ProviderTracks.byKey(it.key)?.coverUrl })
-    val prevProviderCover = rememberProviderCover(prevAdjacent?.let { ProviderTracks.byKey(it.key)?.coverUrl })
-    LaunchedEffect(player.item.key, pendingCommit) {
+    val nextProviderCover = rememberProviderCover(nextAdjacent?.let { ProviderTracks.byKey(it.item.key)?.coverUrl })
+    val prevProviderCover = rememberProviderCover(prevAdjacent?.let { ProviderTracks.byKey(it.item.key)?.coverUrl })
+    // Confirmation is event-driven: the preview stays until the target occurrence is actually current, or the queue
+    // drops it, or a generous safety timeout expires. A slow provider row is not mistaken for a failed swipe.
+    LaunchedEffect(pendingCommit, player.item?.occurrenceId, player.queueIndex) {
         val commit = pendingCommit ?: return@LaunchedEffect
-        if (player.item.key == commit.targetKey) {
+        fun isTarget(item: PlaybackItem?, queueIndex: Int): Boolean =
+            item?.occurrenceId == commit.incomingItem.occurrenceId && queueIndex == commit.targetIndex
+        if (isTarget(player.item, player.queueIndex)) {
             offsetFraction.snapTo(0f)
             pendingCommit = null
-        } else {
-            delay(350L)
-            if (pendingCommit == commit) {
-                pendingCommit = null
-                offsetFraction.animateTo(0f, mediaMotion.animationSpec())
+            return@LaunchedEffect
+        }
+        withTimeoutOrNull(SWIPE_COMMIT_TIMEOUT_MS) {
+            PlaybackEngine.state.first { state ->
+                isTarget(state.item, state.queueIndex) ||
+                    state.queue.getOrNull(commit.targetIndex)?.occurrenceId != commit.incomingItem.occurrenceId
             }
+        }
+        if (pendingCommit !== commit) return@LaunchedEffect
+        pendingCommit = null
+        val current = PlaybackEngine.state.value
+        if (isTarget(current.item, current.queueIndex)) {
+            offsetFraction.snapTo(0f)
+        } else {
+            offsetFraction.animateTo(0f, mediaMotion.animationSpec())
         }
     }
     LaunchedEffect(queue) {
         val commit = pendingCommit ?: return@LaunchedEffect
-        if (queue.none { it.key == commit.targetKey }) {
+        if (queue.getOrNull(commit.targetIndex)?.occurrenceId != commit.incomingItem.occurrenceId) {
             pendingCommit = null
             offsetFraction.animateTo(0f, mediaMotion.animationSpec())
         }
@@ -1014,7 +1038,7 @@ private fun PlayerArtwork(
                     }
                 )
             }
-            .pointerInput(player.item.key, player.canNext, player.canPrevious, nextAdjacent?.key, prevAdjacent?.key) {
+            .pointerInput(player.item.key, nextAdjacent?.item?.occurrenceId, prevAdjacent?.item?.occurrenceId) {
                 var totalDrag = 0f
                 var startFraction = 0f
                 var velocityTracker = VelocityTracker()
@@ -1041,8 +1065,9 @@ private fun PlayerArtwork(
                         val decision = resolveCarouselSwipeDecision(
                             offsetFraction = offsetFraction.value,
                             velocityPxPerSec = vx,
-                            canNext = player.canNext,
-                            canPrevious = player.canPrevious,
+                            // The swipe may only move to a real neighbouring occurrence; Previous restart is buttons-only.
+                            canNext = nextAdjacent != null,
+                            canPrevious = prevAdjacent != null,
                         )
                         val incoming = when (decision) {
                             -1 -> nextAdjacent
@@ -1055,7 +1080,7 @@ private fun PlayerArtwork(
                                 offsetFraction.animateTo(0f, mediaMotion.animationSpec())
                             }
                         } else {
-                            suppressEntryScaleKey = incoming.key
+                            suppressEntryScaleKey = incoming.item.key
                             val incomingCover = if (decision < 0) nextProviderCover else prevProviderCover
                             activeGestureJob = coroutineScope.launch {
                                 if (reduced) {
@@ -1063,14 +1088,19 @@ private fun PlayerArtwork(
                                 } else {
                                     offsetFraction.animateTo(decision.toFloat(), mediaMotion.animationSpec())
                                 }
+                                // An explicit jump to the adjacent occurrence, independent of the Previous restart
+                                // threshold. The exact queue row is validated: equal track keys are different rows.
+                                if (!PlaybackEngine.skipToAdjacent(decision, incoming.queueIndex, incoming.item.occurrenceId)) {
+                                    offsetFraction.animateTo(0f, mediaMotion.animationSpec())
+                                    return@launch
+                                }
                                 pendingCommit = PendingSwipeCommit(
-                                    targetKey = incoming.key,
+                                    targetIndex = incoming.queueIndex,
                                     direction = decision,
-                                    incomingItem = incoming,
+                                    incomingItem = incoming.item,
                                     incomingProviderCover = incomingCover,
                                 )
                                 haptic.performHapticFeedback(HapticFeedbackType.ContextClick)
-                                if (decision < 0) PlaybackEngine.next() else PlaybackEngine.previous()
                             }
                         }
                     },
@@ -1079,7 +1109,7 @@ private fun PlayerArtwork(
                         velocityTracker.addPosition(change.uptimeMillis, change.position)
                         totalDrag += dragAmount
                         val raw = startFraction + totalDrag / travelDistancePx
-                        val nextFraction = applyCarouselEdgeResistance(raw, player.canNext, player.canPrevious)
+                        val nextFraction = applyCarouselEdgeResistance(raw, nextAdjacent != null, prevAdjacent != null)
                         activeGestureJob = coroutineScope.launch { offsetFraction.snapTo(nextFraction) }
                     }
                 )
@@ -1087,7 +1117,7 @@ private fun PlayerArtwork(
             .onGloballyPositioned { targets.artwork = it }
     ) {
         val activeCommit = pendingCommit
-        if (activeCommit != null && player.item.key != activeCommit.targetKey) {
+        if (activeCommit != null && player.item.occurrenceId != activeCommit.incomingItem.occurrenceId) {
             Box(
                 Modifier
                     .fillMaxSize()
@@ -1124,8 +1154,8 @@ private fun PlayerArtwork(
             val adjSlot = (if (offset < 0f) 1f else -1f) + offset
             val adjTransform = carouselCardTransform(adjSlot, travelDistancePx, reduced)
             TrackArtwork(
-                artworkPath = adjacentItem.artworkPath?.takeIf { it.isNotBlank() } ?: adjCover,
-                audioPath = adjacentItem.path.takeIf { it.isNotBlank() },
+                artworkPath = adjacentItem.item.artworkPath?.takeIf { it.isNotBlank() } ?: adjCover,
+                audioPath = adjacentItem.item.path.takeIf { it.isNotBlank() },
                 modifier = Modifier
                     .fillMaxSize()
                     .zIndex(adjTransform.zIndex)

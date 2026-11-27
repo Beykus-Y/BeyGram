@@ -7,6 +7,23 @@ import kotlin.math.sin
 /** The default length of the overlap between the end of one track and the start of the next. The setting overrides it. */
 internal const val CROSSFADE_MS = 4_000L
 
+/**
+ * Why the ordinary crossfade may not touch the primary player right now. There is exactly one owner of a transition and
+ * of the primary gain at any moment: BG Mix (active or finishing its handover fade) or a deferred seek always win.
+ */
+internal enum class CrossfadeOwnershipBlock { BgMix, Handover, DeferredSeek }
+
+internal fun crossfadeOwnershipBlock(
+    bgMixActive: Boolean,
+    handoverFading: Boolean,
+    deferredSeek: Boolean,
+): CrossfadeOwnershipBlock? = when {
+    bgMixActive -> CrossfadeOwnershipBlock.BgMix
+    handoverFading -> CrossfadeOwnershipBlock.Handover
+    deferredSeek -> CrossfadeOwnershipBlock.DeferredSeek
+    else -> null
+}
+
 /** The second player for the outgoing tail is prepared this long before the switch point, so the switch never waits for buffering. */
 internal const val CROSSFADE_PREPARE_LEAD_MS = 3_000L
 

@@ -23,11 +23,12 @@ internal data class CarouselCardTransform(
 
 /**
  * Pending track switch whose visual animation has already carried the incoming artwork to center
- * (or is finishing its settle), awaiting [PlaybackEngine] to emit [targetKey].
+ * (or is finishing its settle), awaiting [PlaybackEngine] to publish the same occurrence.
  */
 @Immutable
 internal data class PendingSwipeCommit(
-    val targetKey: String,
+    /** Queue index of the shown occurrence: two rows may carry the same track key. */
+    val targetIndex: Int,
     val direction: Int,
     val incomingItem: PlaybackItem,
     val incomingProviderCover: String?,

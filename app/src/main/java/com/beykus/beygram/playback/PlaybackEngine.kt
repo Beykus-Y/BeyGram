@@ -233,6 +233,12 @@ internal fun yandexRestMayJoinQueue(
 ): Boolean = generation == queueGeneration && currentIsLegacyMusic && !bgMixActive
 
 /**
+ * A neighbouring queue occurrence in the actual play order. The index identifies the occurrence even when the same
+ * track key appears more than once, so the artwork preview and the commit validate the exact same row.
+ */
+data class AdjacentPlayback(val queueIndex: Int, val item: PlaybackItem)
+
+/**
  * Общий плеер приложения. Музыка, голосовые и кружки играют через один ExoPlayer, поэтому звук не обрывается
  * при переходе между экранами. Плеер живёт в процессе, а [PlaybackService] держит его на переднем плане,
  * пока он играет: уведомление, экран блокировки и гарнитура работают через систему.
@@ -462,6 +468,8 @@ object PlaybackEngine {
     private var bgMixHandoverJob: Job? = null
     /** Counts the handover cancellations: a crossfade that started under an older count has been superseded. */
     private var bgMixHandoverGeneration = 0
+    /** True from the native commit until the handover fade ends: the ordinary crossfade has no ownership then. */
+    private var bgMixHandoverFading = false
     /** Adds tracks that finished downloading to the running BG Mix session and asks for the next ones; see [startBgMixFeed]. */
     private var bgMixFeedJob: Job? = null
     /** Latest active BG Wave native session handle from [BgWaveHub], kept so new BG Mix players attach at once. */
@@ -505,7 +513,7 @@ object PlaybackEngine {
     private val crossfader = TrackCrossfader(
         scope = scope,
         enabled = { TrackTransitionSettings.crossfade.value },
-        busy = { bgMixActive() || deferredSeek != null },
+        blocked = { crossfadeOwnershipBlock(bgMixActive(), bgMixHandoverFading, deferredSeek != null) },
         newPlayer = { newCrossfadePlayer() },
         trailingMs = { mediaId -> crossfadeTrailingMs(mediaId) },
         nextAfter = { primary, mediaId -> crossfadeNextAfter(primary, mediaId) },
@@ -1139,6 +1147,8 @@ object PlaybackEngine {
             speed = speed
         )
         updateAudioSessionId()
+        // A new queue replaces the playback window at once: abandoned fetches must not hold the slots of its rows.
+        reprioritizeLazyRows()
         if (offerBgMix) scheduleBgMixHandover()
         if (!autoPlay) return // Restore remains silent, idle and does not trigger any TDLib download.
         refreshPrefetchPolicyObserver()
@@ -1197,6 +1207,8 @@ object PlaybackEngine {
             speed = effectiveSpeed(resolved)
         )
         updateAudioSessionId()
+        // A single file has no queue: only its own fetch is wanted, abandoned requests free their slots.
+        LazyTrackRegistry.prioritize(resolved.key, setOf(resolved.key))
         refreshPrefetchPolicyObserver()
         if (resolved.systemPrivate) stopPlaybackService()
         if (defer) {
@@ -2189,6 +2201,8 @@ object PlaybackEngine {
                     if (YandexTrackResolver.evictOutside(keep)) {
                         appContext?.let { YandexTrackResolver.pruneUnused(it) }
                     }
+                    // The native queue needs its next files at once: keep their fetches ahead of stale ones.
+                    reprioritizeLazyRows()
                 }
                 driver.appendReady(currentIndex, ::bgMixFileFor)
                 val first = driver.pendingIndex ?: return@launch
@@ -2431,10 +2445,19 @@ object PlaybackEngine {
         // Once committed, native playback suppresses Exo callbacks. Check the live Exo occurrence throughout the fade.
         return withContext(NonCancellable) {
             _audioSessionId.value = driver.audioSessionId
-            val completed = crossfadeIntoBgMix(target, driver) {
-                generation == bgMixHandoverGeneration && driver.status === committedSession &&
-                    driver.isActive && exo === target &&
-                    occurrence.canFinishOn(target.handoverOccurrence(), ended = target.playbackState == Player.STATE_ENDED)
+            // The ordinary crossfade may have prepared or already started a transition on the same primary. It loses
+            // ownership atomically here: its tail is released and the primary level is restored before the handover
+            // reads the level it fades from. Without this the two ramps write the same gain and dip the sound.
+            bgMixHandoverFading = true
+            crossfader.cancel(target)
+            val completed = try {
+                crossfadeIntoBgMix(target, driver) {
+                    generation == bgMixHandoverGeneration && driver.status === committedSession &&
+                        driver.isActive && exo === target &&
+                        occurrence.canFinishOn(target.handoverOccurrence(), ended = target.playbackState == Player.STATE_ENDED)
+                }
+            } finally {
+                bgMixHandoverFading = false
             }
             if (!completed) {
                 Log.i("BgMixHandover", "handover_superseded stage=fade")
@@ -2688,6 +2711,8 @@ object PlaybackEngine {
             queuePageNetworkJob = null
             endlessWaitingForRecovery = false
             loadNextQueuePage()
+            // The native queue moved: the files of the new window (staging next, download ahead) go first.
+            reprioritizeLazyRows()
         }
         if (before.item?.key != _state.value.item?.key) {
             exo?.let { target ->
@@ -3118,6 +3143,8 @@ object PlaybackEngine {
         _state.update { it.copy(shuffleEnabled = enabled).withTimelineNavigation(target) }
         if (enabled && target != null) installShuffleOrder(target, target.mediaItemCount, currentIndex = target.currentMediaItemIndex)
         prefetchedKeys.clear()
+        // A new shuffle order moves the next rows; fetches of the old order are no longer wanted.
+        reprioritizeLazyRows()
         prefetchNext()
     }
 
@@ -3659,6 +3686,8 @@ object PlaybackEngine {
                     if (reason == Player.MEDIA_ITEM_TRANSITION_REASON_AUTO) exo?.let { skipLeadingSilence(it, item) }
                     startedCallback = startedCallback?.takeIf { it.first == item.key }
                     if (exo?.isPlaying == true) fireStartedCallback()
+                    // The occurrence is published now, so the new window can free the slots of abandoned rows.
+                    reprioritizeLazyRows()
                 }
             }
             updateAudioSessionId()
@@ -4099,6 +4128,76 @@ object PlaybackEngine {
     }
 
     /**
+     * The adjacent occurrence in the real play order for the artwork swipe: direction < 0 is the next track, > 0 the
+     * previous one. It never restarts the current track, and the edge of a queue with Repeat Off has no neighbour.
+     * Main thread only; this one function feeds both the preview and the commit.
+     */
+    fun adjacentInPlayOrder(direction: Int): AdjacentPlayback? {
+        val state = _state.value
+        if (direction == 0 || state.item == null) return null
+        val index = adjacentPlaybackQueueIndex(
+            queueSize = state.queue.size,
+            currentIndex = state.queueIndex,
+            order = playbackOrderIndices(state),
+            repeatMode = state.repeatMode,
+            step = if (direction < 0) 1 else -1,
+        ) ?: return null
+        return state.queue.getOrNull(index)?.let { AdjacentPlayback(index, it) }
+    }
+
+    /**
+     * An explicit swipe jump to the adjacent occurrence, independent of the Previous restart threshold. [expectedQueueIndex]
+     * and [expectedOccurrenceId] are the occurrence the carousel showed; if the queue or playback order changed since,
+     * nothing is played. Returns false when the jump was refused, so the UI can roll its preview back without waiting
+     * for a timeout.
+     */
+    fun skipToAdjacent(direction: Int, expectedQueueIndex: Int, expectedOccurrenceId: String?): Boolean {
+        val state = _state.value
+        val current = state.item ?: return false
+        if (direction == 0) return false
+        val index = adjacentPlaybackQueueIndex(
+            queueSize = state.queue.size,
+            currentIndex = state.queueIndex,
+            order = playbackOrderIndices(state),
+            repeatMode = state.repeatMode,
+            step = if (direction < 0) 1 else -1,
+        ) ?: return false
+        if (index != expectedQueueIndex) return false
+        val target = state.queue.getOrNull(index) ?: return false
+        if (expectedOccurrenceId != null && target.occurrenceId != expectedOccurrenceId) return false
+        if (target.systemPrivate || current.systemPrivate) return false
+        val resume = state.playing || state.intentPlaying || state.ended
+        _manualSkips.update { it + 1 }
+        if (bgMixActive()) {
+            // A prepared row switches in the native session at once; any other one plays on the regular player and is
+            // handed back to BG Mix when its file is ready. A paused queue stays paused on the new track.
+            if (bgMix?.manualSelect(index) != true) {
+                restartBgMix(state.queue, index, 0L, autoPlay = resume)
+            }
+            return true
+        }
+        val targetPlayer = exo ?: return false
+        if (index >= targetPlayer.mediaItemCount) return false
+        transitionToken++
+        clearDeferredSeek()
+        pendingStartFraction = 0f
+        _state.update { it.copy(ended = false, failed = false) }
+        targetPlayer.seekTo(index, 0L)
+        if (targetPlayer.playbackState == Player.STATE_IDLE || targetPlayer.playbackState == Player.STATE_ENDED) {
+            targetPlayer.prepare()
+        }
+        _state.update { it.copy(intentPlaying = resume).withTimelineNavigation(targetPlayer) }
+        if (resume) {
+            if (!current.systemPrivate) startPlaybackService()
+            targetPlayer.play()
+            startProgress()
+        }
+        loadNextQueuePage()
+        prefetchNext()
+        return true
+    }
+
+    /**
      * Moves on early when the rest of the current track is silence, and starts the next track after its own leading
      * silence. Runs on the progress tick, and only in the last [SILENCE_SCAN_MS] of a measured track.
      */
@@ -4224,6 +4323,37 @@ object PlaybackEngine {
         }
     }
 
+    /** Queue indices in the order playback visits them: BG Mix's own order, or ExoPlayer's shuffle order. */
+    private fun playbackOrderIndices(state: PlaybackState): List<Int> {
+        if (state.queue.isEmpty()) return emptyList()
+        if (!state.shuffleEnabled || bgMixActive()) return state.queue.indices.toList()
+        val order = exo?.let { runCatching { it.shuffleOrder.toIndexOrder() }.getOrNull() }
+        return order?.takeIf { it.size == state.queue.size } ?: state.queue.indices.toList()
+    }
+
+    /**
+     * Tells the lazy resolver which rows playback needs now: the row that is opening, its neighbours and the next rows
+     * in the real play order. Unfinished fetches that no reader owns free their download slot for the selected track;
+     * completed copies stay for the existing ownership/eviction policy.
+     */
+    private fun reprioritizeLazyRows() {
+        val state = _state.value
+        val current = state.item ?: return
+        val keep = LinkedHashSet<String>()
+        keep.add(current.key)
+        if (state.queue.isNotEmpty()) {
+            state.queue.getOrNull(state.queueIndex - 1)?.key?.let(keep::add)
+            val ahead = if (bgMixActive()) BG_MIX_DOWNLOAD_AHEAD else 2
+            prefetchCandidates(state, playbackOrderIndices(state), max = ahead).mapTo(keep) { it.key }
+            if (bgMixActive()) {
+                for (index in state.queueIndex + 1..state.queueIndex + ahead) {
+                    state.queue.getOrNull(index)?.key?.let(keep::add)
+                }
+            }
+        }
+        LazyTrackRegistry.prioritize(current.key, keep)
+    }
+
     /** A provider row (bot result or service track) whose file is not complete yet. */
     private fun lazyRowPending(item: PlaybackItem): Boolean {
         // The row names a growing copy while it downloads, so the provider decides, not the path.
@@ -4258,7 +4388,10 @@ object PlaybackEngine {
                         AutoDownloadRuntime.decision(context, request, prefetchAccountFor(item)) == AutoDownloadDecision.Allowed
                     }
                 }.getOrDefault(false)
-                if (allowed) lazySource.prefetch(item.key)
+                // The row right after the playing one is part of playback: it must start before ordinary speculation.
+                if (allowed) {
+                    if (playbackNext) lazySource.prefetchSoon(item.key) else lazySource.prefetch(item.key)
+                }
                 return@run
             }
             val fileId = item.fileId ?: return@run
