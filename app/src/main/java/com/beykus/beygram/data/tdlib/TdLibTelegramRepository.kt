@@ -200,6 +200,7 @@ import com.beykus.beygram.diagnostics.report.Severity
 import com.beykus.beygram.domain.repository.TelegramRepository
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.TimeoutCancellationException
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.StateFlow
@@ -2691,7 +2692,19 @@ class TdLibTelegramRepository private constructor(
     override suspend fun savedAnimations(): Result<List<AnimationItem>> = stickerCatalog.savedAnimations()
     override suspend fun recentAnimations(offset: String): Result<AnimationPage> = stickerCatalog.recentAnimations(offset)
     override suspend fun searchAnimations(query: String, offset: String): Result<AnimationPage> = stickerCatalog.searchAnimations(query, offset)
-    override suspend fun isPremiumAccount(): Result<Boolean> = stickerCatalog.isPremiumAccount()
+    override suspend fun isPremiumAccount(): Result<Boolean> = try {
+        val me = tdRequests(TdApi.GetMe())
+        // Seed the profile store as well, so the observed status and later UpdateUser changes start from the truth.
+        profiles.rememberMe(me)
+        Result.success(me.isPremium)
+    } catch (cancelled: CancellationException) {
+        throw cancelled
+    } catch (error: Exception) {
+        Result.failure(error)
+    }
+
+    override fun observeIsPremium(): Flow<Boolean?> =
+        profiles.me.map { it.info?.isPremium }.distinctUntilChanged()
 
     override suspend fun scheduledMessages(chatId: Long): Result<List<ChatMessage>> = conversationActions.scheduledMessages(chatId)
     override suspend fun deleteScheduledMessage(chatId: Long, messageId: Long): Result<Unit> =
@@ -2879,7 +2892,11 @@ class TdLibTelegramRepository private constructor(
             }
             is TdApi.UpdateFavoriteStickers -> stickerShelfVersions.update { it.copy(favoriteStickers = it.favoriteStickers + 1) }
             is TdApi.UpdateSavedAnimations -> stickerShelfVersions.update { it.copy(savedAnimations = it.savedAnimations + 1) }
-            is TdApi.UpdateUser -> refreshLastSenders(update.user.id)
+            is TdApi.UpdateUser -> {
+                // Premium can be bought or expire while the app runs; the picker's locked marks follow this update.
+                if (profiles.isSelf(update.user.id)) profiles.rememberMe(update.user)
+                refreshLastSenders(update.user.id)
+            }
             is TdApi.UpdateAuthorizationState -> handleAuthorizationState(update.authorizationState)
             is TdApi.UpdateNewChat            -> handleNewChat(update.chat)
             is TdApi.UpdateForumTopic -> {

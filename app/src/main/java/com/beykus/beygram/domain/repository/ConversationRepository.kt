@@ -257,6 +257,12 @@ interface ConversationRepository {
     suspend fun searchAnimations(query: String, offset: String = ""): Result<AnimationPage>
     /** Whether the current account may send premium stickers. */
     suspend fun isPremiumAccount(): Result<Boolean>
+
+    /**
+     * The account's Premium status as TDLib reports it, updated when the status changes in another client. Null until
+     * the profile is known; the picker must not lock items before that.
+     */
+    fun observeIsPremium(): Flow<Boolean?> = flowOf(null)
     /** Scheduled queue straight from TDLib; no local scheduled-message cache is created. */
     suspend fun scheduledMessages(chatId: Long): Result<List<ChatMessage>>
     /** Cancels one queued message in TDLib. */

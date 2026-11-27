@@ -66,6 +66,13 @@ internal class TdProfiles(private val client: () -> Client, private val files: M
         putUser(user)
         publish()
     }
+
+    /** Seeds the signed-in user (including Premium) from GetMe, so UpdateUser can keep it current. */
+    fun rememberMe(user: TdApi.User) = synchronized(lock) {
+        myId = user.id
+        putUser(user)
+        publish()
+    }
     /** Whether TDLib reports this user as a deleted Telegram account. */
     fun isDeletedUser(userId: Long): Boolean = synchronized(lock) { users[userId]?.type is TdApi.UserTypeDeleted }
 

@@ -130,6 +130,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.launch
 import kotlin.math.roundToInt
 
@@ -405,7 +406,10 @@ private fun StickerPanel(
         )
     }
     LaunchedEffect(conversation) {
+        // The one-shot resolves the state even before the profile screen has loaded it; the flow then keeps locked
+        // marks correct when Premium is bought or expires in another client.
         conversation.isPremiumAccount().onSuccess { premium = it }
+        conversation.observeIsPremium().collect { observed -> if (observed != null) premium = observed }
     }
     LaunchedEffect(conversation, view.selectedSetId, packRetry) {
         val setId = view.selectedSetId ?: return@LaunchedEffect
@@ -727,11 +731,17 @@ private fun StickerPanel(
             tabState.SaveableStateProvider(view.tab.name) {
                 when (view.tab) {
                     StickerPanelTab.Emoji -> {
-                        val dock = rememberDockCustomEmoji(conversation, observeFile, downloadFile, shelfVersions.emojiPacks) { emoji ->
-                            val allowed = premium == true || savedMessages
-                            if (allowed) onInsertCustomEmoji(emoji)
+                        val customEmojiAvailable = customEmojiAllowed(premium, savedMessages)
+                        val dock = rememberDockCustomEmoji(
+                            conversation = conversation,
+                            observeFile = observeFile,
+                            downloadFile = downloadFile,
+                            packsVersion = shelfVersions.emojiPacks,
+                            locked = !customEmojiAvailable
+                        ) { emoji ->
+                            if (customEmojiAvailable) onInsertCustomEmoji(emoji)
                             else notice = premiumNotice
-                            allowed
+                            customEmojiAvailable
                         }
                         if (view.searchActive && view.query.isNotBlank()) {
                             DockEmojiSearch(conversation, view.query, dock, ::insertEmoji, Modifier.fillMaxWidth().weight(1f))
