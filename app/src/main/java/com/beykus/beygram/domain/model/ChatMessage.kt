@@ -65,7 +65,9 @@ data class ChatMessage(
     /** TDLib forwardInfo must survive mapping so a forwarded service link stays ordinary text. */
     val isForwarded: Boolean = false,
     /** Original sender's display name, never the sender of this forwarded copy. Empty when TDLib has no accessible label. */
-    val forwardedFromName: String = ""
+    val forwardedFromName: String = "",
+    /** The public chat identity TDLib reports for a message sent as a chat, including anonymous admins. */
+    val senderChatId: Long = 0L
 ) {
     /** View-once media is the per-message "open once" type, not every attachment in a secret chat. */
     val isViewOnce: Boolean get() = selfDestruct is MessageSelfDestruct.Immediately
@@ -147,7 +149,8 @@ data class ChatHistory(
      * Messages loaded outside the window, such as older comments of a channel post's thread. Updates and deletions reach
      * them like [messages], but they are never part of [messages], so the chat timeline and its paging do not show them.
      */
-    val outsideWindowMessages: List<ChatMessage> = emptyList()
+    val outsideWindowMessages: List<ChatMessage> = emptyList(),
+    val topicUnreadMarks: UnreadMarkCounts? = null
 )
 
 /** One live insertion, ordered by [sequence] within a history store. A temporary-to-server replacement is not an arrival. */
@@ -208,7 +211,10 @@ data class MessageLimits(
     val text: Int = 4096,
     val caption: Int = 1024,
     /** TDLib's largest Stars amount for one paid reaction; null until the option has been read. */
-    val paidReactionStarMax: Int? = null
+    val paidReactionStarMax: Int? = null,
+    val quote: Int = 1024
 )
+
+data class UnreadMarkCounts(val mentions: Int, val reactions: Int)
 
 data class PinnedMessagePage(val messages: List<ChatMessage>, val totalCount: Int, val nextFromMessageId: Long)

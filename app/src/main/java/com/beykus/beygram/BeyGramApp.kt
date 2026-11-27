@@ -2639,6 +2639,7 @@ internal fun BeyGramAppContent(
                             postId = threadPostId,
                             initialPost = history.messages.firstOrNull { it.id == threadPostId },
                             conversation = repository,
+                            chatOverrides = chatOverrides,
                             observeFile = repository::observeFile,
                             downloadFile = repository::downloadFile,
                             initialDraftText = threadDraftText,

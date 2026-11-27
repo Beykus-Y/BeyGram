@@ -74,6 +74,7 @@ import com.beykus.beygram.ui.components.BeyGramDialog
 import com.beykus.beygram.ui.components.BeyGramPopover
 import com.beykus.beygram.ui.components.BeyGramPopoverItem
 import com.beykus.beygram.data.appearance.DesignStyle
+import com.beykus.beygram.domain.model.MessageTextEntity
 import com.beykus.beygram.domain.model.CustomEmoji
 import com.beykus.beygram.domain.model.MediaFileState
 import com.beykus.beygram.domain.model.ReactionOption
@@ -252,7 +253,12 @@ internal fun MessageActionsBar(
 internal fun MessageContextPopover(
     anchorBounds: Rect?,
     paneBounds: Rect? = null,
-    foreground: (@Composable () -> Unit)? = null,
+    foreground: (@Composable (MessageContextTextSelection?) -> Unit)? = null,
+    foregroundText: String? = null,
+    foregroundEntities: List<MessageTextEntity> = emptyList(),
+    quoteMaxLength: Int = 1024,
+    onQuoteFragment: ((SelectedMessageQuote) -> Unit)? = null,
+    onCopyFragment: ((String) -> Unit)? = null,
     onForegroundVisible: (Boolean) -> Unit = {},
     isOutgoing: Boolean,
     capabilities: MessageCapabilities?,
@@ -353,6 +359,10 @@ internal fun MessageContextPopover(
         )
     } else null
     val showForeground = scene != null && foreground != null
+    val selection = if (showForeground && foregroundText != null && capabilities?.canCopy == true) {
+        remember(foregroundText, foregroundEntities) { MessageContextTextSelection(foregroundText, foregroundEntities) }
+    } else null
+    val selectedText = selection?.selectedText
     DisposableEffect(showForeground) {
         reportForeground(showForeground)
         onDispose { if (showForeground) reportForeground(false) }
@@ -381,7 +391,7 @@ internal fun MessageContextPopover(
     Popup(
         alignment = Alignment.TopStart,
         offset = IntOffset.Zero,
-        onDismissRequest = dismiss,
+        onDismissRequest = { if (selectedText != null) selection?.clear() else dismiss() },
         properties = PopupProperties(focusable = true, clippingEnabled = false)
     ) {
         Box(
@@ -392,7 +402,7 @@ internal fun MessageContextPopover(
                 .clickable(
                     interactionSource = remember { MutableInteractionSource() },
                     indication = null,
-                    onClick = dismiss
+                    onClick = { if (selectedText != null) selection?.clear() else dismiss() }
                 )
         ) {
             if (scene != null && foreground != null && anchorBounds != null) {
@@ -405,7 +415,7 @@ internal fun MessageContextPopover(
                             (anchorBounds.top + (target.top - anchorBounds.top) * progress - root.top).roundToInt()
                         )
                     }.size(with(density) { target.width.toDp() }, with(density) { target.height.toDp() }).clipToBounds()
-                ) { foreground() }
+                ) { foreground(selection) }
             }
             val reactionStrip: @Composable () -> Unit = {
             if (showReactionStrip && onQuickReaction != null) {
@@ -461,7 +471,7 @@ internal fun MessageContextPopover(
                 }
                 }
             }
-            scene?.reactionBounds?.let { bounds ->
+            scene?.reactionBounds?.takeUnless { selectedText != null }?.let { bounds ->
                 val root = rootBounds ?: Rect.Zero
                 val reactionModifier = Modifier.absoluteOffset {
                     IntOffset((bounds.left - root.left).roundToInt(), (bounds.top - root.top).roundToInt())
@@ -472,6 +482,28 @@ internal fun MessageContextPopover(
             }
             val cardContent: @Composable () -> Unit = {
                 Column(Modifier.fillMaxWidth()) {
+                    if (selectedText != null && selection != null) {
+                        val fragment = remember(selection, selection.value.selection, quoteMaxLength) {
+                            selectedMessageQuote(selection.source, selection.value.selection, selection.entities, quoteMaxLength)
+                        }
+                        Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                            if (onQuoteFragment != null && capabilities?.canReply == true) {
+                                TextButton(enabled = fragment != null, onClick = { fragment?.let(onQuoteFragment) }) {
+                                    Text(stringResource(R.string.chat_quote_action))
+                                }
+                            }
+                            if (onCopyFragment != null) {
+                                TextButton(onClick = { onCopyFragment(selectedText) }) {
+                                    Text(stringResource(R.string.message_action_copy_text))
+                                }
+                            }
+                            IconButton(onClick = selection::clear) {
+                                Icon(Icons.Rounded.Close, stringResource(R.string.common_close))
+                            }
+                        }
+                        return@Column
+                    }
+
                     if (showReactionStrip && scene?.reactionBounds == null) {
                         reactionStrip()
                         HorizontalDivider(color = palette.divider)
@@ -531,12 +563,13 @@ internal fun MessageContextPopover(
                                         onDelete = onDelete
                                     )
                                 }
-                                if (onQuote != null && capabilities.canReply && capabilities.canCopy && hasText) {
+                                val quoteAction = if (selection != null && onQuoteFragment != null) selection::selectAll else onQuote
+                                if (quoteAction != null && capabilities.canReply && capabilities.canCopy && hasText) {
                                     Row(
                                         Modifier
                                             .fillMaxWidth()
                                             .heightIn(min = 48.dp)
-                                            .clickable(role = Role.Button, onClick = onQuote)
+                                            .clickable(role = Role.Button, onClick = quoteAction)
                                             .padding(horizontal = 16.dp),
                                         verticalAlignment = Alignment.CenterVertically
                                     ) {

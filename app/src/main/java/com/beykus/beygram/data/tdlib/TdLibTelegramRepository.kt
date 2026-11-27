@@ -12,6 +12,7 @@ import com.beykus.beygram.R
 import com.beykus.beygram.playback.MusicBotCache
 import com.beykus.beygram.domain.UiText
 import com.beykus.beygram.domain.UserMessageException
+import com.beykus.beygram.domain.model.UnreadMarkCounts
 import com.beykus.beygram.domain.model.paidTextCanConfirm
 import com.beykus.beygram.analytics.AnalyticsSync
 import com.beykus.beygram.data.export.ChatExportMessage
@@ -449,6 +450,8 @@ class TdLibTelegramRepository private constructor(
 
     override fun observePinnedMessagesVersion(chatId: Long): StateFlow<Long> = pinnedVersions.getOrPut(chatId) { MutableStateFlow(0L) }.asStateFlow()
     override suspend fun pinnedMessages(chatId: Long, fromMessageId: Long, forumTopicId: Long, query: String) = conversationActions.pinnedMessages(chatId, fromMessageId, forumTopicId, query)
+    override fun observeGroupAuthor(userId: Long, senderChatId: Long) = profiles.observeGroupAuthor(userId, senderChatId)
+
     override suspend fun loadPinnedSenderAvatars(userIds: Collection<Long>): Map<Long, com.beykus.beygram.domain.model.AvatarPhoto?> =
         profiles.resolveUsers(userIds).mapValues { (_, user) ->
             user.profilePhoto?.let { profiles.photo(it.small, it.big) }
@@ -1742,6 +1745,32 @@ class TdLibTelegramRepository private constructor(
     override suspend fun messageContext(chatId: Long, messageId: Long) = conversationActions.context(chatId, messageId)
     override suspend fun singleMessage(chatId: Long, messageId: Long) = conversationActions.single(chatId, messageId)
     override suspend fun linkedDiscussionChatId(chatId: Long) = conversationActions.linkedDiscussionChatId(chatId)
+    override suspend fun unreadMarkCounts(chatId: Long, forumTopicId: Long): Result<UnreadMarkCounts?> {
+        if (forumTopicId > 0L) {
+            val store = topicStores[chatId to forumTopicId]
+            val before = store?.currentTopicUnreadMarks(chatId)
+            return conversationActions.unreadMarkCounts(chatId, forumTopicId).map { fresh ->
+                if (fresh == null || store == null) fresh else store.refreshTopicUnreadMarks(chatId, before, fresh)
+            }
+        }
+
+        val before = chatCache[chatId]
+        return conversationActions.unreadMarkCounts(chatId, forumTopicId).map { fresh ->
+            if (fresh == null || before == null) return@map fresh
+            // Reconcile the source of truth as well as the badge. An arriving count which equals the old cached
+            // value must still be visible after the refresh changed it (e.g. stale 1 -> refreshed 0 -> new 1).
+            val current = chatCache.computeIfPresent(chatId) { _, published ->
+                if (published === before) published.copy(
+                    unreadMentionCount = fresh.mentions,
+                    unreadReactionCount = fresh.reactions
+                ) else published
+            }
+            if (current == null) null else {
+                publishChat(chatId)
+                UnreadMarkCounts(current.unreadMentionCount, current.unreadReactionCount)
+            }
+        }
+    }
     override suspend fun nextUnreadMention(chatId: Long, forumTopicId: Long) = conversationActions.nextUnreadMention(chatId, forumTopicId)
     override suspend fun nextUnreadReaction(chatId: Long, forumTopicId: Long) = conversationActions.nextUnreadReaction(chatId, forumTopicId)
     override suspend fun loadMessageThread(chatId: Long, messageId: Long) = conversationActions.messageThread(chatId, messageId)
@@ -2855,10 +2884,10 @@ class TdLibTelegramRepository private constructor(
             is TdApi.UpdateNewChat            -> handleNewChat(update.chat)
             is TdApi.UpdateForumTopic -> {
                 messageDrafts.receiveTopic(update.chatId, update.forumTopicId.toLong(), update.draftMessage)
-                topicStores[update.chatId to update.forumTopicId.toLong()]?.apply {
-                readInbox(update.chatId, update.lastReadInboxMessageId)
-                readOutbox(update.chatId, update.lastReadOutboxMessageId)
-                }
+                topicStores[update.chatId to update.forumTopicId.toLong()]?.updateTopicReadMarks(
+                    update.chatId, update.lastReadInboxMessageId, update.lastReadOutboxMessageId,
+                    UnreadMarkCounts(update.unreadMentionCount, update.unreadReactionCount)
+                )
             }
             is TdApi.UpdateForumTopicInfo -> forumTopicBriefs.receive(update.info)
             is TdApi.UpdateChatFolders -> handleChatFolders(update)
@@ -3848,6 +3877,7 @@ class TdLibTelegramRepository private constructor(
         mediaAlbumId = mediaAlbumId,
         senderName = profiles.senderName(senderId),
         senderId = (this.senderId as? TdApi.MessageSenderUser)?.userId?.toLong() ?: 0L,
+        senderChatId = (this.senderId as? TdApi.MessageSenderChat)?.chatId ?: 0L,
         isEdited = editDate > 0,
         entities = messageFormattedText(content)?.domainEntities().orEmpty(),
         inlineKeyboard = inlineKeyboard(replyMarkup),

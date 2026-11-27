@@ -17,16 +17,6 @@ import org.junit.Test
 
 class UxMegaUpgradeTest {
     @Test
-    fun quoteCandidatesSplitSentencesAndComputeOffset() {
-        val text = "First sentence here. Second sentence! Third line\nFourth line"
-        val parts = extractQuoteCandidates(text)
-        assertEquals(listOf("First sentence here.", "Second sentence!", "Third line", "Fourth line"), parts)
-        assertEquals(21, quoteOffsetIn(text, "Second sentence!"))
-        assertNull(quoteOffsetIn(text, "Custom edited phrase"))
-        assertEquals(0, quoteOffsetIn(text, "First"))
-    }
-
-    @Test
     fun messageSendOptionsCarriesReplyQuote() {
         val opts = MessageSendOptions(replyQuote = "exact phrase", replyQuotePosition = 12)
         assertEquals("exact phrase", opts.replyQuote)

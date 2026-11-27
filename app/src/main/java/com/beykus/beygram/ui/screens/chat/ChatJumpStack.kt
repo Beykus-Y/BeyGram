@@ -52,6 +52,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.beykus.beygram.R
+import com.beykus.beygram.domain.model.UnreadMarkCounts
 import com.beykus.beygram.domain.repository.ConversationRepository
 import com.beykus.beygram.ui.components.BeyGramDialog
 import com.beykus.beygram.ui.components.beyGramPalette
@@ -98,11 +99,19 @@ internal fun ChatJumpControls(
     // The account's repository and the exact chat/topic own both the lookup and its cancellation.
     var pendingMark by remember(conversation, chatId, forumTopicId) { mutableStateOf<UnreadMark?>(null) }
     var readAllMentions by remember(conversation, chatId, forumTopicId) { mutableStateOf<Boolean?>(null) }
+    // A later live count invalidates the snapshot, even while the request for that snapshot is suspended.
+    val refreshedCounts = remember(conversation, chatId, forumTopicId, unreadMentions, unreadReactions) {
+        mutableStateOf<UnreadMarkCounts?>(null)
+    }
+    val latestCountSlot by rememberUpdatedState(refreshedCounts)
+    val shownMentions = refreshedCounts.value?.mentions ?: unreadMentions
+    val shownReactions = refreshedCounts.value?.reactions ?: unreadReactions
     val currentJump by rememberUpdatedState(onJumpToMessage)
     val currentEmpty by rememberUpdatedState(onJumpEmpty)
     val currentFailure by rememberUpdatedState(onJumpFailed)
     LaunchedEffect(conversation, chatId, forumTopicId, pendingMark) {
         val mark = pendingMark ?: return@LaunchedEffect
+        val countSlot = latestCountSlot
         try {
             val result = withTimeoutOrNull(8_000) {
                 when (mark) {
@@ -115,8 +124,14 @@ internal fun ChatJumpControls(
                 currentFailure(null)
             } else {
                 result.fold(onSuccess = { id ->
-                    if (id == null) currentEmpty()
-                    else {
+                    if (id == null) {
+                        val snapshot = withTimeoutOrNull(3_000) {
+                            conversation.unreadMarkCounts(chatId, forumTopicId).getOrNull()
+                        }
+                        currentCoroutineContext().ensureActive()
+                        if (snapshot != null && countSlot === latestCountSlot) countSlot.value = snapshot
+                        currentEmpty()
+                    } else {
                         conversation.viewMessageAgain(chatId, id)
                         currentJump(id)
                     }
@@ -132,20 +147,20 @@ internal fun ChatJumpControls(
         verticalArrangement = Arrangement.spacedBy(10.dp),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
-        AnimatedVisibility(visible = unreadReactions > 0, enter = enter, exit = exit) {
+        AnimatedVisibility(visible = shownReactions > 0, enter = enter, exit = exit) {
             ChatFloatingBadgeButton(
                 icon = Icons.Rounded.Favorite,
-                count = unreadReactions,
+                count = shownReactions,
                 label = stringResource(R.string.chat_jump_to_reaction),
                 enabled = pendingMark == null,
                 onClick = { if (pendingMark == null) pendingMark = UnreadMark.Reaction },
                 onLongClick = { readAllMentions = false }
             )
         }
-        AnimatedVisibility(visible = unreadMentions > 0, enter = enter, exit = exit) {
+        AnimatedVisibility(visible = shownMentions > 0, enter = enter, exit = exit) {
             ChatFloatingBadgeButton(
                 icon = Icons.Rounded.AlternateEmail,
-                count = unreadMentions,
+                count = shownMentions,
                 label = stringResource(R.string.chat_jump_to_mention),
                 enabled = pendingMark == null,
                 onClick = { if (pendingMark == null) pendingMark = UnreadMark.Mention },

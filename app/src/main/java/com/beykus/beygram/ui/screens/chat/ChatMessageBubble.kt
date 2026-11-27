@@ -97,6 +97,7 @@ internal fun MessageBubble(message: ChatMessage, observeFile: (Int) -> StateFlow
     onComposerMediaLaunchFinished: (ComposerMediaLaunch) -> Unit = {},
     paneInset: Boolean = true,
     hideForContextScene: Boolean = false,
+    contextTextSelection: MessageContextTextSelection? = null,
     contextScenePassive: Boolean = false
 ) {
     val palette = beyGramPalette()
@@ -223,7 +224,11 @@ internal fun MessageBubble(message: ChatMessage, observeFile: (Int) -> StateFlow
                         if (showAuthor) ChatGroupAuthorName(message.senderName, senderMember,
                             modifier = (if (lastLineMeta) Modifier.padding(horizontal = metrics.textInset).padding(top = 6.dp)
                             else Modifier.padding(horizontal = 12.dp, vertical = 4.dp))
-                                .then(if (onSenderClick != null) Modifier.clickable { onSenderClick() } else Modifier))
+                                .then(if (onSenderClick != null) Modifier.clickable { onSenderClick() } else Modifier),
+                            observeCustomEmoji = observeCustomEmoji,
+                            observeFile = observeFile,
+                            downloadFile = onDownloadFile
+                        )
                         ForwardedMessageHeader(message)
                         // Media sits flush against the bubble's top and side edges; text keeps its own padding.
                         message.media?.let { media ->
@@ -307,7 +312,9 @@ internal fun MessageBubble(message: ChatMessage, observeFile: (Int) -> StateFlow
                                         }
                                     } else null
                                     val textModifier = if (lastLineMeta && message.reply != null) Modifier.fillMaxWidth() else Modifier
-                                    if (trailingMetadata != null && message.entities.isEmpty()) {
+                                    if (contextTextSelection != null && showText) {
+                                        SelectableMessageBody(contextTextSelection, textModifier, trailingMetadata)
+                                    } else if (trailingMetadata != null && message.entities.isEmpty()) {
                                         PlainMessageWithMeta(message.text, textModifier, trailingMetadata)
                                     } else if (showText) {
                                         FormattedMessageText(
