@@ -12,6 +12,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.remember
@@ -116,8 +117,10 @@ internal fun ChatGroupAvatarRow(
         if (userId != null) peerColors?.observeUserAccent(userId) else null
     }
     val accent = if (accentFlow != null) {
-        val current by accentFlow.collectAsStateWithLifecycle(initialValue = null)
-        current
+        key(peerColors, userId) {
+            val current by accentFlow.collectAsStateWithLifecycle(initialValue = null)
+            current
+        }
     } else null
     val palette = beyGramPalette()
     val dark = MaterialTheme.colorScheme.surface.luminance() < 0.5f
@@ -137,7 +140,8 @@ internal fun ChatGroupAvatarRow(
                 Box(Modifier.width(44.dp).padding(start = 8.dp, top = 4.dp)) {
                     TelegramAvatar(
                         initials = initialsOf(avatar.senderName),
-                        color = accent?.avatarColor(dark) ?: Color(member?.avatarColorArgb ?: colorKey.stableColor()),
+                        color = accent?.takeIf { avatar.senderId == userId }?.avatarColor(dark)
+                            ?: Color(member?.avatarColorArgb ?: colorKey.stableColor()),
                         size = 36.dp,
                         photo = member?.photo ?: photos[avatar.senderId],
                         observeFile = observeFile,
