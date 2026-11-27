@@ -95,7 +95,10 @@ internal fun MessageBubble(message: ChatMessage, observeFile: (Int) -> StateFlow
     connectionState: TelegramConnectionState = TelegramConnectionState.Connected,
     onShowFailureDetails: (() -> Unit)? = null,
     composerMediaLaunch: ComposerMediaLaunch? = null,
-    onComposerMediaLaunchFinished: (ComposerMediaLaunch) -> Unit = {}
+    onComposerMediaLaunchFinished: (ComposerMediaLaunch) -> Unit = {},
+    paneInset: Boolean = true,
+    hideForContextScene: Boolean = false,
+    contextTextSelection: MessageContextTextSelection? = null
 ) {
     val palette = beyGramPalette()
     val metrics = LocalBubbleMetrics.current
@@ -162,7 +165,7 @@ internal fun MessageBubble(message: ChatMessage, observeFile: (Int) -> StateFlow
     Column(
         Modifier.fillMaxWidth()
             .quickReactionOnFreeSpace(message.chatId, message.id, quickReaction.takeIf { quickReactionAcrossRow })
-            .then(if (circle) Modifier else Modifier.padding(horizontal = metrics.sideInset)),
+            .then(if (circle || !paneInset) Modifier else Modifier.padding(horizontal = metrics.sideInset)),
         horizontalAlignment = if (message.isOutgoing) Alignment.End else Alignment.Start
     ) {
         SwipeToReply(
@@ -178,6 +181,7 @@ internal fun MessageBubble(message: ChatMessage, observeFile: (Int) -> StateFlow
                         .then(if (message.media != null && !circle && !sticker)
                              Modifier.width(mediaSize?.width ?: if (message.media.kind == MediaKind.Audio) 280.dp else 244.dp) else Modifier)
                         .then(mediaFlightModifier).clip(shape)
+                        .then(if (hideForContextScene) Modifier.alpha(0f) else Modifier)
                         .background(if (circle || sticker) Color.Transparent else if (message.isOutgoing) palette.outgoingBubble else palette.incomingBubble)
                         .then(if (message.memory?.deletedAtMillis != null) Modifier.alpha(0.6f) else Modifier)
                         .then(if ((selected || highlighted) && !circle) Modifier.border(2.dp, palette.accent, shape) else Modifier)
@@ -303,7 +307,7 @@ internal fun MessageBubble(message: ChatMessage, observeFile: (Int) -> StateFlow
                                     } else null
                                     val textModifier = if (lastLineMeta && message.reply != null) Modifier.fillMaxWidth() else Modifier
                                     if (trailingMetadata != null && message.entities.isEmpty()) {
-                                        PlainMessageWithMeta(message.text, textModifier, trailingMetadata)
+                                        PlainMessageWithMeta(message.text, textModifier, trailingMetadata, contextTextSelection)
                                     } else if (showText) {
                                         FormattedMessageText(
                                             message, observeCustomEmoji, observeFile, onDownloadFile,
