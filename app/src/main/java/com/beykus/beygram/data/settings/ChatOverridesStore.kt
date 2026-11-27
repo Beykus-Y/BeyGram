@@ -16,7 +16,8 @@ import kotlinx.coroutines.flow.asStateFlow
 data class ChatOverride(
     val wallpaper: ChatWallpaper? = null,
     /** The pinned bar is hidden locally. The messages stay pinned on the server; the bar can be brought back. */
-    val pinnedBarHidden: Boolean = false
+    val pinnedBarHidden: Boolean = false,
+    val groupAvatarsHidden: Boolean = false
 )
 
 internal interface ChatOverrideStorage {
@@ -85,11 +86,20 @@ class ChatOverridesStore internal constructor(private val storage: ChatOverrideS
         publish(chatId)
     }
 
+    @Synchronized
+    fun setGroupAvatarsHidden(chatId: Long, hidden: Boolean) {
+        require(chatId != 0L) { "A chat override needs a chat id" }
+        val key = "group-avatars-hidden:$chatId"
+        if (hidden) storage.put(key, "1") else storage.remove(key)
+        publish(chatId)
+    }
+
     /** Full reset for the settings sheet: wallpaper and any other per-chat local state. */
     @Synchronized
     fun reset(chatId: Long) {
         storage.remove(chatWallpaperKey(chatId))
         storage.remove(pinnedBarHiddenKey(chatId))
+        storage.remove("group-avatars-hidden:$chatId")
         _state.value = _state.value - chatId
     }
 
@@ -106,11 +116,12 @@ class ChatOverridesStore internal constructor(private val storage: ChatOverrideS
     private fun readOne(chatId: Long): ChatOverride? {
         val wallpaper = storage.value(chatWallpaperKey(chatId))?.let { chatWallpaperFromStored(it) }
         val pinnedHidden = storage.value(pinnedBarHiddenKey(chatId)) != null
-        if (wallpaper == null && !pinnedHidden) return null
-        return ChatOverride(wallpaper = wallpaper, pinnedBarHidden = pinnedHidden)
+        val groupAvatarsHidden = storage.value("group-avatars-hidden:$chatId") != null
+        if (wallpaper == null && !pinnedHidden && !groupAvatarsHidden) return null
+        return ChatOverride(wallpaper = wallpaper, pinnedBarHidden = pinnedHidden, groupAvatarsHidden = groupAvatarsHidden)
     }
 
     private companion object {
-        val storedKeyPrefixes = setOf("wallpaper", "pinned-hidden")
+        val storedKeyPrefixes = setOf("wallpaper", "pinned-hidden", "group-avatars-hidden")
     }
 }
