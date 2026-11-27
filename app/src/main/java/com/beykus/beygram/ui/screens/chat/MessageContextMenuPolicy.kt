@@ -131,3 +131,40 @@ internal fun computeMessagePopoverPlacement(
         maxHeightPx = availableOnSide
     )
 }
+
+internal data class MessageContextScenePlacement(
+    val messageBounds: Rect,
+    val menu: PopoverPlacement
+)
+
+/** Chooses the layout that exposes the most menu content with the least movement of the message. */
+internal fun computeMessageContextScene(
+    message: Rect,
+    viewport: Rect,
+    desiredMenuHeight: Int,
+    minMenuHeight: Int,
+    menuWidth: Int,
+    gap: Int,
+    isOutgoing: Boolean
+): MessageContextScenePlacement? {
+    if (message.width <= 0 || message.height <= 0 || menuWidth > viewport.width ||
+        message.width > viewport.width || message.bottom <= viewport.top || message.top >= viewport.bottom
+    ) return null
+
+    val available = (viewport.height - message.height - gap).toInt()
+    if (available < minMenuHeight) return null
+    val menuHeight = minOf(available, maxOf(minMenuHeight, desiredMenuHeight))
+    val left = message.left.coerceIn(viewport.left, viewport.right - message.width)
+    val topWithMenuBelow = message.top.coerceIn(viewport.top, viewport.bottom - message.height - gap - menuHeight)
+    val topWithMenuAbove = message.top.coerceIn(viewport.top + menuHeight + gap, viewport.bottom - message.height)
+    val menuAbove = kotlin.math.abs(topWithMenuAbove - message.top) < kotlin.math.abs(topWithMenuBelow - message.top)
+    val top = if (menuAbove) topWithMenuAbove else topWithMenuBelow
+    val destination = Rect(left, top, left + message.width, top + message.height)
+    val menuX = (if (isOutgoing) destination.right - menuWidth else left)
+        .coerceIn(viewport.left, viewport.right - menuWidth)
+    val menuY = if (menuAbove) top - gap - menuHeight else destination.bottom + gap
+    return MessageContextScenePlacement(
+        destination,
+        PopoverPlacement(menuX.toInt(), menuY.toInt(), menuAbove, false, menuHeight)
+    )
+}
