@@ -2170,8 +2170,12 @@ object PlaybackEngine {
             }
             when (handOverToBgMix(context, state, file) { rejectedKey = file.key }) {
                 true -> return
-                // The queue or playback state changed while the session was being prepared: re-evaluate without burning attempts.
-                null -> continue
+                // The queue or playback state changed while the session was being prepared: re-evaluate without burning
+                // attempts. A short pause keeps a transient state from spinning this loop.
+                null -> {
+                    delay(BG_HANDOVER_POLL_MS)
+                    continue
+                }
                 false -> {
                     if (rejectedKey != file.key) failures++ else failures = 0
                     if (failures >= BG_HANDOVER_ATTEMPTS) {
@@ -2186,13 +2190,14 @@ object PlaybackEngine {
 
     /**
      * Prepares a BG Mix session for the queue from the playing track while ExoPlayer keeps playing, then starts it at
-     * ExoPlayer's position and lets ExoPlayer go. False when the session could not be prepared or the track changed, null
-     * when the queue was edited meanwhile and the session has to be prepared again.
+     * ExoPlayer's position and lets ExoPlayer go. False when the session could not be prepared, null when the queue,
+     * track or occurrence changed meanwhile, or the committed fade was superseded: a new state has to be evaluated.
      */
     private suspend fun handOverToBgMix(context: Context, state: PlaybackState, file: PlaybackItem, onRejected: () -> Unit): Boolean? {
-        val target = exo ?: return false
-        val occurrence = target.handoverOccurrence() ?: return false
-        if (occurrence.mediaId != file.key) return false
+        // A missing player, timeline or a different current item is transient: re-evaluate instead of burning attempts.
+        val target = exo ?: return null
+        val occurrence = target.handoverOccurrence() ?: return null
+        if (occurrence.mediaId != file.key) return null
         val generation = bgMixHandoverGeneration
         fun sameOccurrence() = exo === target && occurrence == target.handoverOccurrence()
         fun stillPreparing() = generation == bgMixHandoverGeneration && sameOccurrence() && stillHandingOver(file)
@@ -2267,11 +2272,21 @@ object PlaybackEngine {
         }
         delay(BG_HANDOVER_OVERLAP_MS)
         // Still silent: the output is lined up with ExoPlayer by measurement before anything of it is heard.
-        alignStagedSilently(target, driver)
+        val alignment = alignStagedSilently(target, driver)
         if (!stillPreparing() || queueChanged()) {
             Log.i("BgMixHandover", "handover_superseded stage=before_commit")
             driver.discardStaged()
             return null
+        }
+        if (!alignment.safeToHandOver) {
+            // Handing over a deck that is far away from ExoPlayer would be heard as a repeat or a jump inside the
+            // song. ExoPlayer keeps the sound; a later attempt may still align the staged deck.
+            Log.w(
+                "BgMixHandover",
+                "handover_deferred stage=alignment measured=${alignment.measured} offset=${alignment.lastOffsetMs ?: "unknown"}"
+            )
+            driver.discardStaged()
+            return false
         }
         // ExoPlayer must not pause for the focus change that BG Mix causes: the crossfade takes its level down instead.
         setExoFocusHandling(target, handle = false)
@@ -2314,7 +2329,9 @@ object PlaybackEngine {
                         syncPosition()
                     }
                 }
-                return@withContext false
+                // The fade was superseded by a stop, another track or EOF: this is not a failed attempt, so the new
+                // playback state is evaluated again without spending the track's retry budget.
+                return@withContext null
             }
             bgMixHandoverJob = null
             bgMixOriginalQueue = if (shuffled) items else null
@@ -2355,19 +2372,23 @@ object PlaybackEngine {
      * Lines the silent BG Mix output up with ExoPlayer before any of it is heard. It measures where BG Mix is heard on the
      * audio clock and seeks it while it is silent. The new audio starts once the audio already queued has played out, and
      * by then ExoPlayer has moved on by that same amount, so the target is ExoPlayer's position plus the queued audio. The
-     * check repeats until the difference is within [BG_ALIGN_TOLERANCE_MS]. False when no measurement came, or when the
-     * difference is still out of tolerance once the corrections are spent; the handover goes on either way.
+     * check repeats until the difference is within [BG_ALIGN_TOLERANCE_MS]. The result says whether the final
+     * measurement is safe enough to commit; the caller keeps ExoPlayer when it is not.
      */
-    private suspend fun alignStagedSilently(target: ExoPlayer, driver: BgMixQueueDriver): Boolean {
+    private suspend fun alignStagedSilently(target: ExoPlayer, driver: BgMixQueueDriver): BgMixAlignmentResult {
         val offsetsMs = mutableListOf<Long>()
-        fun finish(aligned: Boolean): Boolean {
+        fun finish(aligned: Boolean): BgMixAlignmentResult {
             recordAppEvent(
                 kind = EventKind.PERFORMANCE,
                 code = "bgmix_handover_alignment",
                 text = if (aligned) "Переход в BG Mix: звук выровнен с плеером" else "Переход в BG Mix: выровнять звук не удалось",
-                attrs = mapOf("offsets_ms" to offsetsMs.joinToString(",")),
+                attrs = mapOf(
+                    "offsets_ms" to offsetsMs.joinToString(","),
+                    "measured" to offsetsMs.isNotEmpty().toString(),
+                    "last_offset_ms" to (offsetsMs.lastOrNull() ?: 0L).toString(),
+                ),
             )
-            return aligned
+            return BgMixAlignmentResult(alignedInTolerance = aligned, offsetsMs = offsetsMs)
         }
         // At most BG_ALIGN_ATTEMPTS corrections; each one is checked by the measurement that follows it.
         for (correction in 0..BG_ALIGN_ATTEMPTS) {
