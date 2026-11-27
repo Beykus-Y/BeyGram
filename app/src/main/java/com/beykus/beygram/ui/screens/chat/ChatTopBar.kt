@@ -31,6 +31,7 @@ import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.shadow
 import com.beykus.beygram.ui.design.LocalDesignSystem
 import com.beykus.beygram.ui.design.TopBarVariant
+import com.beykus.beygram.ui.design.usesGlassPanels
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.boundsInWindow
@@ -238,9 +239,21 @@ internal fun ChatTopBar(
             // Scheduled messages stay accessible from overflow, without permanently consuming
             // an entire title-width action slot in every ordinary chat.
             IconButton(onClick = onSearch) { Icon(Icons.Rounded.Search, stringResource(R.string.chat_search_description), tint = palette.textSecondary) }
-            Box {
+            var overflowBounds by remember { mutableStateOf<androidx.compose.ui.unit.IntRect?>(null) }
+            Box(
+                Modifier.onGloballyPositioned { coords ->
+                    val r = coords.boundsInWindow()
+                    overflowBounds = androidx.compose.ui.unit.IntRect(
+                        r.left.toInt(), r.top.toInt(), r.right.toInt(), r.bottom.toInt()
+                    )
+                }
+            ) {
                 IconButton(onClick = { menuOpen = true }) { Icon(Icons.Rounded.MoreVert, stringResource(R.string.feature_more_actions), tint = palette.textSecondary) }
-                BeyGramPopover(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
+                BeyGramPopover(
+                    expanded = menuOpen,
+                    onDismissRequest = { menuOpen = false },
+                    sameWindowAnchorBounds = overflowBounds.takeIf { LocalDesignSystem.current.usesGlassPanels }
+                ) {
                     BeyGramPopoverItem(
                         text = stringResource(R.string.chat_jump_to_unread),
                         leadingIcon = { Icon(Icons.Rounded.ArrowDownward, contentDescription = null, tint = if (hasUnread) palette.textSecondary else palette.textSecondary.copy(alpha = 0.4f)) },
