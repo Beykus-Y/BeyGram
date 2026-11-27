@@ -51,6 +51,13 @@ import kotlinx.coroutines.launch
 internal fun customEmojiAllowed(premium: Boolean?, savedMessages: Boolean): Boolean =
     savedMessages || premium == true
 
+/**
+ * Locked marks require a known non-Premium account: before the profile arrives [premium] is null and the picker must not
+ * flash every custom emoji as locked. A server refusal is still surfaced by the normal send error path.
+ */
+internal fun customEmojiLocked(premium: Boolean?, savedMessages: Boolean): Boolean =
+    !savedMessages && premium == false
+
 internal data class DockCustomEmoji(
     val packs: List<CustomEmojiSetBrief>,
     val installedIds: Set<Long>,

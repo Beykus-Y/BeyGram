@@ -742,7 +742,7 @@ private fun StickerPanel(
                             observeFile = observeFile,
                             downloadFile = downloadFile,
                             packsVersion = shelfVersions.emojiPacks,
-                            locked = !customEmojiAvailable
+                            locked = customEmojiLocked(premium, savedMessages)
                         ) { emoji ->
                             if (customEmojiAvailable) onInsertCustomEmoji(emoji)
                             else notice = premiumNotice
