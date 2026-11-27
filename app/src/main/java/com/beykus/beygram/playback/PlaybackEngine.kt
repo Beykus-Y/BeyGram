@@ -233,6 +233,12 @@ internal fun yandexRestMayJoinQueue(
 ): Boolean = generation == queueGeneration && currentIsLegacyMusic && !bgMixActive
 
 /**
+ * A neighbouring queue occurrence in the actual play order. The index identifies the occurrence even when the same
+ * track key appears more than once, so the artwork preview and the commit validate the exact same row.
+ */
+data class AdjacentPlayback(val queueIndex: Int, val item: PlaybackItem)
+
+/**
  * Общий плеер приложения. Музыка, голосовые и кружки играют через один ExoPlayer, поэтому звук не обрывается
  * при переходе между экранами. Плеер живёт в процессе, а [PlaybackService] держит его на переднем плане,
  * пока он играет: уведомление, экран блокировки и гарнитура работают через систему.
@@ -4119,6 +4125,76 @@ object PlaybackEngine {
         ) ?: return null
         if (next.systemPrivate || next.key == current.key) return null
         return withResolvedSource(next)
+    }
+
+    /**
+     * The adjacent occurrence in the real play order for the artwork swipe: direction < 0 is the next track, > 0 the
+     * previous one. It never restarts the current track, and the edge of a queue with Repeat Off has no neighbour.
+     * Main thread only; this one function feeds both the preview and the commit.
+     */
+    fun adjacentInPlayOrder(direction: Int): AdjacentPlayback? {
+        val state = _state.value
+        if (direction == 0 || state.item == null) return null
+        val index = adjacentPlaybackQueueIndex(
+            queueSize = state.queue.size,
+            currentIndex = state.queueIndex,
+            order = playbackOrderIndices(state),
+            repeatMode = state.repeatMode,
+            step = if (direction < 0) 1 else -1,
+        ) ?: return null
+        return state.queue.getOrNull(index)?.let { AdjacentPlayback(index, it) }
+    }
+
+    /**
+     * An explicit swipe jump to the adjacent occurrence, independent of the Previous restart threshold. [expectedQueueIndex]
+     * and [expectedOccurrenceId] are the occurrence the carousel showed; if the queue or playback order changed since,
+     * nothing is played. Returns false when the jump was refused, so the UI can roll its preview back without waiting
+     * for a timeout.
+     */
+    fun skipToAdjacent(direction: Int, expectedQueueIndex: Int, expectedOccurrenceId: String?): Boolean {
+        val state = _state.value
+        val current = state.item ?: return false
+        if (direction == 0) return false
+        val index = adjacentPlaybackQueueIndex(
+            queueSize = state.queue.size,
+            currentIndex = state.queueIndex,
+            order = playbackOrderIndices(state),
+            repeatMode = state.repeatMode,
+            step = if (direction < 0) 1 else -1,
+        ) ?: return false
+        if (index != expectedQueueIndex) return false
+        val target = state.queue.getOrNull(index) ?: return false
+        if (expectedOccurrenceId != null && target.occurrenceId != expectedOccurrenceId) return false
+        if (target.systemPrivate || current.systemPrivate) return false
+        val resume = state.playing || state.intentPlaying || state.ended
+        _manualSkips.update { it + 1 }
+        if (bgMixActive()) {
+            // A prepared row switches in the native session at once; any other one plays on the regular player and is
+            // handed back to BG Mix when its file is ready. A paused queue stays paused on the new track.
+            if (bgMix?.manualSelect(index) != true) {
+                restartBgMix(state.queue, index, 0L, autoPlay = resume)
+            }
+            return true
+        }
+        val targetPlayer = exo ?: return false
+        if (index >= targetPlayer.mediaItemCount) return false
+        transitionToken++
+        clearDeferredSeek()
+        pendingStartFraction = 0f
+        _state.update { it.copy(ended = false, failed = false) }
+        targetPlayer.seekTo(index, 0L)
+        if (targetPlayer.playbackState == Player.STATE_IDLE || targetPlayer.playbackState == Player.STATE_ENDED) {
+            targetPlayer.prepare()
+        }
+        _state.update { it.copy(intentPlaying = resume).withTimelineNavigation(targetPlayer) }
+        if (resume) {
+            if (!current.systemPrivate) startPlaybackService()
+            targetPlayer.play()
+            startProgress()
+        }
+        loadNextQueuePage()
+        prefetchNext()
+        return true
     }
 
     /**
