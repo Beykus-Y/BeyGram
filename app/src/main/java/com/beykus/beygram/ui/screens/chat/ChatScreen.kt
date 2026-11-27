@@ -91,6 +91,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.repeatOnLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.beykus.beygram.R
+import com.beykus.beygram.data.appearance.ChatTopPanelLayout
 import com.beykus.beygram.data.appearance.MessageAnimationConfig
 import com.beykus.beygram.data.appearance.MessageAnimationPreset
 import com.beykus.beygram.deeplink.MessageEntityLink
@@ -393,7 +394,8 @@ fun ChatScreen(
     // A sticker long-pressed in the picker waits for the explicit send-options choice (silent/scheduled).
     var pendingSticker by remember(chat.id) { mutableStateOf<OutgoingMedia?>(null) }
     // The unified sticker/GIF panel replaces the attachment strip above the composer, not the attach menu.
-    var stickerPanelOpen by rememberSaveable(chat.id) { mutableStateOf(false) }
+    var stickerPanelOpen by rememberSaveable(accountId, chat.id, forumTopicId) { mutableStateOf(false) }
+    var stickerPanelKeyboardHeight by rememberSaveable(accountId, chat.id, forumTopicId) { mutableFloatStateOf(0f) }
     var scheduledMessagesOpen by remember(chat.id) { mutableStateOf(false) }
     var chatSettingsOpen by remember(chat.id) { mutableStateOf(false) }
     val chatOverrideState by chatOverrides.state.collectAsStateWithLifecycle()
@@ -872,6 +874,18 @@ fun ChatScreen(
     val feedTopicHeaders = timeline.feedTopicHeaders
     val senderHeaderByKey = timeline.senderHeaderByKey
     val localTextAttemptIds = timeline.localTextAttemptIds
+    val supportsGroupAvatars = chat.supportsGroupAvatars()
+    val showGroupAvatars = supportsGroupAvatars && chatOverrideState[chat.id]?.groupAvatarsHidden != true
+    val groupAvatars = remember(showGroupAvatars, messageListItems, daySeparators, feedTopicHeaders) {
+        if (showGroupAvatars) groupAvatarRows(messageListItems, daySeparators.keys + feedTopicHeaders.keys)
+        else emptyMap()
+    }
+    val groupMembers = remember(supportsGroupAvatars, info?.memberPreview) {
+        if (supportsGroupAvatars) info?.memberPreview.orEmpty().associateBy { it.userId } else emptyMap()
+    }
+    val groupAvatarPhotos = rememberGroupAvatarPhotos(
+        conversation, chat.id, forumTopicId, listState, groupAvatars, groupMembers
+    )
     // The position is saved by message as well as by index: history changes move indexes, not the message on screen.
     val currentListItems by rememberUpdatedState(messageListItems)
     val bottomThresholdPx = with(LocalDensity.current) { 48.dp.roundToPx() }
@@ -1895,21 +1909,13 @@ fun ChatScreen(
         }
     }
 
-    // Reported by PinnedMessagesBar: while the preview sits under the header, the group ends with this row's hairline.
-    var pinnedPreviewShown by remember(chat.id, forumTopicId) { mutableStateOf(false) }
-    // The pinned data outlives the bar: the keyboard, the search and the selection mode hide the row for a while, and
-    // a hidden bar must not lose its loaded pages or re-request them when it comes back.
-    val pinnedVersion by remember(conversation, chat.id) { conversation.observePinnedMessagesVersion(chat.id) }.collectAsStateWithLifecycle()
-    val pinnedState = remember(conversation, chat.id, forumTopicId) {
-        PinnedMessagesState(chat.id, forumTopicId) { from -> conversation.pinnedMessages(chat.id, from, forumTopicId) }
-    }
-    val pinsConnected = connectionState == TelegramConnectionState.Connected
-    LaunchedEffect(pinnedState, pinnedVersion, pinsConnected, pinnedState.retryTick) { pinnedState.refresh(pinnedVersion, pinsConnected) }
-    var pinnedListOpen by rememberSaveable(chat.id, forumTopicId) { mutableStateOf(false) }
-    var pinnedPreviewSource by remember(chat.id, forumTopicId) { mutableStateOf<PinnedPreviewSource?>(null) }
-    var livePinnedPreview by remember(chat.id, forumTopicId) { mutableStateOf<PinnedPreviewSource?>(null) }
-    var livePinnedHeader by remember(chat.id, forumTopicId) { mutableStateOf<Rect?>(null) }
-    var pinnedHeaderSource by remember(chat.id, forumTopicId) { mutableStateOf<Rect?>(null) }
+    val pinnedChrome = rememberChatPinnedChromeState(
+        conversation = conversation,
+        chatId = chat.id,
+        forumTopicId = forumTopicId,
+        connected = connectionState == TelegramConnectionState.Connected,
+        listOpen = rememberSaveable(chat.id, forumTopicId) { mutableStateOf(false) }
+    )
     // Hiding the pinned bar is local to this chat and this account; the pins themselves stay on the server.
     val pinnedBarHidden = chatOverrideState[chat.id]?.pinnedBarHidden == true
     val windowLayout = LocalWindowLayout.current
@@ -1964,20 +1970,26 @@ fun ChatScreen(
         // is its own surface under it. The search, the selection mode, a hidden bar and a keyboard in a short window
         // skip the row, never the data.
         val showPinnedBar = !(compactChrome && keyboardOpen) && !searching && !selectionMode && !pinnedBarHidden
-        val pinnedBarSlot: @Composable ColumnScope.() -> Unit = {
+        val topPanels = design.chatTopPanelLayout
+        val pinInHeader = topPanels == ChatTopPanelLayout.Current && !design.navigationFloating
+        val showChatPlayer = !windowLayout.twoPane
+        val pinnedBarSlot: @Composable () -> Unit = {
             if (showPinnedBar) PinnedMessagesBar(
-                state = pinnedState,
+                state = pinnedChrome.messages,
                 conversation = conversation,
                 observeFile = observeFile,
                 visibleOldestMessageId = visibleOldestPinnedBoundary,
                 onOpen = ::jumpToPinned,
-                onOpenList = { pinnedPreviewSource = null; pinnedHeaderSource = null; pinnedListOpen = true },
-                onOpenListFromPreview = { source -> pinnedPreviewSource = source; pinnedHeaderSource = livePinnedHeader; pinnedListOpen = true },
-                hiddenPreviewId = pinnedPreviewSource?.id?.takeIf { pinnedListOpen },
-                onPreviewMeasured = { livePinnedPreview = it },
+                onOpenList = pinnedChrome::openList,
+                onOpenListFromPreview = pinnedChrome::openListFromPreview,
+                hiddenPreviewId = pinnedChrome.previewSource?.id?.takeIf { pinnedChrome.isListOpen },
+                onPreviewMeasured = { pinnedChrome.livePreview = it },
                 onHideBar = { chatOverrides.setPinnedBarHidden(chat.id, true) },
                 onUnpin = { message -> setPinned(message, false) },
-                onRowShownChange = { pinnedPreviewShown = it }
+                onRowShownChange = { pinnedChrome.previewShown = it },
+                floating = topPanels == ChatTopPanelLayout.Separate ||
+                    (topPanels == ChatTopPanelLayout.Current && design.navigationFloating),
+                sharedSurface = topPanels == ChatTopPanelLayout.Combined
             )
         }
         ChatChromeHost(chatGlass, GlassEdge.BottomHairline, chatBackdrop, { topChromePx = it },
@@ -2028,12 +2040,12 @@ fun ChatScreen(
             onStatistics = onStatistics,
             onExport = { exportOpen = true },
             secretChat = secretChat,
-            pinnedBelow = pinnedPreviewShown && !design.navigationFloating,
+            pinnedBelow = pinInHeader && pinnedChrome.previewShown,
             showBack = !windowLayout.twoPane || forumTopicId > 0L || forumAllMessages,
             compact = compactChrome,
-            pinnedCount = pinnedState.count,
-            onPinnedHeaderMeasured = { livePinnedHeader = it },
-            onOpenPinned = { pinnedPreviewSource = null; pinnedHeaderSource = null; pinnedListOpen = true },
+            pinnedCount = pinnedChrome.messages.count,
+            onPinnedHeaderMeasured = { pinnedChrome.liveHeader = it },
+            onOpenPinned = pinnedChrome::openList,
             forumNavigationMode = forumNavigationMode,
             onForumNavigationMode = onForumNavigationMode,
             forumAllMessages = forumAllMessages
@@ -2043,7 +2055,7 @@ fun ChatScreen(
         // Keep playback accessible below the chat header, not between messages and the composer.
         // The input/IME and reply controls should remain adjacent to the message list.
         // In the split layout the player already lives under the list on the left, so the chat has no strip of its own.
-        if (!windowLayout.twoPane) NowPlayingBar(compact = true)
+        if (topPanels == ChatTopPanelLayout.Current && showChatPlayer) NowPlayingBar(compact = true)
         // The target picker lives above the message list so the action bar can close before selection.
         val translationTargetMessage = translationPickerId?.let { id -> messages.firstOrNull { it.id == id } }
         if (translationTargetMessage != null && TranslationPolicy.canTranslate(chat.isSecret, translationTargetMessage.text.isNotBlank())) {
@@ -2181,11 +2193,22 @@ fun ChatScreen(
             }
         }
         // Sync the pinned preview with what the reader is currently seeing, as in official Telegram.
-        if (!design.navigationFloating) pinnedBarSlot()
+        if (pinInHeader) pinnedBarSlot()
         ChatConnectionBanner(accountId, connectionState)
         // Non-inline wrappers keep these large blocks out of ChatScreen's own bytecode (JVM 64 KB method limit).
             },
-            floatingContent = { if (design.navigationFloating) pinnedBarSlot() }
+            floatingContent = {
+                when (topPanels) {
+                    ChatTopPanelLayout.Current -> if (!pinInHeader) pinnedBarSlot()
+                    ChatTopPanelLayout.Separate -> {
+                        if (showChatPlayer) Box(Modifier.fillMaxWidth().chatTopPanelSpacing()) {
+                            NowPlayingBar(floatingDock = true, compact = true)
+                        }
+                        pinnedBarSlot()
+                    }
+                    ChatTopPanelLayout.Combined -> ChatTopPanelCapsule(showChatPlayer, pinnedBarSlot)
+                }
+            }
         )
         ChatScreenBox(Modifier.fillMaxWidth().weight(1f)) {
         ChatScreenBox(Modifier.underChatChrome({ if (chatBackdrop != null) topChromePx else 0 }, { if (chatBackdrop != null || floatingComposer) bottomChromePx else 0 }).let { m -> if (chatBackdrop != null) m.glassBackdropSource(chatBackdrop) else m }) {
@@ -2248,6 +2271,10 @@ fun ChatScreen(
                                 val commentsPost = listItem.messages.firstOrNull { it.replyCount > 0 }
                                     ?: listItem.messages.firstOrNull()
                                 val albumComments = commentsPost?.takeIf { showsChannelComments(chat.isChannel, it.isChannelPost, linkedDiscussionChatId) }
+                                ChatGroupAvatarRow(
+                                    showGroupAvatars, latest, groupAvatars[listItem.key], groupMembers, groupAvatarPhotos,
+                                    observeFile, onDownloadFile, onServiceUser.takeUnless { selectionMode }
+                                ) {
                                 MessageAlbumBubble(listItem.messages, observeFile, onDownloadFile,
                                     isRead = latest?.let { it.isOutgoing && it.sendState == MessageSendState.Sent && it.id <= history.lastReadOutboxMessageId } == true,
                                     highlighted = listItem.messages.any { it.id == highlighted || it.id == actionsId },
@@ -2268,10 +2295,12 @@ fun ChatScreen(
                                     },
                                     onAutoDownloadFile = onAutoDownloadFile,
                                     showSenderHeader = senderHeaderByKey[listItem.key] == true,
+                                    senderMember = latest?.let { groupMembers[it.senderId] },
                                     onOpenMessageEntity = onOpenMessageEntity,
                                     composerMediaLaunches = albumLaunches,
                                     onComposerMediaLaunchFinished = mediaLaunchController::finish,
                                     onLoadVersions = { chatId, messageId -> conversation.messageVersions(chatId, messageId) })
+                                }
                             }
                         }
                     }
@@ -2346,6 +2375,10 @@ fun ChatScreen(
                             else if (message.serviceText != null) ServiceMessageChip(message.serviceText, message.serviceUserId, onServiceUser)
                             else {
                                 val localAttempt = localTextAttemptIds[message.id]
+                                ChatGroupAvatarRow(
+                                    showGroupAvatars, message, groupAvatars[listItem.key], groupMembers, groupAvatarPhotos,
+                                    observeFile, onDownloadFile, onServiceUser.takeUnless { selectionMode }
+                                ) {
                                 MessageBubble(message, observeFile, onDownloadFile, isRead = message.isOutgoing && message.sendState == MessageSendState.Sent && message.id <= history.lastReadOutboxMessageId,
                                     highlighted = message.id == highlighted || message.id == actionsId,
                                     onOpen = { selectedMediaId = message.id },
@@ -2480,8 +2513,10 @@ fun ChatScreen(
                                     { ChannelCommentsBar(message.replyCount) { onOpenComments(message) } }
                                 } else null,
                                 showSenderHeader = senderHeaderByKey[listItem.key] == true,
+                                senderMember = groupMembers[message.senderId],
                                 paidContent = rememberPaidContentActions(conversation),
                                 onOpenMessageEntity = onOpenMessageEntity)
+                                }
                             }
                         }
                         }
@@ -2517,6 +2552,11 @@ fun ChatScreen(
             conversation = conversation,
             onJumpToMessage = { id -> jumpToMessage(id, R.string.chat_message_unavailable) },
             onReadAllFailed = { error = context.getString(R.string.chat_read_all_failed) },
+            onJumpEmpty = { error = context.getString(R.string.global_search_empty) },
+            onJumpFailed = { failure ->
+                error = failure?.userMessage(context, R.string.chat_search_failed)
+                    ?: context.getString(R.string.err_tdlib_request_timeout)
+            },
             modifier = Modifier.align(Alignment.BottomEnd).padding(end = 12.dp, bottom = 12.dp)
         ) {
             JumpToLatestButton(unread = if (forumTopicId > 0L) topicUnreadCount else chat.unreadCount, onClick = {
@@ -2709,34 +2749,13 @@ fun ChatScreen(
         delayed.Strip(composerEmpty = draft.isEmpty() && replyId == null, onRestoreDraft = { restored -> updateDraft { restored } })
         val embeddedAttachments = !editing && attachments.active && !attachments.menuOpen && !stickerPanelOpen
         AttachmentComposerContainer(embeddedAttachments) {
-        if (!editing) {
-            ChatComposerPanel(
-                stickerPanelOpen = stickerPanelOpen,
-                embedded = embeddedAttachments,
-                attachments = attachments,
-                conversation = conversation,
+        if (!editing && !stickerPanelOpen) {
+            AttachmentPanel(
+                state = attachments,
                 observeFile = observeFile,
                 onDownloadFile = onDownloadFile,
                 allowViewOnce = allowViewOnce,
-                chatId = chat.id,
-                replyId = replyId,
-                forumTopicId = sendForumTopicId,
-                scope = scope,
-                onReplyConsumed = { sentReplyId ->
-                    if (sentReplyId != null) {
-                        updateDraft { current ->
-                            if (current.replyToMessageId == sentReplyId) current.copy(replyToMessageId = null) else current
-                        }
-                    }
-                },
-                onStickerOptions = { sticker ->
-                    pendingSticker = sticker
-                    sendOptionsOpen = true
-                },
-                onSendError = { message -> error = message },
-                onInsertEmoji = { emoji -> editComposerText { text, selection -> insertAtSelection(text, selection, emoji) } },
-                onDeleteBackward = { editComposerText(::deleteBeforeSelection) },
-                onCloseStickerPanel = { stickerPanelOpen = false }
+                embedded = embeddedAttachments
             )
         }
         Row(Modifier.fillMaxWidth().padding(horizontal = if (embeddedAttachments) 2.dp else 10.dp, vertical = if (compactChrome || embeddedAttachments) 4.dp else 8.dp), verticalAlignment = Alignment.Bottom) {
@@ -2770,8 +2789,13 @@ fun ChatScreen(
                             onClick = {
                                 if (stickerPanelOpen) {
                                     stickerPanelOpen = false
+                                    replyFocusRequest++
                                 } else if (!busy && !attachments.active) {
                                     attachments.menuOpen = false
+                                    val keyboardHeight = imeInsets.getBottom(imeDensity)
+                                    if (keyboardHeight > 0) {
+                                        stickerPanelKeyboardHeight = with(imeDensity) { keyboardHeight.toDp().value }
+                                    }
                                     stickerPanelOpen = true
                                 }
                             }
@@ -2854,7 +2878,36 @@ fun ChatScreen(
             modifier = Modifier.padding(horizontal = 18.dp, vertical = 2.dp)
         )
         }
-        if (!recordingActive && !editing && !attachments.active) BotReplyKeyboard(chat.id, botKeyboard, conversation, sendGuard, ::requestBotWebApp)
+        if (!recordingActive && !editing && !attachments.active && !stickerPanelOpen) BotReplyKeyboard(chat.id, botKeyboard, conversation, sendGuard, ::requestBotWebApp)
+            ChatComposerStickerPanel(
+                open = !recordingActive && !editing && !attachments.active && stickerPanelOpen,
+                accountId = accountId,
+                panelTopicId = forumTopicId,
+                keyboardHeightHint = stickerPanelKeyboardHeight.dp,
+                attachments = attachments,
+                conversation = conversation,
+                observeFile = observeFile,
+                onDownloadFile = onDownloadFile,
+                chatId = chat.id,
+                replyId = replyId,
+                forumTopicId = sendForumTopicId,
+                scope = scope,
+                onReplyConsumed = { sentReplyId ->
+                    if (sentReplyId != null) {
+                        updateDraft { current ->
+                            if (current.replyToMessageId == sentReplyId) current.copy(replyToMessageId = null) else current
+                        }
+                    }
+                },
+                onStickerOptions = { sticker ->
+                    pendingSticker = sticker
+                    sendOptionsOpen = true
+                },
+                onSendError = { message -> error = message },
+                onInsertEmoji = { emoji -> editComposerText { text, selection -> insertAtSelection(text, selection, emoji) } },
+                onDeleteBackward = { editComposerText(::deleteBeforeSelection) },
+                onCloseStickerPanel = { stickerPanelOpen = false }
+            )
         }
         })
     }
@@ -3189,8 +3242,8 @@ fun ChatScreen(
             replyFocusRequest++
         }) else null
     )
-    if (pinnedListOpen) PinnedMessagesScreen(
-        state = pinnedState,
+    if (pinnedChrome.isListOpen) PinnedMessagesScreen(
+        state = pinnedChrome.messages,
         conversation = conversation,
         chat = chat,
         chatTitle = forumTopicTitle?.takeIf { it.isNotBlank() }?.let { "${chat.title} · $it" } ?: chat.title,
@@ -3199,13 +3252,16 @@ fun ChatScreen(
         observeFile = observeFile,
         downloadFile = onDownloadFile,
         barHidden = pinnedBarHidden,
-        previewSource = pinnedPreviewSource,
-        livePreviewSource = { livePinnedPreview },
-        headerSource = pinnedHeaderSource,
-        liveHeaderSource = { livePinnedHeader },
+        previewSource = pinnedChrome.previewSource,
+        livePreviewSource = { pinnedChrome.livePreview },
+        headerSource = pinnedChrome.headerSource,
+        liveHeaderSource = { pinnedChrome.liveHeader },
         onRestoreBar = { chatOverrides.setPinnedBarHidden(chat.id, false) },
-        onOpenMessage = { message -> pinnedListOpen = false; pinnedPreviewSource = null; pinnedHeaderSource = null; jumpToPinned(message) },
-        onClose = { pinnedListOpen = false; pinnedPreviewSource = null; pinnedHeaderSource = null }
+        onOpenMessage = { message ->
+            pinnedChrome.closeList()
+            jumpToPinned(message)
+        },
+        onClose = pinnedChrome::closeList
     )
     if (chatSettingsOpen) ChatSettingsSheet(
         chatId = chat.id,
@@ -3213,6 +3269,7 @@ fun ChatScreen(
         overrides = chatOverrides,
         globalWallpaper = globalWallpaper,
         isSecretChat = chat.isSecret,
+        supportsGroupAvatars = supportsGroupAvatars,
         onSecretChatClosed = onBack,
         onClose = { chatSettingsOpen = false }
     )
@@ -3320,62 +3377,6 @@ private fun ChatScreenColumn(modifier: Modifier, content: @Composable ColumnScop
 @Composable
 private fun ChatScreenOverlays(content: @Composable () -> Unit) {
     content()
-}
-
-/** Keeps the attachment strip and the unified sticker panel out of ChatScreen's own bytecode-heavy composer lambda. */
-@Composable
-private fun ChatComposerPanel(
-    stickerPanelOpen: Boolean,
-    embedded: Boolean,
-    attachments: AttachmentState,
-    conversation: ConversationRepository,
-    observeFile: (Int) -> StateFlow<MediaFileState>,
-    onDownloadFile: (Int) -> Unit,
-    allowViewOnce: Boolean,
-    chatId: Long,
-    replyId: Long?,
-    forumTopicId: Long,
-    scope: CoroutineScope,
-    onReplyConsumed: (Long?) -> Unit,
-    onStickerOptions: (OutgoingMedia) -> Unit,
-    onSendError: (String) -> Unit,
-    onInsertEmoji: (String) -> Unit,
-    onDeleteBackward: () -> Unit,
-    onCloseStickerPanel: () -> Unit
-) {
-    if (stickerPanelOpen) {
-        StickerPanelHost(
-            conversation = conversation,
-            chatId = chatId,
-            replyId = replyId,
-            forumTopicId = forumTopicId,
-            observeFile = observeFile,
-            downloadFile = onDownloadFile,
-            scope = scope,
-            composerReserve = if (replyId != null) 144.dp else 80.dp,
-            onReplyConsumed = onReplyConsumed,
-            onAnimationAttach = { animation ->
-                attachments.addAnimation(animation.toOutgoingMedia())
-                onCloseStickerPanel()
-            },
-            onStickerOptions = { sticker ->
-                onStickerOptions(sticker.toOutgoingMedia())
-                onCloseStickerPanel()
-            },
-            onSendError = onSendError,
-            onInsertEmoji = onInsertEmoji,
-            onDeleteBackward = onDeleteBackward,
-            onClose = onCloseStickerPanel
-        )
-    } else {
-        AttachmentPanel(
-            state = attachments,
-            observeFile = observeFile,
-            onDownloadFile = onDownloadFile,
-            allowViewOnce = allowViewOnce,
-            embedded = embedded
-        )
-    }
 }
 
 @Composable

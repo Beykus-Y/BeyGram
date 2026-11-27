@@ -37,7 +37,8 @@ data class AppearanceConfig(
      * Where the bottom navigation sits. It is its own axis, so the style keeps deciding how the bar looks while the user
      * decides whether it is pinned to the bottom edge or floats above the content.
      */
-    val navigationPlacement: NavigationPlacement = NavigationPlacement.Auto
+    val navigationPlacement: NavigationPlacement = NavigationPlacement.Auto,
+    val chatTopPanelLayout: ChatTopPanelLayout = ChatTopPanelLayout.Current
 )
 
 const val DEFAULT_MESSAGE_TEXT_SIZE_SP = 16

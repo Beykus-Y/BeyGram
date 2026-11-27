@@ -1,0 +1,4 @@
+<resources>
+    <string name="video_note_show_transcription">Показать расшифровку</string>
+    <string name="video_note_hide_transcription">Скрыть расшифровку</string>
+</resources>

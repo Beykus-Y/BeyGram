@@ -1,0 +1,4 @@
+<resources>
+    <string name="video_note_show_transcription">Show transcription</string>
+    <string name="video_note_hide_transcription">Hide transcription</string>
+</resources>

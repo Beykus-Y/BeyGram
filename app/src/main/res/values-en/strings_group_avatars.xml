@@ -1,0 +1,4 @@
+<resources>
+    <string name="chat_settings_group_avatars">Avatars beside messages</string>
+    <string name="chat_group_sender_avatar">Avatar for %1$s</string>
+</resources>

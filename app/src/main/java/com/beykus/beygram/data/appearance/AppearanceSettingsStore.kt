@@ -36,6 +36,7 @@ private val DesignStyleKey = stringPreferencesKey("design_style")
 private val GlassQualityKey = stringPreferencesKey("glass_quality")
 internal val LiquidGlassV2Key = booleanPreferencesKey("liquid_glass_v2")
 internal val LiquidGlassLensPresetKey = stringPreferencesKey("liquid_glass_lens_preset")
+private val ChatTopPanelLayoutKey = stringPreferencesKey("chat_top_panel_layout")
 private val NavigationPlacementKey = stringPreferencesKey("navigation_placement")
 
 private val Context.appearanceDataStore by preferencesDataStore(
@@ -77,6 +78,7 @@ class AppearanceSettingsStore(context: Context) {
             preferences[LiquidGlassV2Key] = config.liquidGlassV2
             preferences[LiquidGlassLensPresetKey] = config.liquidGlassPreset.name
             preferences[NavigationPlacementKey] = config.navigationPlacement.name
+            preferences[ChatTopPanelLayoutKey] = config.chatTopPanelLayout.name
         }
     }
 }
@@ -125,5 +127,6 @@ internal fun appearanceConfigFromPreferences(preferences: Preferences): Appearan
     // (including legacy false/Standard written by earlier save() calls) are preserved as-is.
     liquidGlassV2 = preferences[LiquidGlassV2Key] ?: true,
     liquidGlassPreset = liquidGlassLensPresetFromStored(preferences[LiquidGlassLensPresetKey]),
-    navigationPlacement = navigationPlacementFromStored(preferences[NavigationPlacementKey])
+    navigationPlacement = navigationPlacementFromStored(preferences[NavigationPlacementKey]),
+    chatTopPanelLayout = chatTopPanelLayoutFromStored(preferences[ChatTopPanelLayoutKey])
 )

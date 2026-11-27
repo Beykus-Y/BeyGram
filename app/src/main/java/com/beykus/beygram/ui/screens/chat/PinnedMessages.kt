@@ -409,12 +409,13 @@ internal fun PinnedMessagesBar(
     onHideBar: () -> Unit,
     onUnpin: (ChatMessage) -> Unit,
     /** Reports whether a row is drawn, so the header can give its bottom hairline to this row. */
-    onRowShownChange: (Boolean) -> Unit = {}
+    onRowShownChange: (Boolean) -> Unit = {},
+    floating: Boolean = LocalDesignSystem.current.navigationFloating,
+    sharedSurface: Boolean = false
 ) {
     val palette = beyGramPalette()
     val design = LocalDesignSystem.current
     val scope = rememberCoroutineScope()
-    val floating = design.navigationFloating
 
     val needsOlder = needsOlderPinnedPage(state.pins, visibleOldestMessageId)
     val index = currentPinnedIndex(state.pins, visibleOldestMessageId)
@@ -458,7 +459,7 @@ internal fun PinnedMessagesBar(
         val rowFill = Modifier.fillMaxWidth()
             .let { base ->
                 when {
-                    floating -> base
+                    floating || sharedSurface -> base
                     // Signature: the bar shares the header's canvas and closes the group with its own hairline.
                     design.components.topBar == TopBarVariant.Signature ->
                         base.signatureChrome(palette.screen, palette.divider, HairlineEdge.Bottom)
@@ -611,7 +612,7 @@ internal fun PinnedMessagesBar(
                 }
                 // The group's single hairline: Signature draws its own in signatureChrome, Liquid Glass closes on the
                 // pane rim, the flat styles draw exactly one line here.
-                if (design.components.topBar != TopBarVariant.Signature && design.components.topBar != TopBarVariant.Glass) {
+                if (!sharedSurface && design.components.topBar != TopBarVariant.Signature && design.components.topBar != TopBarVariant.Glass) {
                     HorizontalDivider(color = palette.divider)
                 }
             }
@@ -682,9 +683,10 @@ private fun PinnedBarActions(
  * messages scrolling behind it. The card never passes a tap through to the list, while the air around it stays live.
  */
 @Composable
-private fun FloatingPinnedCard(
+internal fun FloatingPinnedCard(
     design: DesignSystem,
     palette: BeyGramPalette,
+    verticalGaps: Boolean = true,
     content: @Composable () -> Unit
 ) {
     val spec = remember(design) { navigationSpecFor(design) }
@@ -693,11 +695,13 @@ private fun FloatingPinnedCard(
     val fill = navigationBarColor(design, palette.surface, palette.screen)
     val swallowTaps = Modifier.pointerInput(Unit) { awaitPointerEventScope { while (true) awaitPointerEvent() } }
     Column(
-        Modifier.fillMaxWidth().padding(
+        Modifier.fillMaxWidth()
+            .then(if (verticalGaps) Modifier else Modifier.chatTopPanelSpacing())
+            .padding(
             start = spec.horizontalMargin,
             end = spec.horizontalMargin,
-            top = PinnedCardTopGap,
-            bottom = PinnedCardBottomGap
+            top = if (verticalGaps) PinnedCardTopGap else 0.dp,
+            bottom = if (verticalGaps) PinnedCardBottomGap else 0.dp
         )
     ) {
         when {

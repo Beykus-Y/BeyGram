@@ -27,9 +27,7 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.beykus.beygram.R
@@ -56,6 +54,7 @@ internal fun MessageBubble(message: ChatMessage, observeFile: (Int) -> StateFlow
     quickReactionAcrossRow: Boolean = false,
     /** Callers pass the chat/grouping decision; the sender name itself stays available for replies, search and profiles. */
     showSenderHeader: Boolean = true,
+    senderMember: ProfileMember? = null,
     /** Music link cards (Yandex Music) are drawn only where the caller turns them on: the chat list, not secret chats. */
     musicLinkCards: Boolean = false,
     waveAccountId: String? = null,
@@ -147,7 +146,17 @@ internal fun MessageBubble(message: ChatMessage, observeFile: (Int) -> StateFlow
     val selectionState = if (selectionMode) stringResource(if (selected) R.string.message_selection_selected else R.string.message_selection_not_selected) else null
     var captionPlay by remember(message.id) { mutableStateOf<AudioPlayRequest?>(null) }
     // On a tablet the pane is wide: a bubble grows with it (70 % of the pane, 292 to 480 dp) instead of hugging the edge.
-    val bubbleMax = chatBubbleMaxWidthDp(com.beykus.beygram.ui.screens.chats.LocalChatPaneWidthDp.current ?: chatPaneWidthDp(LocalWindowLayout.current)).dp
+    val paneWidth = com.beykus.beygram.ui.screens.chats.LocalChatPaneWidthDp.current
+        ?: chatPaneWidthDp(LocalWindowLayout.current)
+    val bubbleMax = chatBubbleMaxWidthDp(paneWidth).dp
+    val mediaSize = message.media?.let { media ->
+        val availableWidth = minOf(bubbleMax.value, paneWidth - metrics.sideInset.value * 2)
+        when {
+            media.kind.isSingleVisualMedia() -> singleMediaSize(paneWidth, availableWidth, media.width, media.height)
+            sticker -> sentStickerSize(paneWidth, availableWidth, media.width, media.height)
+            else -> null
+        }
+    }
     val mediaFlightModifier = composerMediaLaunchModifier(composerMediaLaunch, onComposerMediaLaunchFinished)
     val quickReaction = if (loadQuickReactions != null && !selectionMode && message.sendState == MessageSendState.Sent) {
         rememberBubbleQuickReaction(message, loadQuickReactions, onReaction)
@@ -169,7 +178,7 @@ internal fun MessageBubble(message: ChatMessage, observeFile: (Int) -> StateFlow
                     Modifier.testTag("message-bubble:${message.id}")
                         .widthIn(max = if (circle) androidx.compose.ui.unit.Dp.Infinity else bubbleMax)
                         .then(if (message.media != null && !circle && !sticker)
-                             Modifier.width(if (message.media.kind == MediaKind.Audio) 280.dp else 244.dp) else Modifier)
+                             Modifier.width(mediaSize?.width ?: if (message.media.kind == MediaKind.Audio) 280.dp else 244.dp) else Modifier)
                         .then(mediaFlightModifier).clip(shape)
                         .then(if (hideForContextScene) Modifier.alpha(0f) else Modifier)
                         .background(if (circle || sticker) Color.Transparent else if (message.isOutgoing) palette.outgoingBubble else palette.incomingBubble)
@@ -209,7 +218,7 @@ internal fun MessageBubble(message: ChatMessage, observeFile: (Int) -> StateFlow
                     overlayMeta = overlayMeta,
                     body = {
                     Column {
-                        if (showAuthor) Text(message.senderName, color = palette.accentInk, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis,
+                        if (showAuthor) ChatGroupAuthorName(message.senderName, senderMember,
                             modifier = (if (lastLineMeta) Modifier.padding(horizontal = metrics.textInset).padding(top = 6.dp)
                             else Modifier.padding(horizontal = 12.dp, vertical = 4.dp))
                                 .then(if (onSenderClick != null) Modifier.clickable { onSenderClick() } else Modifier))
@@ -232,7 +241,7 @@ internal fun MessageBubble(message: ChatMessage, observeFile: (Int) -> StateFlow
                                 onTranscribe = onTranscribe,
                                 onRateTranscription = onRateTranscription,
                                 speechRecognitionUi = speechRecognitionUi,
-                                autoDownloadFile = onAutoDownloadFile)
+                                autoDownloadFile = onAutoDownloadFile, outgoing = message.isOutgoing)
                             else MediaPreview(media, observeFile, onDownloadFile,
                                 onOpen = if (selectionMode) onToggleSelection else onOpen,
                                 onLongPress = if (selectionMode) onToggleSelection else onActions,
@@ -251,7 +260,7 @@ internal fun MessageBubble(message: ChatMessage, observeFile: (Int) -> StateFlow
                                     stickerMedia?.let { stickerMedia ->
                                         { if (selectionMode) onToggleSelection() else callback(stickerMedia) }
                                     }
-                                }, selectionActive = selectionMode)
+                                }, selectionActive = selectionMode, mediaSize = mediaSize)
                         }
                         message.expiredMediaKind?.let { kind -> ExpiredMediaCard(kind) }
                         // Без текста и ответа под фото нет строки: время уже стоит поверх него.

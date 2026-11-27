@@ -12,6 +12,7 @@ import com.beykus.beygram.data.appearance.listDensityFromStored
 import com.beykus.beygram.data.appearance.messageAnimationConfigFromStored
 import com.beykus.beygram.data.appearance.messageLineSpacingFromStored
 import com.beykus.beygram.data.appearance.navigationPlacementFromStored
+import com.beykus.beygram.data.appearance.chatTopPanelLayoutFromStored
 import com.beykus.beygram.data.appearance.themeModeFromStored
 import com.beykus.beygram.data.appearance.themePresetFromStored
 import com.beykus.beygram.data.appearance.DEFAULT_MESSAGE_TEXT_SIZE_SP
@@ -49,6 +50,7 @@ internal fun encodeAppearanceDraft(draft: AppearanceConfig?): List<String> = dra
         it.navigationPlacement.name,
         it.liquidGlassV2.toString(),
         it.liquidGlassPreset.name,
+        it.chatTopPanelLayout.name,
         APPEARANCE_DRAFT_VERSION.toString()
     )
 }.orEmpty()
@@ -71,7 +73,7 @@ private const val APPEARANCE_DRAFT_V6_SIZE = 19
  * restores with the defaults for the new choices (V2 on with Clear). Damaged values fall back the same way DataStore does.
  */
 internal fun decodeAppearanceDraft(parts: List<String>): AppearanceConfig? {
-    if (parts.size !in 7..APPEARANCE_DRAFT_V6_SIZE) return null
+    if (parts.size !in 7..APPEARANCE_DRAFT_V7_SIZE) return null
     val hasDesignChoices = parts.size >= APPEARANCE_DRAFT_V3_SIZE
     val hasNavigationPlacement = parts.size >= APPEARANCE_DRAFT_V4_SIZE
     val hasLiquidGlassV2 = parts.size >= APPEARANCE_DRAFT_V5_SIZE
@@ -96,8 +98,10 @@ internal fun decodeAppearanceDraft(parts: List<String>): AppearanceConfig? {
         liquidGlassPreset = liquidGlassLensPresetFromStored(parts.getOrNull(17)?.takeIf { hasLiquidGlassPreset }),
         navigationPlacement = navigationPlacementFromStored(
             parts.getOrNull(15)?.takeIf { hasNavigationPlacement }
-        )
+        ),
+        chatTopPanelLayout = chatTopPanelLayoutFromStored(parts.getOrNull(18)?.takeIf { parts.size >= APPEARANCE_DRAFT_V7_SIZE })
     )
 }
 
-private const val APPEARANCE_DRAFT_VERSION = 6
+private const val APPEARANCE_DRAFT_V7_SIZE = 20
+private const val APPEARANCE_DRAFT_VERSION = 7

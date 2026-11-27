@@ -1,5 +1,6 @@
 package com.beykus.beygram.ui.screens.chat
 
+import com.beykus.beygram.domain.model.AnimationItem
 import com.beykus.beygram.domain.model.StickerItem
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -8,6 +9,13 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class StickerPanelLogicTest {
+    @Test fun gifMosaicUsesDimensionsBeforeFilesLoad() {
+        assertEquals(16f / 9, gifPickerAspectRatio(AnimationItem(1, width = 160, height = 90)), 0.001f)
+        assertEquals(1f, gifPickerAspectRatio(AnimationItem(2, thumbnailWidth = 80, thumbnailHeight = 80)), 0.001f)
+        assertEquals(0.68f, gifPickerAspectRatio(AnimationItem(3, width = 1, height = 100)), 0.001f)
+        assertEquals(2.1f, gifPickerAspectRatio(AnimationItem(4, width = 100, height = 1)), 0.001f)
+    }
+
     private fun sticker(setId: Long, id: Long, fileId: Int = id.toInt()) =
         StickerItem(setId = setId, stickerId = id, fileId = fileId)
 

@@ -30,6 +30,14 @@ class AttachmentComposerTest {
     )
 
     @Test
+    fun compactMenuBalancesRowsWithinThePane() {
+        assertEquals(5, attachmentMenuColumns(360f, 1f, 9))
+        assertEquals(3, attachmentMenuColumns(300f, 1f, 9))
+        assertEquals(3, attachmentMenuColumns(360f, 1.5f, 9))
+        assertEquals(9, attachmentMenuColumns(640f, 1f, 9))
+    }
+
+    @Test
     fun `every attachment type is visible without horizontal scrolling`() {
         val actions = attachmentActions(allowsPolls = true)
         assertEquals(9, actions.size)

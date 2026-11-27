@@ -11,6 +11,7 @@ import androidx.compose.ui.unit.dp
 import com.beykus.beygram.data.appearance.DesignStyle
 import com.beykus.beygram.data.appearance.GlassQuality
 import com.beykus.beygram.data.appearance.NavigationPlacement
+import com.beykus.beygram.data.appearance.ChatTopPanelLayout
 import com.beykus.beygram.data.appearance.LiquidGlassLensPreset
 
 /**
@@ -37,7 +38,8 @@ data class DesignSystem(
      * defaults to the style's own stance, so a style keeps its look; an explicit choice in Appearance overrides it
      * without changing [components] or anything else of the style.
      */
-    val navigationFloating: Boolean = components.floatingNavigation
+    val navigationFloating: Boolean = components.floatingNavigation,
+    val chatTopPanelLayout: ChatTopPanelLayout = ChatTopPanelLayout.Current
 )
 
 /**
