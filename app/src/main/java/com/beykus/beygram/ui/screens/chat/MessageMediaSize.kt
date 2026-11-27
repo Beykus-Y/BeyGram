@@ -16,3 +16,11 @@ internal fun singleMediaSize(paneWidthDp: Float, availableWidthDp: Float, width:
     val slotWidth = minOf(maxWidth, maxHeight * slotRatio)
     return DpSize(slotWidth.dp, (slotWidth / slotRatio).dp)
 }
+
+internal fun sentStickerSize(paneWidthDp: Float, availableWidthDp: Float, width: Int, height: Int): DpSize {
+    val side = minOf(paneWidthDp * 0.45f, availableWidthDp, 208f).coerceAtLeast(0f)
+    val ratio = if (width > 0 && height > 0) width.toFloat() / height else 1f
+    val slotRatio = ratio.coerceIn(0.25f, 4f)
+    val slotWidth = minOf(side, side * slotRatio)
+    return DpSize(slotWidth.dp, (slotWidth / slotRatio).dp)
+}

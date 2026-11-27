@@ -596,7 +596,7 @@ internal fun MediaPreview(
     externalPlay: AudioPlayRequest? = null,
     /** Selection mode is on: a tap on the bubble selects the message instead of opening it. */
     selectionActive: Boolean = false,
-    visualSize: DpSize? = null,
+    mediaSize: DpSize? = null,
 ) {
     // The bubble reads [file] and [thumb] without byte counters; progress is read only in deferred lambdas through the handles.
     val thumbId = media.thumbnailFileId ?: media.fileId
@@ -735,7 +735,8 @@ internal fun MediaPreview(
             media, file, thumb, downloadFile,
             onOpen = onStickerOpen ?: {},
             onLongPress = onLongPress,
-            autoDownloadFile = autoDownload
+            autoDownloadFile = autoDownload,
+            mediaSize = mediaSize
         )
         return
     }
@@ -751,8 +752,8 @@ internal fun MediaPreview(
         val viewOnceHint = stringResource(R.string.media_view_once_hint, mediaLabel)
         // Full file not here yet: the downloaded preview is shown at its own resolution until it arrives, with the download button on top.
         val awaitingFile = revealed && !concealed && file.localPath == null
-        val previewSize = visualSize ?: DpSize(244.dp, (244 / ratio).coerceIn(120f, 280f).dp)
-        val fit = visualSize != null
+        val previewSize = mediaSize ?: DpSize(244.dp, (244 / ratio).coerceIn(120f, 280f).dp)
+        val fit = mediaSize != null
         val density = LocalDensity.current
         // Decode size for the full image: covers the crop box, so bubbles never decode 1024 px for a small box.
         val decodeDimension = remember(media.width, media.height, previewSize, density.density, fit, media.kind, media.mimeType) {
