@@ -19,6 +19,16 @@ internal class TdProfiles(private val client: () -> Client, private val files: M
     private val users = mutableMapOf<Long, TdApi.User>()
     private val peerColors = TdPeerColors()
 
+    fun accentForColorId(accentColorId: Int): PeerAccentColor? = synchronized(lock) { peerColors.accent(accentColorId) }
+
+    fun accentForUser(userId: Long): PeerAccentColor? = synchronized(lock) {
+        users[userId]?.let { peerColors.accent(it.accentColorId) }
+    }
+
+    fun accentForChat(chatId: Long): PeerAccentColor? = synchronized(lock) {
+        chats[chatId]?.let { peerColors.accent(it.accentColorId) }
+    }
+
     fun observeGroupAuthor(userId: Long, senderChatId: Long): Flow<GroupAuthorAppearance?> = peerColors.revision
         .map {
             synchronized(lock) {
@@ -303,7 +313,8 @@ internal class TdProfiles(private val client: () -> Client, private val files: M
                 isBot = isBot,
                 tag = member.tag.orEmpty().ifBlank { titles[id].orEmpty() },
                 photo = user.profilePhoto?.let { photo(it.small, it.big) },
-                avatarColorArgb = id.stableColor()
+                avatarColorArgb = id.stableColor(),
+                accentColor = synchronized(lock) { peerColors.accent(user.accentColorId) }
             )
         }, fetched = raw.size)
     }
