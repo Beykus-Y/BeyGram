@@ -19,6 +19,7 @@ import com.beykus.beygram.data.export.ChatExportMessage
 import com.beykus.beygram.diagnostics.MultiAccountDiagnostics
 import com.beykus.beygram.domain.model.AnimationItem
 import com.beykus.beygram.domain.model.AnimationPage
+import com.beykus.beygram.domain.model.RecentEmojiHistory
 import com.beykus.beygram.domain.model.AuthState
 import com.beykus.beygram.domain.model.AutoDownloadRequest
 import com.beykus.beygram.domain.model.ChatActivity
@@ -524,6 +525,7 @@ class TdLibTelegramRepository private constructor(
         { profiles.me.value.info?.isPremium == true }
     )
     private val stickerCatalog = TdStickerCatalog(tdRequests, mediaFiles)
+    private val recentEmojiRecovery = RecentEmojiRecovery(TdRecentEmojiSource(tdRequests))
     private val payments = TdPayments(tdRequests, mediaFiles)
 
     init {
@@ -2692,6 +2694,13 @@ class TdLibTelegramRepository private constructor(
     override suspend fun recentAnimations(offset: String): Result<AnimationPage> = stickerCatalog.recentAnimations(offset)
     override suspend fun searchAnimations(query: String, offset: String): Result<AnimationPage> = stickerCatalog.searchAnimations(query, offset)
     override suspend fun isPremiumAccount(): Result<Boolean> = stickerCatalog.isPremiumAccount()
+    override suspend fun recoverRecentEmoji(unicodeLimit: Int, customLimit: Int): Result<RecentEmojiHistory> = try {
+        Result.success(recentEmojiRecovery.recover(unicodeLimit, customLimit))
+    } catch (cancelled: CancellationException) {
+        throw cancelled
+    } catch (error: Exception) {
+        Result.failure(error)
+    }
 
     override suspend fun scheduledMessages(chatId: Long): Result<List<ChatMessage>> = conversationActions.scheduledMessages(chatId)
     override suspend fun deleteScheduledMessage(chatId: Long, messageId: Long): Result<Unit> =

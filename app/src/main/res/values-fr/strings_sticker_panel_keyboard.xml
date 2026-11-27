@@ -7,4 +7,7 @@
     <string name="gif_panel_save_failed">Impossible de mettre à jour les GIF enregistrés</string>
     <string name="sticker_panel_clear_recent">Effacer les stickers récents</string>
     <string name="sticker_panel_clear_recent_confirm">Effacer l’historique des stickers récents de ce compte ?</string>
+    <string name="emoji_clear_recent">Effacer les emojis récents</string>
+    <string name="emoji_clear_recent_confirm">Effacer les emojis récents de ce compte ? Ils ne seront plus récupérés depuis l\'historique des messages.</string>
+    <string name="emoji_clear_recent_short">Effacer</string>
 </resources>

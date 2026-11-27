@@ -3,9 +3,13 @@ package com.beykus.beygram.ui.screens.chat
 import android.content.Context
 import androidx.annotation.StringRes
 import com.beykus.beygram.R
+import com.beykus.beygram.domain.model.RecentEmojiHistory
 
 /** How many recently used emoji the Emoji tab keeps. */
 internal const val RECENT_EMOJI_LIMIT = 32
+
+/** How many recently used custom emoji the dock keeps. */
+internal const val RECENT_CUSTOM_EMOJI_LIMIT = 36
 
 /** Id of the Recent section, whose emoji come from the stored list rather than from the catalog. */
 internal const val RECENT_EMOJI_GROUP_ID = "recent"
@@ -172,9 +176,17 @@ internal object EmojiCatalog {
 internal fun List<String>.withRecentEmoji(emoji: String): List<String> =
     (listOf(emoji) + filterNot { it == emoji }).take(RECENT_EMOJI_LIMIT)
 
-/** Unicode recents belong to the account that selected them. */
+/**
+ * Unicode and custom recents belong to the account that selected them. The recovery state is kept here too: an explicit
+ * clear suppresses recovery for good, while a failed attempt is retried only after a pause, so opening the dock never
+ * starts a scan on every tap.
+ */
 internal class RecentEmojiStore(context: Context, accountId: String) {
     private val recentKey = "recent_$accountId"
+    private val customKey = "custom_recent_$accountId"
+    private val restoreDoneKey = "restore_done_$accountId"
+    private val restoreSuppressedKey = "restore_suppressed_$accountId"
+    private val restoreAttemptKey = "restore_attempt_$accountId"
     private val preferences = context.applicationContext.getSharedPreferences(PREFERENCES, Context.MODE_PRIVATE)
 
     fun load(): List<String> = try {
@@ -187,19 +199,90 @@ internal class RecentEmojiStore(context: Context, accountId: String) {
         emptyList()
     }
 
+    fun loadCustom(): List<Long> = try {
+        preferences.getString(customKey, null).orEmpty()
+            .split(SEPARATOR)
+            .mapNotNull { it.toLongOrNull()?.takeIf { id -> id > 0L } }
+            .distinct()
+            .take(RECENT_CUSTOM_EMOJI_LIMIT)
+    } catch (_: Exception) {
+        emptyList()
+    }
+
     /** Stores [emoji] as the newest entry and returns the updated list so the picker can show it at once. */
     fun record(emoji: String): List<String> {
         val updated = load().withRecentEmoji(emoji)
-        try {
-            preferences.edit().putString(recentKey, updated.joinToString(SEPARATOR)).apply()
-        } catch (_: Exception) {
-            // The emoji still shows in the Recent section for this session when the preference cannot be written.
-        }
+        persist(recentKey, updated.joinToString(SEPARATOR))
         return updated
+    }
+
+    fun recordCustom(customEmojiId: Long): List<Long> {
+        if (customEmojiId <= 0L) return loadCustom()
+        val updated = (listOf(customEmojiId) + loadCustom().filterNot { it == customEmojiId })
+            .take(RECENT_CUSTOM_EMOJI_LIMIT)
+        persist(customKey, updated.joinToString(SEPARATOR))
+        return updated
+    }
+
+    /**
+     * Appends recovered Unicode emoji after the local ones. Local entries are newer and keep their order; an emoji
+     * already present is not duplicated and does not move.
+     */
+    fun mergeRecovered(history: RecentEmojiHistory): List<String> {
+        if (history.unicode.isEmpty()) return load()
+        val merged = (load() + history.unicode).distinct().take(RECENT_EMOJI_LIMIT)
+        persist(recentKey, merged.joinToString(SEPARATOR))
+        return merged
+    }
+
+    /** Appends recovered custom emoji after the local ones, without duplicates or reordering the local entries. */
+    fun mergeRecoveredCustom(ids: List<Long>): List<Long> {
+        if (ids.isEmpty()) return loadCustom()
+        val merged = (loadCustom() + ids.filter { it > 0L }).distinct().take(RECENT_CUSTOM_EMOJI_LIMIT)
+        persist(customKey, merged.joinToString(SEPARATOR))
+        return merged
+    }
+
+    /** Both lists are cleared by one explicit action; recovery must not bring the old entries back. */
+    fun clearAll(): Pair<List<String>, List<Long>> {
+        preferences.edit()
+            .putString(recentKey, "")
+            .putString(customKey, "")
+            .putBoolean(restoreSuppressedKey, true)
+            .apply()
+        return emptyList<String>() to emptyList()
+    }
+
+    fun restoreSuppressed(): Boolean = preferences.getBoolean(restoreSuppressedKey, false)
+
+    fun restoreDone(): Boolean = preferences.getBoolean(restoreDoneKey, false)
+
+    fun markRestoreDone() {
+        preferences.edit().putBoolean(restoreDoneKey, true).apply()
+    }
+
+    /** A failed or cancelled attempt is retried only after [RESTORE_RETRY_MS], not on every dock opening. */
+    fun mayAttemptRestore(nowMs: Long): Boolean {
+        if (restoreSuppressed() || restoreDone()) return false
+        val last = preferences.getLong(restoreAttemptKey, 0L)
+        return last <= 0L || nowMs - last >= RESTORE_RETRY_MS
+    }
+
+    fun markRestoreAttempt(nowMs: Long) {
+        preferences.edit().putLong(restoreAttemptKey, nowMs).apply()
+    }
+
+    private fun persist(key: String, value: String) {
+        try {
+            preferences.edit().putString(key, value).apply()
+        } catch (_: Exception) {
+            // The list still shows for this session when the preference cannot be written.
+        }
     }
 
     private companion object {
         const val PREFERENCES = "emoji_panel"
         const val SEPARATOR = ","
+        const val RESTORE_RETRY_MS = 15 * 60_000L
     }
 }

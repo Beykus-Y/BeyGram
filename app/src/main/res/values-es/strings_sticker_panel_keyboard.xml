@@ -7,4 +7,7 @@
     <string name="gif_panel_save_failed">No se pudieron actualizar los GIF guardados</string>
     <string name="sticker_panel_clear_recent">Borrar stickers recientes</string>
     <string name="sticker_panel_clear_recent_confirm">¿Borrar el historial de stickers recientes de esta cuenta?</string>
+    <string name="emoji_clear_recent">Borrar emojis recientes</string>
+    <string name="emoji_clear_recent_confirm">¿Borrar los emojis recientes de esta cuenta? Después no se recuperarán del historial de mensajes.</string>
+    <string name="emoji_clear_recent_short">Borrar</string>
 </resources>

@@ -62,7 +62,9 @@ internal fun EmojiPanel(
     onEmoji: (String) -> Unit,
     onBackspace: () -> Unit,
     modifier: Modifier = Modifier,
-    customEmoji: DockCustomEmoji? = null
+    customEmoji: DockCustomEmoji? = null,
+    /** Clears Unicode and custom recents; the panel also suppresses recovering them from history afterwards. */
+    onClearRecent: (() -> Unit)? = null
 ) {
     val groups = remember(recents) { EmojiCatalog.withRecent(recents) }
     val headerIndexes = remember(groups) { groupHeaderIndexes(groups) }
@@ -94,7 +96,16 @@ internal fun EmojiPanel(
         ) {
             groups.forEach { group ->
                 item(span = { GridItemSpan(maxLineSpan) }, key = "header-${group.id}") {
-                    EmojiGroupHeader(stringResource(group.titleRes))
+                    if (group.id == RECENT_EMOJI_GROUP_ID && onClearRecent != null) {
+                        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                            Box(Modifier.weight(1f)) { EmojiGroupHeader(stringResource(group.titleRes)) }
+                            TextButton(onClick = onClearRecent) {
+                                Text(stringResource(R.string.emoji_clear_recent_short))
+                            }
+                        }
+                    } else {
+                        EmojiGroupHeader(stringResource(group.titleRes))
+                    }
                 }
                 gridItems(group.emoji, key = { "${group.id}-$it" }) { emoji ->
                     EmojiCell(emoji = emoji, onClick = { onEmoji(emoji) })
@@ -104,7 +115,14 @@ internal fun EmojiPanel(
                 val firstRecommended = customEmoji.packs.firstOrNull { it.id !in customEmoji.installedIds }?.id
                 if (recentCustom.isNotEmpty()) {
                     item(key = "custom-recent-header", span = { GridItemSpan(maxLineSpan) }) {
-                        EmojiGroupHeader(stringResource(R.string.emoji_custom_recent))
+                        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                            Box(Modifier.weight(1f)) { EmojiGroupHeader(stringResource(R.string.emoji_custom_recent)) }
+                            if (onClearRecent != null) {
+                                TextButton(onClick = onClearRecent) {
+                                    Text(stringResource(R.string.emoji_clear_recent_short))
+                                }
+                            }
+                        }
                     }
                     gridItems(recentCustom, key = { "custom-recent-$it" }) { id ->
                         DockCustomEmojiCell(id, customEmoji)

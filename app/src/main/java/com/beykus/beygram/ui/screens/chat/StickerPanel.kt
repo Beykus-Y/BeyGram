@@ -353,6 +353,8 @@ private fun StickerPanel(
     val shelfVersions by remember(conversation) { conversation.observeStickerShelfVersions() }
         .collectAsStateWithLifecycle(StickerShelfVersions())
     var recentEmoji by remember(emojiStore) { mutableStateOf(emojiStore.load()) }
+    var recentCustomEmoji by remember(emojiStore) { mutableStateOf(emojiStore.loadCustom()) }
+    var confirmClearEmoji by remember { mutableStateOf(false) }
 
     val premiumNotice = stringResource(R.string.sticker_panel_premium_locked)
     val favoriteKeys: Set<String> = remember(favoritesState) {
@@ -406,6 +408,19 @@ private fun StickerPanel(
     }
     LaunchedEffect(conversation) {
         conversation.isPremiumAccount().onSuccess { premium = it }
+    }
+    // Telegram keeps recent emoji locally, so a fresh install can only rebuild them from own sent messages. The scan
+    // starts only when the Emoji tab is actually opened, is bounded in the repository, and is suppressed for good by
+    // an explicit clear. A cancelled/failed attempt is retried after the store's pause, not on every dock opening.
+    LaunchedEffect(conversation, accountId, view.tab) {
+        if (view.tab != StickerPanelTab.Emoji) return@LaunchedEffect
+        val now = System.currentTimeMillis()
+        if (!emojiStore.mayAttemptRestore(now)) return@LaunchedEffect
+        emojiStore.markRestoreAttempt(now)
+        val history = conversation.recoverRecentEmoji().getOrNull() ?: return@LaunchedEffect
+        recentEmoji = emojiStore.mergeRecovered(history)
+        recentCustomEmoji = emojiStore.mergeRecoveredCustom(history.customEmojiIds)
+        emojiStore.markRestoreDone()
     }
     LaunchedEffect(conversation, view.selectedSetId, packRetry) {
         val setId = view.selectedSetId ?: return@LaunchedEffect
@@ -727,12 +742,20 @@ private fun StickerPanel(
             tabState.SaveableStateProvider(view.tab.name) {
                 when (view.tab) {
                     StickerPanelTab.Emoji -> {
-                        val dock = rememberDockCustomEmoji(conversation, observeFile, downloadFile, shelfVersions.emojiPacks) { emoji ->
-                            val allowed = premium == true || savedMessages
-                            if (allowed) onInsertCustomEmoji(emoji)
-                            else notice = premiumNotice
-                            allowed
-                        }
+                        val dock = rememberDockCustomEmoji(
+                            conversation = conversation,
+                            observeFile = observeFile,
+                            downloadFile = downloadFile,
+                            packsVersion = shelfVersions.emojiPacks,
+                            recentIds = recentCustomEmoji,
+                            onPick = { emoji ->
+                                val allowed = premium == true || savedMessages
+                                if (allowed) onInsertCustomEmoji(emoji)
+                                else notice = premiumNotice
+                                allowed
+                            },
+                            onPicked = { id -> recentCustomEmoji = emojiStore.recordCustom(id) }
+                        )
                         if (view.searchActive && view.query.isNotBlank()) {
                             DockEmojiSearch(conversation, view.query, dock, ::insertEmoji, Modifier.fillMaxWidth().weight(1f))
                         } else {
@@ -741,6 +764,7 @@ private fun StickerPanel(
                                 onEmoji = ::insertEmoji,
                                 customEmoji = dock,
                                 onBackspace = onDeleteBackward,
+                                onClearRecent = { confirmClearEmoji = true },
                                 modifier = Modifier.fillMaxWidth().weight(1f)
                             )
                         }
@@ -918,6 +942,22 @@ private fun StickerPanel(
                         .onSuccess { recentRetry++ }
                         .onFailure { notice = it.userMessage(context, R.string.sticker_panel_load_failed) }
                 }
+            }
+        )
+    }
+    if (confirmClearEmoji) {
+        BeyGramDialog(
+            onDismissRequest = { confirmClearEmoji = false },
+            title = stringResource(R.string.emoji_clear_recent),
+            message = stringResource(R.string.emoji_clear_recent_confirm),
+            confirmText = stringResource(R.string.emoji_clear_recent),
+            dismissText = stringResource(R.string.common_cancel),
+            onDismiss = { confirmClearEmoji = false },
+            onConfirm = {
+                confirmClearEmoji = false
+                val (unicode, custom) = emojiStore.clearAll()
+                recentEmoji = unicode
+                recentCustomEmoji = custom
             }
         )
     }
