@@ -1892,21 +1892,13 @@ fun ChatScreen(
         }
     }
 
-    // Reported by PinnedMessagesBar: while the preview sits under the header, the group ends with this row's hairline.
-    var pinnedPreviewShown by remember(chat.id, forumTopicId) { mutableStateOf(false) }
-    // The pinned data outlives the bar: the keyboard, the search and the selection mode hide the row for a while, and
-    // a hidden bar must not lose its loaded pages or re-request them when it comes back.
-    val pinnedVersion by remember(conversation, chat.id) { conversation.observePinnedMessagesVersion(chat.id) }.collectAsStateWithLifecycle()
-    val pinnedState = remember(conversation, chat.id, forumTopicId) {
-        PinnedMessagesState(chat.id, forumTopicId) { from -> conversation.pinnedMessages(chat.id, from, forumTopicId) }
-    }
-    val pinsConnected = connectionState == TelegramConnectionState.Connected
-    LaunchedEffect(pinnedState, pinnedVersion, pinsConnected, pinnedState.retryTick) { pinnedState.refresh(pinnedVersion, pinsConnected) }
-    var pinnedListOpen by rememberSaveable(chat.id, forumTopicId) { mutableStateOf(false) }
-    var pinnedPreviewSource by remember(chat.id, forumTopicId) { mutableStateOf<PinnedPreviewSource?>(null) }
-    var livePinnedPreview by remember(chat.id, forumTopicId) { mutableStateOf<PinnedPreviewSource?>(null) }
-    var livePinnedHeader by remember(chat.id, forumTopicId) { mutableStateOf<Rect?>(null) }
-    var pinnedHeaderSource by remember(chat.id, forumTopicId) { mutableStateOf<Rect?>(null) }
+    val pinnedChrome = rememberChatPinnedChromeState(
+        conversation = conversation,
+        chatId = chat.id,
+        forumTopicId = forumTopicId,
+        connected = connectionState == TelegramConnectionState.Connected,
+        listOpen = rememberSaveable(chat.id, forumTopicId) { mutableStateOf(false) }
+    )
     // Hiding the pinned bar is local to this chat and this account; the pins themselves stay on the server.
     val pinnedBarHidden = chatOverrideState[chat.id]?.pinnedBarHidden == true
     val windowLayout = LocalWindowLayout.current
@@ -1963,18 +1955,18 @@ fun ChatScreen(
         val showPinnedBar = !(compactChrome && keyboardOpen) && !searching && !selectionMode && !pinnedBarHidden
         val pinnedBarSlot: @Composable ColumnScope.() -> Unit = {
             if (showPinnedBar) PinnedMessagesBar(
-                state = pinnedState,
+                state = pinnedChrome.messages,
                 conversation = conversation,
                 observeFile = observeFile,
                 visibleOldestMessageId = visibleOldestPinnedBoundary,
                 onOpen = ::jumpToPinned,
-                onOpenList = { pinnedPreviewSource = null; pinnedHeaderSource = null; pinnedListOpen = true },
-                onOpenListFromPreview = { source -> pinnedPreviewSource = source; pinnedHeaderSource = livePinnedHeader; pinnedListOpen = true },
-                hiddenPreviewId = pinnedPreviewSource?.id?.takeIf { pinnedListOpen },
-                onPreviewMeasured = { livePinnedPreview = it },
+                onOpenList = pinnedChrome::openList,
+                onOpenListFromPreview = pinnedChrome::openListFromPreview,
+                hiddenPreviewId = pinnedChrome.previewSource?.id?.takeIf { pinnedChrome.isListOpen },
+                onPreviewMeasured = { pinnedChrome.livePreview = it },
                 onHideBar = { chatOverrides.setPinnedBarHidden(chat.id, true) },
                 onUnpin = { message -> setPinned(message, false) },
-                onRowShownChange = { pinnedPreviewShown = it }
+                onRowShownChange = { pinnedChrome.previewShown = it }
             )
         }
         ChatChromeHost(chatGlass, GlassEdge.BottomHairline, chatBackdrop, { topChromePx = it },
@@ -2025,12 +2017,12 @@ fun ChatScreen(
             onStatistics = onStatistics,
             onExport = { exportOpen = true },
             secretChat = secretChat,
-            pinnedBelow = pinnedPreviewShown && !design.navigationFloating,
+            pinnedBelow = pinnedChrome.previewShown && !design.navigationFloating,
             showBack = !windowLayout.twoPane || forumTopicId > 0L || forumAllMessages,
             compact = compactChrome,
-            pinnedCount = pinnedState.count,
-            onPinnedHeaderMeasured = { livePinnedHeader = it },
-            onOpenPinned = { pinnedPreviewSource = null; pinnedHeaderSource = null; pinnedListOpen = true },
+            pinnedCount = pinnedChrome.messages.count,
+            onPinnedHeaderMeasured = { pinnedChrome.liveHeader = it },
+            onOpenPinned = pinnedChrome::openList,
             forumNavigationMode = forumNavigationMode,
             onForumNavigationMode = onForumNavigationMode,
             forumAllMessages = forumAllMessages
@@ -3151,8 +3143,8 @@ fun ChatScreen(
             replyFocusRequest++
         }) else null
     )
-    if (pinnedListOpen) PinnedMessagesScreen(
-        state = pinnedState,
+    if (pinnedChrome.isListOpen) PinnedMessagesScreen(
+        state = pinnedChrome.messages,
         conversation = conversation,
         chat = chat,
         chatTitle = forumTopicTitle?.takeIf { it.isNotBlank() }?.let { "${chat.title} · $it" } ?: chat.title,
@@ -3161,13 +3153,16 @@ fun ChatScreen(
         observeFile = observeFile,
         downloadFile = onDownloadFile,
         barHidden = pinnedBarHidden,
-        previewSource = pinnedPreviewSource,
-        livePreviewSource = { livePinnedPreview },
-        headerSource = pinnedHeaderSource,
-        liveHeaderSource = { livePinnedHeader },
+        previewSource = pinnedChrome.previewSource,
+        livePreviewSource = { pinnedChrome.livePreview },
+        headerSource = pinnedChrome.headerSource,
+        liveHeaderSource = { pinnedChrome.liveHeader },
         onRestoreBar = { chatOverrides.setPinnedBarHidden(chat.id, false) },
-        onOpenMessage = { message -> pinnedListOpen = false; pinnedPreviewSource = null; pinnedHeaderSource = null; jumpToPinned(message) },
-        onClose = { pinnedListOpen = false; pinnedPreviewSource = null; pinnedHeaderSource = null }
+        onOpenMessage = { message ->
+            pinnedChrome.closeList()
+            jumpToPinned(message)
+        },
+        onClose = pinnedChrome::closeList
     )
     if (chatSettingsOpen) ChatSettingsSheet(
         chatId = chat.id,
