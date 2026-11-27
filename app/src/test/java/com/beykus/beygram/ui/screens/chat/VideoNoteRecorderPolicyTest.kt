@@ -1,5 +1,6 @@
 package com.beykus.beygram.ui.screens.chat
 
+import androidx.compose.ui.graphics.Color
 import com.beykus.beygram.data.media.VideoNoteSourceQuality
 import com.beykus.beygram.ui.screens.chat.VideoTakeOutcome.Discarded
 import com.beykus.beygram.ui.screens.chat.VideoTakeOutcome.SaveFailed
@@ -85,5 +86,19 @@ class VideoNoteRecorderPolicyTest {
         assertEquals(SaveFailed, videoTakeOutcome(error = 0, discard = false, durationSeconds = 30, stopRequested = false))
         assertEquals(SaveFailed, videoTakeOutcome(error = 0, discard = true, durationSeconds = 30, stopRequested = false))
         assertEquals(SaveFailed, videoTakeOutcome(error = 0, discard = false, durationSeconds = 0, stopRequested = false))
+    }
+
+    @Test fun recordingOverlayBackdropIsTransparentUnlessScreenLightIsActive() {
+        assertEquals(Color.Transparent, videoNoteOverlayBackdropColor(screenLight = false))
+        assertEquals(Color.White, videoNoteOverlayBackdropColor(screenLight = true))
+    }
+
+    @Test fun circleOutlineBoundsCenterSquareOvalInsideView() {
+        assertEquals(VideoNoteCircleBounds(0, 0, 480, 480), videoNoteCircleOutlineBounds(480, 480))
+        assertEquals(VideoNoteCircleBounds(80, 0, 560, 480), videoNoteCircleOutlineBounds(640, 480))
+        assertEquals(VideoNoteCircleBounds(0, 80, 480, 560), videoNoteCircleOutlineBounds(480, 640))
+        assertEquals(null, videoNoteCircleOutlineBounds(0, 480))
+        assertEquals(null, videoNoteCircleOutlineBounds(480, 0))
+        assertEquals(null, videoNoteCircleOutlineBounds(-10, 480))
     }
 }

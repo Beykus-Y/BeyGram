@@ -6,6 +6,7 @@ import android.app.Activity
 import android.content.Context
 import android.content.ContextWrapper
 import android.content.pm.PackageManager
+import android.graphics.Outline
 import android.media.MediaMetadataRetriever
 import android.hardware.camera2.CameraCaptureSession
 import android.hardware.camera2.CameraManager
@@ -18,7 +19,9 @@ import android.util.Range
 import android.util.Rational
 import android.util.Log
 import android.view.Surface
+import android.view.View
 import android.view.ViewGroup
+import android.view.ViewOutlineProvider
 import androidx.camera.camera2.interop.Camera2Interop
 import androidx.camera.camera2.interop.ExperimentalCamera2Interop
 import androidx.camera.core.AspectRatio
@@ -152,10 +155,7 @@ internal class VideoNoteRecorder(
     private val onTakeReady: (raw: File, settings: VideoMessageSettings, sessionName: String, previewFirst: Boolean, destination: VideoNoteDestination) -> Unit,
     private val onError: (String) -> Unit
 ) {
-    val previewView = PreviewView(context).apply {
-        implementationMode = PreviewView.ImplementationMode.COMPATIBLE
-        scaleType = PreviewView.ScaleType.FILL_CENTER
-    }
+    val previewView = configureCircularVideoNotePreview(PreviewView(context))
     var active by mutableStateOf(false)
         private set
     var locked by mutableStateOf(false)
@@ -1139,14 +1139,44 @@ internal fun VideoNoteRecordingDock(recorder: VideoNoteRecorder, modifier: Modif
     }
 }
 
-/** Экран записи вместо ленты: кадр в круге, кольцо прогресса к лимиту 60 секунд и подсказки. */
+internal data class VideoNoteCircleBounds(val left: Int, val top: Int, val right: Int, val bottom: Int)
+
+internal fun videoNoteCircleOutlineBounds(width: Int, height: Int): VideoNoteCircleBounds? {
+    if (width <= 0 || height <= 0) return null
+    val side = minOf(width, height)
+    val left = (width - side) / 2
+    val top = (height - side) / 2
+    return VideoNoteCircleBounds(left, top, left + side, top + side)
+}
+
+internal object CircularVideoNoteOutlineProvider : ViewOutlineProvider() {
+    override fun getOutline(view: View, outline: Outline) {
+        videoNoteCircleOutlineBounds(view.width, view.height)?.let {
+            outline.setOval(it.left, it.top, it.right, it.bottom)
+        }
+    }
+}
+
+internal fun configureCircularVideoNotePreview(previewView: PreviewView): PreviewView {
+    previewView.implementationMode = PreviewView.ImplementationMode.COMPATIBLE
+    previewView.scaleType = PreviewView.ScaleType.FILL_CENTER
+    previewView.setBackgroundColor(android.graphics.Color.TRANSPARENT)
+    previewView.outlineProvider = CircularVideoNoteOutlineProvider
+    previewView.clipToOutline = true
+    return previewView
+}
+
+internal fun videoNoteOverlayBackdropColor(screenLight: Boolean): Color =
+    if (screenLight) Color.White else Color.Transparent
+
+/** Экран записи поверх ленты: кадр в круге, кольцо прогресса к лимиту 60 секунд и подсказки. */
 @Composable
 internal fun VideoNoteRecordingOverlay(recorder: VideoNoteRecorder, modifier: Modifier = Modifier) {
     val palette = beyGramPalette()
     val screenLight = recorder.lightEnabled && recorder.lightMode == VideoNoteLightMode.Screen
     VideoNoteScreenBrightness(screenLight)
     Column(
-        modifier.fillMaxSize().background(if (screenLight) Color.White else palette.screen),
+        modifier.fillMaxSize().background(videoNoteOverlayBackdropColor(screenLight)),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center
     ) {
@@ -1167,7 +1197,15 @@ internal fun VideoNoteRecordingOverlay(recorder: VideoNoteRecorder, modifier: Mo
             }
             Box(Modifier.fillMaxSize().padding(4.dp).clip(CircleShape).background(VideoNoteBackground), contentAlignment = Alignment.TopCenter) {
                 // PreviewView переиспользуется между записями: снимаем его со старого контейнера, иначе addView упадёт.
-                AndroidView(factory = { recorder.previewView.also { (it.parent as? ViewGroup)?.removeView(it) } }, modifier = Modifier.fillMaxSize())
+                AndroidView(
+                    factory = {
+                        configureCircularVideoNotePreview(recorder.previewView).also {
+                            (it.parent as? ViewGroup)?.removeView(it)
+                        }
+                    },
+                    update = { configureCircularVideoNotePreview(it) },
+                    modifier = Modifier.fillMaxSize().clip(CircleShape)
+                )
                 if (recorder.zoomRatio != 1f) {
                     Text(
                         stringResource(R.string.recorder_zoom_value, recorder.zoomRatio),
@@ -1190,9 +1228,17 @@ internal fun VideoNoteRecordingOverlay(recorder: VideoNoteRecorder, modifier: Mo
         }
         Spacer(Modifier.height(16.dp))
         if (!recorder.locked) {
-            Text(if (recorder.canceling) stringResource(R.string.recorder_release_to_cancel) else stringResource(R.string.recorder_release_to_send), color = if (screenLight) Color.Black else palette.textPrimary, fontSize = 14.sp)
-            Text(stringResource(R.string.recorder_swipe_up_lock), color = if (screenLight) Color.DarkGray else palette.textSecondary, fontSize = 14.sp)
-            Text(stringResource(R.string.recorder_swipe_left_cancel), color = if (recorder.canceling) palette.danger else if (screenLight) Color.DarkGray else palette.textSecondary, fontSize = 14.sp)
+            Column(
+                modifier = Modifier
+                    .clip(styledShape(14.dp))
+                    .background(if (screenLight) Color.Transparent else palette.surface.copy(alpha = 0.84f))
+                    .padding(horizontal = 14.dp, vertical = 8.dp),
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+                Text(if (recorder.canceling) stringResource(R.string.recorder_release_to_cancel) else stringResource(R.string.recorder_release_to_send), color = if (screenLight) Color.Black else palette.textPrimary, fontSize = 14.sp)
+                Text(stringResource(R.string.recorder_swipe_up_lock), color = if (screenLight) Color.DarkGray else palette.textSecondary, fontSize = 14.sp)
+                Text(stringResource(R.string.recorder_swipe_left_cancel), color = if (recorder.canceling) palette.danger else if (screenLight) Color.DarkGray else palette.textSecondary, fontSize = 14.sp)
+            }
         }
     }
 }
