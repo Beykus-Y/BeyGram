@@ -869,6 +869,18 @@ fun ChatScreen(
     val feedTopicHeaders = timeline.feedTopicHeaders
     val senderHeaderByKey = timeline.senderHeaderByKey
     val localTextAttemptIds = timeline.localTextAttemptIds
+    val supportsGroupAvatars = chat.supportsGroupAvatars()
+    val showGroupAvatars = supportsGroupAvatars && chatOverrideState[chat.id]?.groupAvatarsHidden != true
+    val groupAvatars = remember(showGroupAvatars, messageListItems, daySeparators, feedTopicHeaders) {
+        if (showGroupAvatars) groupAvatarRows(messageListItems, daySeparators.keys + feedTopicHeaders.keys)
+        else emptyMap()
+    }
+    val avatarMembers = remember(showGroupAvatars, info?.memberPreview) {
+        if (showGroupAvatars) info?.memberPreview.orEmpty().associateBy { it.userId } else emptyMap()
+    }
+    val groupAvatarPhotos = rememberGroupAvatarPhotos(
+        conversation, chat.id, forumTopicId, listState, groupAvatars, avatarMembers
+    )
     // The position is saved by message as well as by index: history changes move indexes, not the message on screen.
     val currentListItems by rememberUpdatedState(messageListItems)
     val bottomThresholdPx = with(LocalDensity.current) { 48.dp.roundToPx() }
@@ -2211,6 +2223,10 @@ fun ChatScreen(
                                 val commentsPost = listItem.messages.firstOrNull { it.replyCount > 0 }
                                     ?: listItem.messages.firstOrNull()
                                 val albumComments = commentsPost?.takeIf { showsChannelComments(chat.isChannel, it.isChannelPost, linkedDiscussionChatId) }
+                                ChatGroupAvatarRow(
+                                    showGroupAvatars, latest, groupAvatars[listItem.key], avatarMembers, groupAvatarPhotos,
+                                    observeFile, onDownloadFile, onServiceUser.takeUnless { selectionMode }
+                                ) {
                                 MessageAlbumBubble(listItem.messages, observeFile, onDownloadFile,
                                     isRead = latest?.let { it.isOutgoing && it.sendState == MessageSendState.Sent && it.id <= history.lastReadOutboxMessageId } == true,
                                     highlighted = listItem.messages.any { it.id == highlighted || it.id == actionsId },
@@ -2235,6 +2251,7 @@ fun ChatScreen(
                                     composerMediaLaunches = albumLaunches,
                                     onComposerMediaLaunchFinished = mediaLaunchController::finish,
                                     onLoadVersions = { chatId, messageId -> conversation.messageVersions(chatId, messageId) })
+                                }
                             }
                         }
                     }
@@ -2309,6 +2326,10 @@ fun ChatScreen(
                             else if (message.serviceText != null) ServiceMessageChip(message.serviceText, message.serviceUserId, onServiceUser)
                             else {
                                 val localAttempt = localTextAttemptIds[message.id]
+                                ChatGroupAvatarRow(
+                                    showGroupAvatars, message, groupAvatars[listItem.key], avatarMembers, groupAvatarPhotos,
+                                    observeFile, onDownloadFile, onServiceUser.takeUnless { selectionMode }
+                                ) {
                                 MessageBubble(message, observeFile, onDownloadFile, isRead = message.isOutgoing && message.sendState == MessageSendState.Sent && message.id <= history.lastReadOutboxMessageId,
                                     highlighted = message.id == highlighted || message.id == actionsId,
                                     onOpen = { selectedMediaId = message.id },
@@ -2444,6 +2465,7 @@ fun ChatScreen(
                                 showSenderHeader = senderHeaderByKey[listItem.key] == true,
                                 paidContent = rememberPaidContentActions(conversation),
                                 onOpenMessageEntity = onOpenMessageEntity)
+                                }
                             }
                         }
                         }
@@ -3175,6 +3197,7 @@ fun ChatScreen(
         overrides = chatOverrides,
         globalWallpaper = globalWallpaper,
         isSecretChat = chat.isSecret,
+        supportsGroupAvatars = supportsGroupAvatars,
         onSecretChatClosed = onBack,
         onClose = { chatSettingsOpen = false }
     )
