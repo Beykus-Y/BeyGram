@@ -2020,7 +2020,7 @@ fun ChatScreen(
             pinnedBelow = pinnedChrome.previewShown && !design.navigationFloating,
             showBack = !windowLayout.twoPane || forumTopicId > 0L || forumAllMessages,
             compact = compactChrome,
-            pinnedCount = pinnedState.count,
+            pinnedCount = pinnedChrome.messages.count,
             onPinnedHeaderMeasured = { pinnedChrome.liveHeader = it },
             onOpenPinned = pinnedChrome::openList,
             forumNavigationMode = forumNavigationMode,
