@@ -37,6 +37,23 @@ class ChatPresenceTest {
         assertEquals(UiText.Res(R.string.presence_online_count, listOf(12)), chatPresenceLine(chat(true), ProfileInfo(1L, "Команда", onlineMemberCount = 12), LastSeenStyle.Relative, now))
     }
 
+    @Test fun groupPresenceShowsAvailableServerCounts() {
+        val group = chat(true)
+        val info = ProfileInfo(group.id, group.title, memberCount = 100, onlineMemberCount = 12)
+        assertEquals(
+            UiText.Res(R.string.profile_group_members_online_count, listOf(100, 12)),
+            chatPresenceLine(group, info, LastSeenStyle.Relative, now)
+        )
+        assertEquals(
+            UiText.Res(R.string.profile_group_members_count, listOf(100)),
+            chatPresenceLine(group, info.copy(onlineMemberCount = 0), LastSeenStyle.Relative, now)
+        )
+        assertEquals(
+            UiText.Res(R.string.profile_group_members_count, listOf(100)),
+            chatPresenceLine(group, info.copy(onlineMemberCount = 101), LastSeenStyle.Relative, now)
+        )
+    }
+
     @Test fun groupWithoutKnownOnlineCountFallsBack() {
         assertEquals(UiText.Res(R.string.presence_group), chatPresenceLine(chat(true), ProfileInfo(1L, "Команда"), LastSeenStyle.Relative, now))
         assertEquals(UiText.Res(R.string.presence_group), chatPresenceLine(chat(true), ProfileInfo(1L, "Команда", onlineMemberCount = 0), LastSeenStyle.Relative, now))
