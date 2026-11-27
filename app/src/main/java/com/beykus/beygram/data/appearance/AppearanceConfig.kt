@@ -38,7 +38,7 @@ data class AppearanceConfig(
      * decides whether it is pinned to the bottom edge or floats above the content.
      */
     val navigationPlacement: NavigationPlacement = NavigationPlacement.Auto,
-    val chatTopPanelLayout: ChatTopPanelLayout = ChatTopPanelLayout.Current
+    val chatTopPanelLayout: ChatTopPanelLayout = DEFAULT_CHAT_TOP_PANEL_LAYOUT
 )
 
 const val DEFAULT_MESSAGE_TEXT_SIZE_SP = 16

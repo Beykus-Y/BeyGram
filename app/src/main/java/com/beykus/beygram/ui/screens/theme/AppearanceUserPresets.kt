@@ -33,6 +33,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.beykus.beygram.R
 import com.beykus.beygram.data.appearance.AppearanceConfig
+import com.beykus.beygram.data.appearance.ChatTopPanelLayout
+import com.beykus.beygram.data.appearance.DEFAULT_CHAT_TOP_PANEL_LAYOUT
 import com.beykus.beygram.data.appearance.DEFAULT_MESSAGE_TEXT_SIZE_SP
 import com.beykus.beygram.data.appearance.bubbleStyleFromStored
 import com.beykus.beygram.data.appearance.chatWallpaperFromStored
@@ -65,11 +67,15 @@ internal object AppearanceUserPresetStore {
 
     private fun key(slot: Int) = "slot_$slot"
 
-    fun load(context: Context, slot: Int): AppearanceConfig? {
+    fun load(
+        context: Context,
+        slot: Int,
+        currentLayout: ChatTopPanelLayout = DEFAULT_CHAT_TOP_PANEL_LAYOUT
+    ): AppearanceConfig? {
         val raw = context.applicationContext
             .getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
             .getString(key(slot), null) ?: return null
-        return decode(raw)
+        return decode(raw, currentLayout)
     }
 
     fun save(context: Context, slot: Int, config: AppearanceConfig) {
@@ -102,7 +108,10 @@ internal object AppearanceUserPresetStore {
         put("chatTopPanelLayout", config.chatTopPanelLayout.name)
     }.toString()
 
-    internal fun decode(raw: String): AppearanceConfig? = runCatching {
+    internal fun decode(
+        raw: String,
+        currentLayout: ChatTopPanelLayout = DEFAULT_CHAT_TOP_PANEL_LAYOUT
+    ): AppearanceConfig? = runCatching {
         val o = JSONObject(raw)
         AppearanceConfig(
             preset = themePresetFromStored(o.optString("preset")),
@@ -123,7 +132,7 @@ internal object AppearanceUserPresetStore {
             liquidGlassV2 = o.optBoolean("liquidGlassV2", true),
             liquidGlassPreset = liquidGlassLensPresetFromStored(o.optString("liquidGlassPreset")),
             navigationPlacement = navigationPlacementFromStored(o.optString("navigationPlacement")),
-            chatTopPanelLayout = chatTopPanelLayoutFromStored(o.optString("chatTopPanelLayout"))
+            chatTopPanelLayout = chatTopPanelLayoutFromStored(o.optString("chatTopPanelLayout"), currentLayout)
         )
     }.getOrNull()
 }
@@ -137,8 +146,10 @@ internal fun AppearanceUserPresetsSection(
     val context = LocalContext.current
     val palette = beyGramPalette()
     var revision by remember { mutableIntStateOf(0) }
-    val slots = remember(revision) {
-        (1..APPEARANCE_PRESET_SLOTS).map { slot -> slot to AppearanceUserPresetStore.load(context, slot) }
+    val slots = remember(context, revision, draft.chatTopPanelLayout) {
+        (1..APPEARANCE_PRESET_SLOTS).map { slot ->
+            slot to AppearanceUserPresetStore.load(context, slot, draft.chatTopPanelLayout)
+        }
     }
 
     AppearanceSectionLabel(stringResource(R.string.appearance_presets_title))

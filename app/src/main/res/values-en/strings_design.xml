@@ -42,7 +42,7 @@
     <string name="appearance_style_lens_bold">Bold</string>
     <string name="appearance_style_lens_detail">Standard is balanced. Clear has less blur and tint. Bold has a wider band and a stronger bend.</string>
     <string name="appearance_chat_top_panels">Chat top panels</string>
-    <string name="appearance_chat_top_panels_current">Current layout</string>
+    <string name="appearance_chat_top_panels_current">Classic layout</string>
     <string name="appearance_chat_top_panels_separate">Two separate capsules</string>
     <string name="appearance_chat_top_panels_combined">One shared capsule</string>
 </resources>
