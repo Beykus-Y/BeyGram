@@ -3,7 +3,14 @@ package com.beykus.beygram.ui.screens.chat
 import androidx.compose.ui.geometry.Rect
 import com.beykus.beygram.domain.model.ChatMessage
 import com.beykus.beygram.domain.model.MediaKind
+import com.beykus.beygram.domain.model.MessageContactInfo
+import com.beykus.beygram.domain.model.MessageLinkPreview
 import com.beykus.beygram.domain.model.MessageMedia
+import com.beykus.beygram.domain.model.MessageReaction
+import com.beykus.beygram.domain.model.MessageSelfDestruct
+import com.beykus.beygram.domain.model.MessageSpecialContent
+import com.beykus.beygram.domain.model.MessageTextEntity
+import com.beykus.beygram.domain.model.TextStyleKind
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
@@ -14,16 +21,31 @@ import org.junit.Test
 class MessageContextScenePlacementTest {
     private val viewport = Rect(300f, 20f, 680f, 620f)
 
-    @Test fun passiveMediaExcludeSpoilersSecretsAndAlbums() {
+    @Test fun passiveMediaAndRichMessagesSupportSceneWhileProtectedContentExcludes() {
         val photo = MessageMedia(MediaKind.Photo, 1)
         val message = ChatMessage(1, 1, "caption", "", false, media = photo)
         assertTrue(message.supportsContextScene())
         assertTrue(message.copy(text = "", media = photo.copy(kind = MediaKind.Video)).supportsContextScene())
         assertTrue(message.copy(text = "", media = photo.copy(kind = MediaKind.Document, fileName = "file.pdf")).supportsContextScene())
+        assertTrue(message.copy(text = "", media = photo.copy(kind = MediaKind.Audio)).supportsContextScene())
+        assertTrue(message.copy(text = "", media = photo.copy(kind = MediaKind.Voice)).supportsContextScene())
+        assertTrue(message.copy(text = "", media = photo.copy(kind = MediaKind.VideoNote)).supportsContextScene())
+        assertTrue(message.copy(text = "", media = photo.copy(kind = MediaKind.Sticker)).supportsContextScene())
+        assertTrue(message.copy(text = "", media = photo.copy(kind = MediaKind.Animation)).supportsContextScene())
+        assertTrue(message.copy(text = "hello", media = null, linkPreview = MessageLinkPreview(url = "https://example.com", displayUrl = "example.com", title = "Example")).supportsContextScene())
+        assertTrue(message.copy(text = "hello", media = null, reactions = listOf(MessageReaction("👍", 1, false))).supportsContextScene())
+        assertTrue(message.copy(text = "hello", media = null, entities = listOf(MessageTextEntity(0, 5, TextStyleKind.CustomEmoji, argument = "42"))).supportsContextScene())
+        assertTrue(message.copy(text = "", media = null, special = MessageSpecialContent.Contact(MessageContactInfo(firstName = "Alice", phone = "+123"))).supportsContextScene())
+
         assertFalse(message.copy(media = photo.copy(hasSpoiler = true)).supportsContextScene())
         assertFalse(message.copy(media = photo.copy(isSecret = true)).supportsContextScene())
+        assertFalse(message.copy(media = photo.copy(isSecretChat = true)).supportsContextScene())
+        assertFalse(message.copy(selfDestruct = MessageSelfDestruct.Immediately).supportsContextScene())
+        assertFalse(message.copy(effectId = 99L).supportsContextScene())
+        assertFalse(message.copy(expiredMediaKind = MediaKind.Photo).supportsContextScene())
+        assertFalse(message.copy(serviceText = "Joined").supportsContextScene())
         assertFalse(message.copy(mediaAlbumId = 1L).supportsContextScene())
-        assertFalse(message.copy(media = photo.copy(kind = MediaKind.VideoNote)).supportsContextScene())
+        assertFalse(message.copy(text = "secret", media = null, entities = listOf(MessageTextEntity(0, 6, TextStyleKind.Spoiler))).supportsContextScene())
     }
 
     @Test fun keepsTheNearestSideThatFitsTheMenu() {
