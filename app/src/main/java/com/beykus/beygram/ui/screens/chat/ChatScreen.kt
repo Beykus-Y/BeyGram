@@ -2468,6 +2468,7 @@ fun ChatScreen(
                                     }
                                 },
                                 animateSpecial = animateArrival && launch == null,
+                                hideForContextScene = contextSceneMessageId == message.id,
                                 diceAnimationId = diceAnimationId,
                                 selectionMode = selectionMode,
                                 selected = message.id in selectionIds,
@@ -2478,8 +2479,7 @@ fun ChatScreen(
                                 } else null,
                                 showSenderHeader = senderHeaderByKey[listItem.key] == true,
                                 paidContent = rememberPaidContentActions(conversation),
-                                onOpenMessageEntity = onOpenMessageEntity,
-                                hideForContextScene = contextSceneMessageId == message.id)
+                                onOpenMessageEntity = onOpenMessageEntity)
                             }
                         }
                         }
