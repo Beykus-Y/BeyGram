@@ -876,11 +876,11 @@ fun ChatScreen(
         if (showGroupAvatars) groupAvatarRows(messageListItems, daySeparators.keys + feedTopicHeaders.keys)
         else emptyMap()
     }
-    val avatarMembers = remember(showGroupAvatars, info?.memberPreview) {
-        if (showGroupAvatars) info?.memberPreview.orEmpty().associateBy { it.userId } else emptyMap()
+    val groupMembers = remember(supportsGroupAvatars, info?.memberPreview) {
+        if (supportsGroupAvatars) info?.memberPreview.orEmpty().associateBy { it.userId } else emptyMap()
     }
     val groupAvatarPhotos = rememberGroupAvatarPhotos(
-        conversation, chat.id, forumTopicId, listState, groupAvatars, avatarMembers
+        conversation, chat.id, forumTopicId, listState, groupAvatars, groupMembers
     )
     // The position is saved by message as well as by index: history changes move indexes, not the message on screen.
     val currentListItems by rememberUpdatedState(messageListItems)
@@ -2234,7 +2234,7 @@ fun ChatScreen(
                                     ?: listItem.messages.firstOrNull()
                                 val albumComments = commentsPost?.takeIf { showsChannelComments(chat.isChannel, it.isChannelPost, linkedDiscussionChatId) }
                                 ChatGroupAvatarRow(
-                                    showGroupAvatars, latest, groupAvatars[listItem.key], avatarMembers, groupAvatarPhotos,
+                                    showGroupAvatars, latest, groupAvatars[listItem.key], groupMembers, groupAvatarPhotos,
                                     observeFile, onDownloadFile, onServiceUser.takeUnless { selectionMode }
                                 ) {
                                 MessageAlbumBubble(listItem.messages, observeFile, onDownloadFile,
@@ -2257,6 +2257,7 @@ fun ChatScreen(
                                     },
                                     onAutoDownloadFile = onAutoDownloadFile,
                                     showSenderHeader = senderHeaderByKey[listItem.key] == true,
+                                    senderMember = latest?.let { groupMembers[it.senderId] },
                                     onOpenMessageEntity = onOpenMessageEntity,
                                     composerMediaLaunches = albumLaunches,
                                     onComposerMediaLaunchFinished = mediaLaunchController::finish,
@@ -2337,7 +2338,7 @@ fun ChatScreen(
                             else {
                                 val localAttempt = localTextAttemptIds[message.id]
                                 ChatGroupAvatarRow(
-                                    showGroupAvatars, message, groupAvatars[listItem.key], avatarMembers, groupAvatarPhotos,
+                                    showGroupAvatars, message, groupAvatars[listItem.key], groupMembers, groupAvatarPhotos,
                                     observeFile, onDownloadFile, onServiceUser.takeUnless { selectionMode }
                                 ) {
                                 MessageBubble(message, observeFile, onDownloadFile, isRead = message.isOutgoing && message.sendState == MessageSendState.Sent && message.id <= history.lastReadOutboxMessageId,
@@ -2473,6 +2474,7 @@ fun ChatScreen(
                                     { ChannelCommentsBar(message.replyCount) { onOpenComments(message) } }
                                 } else null,
                                 showSenderHeader = senderHeaderByKey[listItem.key] == true,
+                                senderMember = groupMembers[message.senderId],
                                 paidContent = rememberPaidContentActions(conversation),
                                 onOpenMessageEntity = onOpenMessageEntity)
                                 }
