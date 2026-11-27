@@ -26,6 +26,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.contentDescription
@@ -82,7 +83,13 @@ private fun ConnectionBannerRow(status: ChatsConnectionStatus) {
     val label = stringResource(if (warning) R.string.chat_connection_waiting_network else status.labelResource())
     val spokenLabel = stringResource(R.string.chats_connection_a11y, label)
     // Ожидание сети — предупреждение; остальные состояния нейтральны и не выглядят как ошибка.
-    val background = if (warning) palette.warningSurface else palette.surface2
+    val onGlassChrome = LocalChatChromeOnGlass.current
+    val background = when {
+        onGlassChrome && warning -> palette.warningSurface.copy(alpha = 0.65f)
+        onGlassChrome -> Color.Transparent
+        warning -> palette.warningSurface
+        else -> palette.surface2
+    }
     val color = if (warning) palette.warningText else palette.textSecondary
     val icon = when (status) {
         ChatsConnectionStatus.WaitingForNetwork -> Icons.Rounded.WifiOff
