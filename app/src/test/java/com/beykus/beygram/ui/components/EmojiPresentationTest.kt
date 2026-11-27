@@ -29,4 +29,13 @@ class EmojiPresentationTest {
         assertEquals("👨\u200D💻", qualify("👨\u200D💻"))
         assertEquals("abc", qualify("abc"))
     }
+
+    @Test fun `an emoji cluster is recognised whole`() {
+        val isEmoji = { codePoint: Int -> codePoint in setOf(0x2764, 0x1F600, 0x1F468, 0x1F4BB) }
+        assertEquals(true, isEmojiCluster("\u2764", isEmoji))
+        assertEquals(true, isEmojiCluster("\uD83D\uDC68\u200D\uD83D\uDCBB", isEmoji))
+        assertEquals(true, isEmojiCluster("#\u20E3", isEmoji))
+        assertEquals(false, isEmojiCluster("1", isEmoji))
+        assertEquals(false, isEmojiCluster("abc", isEmoji))
+    }
 }

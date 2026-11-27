@@ -49,7 +49,9 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.beykus.beygram.R
+import com.beykus.beygram.ui.components.SystemEmojiFont
 import com.beykus.beygram.ui.components.beyGramPalette
+import com.beykus.beygram.ui.components.emojiPresentation
 import kotlinx.coroutines.launch
 
 /**
@@ -187,7 +189,13 @@ internal fun EmojiCell(emoji: String, onClick: () -> Unit) {
             .clickable(role = Role.Button, onClick = onClick),
         contentAlignment = Alignment.Center
     ) {
-        Text(emoji, fontSize = 28.sp, maxLines = 1)
+        Text(
+            emojiPresentation(emoji),
+            fontSize = 28.sp,
+            lineHeight = 28.sp,
+            fontFamily = SystemEmojiFont,
+            maxLines = 1
+        )
     }
 }
 
@@ -258,7 +266,13 @@ private fun EmojiGroupButton(group: EmojiGroup, selected: Boolean, onClick: () -
             .semantics { contentDescription = label },
         contentAlignment = Alignment.Center
     ) {
-        Text(group.icon, fontSize = 20.sp)
+        Text(
+            emojiPresentation(group.icon),
+            fontSize = 20.sp,
+            lineHeight = 20.sp,
+            fontFamily = SystemEmojiFont,
+            maxLines = 1
+        )
     }
 }
 

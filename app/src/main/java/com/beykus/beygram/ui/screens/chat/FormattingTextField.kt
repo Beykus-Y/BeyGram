@@ -19,6 +19,7 @@ import androidx.compose.ui.unit.*
 import androidx.compose.ui.window.*
 import com.beykus.beygram.R
 import com.beykus.beygram.domain.model.*
+import com.beykus.beygram.ui.components.addEmojiFontSpans
 import com.beykus.beygram.ui.components.beyGramPalette
 import com.beykus.beygram.ui.design.DesignSystem
 import com.beykus.beygram.ui.design.LocalDesignSystem
@@ -97,6 +98,9 @@ internal fun FormattingTextField(value: String, entities: List<MessageTextEntity
             visualTransformation = VisualTransformation { text ->
                 TransformedText(buildAnnotatedString {
                     append(text)
+                    // The field uses the brand font; emoji clusters must use the system emoji font, or ❤/♥/♠/♀/♂ are
+                    // drawn as text glyphs and a ZWJ sequence can split. Spans keep every entity/cursor offset intact.
+                    addEmojiFontSpans(text.text)
                     validTextEntities(text.text, entities).forEach { addStyle(entitySpan(it.kind, palette.accentInk, palette.textSecondary), it.offset, it.offset + it.length) }
                 }, OffsetMapping.Identity)
             },
