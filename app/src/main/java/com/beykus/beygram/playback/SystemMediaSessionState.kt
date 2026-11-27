@@ -9,7 +9,7 @@ internal fun canRecoverPlaybackService(state: PlaybackState, native: Boolean, ex
 
 internal fun nativeSessionPlaybackState(state: PlaybackState): Int = when {
     state.ended -> Player.STATE_ENDED
-    state.isBuffering && !state.playing -> Player.STATE_BUFFERING
+    !state.playing && (state.isBuffering || state.intentPlaying) -> Player.STATE_BUFFERING
     else -> Player.STATE_READY
 }
 
@@ -19,12 +19,13 @@ internal fun nativeSessionCommands(base: Player.Commands, state: PlaybackState):
     Player.Commands.Builder().addAll(base)
         .add(Player.COMMAND_PLAY_PAUSE)
         .add(Player.COMMAND_SEEK_IN_CURRENT_MEDIA_ITEM)
+        .add(Player.COMMAND_SEEK_TO_DEFAULT_POSITION)
         .add(Player.COMMAND_SEEK_BACK)
         .add(Player.COMMAND_SEEK_FORWARD)
         .add(Player.COMMAND_SEEK_TO_PREVIOUS)
         .add(Player.COMMAND_SEEK_TO_PREVIOUS_MEDIA_ITEM)
         .apply {
-            if (state.timelineHasNext == true) {
+            if (state.canNext) {
                 add(Player.COMMAND_SEEK_TO_NEXT)
                 add(Player.COMMAND_SEEK_TO_NEXT_MEDIA_ITEM)
             } else {
@@ -43,12 +44,15 @@ internal fun nativeSessionEventFlags(before: PlaybackState, after: PlaybackState
     }
     if (entered || before.intentPlaying != after.intentPlaying) add(Player.EVENT_PLAY_WHEN_READY_CHANGED)
     if (entered || before.playing != after.playing) add(Player.EVENT_IS_PLAYING_CHANGED)
+    if (entered || before.isBuffering != after.isBuffering) add(Player.EVENT_IS_LOADING_CHANGED)
     if (entered) add(Player.EVENT_PLAYBACK_SUPPRESSION_REASON_CHANGED)
     if (occurrenceChanged) add(Player.EVENT_MEDIA_ITEM_TRANSITION)
-    if (entered || occurrenceChanged || before.item?.systemMetadata() != after.item?.systemMetadata()) {
+    if (entered || occurrenceChanged || before.durationMs != after.durationMs ||
+        before.item?.systemMetadata() != after.item?.systemMetadata()
+    ) {
         add(Player.EVENT_MEDIA_METADATA_CHANGED)
     }
-    if (entered || occurrenceChanged || before.timelineHasNext != after.timelineHasNext ||
+    if (entered || occurrenceChanged || before.canNext != after.canNext ||
         before.timelineHasPrevious != after.timelineHasPrevious
     ) add(Player.EVENT_AVAILABLE_COMMANDS_CHANGED)
 }
