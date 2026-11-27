@@ -3329,8 +3329,10 @@ private fun ChatScreenOverlays(content: @Composable () -> Unit) {
 @Composable
 private fun ReadOnlyChatBar(message: String) {
     val palette = beyGramPalette()
-    Box(Modifier.fillMaxWidth().chatChromeBackground(palette.surface).chatBottomInsets(WindowInsets.safeDrawing).padding(horizontal = 16.dp, vertical = 14.dp), contentAlignment = Alignment.Center) {
-        Text(message, color = palette.textSecondary, fontSize = 14.sp, textAlign = TextAlign.Center)
+    ChatFloatingBarHost {
+        Box(Modifier.fillMaxWidth().chatBottomInsets(WindowInsets.safeDrawing).padding(horizontal = 16.dp, vertical = 14.dp), contentAlignment = Alignment.Center) {
+            Text(message, color = palette.textSecondary, fontSize = 14.sp, textAlign = TextAlign.Center)
+        }
     }
 }
 
