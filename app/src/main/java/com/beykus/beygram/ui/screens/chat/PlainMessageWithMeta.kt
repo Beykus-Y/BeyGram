@@ -51,8 +51,7 @@ internal fun lastLineMetadataFits(
 internal fun PlainMessageWithMeta(
     text: String,
     modifier: Modifier = Modifier,
-    meta: @Composable () -> Unit,
-    selection: MessageContextTextSelection? = null
+    meta: @Composable () -> Unit
 ) {
     val size = LocalMessageTextSize.current
     val spacing = LocalMessageLineSpacing.current
@@ -61,17 +60,35 @@ internal fun PlainMessageWithMeta(
         modifier = modifier,
         text = { onTextLayout ->
             val lineHeight = (size.value * spacing).sp
-            if (selection != null) {
-                ContextSelectableMessageText(selection, color, size, lineHeight, onTextLayout)
-            } else {
-                Text(
-                    text, color = color, fontSize = size, fontFamily = FontFamily.Default,
-                    lineHeight = lineHeight, onTextLayout = onTextLayout
-                )
-            }
+            Text(
+                text, color = color, fontSize = size, fontFamily = FontFamily.Default,
+                lineHeight = lineHeight, onTextLayout = onTextLayout
+            )
         },
         meta = meta
     )
+}
+
+@Composable
+internal fun SelectableMessageBody(
+    selection: MessageContextTextSelection,
+    modifier: Modifier,
+    trailingMetadata: (@Composable () -> Unit)?
+) {
+    val size = LocalMessageTextSize.current
+    val lineHeight = (size.value * LocalMessageLineSpacing.current).sp
+    val color = beyGramPalette().messageText
+    if (trailingMetadata == null) {
+        androidx.compose.foundation.layout.Box(modifier) {
+            ContextSelectableMessageText(selection, color, size, lineHeight) {}
+        }
+    } else {
+        MeasuredMessageTextWithMeta(
+            modifier = modifier,
+            text = { onTextLayout -> ContextSelectableMessageText(selection, color, size, lineHeight, onTextLayout) },
+            meta = trailingMetadata
+        )
+    }
 }
 
 private class MessageTextMeasurement {

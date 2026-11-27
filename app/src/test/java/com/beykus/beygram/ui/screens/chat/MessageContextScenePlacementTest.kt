@@ -1,6 +1,9 @@
 package com.beykus.beygram.ui.screens.chat
 
 import androidx.compose.ui.geometry.Rect
+import com.beykus.beygram.domain.model.ChatMessage
+import com.beykus.beygram.domain.model.MediaKind
+import com.beykus.beygram.domain.model.MessageMedia
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
@@ -10,6 +13,17 @@ import org.junit.Test
 
 class MessageContextScenePlacementTest {
     private val viewport = Rect(300f, 20f, 680f, 620f)
+
+    @Test fun passiveMediaExcludeSpoilersSecretsAndAlbums() {
+        val photo = MessageMedia(MediaKind.Photo, 1)
+        val message = ChatMessage(1, 1, "caption", "", false, media = photo)
+        assertTrue(message.supportsContextScene())
+        assertTrue(message.copy(text = "", media = photo.copy(kind = MediaKind.Video)).supportsContextScene())
+        assertFalse(message.copy(media = photo.copy(hasSpoiler = true)).supportsContextScene())
+        assertFalse(message.copy(media = photo.copy(isSecret = true)).supportsContextScene())
+        assertFalse(message.copy(mediaAlbumId = 1L).supportsContextScene())
+        assertFalse(message.copy(media = photo.copy(kind = MediaKind.VideoNote)).supportsContextScene())
+    }
 
     @Test fun keepsTheNearestSideThatFitsTheMenu() {
         val nearTop = Rect(312f, 30f, 530f, 190f)

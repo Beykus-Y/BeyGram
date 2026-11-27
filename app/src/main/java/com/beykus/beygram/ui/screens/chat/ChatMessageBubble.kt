@@ -305,8 +305,10 @@ internal fun MessageBubble(message: ChatMessage, observeFile: (Int) -> StateFlow
                                         }
                                     } else null
                                     val textModifier = if (lastLineMeta && message.reply != null) Modifier.fillMaxWidth() else Modifier
-                                    if (trailingMetadata != null && (message.entities.isEmpty() || contextTextSelection != null)) {
-                                        PlainMessageWithMeta(message.text, textModifier, trailingMetadata, contextTextSelection)
+                                    if (contextTextSelection != null && showText) {
+                                        SelectableMessageBody(contextTextSelection, textModifier, trailingMetadata)
+                                    } else if (trailingMetadata != null && message.entities.isEmpty()) {
+                                        PlainMessageWithMeta(message.text, textModifier, trailingMetadata)
                                     } else if (showText) {
                                         FormattedMessageText(
                                             message, observeCustomEmoji, observeFile, onDownloadFile,

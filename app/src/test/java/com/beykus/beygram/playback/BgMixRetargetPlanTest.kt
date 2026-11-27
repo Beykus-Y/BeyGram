@@ -13,6 +13,17 @@ class BgMixRetargetPlanTest {
     private val item = PlaybackItem("Audio:8", MediaKind.Audio, "/8.mp3", "Eight", 10)
 
     @Test
+    fun duplicateKeysAreResolvedByTheExoOccurrenceAndCannotBeRetargetedByKey() {
+        val next = item.copy(key = "next")
+        val queue = listOf(item, next, item)
+        assertEquals(2, exoQueueOccurrenceIndex(queue, item.key, timelineIndex = 2, timelineSize = 3))
+        assertEquals(0, exoQueueOccurrenceIndex(queue, item.key, timelineIndex = 0, timelineSize = 1))
+        assertEquals(-1, exoQueueOccurrenceIndex(queue, "missing", timelineIndex = 2, timelineSize = 3))
+        assertNull(uniqueBgMixQueueIndices(queue.map { it.key }))
+        assertEquals(mapOf(item.key to 0, next.key to 1), uniqueBgMixQueueIndices(listOf(item.key, next.key)))
+    }
+
+    @Test
     fun retargetWithoutASessionIsRefused() {
         val driver = BgMixQueueDriver(File(System.getProperty("java.io.tmpdir") ?: "."))
         assertFalse(driver.retarget(listOf(item), item.key))

@@ -2088,7 +2088,8 @@ fun ChatScreen(
                 ?.mapTo(hashSetOf()) { it.option }
                 .orEmpty()
             val sceneEligible = !chat.isSecret && !chat.hasProtectedContent && !waveChat &&
-                actionMessage.supportsContextScene()
+                actionMessage.supportsContextScene() &&
+                (actionMessage.media == null || capabilities?.canForward == true)
             MessageContextPopover(
                 anchorBounds = actionAnchorBounds,
                 paneBounds = composerLaunch.overlayBounds,
@@ -2099,7 +2100,13 @@ fun ChatScreen(
                             observeFile = observeFile,
                             onDownloadFile = onDownloadFile,
                             isRead = actionMessage.isOutgoing && actionMessage.id <= history.lastReadOutboxMessageId,
-                            onOpen = {},
+                            onOpen = {
+                                if (actionMessage.media != null) {
+                                    closeActions()
+                                    selectedMediaId = actionMessage.id
+                                }
+                            },
+                            onAutoDownloadFile = {},
                             onReaction = { _, _ -> },
                             observeCustomEmoji = conversation::observeCustomEmoji,
                             showSenderHeader = senderHeaderByKey["message:${actionMessage.id}"] == true,
@@ -2108,7 +2115,7 @@ fun ChatScreen(
                         )
                     }
                 } else null,
-                foregroundText = actionMessage.text.takeIf { sceneEligible },
+                foregroundText = actionMessage.text.takeIf { sceneEligible && it.isNotBlank() },
                 foregroundEntities = actionMessage.entities,
                 quoteMaxLength = limits.quote,
                 onQuoteFragment = { fragment ->

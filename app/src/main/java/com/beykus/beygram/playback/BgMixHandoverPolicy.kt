@@ -66,3 +66,12 @@ internal fun BgMixHandoverBlockReason.showsPreparingIndicator(): Boolean =
 internal data class BgMixExoOccurrence(val mediaId: String, val windowUid: Any) {
     fun canFinishOn(current: BgMixExoOccurrence?, ended: Boolean): Boolean = !ended && this == current
 }
+
+/** The Exo timeline can contain only the currently streaming item, so only trust indices in a matching timeline. */
+internal fun exoQueueOccurrenceIndex(
+    queue: List<PlaybackItem>,
+    mediaId: String,
+    timelineIndex: Int?,
+    timelineSize: Int?
+): Int = timelineIndex?.takeIf { timelineSize == queue.size && queue.getOrNull(it)?.key == mediaId }
+    ?: queue.indexOfFirst { it.key == mediaId }

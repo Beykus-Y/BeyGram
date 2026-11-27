@@ -18,8 +18,8 @@ internal class TdPeerColors {
             if (color.id in 0..6 || color.id < 0 || color.builtInAccentColorId !in 0..6) return@mapNotNull null
             color.id to PeerAccentColor(
                 color.builtInAccentColorId,
-                color.lightThemeColors.orEmpty().validRgb(),
-                color.darkThemeColors.orEmpty().validRgb()
+                color.lightThemeColors?.validRgb().orEmpty(),
+                color.darkThemeColors?.validRgb().orEmpty()
             )
         }.toMap()
         if (next != accents) {
