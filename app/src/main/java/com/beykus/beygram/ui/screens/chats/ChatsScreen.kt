@@ -155,6 +155,7 @@ import com.beykus.beygram.ui.components.Avatar
 import com.beykus.beygram.ui.components.ChatAvatar
 import com.beykus.beygram.ui.components.SearchFieldButton
 import com.beykus.beygram.ui.components.TelegramAvatar
+import com.beykus.beygram.ui.components.emojiFontText
 import com.beykus.beygram.domain.model.ProfileInfo
 import com.beykus.beygram.domain.model.MediaFileState
 import com.beykus.beygram.domain.model.MessageSendState
@@ -1983,7 +1984,7 @@ internal fun ChatListItem(chat: ChatPreview, observeFile: (Int) -> StateFlow<Med
             Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                 if (chat.isMuted) Icon(Icons.Rounded.NotificationsOff, null, tint = palette.textSecondary, modifier = Modifier.padding(end = 6.dp).size(16.dp))
                 Text(
-                    preview,
+                    emojiFontText(preview),
                     color = when {
                         chat.lastMessageOutgoing && chat.lastMessageSendState == MessageSendState.Failed -> palette.warningText
                         unread && main.unreadPreviewEmphasis && !chat.isMuted -> palette.textPrimary

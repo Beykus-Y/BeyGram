@@ -78,6 +78,7 @@ import com.beykus.beygram.domain.model.MessageTextEntity
 import com.beykus.beygram.domain.model.CustomEmoji
 import com.beykus.beygram.domain.model.MediaFileState
 import com.beykus.beygram.domain.model.ReactionOption
+import com.beykus.beygram.ui.components.SystemEmojiFont
 import com.beykus.beygram.ui.components.emojiPresentation
 import com.beykus.beygram.ui.design.GlassPanel
 import com.beykus.beygram.ui.design.LocalDesignSystem
@@ -453,10 +454,10 @@ internal fun MessageContextPopover(
                                 if (path != null) {
                                     LocalMediaImage(path, Modifier.size(24.dp), fit = true, animate = false)
                                 } else {
-                                    Text(emojiPresentation(option.emoji.ifBlank { "✨" }), fontSize = 20.sp)
+                                    Text(emojiPresentation(option.emoji.ifBlank { "✨" }), fontSize = 20.sp, fontFamily = SystemEmojiFont)
                                 }
                             } else {
-                                Text(emojiPresentation(option.emoji), fontSize = 20.sp)
+                                Text(emojiPresentation(option.emoji), fontSize = 20.sp, fontFamily = SystemEmojiFont)
                             }
                         }
                     }

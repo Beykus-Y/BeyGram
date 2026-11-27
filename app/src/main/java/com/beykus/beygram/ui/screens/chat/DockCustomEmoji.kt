@@ -36,6 +36,8 @@ import com.beykus.beygram.domain.model.EmojiPickerSearchResults
 import com.beykus.beygram.domain.model.CustomEmojiSetBrief
 import com.beykus.beygram.domain.repository.ConversationRepository
 import com.beykus.beygram.playback.LocalPlaybackAccountId
+import com.beykus.beygram.ui.components.SystemEmojiFont
+import com.beykus.beygram.ui.components.emojiPresentation
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
@@ -157,7 +159,12 @@ internal fun DockCustomEmojiCell(
         contentAlignment = Alignment.Center
     ) {
         if (emoji != null) CustomEmojiImage(emoji, 28.dp, dock.observeFile, dock.downloadFile) {
-            Text(emoji.emoji, fontSize = 24.sp)
+            Text(
+                emojiPresentation(emoji.emoji),
+                fontSize = 24.sp,
+                lineHeight = 24.sp,
+                fontFamily = SystemEmojiFont
+            )
         }
     }
 }
