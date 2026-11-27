@@ -6,6 +6,31 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class BgMixHandoverPolicyTest {
+    @Test fun rejectsASupersededOccurrenceDuringHandover() {
+        val staged = BgMixExoOccurrence("track", "window-1")
+        assertTrue(staged.canFinishOn(staged.copy(), ended = false))
+        assertFalse(staged.canFinishOn(staged.copy(windowUid = "window-2"), ended = false))
+        assertFalse(staged.canFinishOn(staged.copy(mediaId = "next"), ended = false))
+        assertFalse(staged.canFinishOn(null, ended = false))
+        assertFalse(staged.canFinishOn(staged, ended = true))
+    }
+
+    @Test fun onlyAMeasuredAndCloseDeckMayCommitTheHandover() {
+        // Within the tight target.
+        assertTrue(BgMixAlignmentResult(alignedInTolerance = true, offsetsMs = listOf(3L)).safeToHandOver)
+        // Out of the tight target but still the same moment of the song: allowed, the alternative is no BG Mix at all.
+        assertTrue(BgMixAlignmentResult(alignedInTolerance = false, offsetsMs = listOf(120L)).safeToHandOver)
+        // No measurement at all: the position of the deck is unknown.
+        assertFalse(BgMixAlignmentResult(alignedInTolerance = false, offsetsMs = emptyList()).safeToHandOver)
+        // A jump that would be heard as a repeat or a seek inside the track.
+        assertFalse(BgMixAlignmentResult(alignedInTolerance = false, offsetsMs = listOf(301L)).safeToHandOver)
+        assertFalse(BgMixAlignmentResult(alignedInTolerance = false, offsetsMs = listOf(-900L)).safeToHandOver)
+        // Only the final measurement decides: earlier large offsets that were corrected do not block the commit.
+        assertTrue(BgMixAlignmentResult(alignedInTolerance = false, offsetsMs = listOf(-900L, 20L)).safeToHandOver)
+        // A failed seek after a large measurement is not hidden by an older, smaller offset.
+        assertFalse(BgMixAlignmentResult(alignedInTolerance = false, offsetsMs = listOf(20L, -900L)).safeToHandOver)
+    }
+
 
     private fun reason(
         enabled: Boolean = true,

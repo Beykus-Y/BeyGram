@@ -1,6 +1,7 @@
 package com.beykus.beygram.playback
 
 import com.beykus.beygram.domain.model.MediaKind
+import com.beykus.beygram.media.bgmix.BgMixDeck
 import com.beykus.beygram.media.bgmix.BgMixQueueItem
 import com.beykus.beygram.media.bgmix.BgMixStatus
 import org.junit.Assert.assertEquals
@@ -54,6 +55,18 @@ class BgMixTransitionTest {
 
     private fun next(previous: BgMixTransitionUi?, status: BgMixStatus, previousIndex: Int) =
         nextBgMixTransition(previous, status, previousIndex, indexOfNative, itemAt)
+
+    @Test
+    fun terminalActionCannotOverrideAReplacementMasterOrResumedDeck() {
+        val ended = BgMixDeck(true, false, true, 180.0, 180.0, 120.0, trackId = 10)
+        val terminal = status(active = false, queue = listOf(queueItem(10, "played"))).copy(decks = listOf(ended))
+
+        assertTrue(bgMixDeferredMasterMatches(terminal, terminal.copy()))
+        assertFalse(bgMixDeferredMasterMatches(terminal, terminal.copy(paused = true)))
+        assertFalse(bgMixDeferredMasterMatches(terminal, terminal.copy(transitionActive = true)))
+        assertFalse(bgMixDeferredMasterMatches(terminal, terminal.copy(decks = listOf(ended.copy(trackId = 11)))))
+        assertFalse(bgMixDeferredMasterMatches(terminal, terminal.copy(decks = listOf(ended.copy(playing = true, ended = false)))))
+    }
 
     @Test
     fun preparingTheNextTrackShowsNothing() {
