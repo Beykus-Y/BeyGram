@@ -130,3 +130,13 @@ internal fun updateFavoriteStickers(
 } else {
     current.filterNot { it.key == item.key }
 }
+
+/** Size the mosaic before downloads finish so replacing the placeholder never reflows the grid. */
+internal fun gifPickerAspectRatio(item: com.beykus.beygram.domain.model.AnimationItem): Float {
+    val ratio = when {
+        item.width > 0 && item.height > 0 -> item.width.toFloat() / item.height
+        item.thumbnailWidth > 0 && item.thumbnailHeight > 0 -> item.thumbnailWidth.toFloat() / item.thumbnailHeight
+        else -> 4f / 3f
+    }
+    return ratio.coerceIn(0.68f, 2.1f)
+}
