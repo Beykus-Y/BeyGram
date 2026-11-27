@@ -35,10 +35,15 @@ internal fun nativeSessionCommands(base: Player.Commands, state: PlaybackState):
         }
         .build()
 
+/** The same file can occur more than once in a queue. */
+internal fun sameNativeSessionOccurrence(before: PlaybackState, after: PlaybackState): Boolean =
+    before.item?.key == after.item?.key && before.item?.occurrenceId == after.item?.occurrenceId &&
+        before.queueIndex == after.queueIndex
+
 /** Event IDs are computed from the same before/after snapshots; routine position ticks are silent. */
 internal fun nativeSessionEventFlags(before: PlaybackState, after: PlaybackState): Set<Int> = buildSet {
     val entered = !before.bgMixActive && after.bgMixActive
-    val occurrenceChanged = before.item?.key != after.item?.key || before.queueIndex != after.queueIndex
+    val occurrenceChanged = !sameNativeSessionOccurrence(before, after)
     if (entered || nativeSessionPlaybackState(before) != nativeSessionPlaybackState(after)) {
         add(Player.EVENT_PLAYBACK_STATE_CHANGED)
     }
@@ -46,7 +51,10 @@ internal fun nativeSessionEventFlags(before: PlaybackState, after: PlaybackState
     if (entered || before.playing != after.playing) add(Player.EVENT_IS_PLAYING_CHANGED)
     if (entered || before.isBuffering != after.isBuffering) add(Player.EVENT_IS_LOADING_CHANGED)
     if (entered) add(Player.EVENT_PLAYBACK_SUPPRESSION_REASON_CHANGED)
-    if (occurrenceChanged) add(Player.EVENT_MEDIA_ITEM_TRANSITION)
+    if (occurrenceChanged) {
+        add(Player.EVENT_MEDIA_ITEM_TRANSITION)
+        if (before.item != null && after.item != null) add(Player.EVENT_POSITION_DISCONTINUITY)
+    }
     if (entered || occurrenceChanged || before.durationMs != after.durationMs ||
         before.item?.systemMetadata() != after.item?.systemMetadata()
     ) {
