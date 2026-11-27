@@ -161,7 +161,7 @@ private fun groupHeaderIndexes(groups: List<EmojiGroup>): Map<String, Int> {
 }
 
 @Composable
-private fun EmojiGroupHeader(title: String) {
+internal fun EmojiGroupHeader(title: String) {
     Text(
         title,
         color = beyGramPalette().textSecondary,
@@ -174,7 +174,7 @@ private fun EmojiGroupHeader(title: String) {
 
 /** One emoji on a 48dp touch target; the glyph is 28sp so it reads well in the grid. */
 @Composable
-private fun EmojiCell(emoji: String, onClick: () -> Unit) {
+internal fun EmojiCell(emoji: String, onClick: () -> Unit) {
     Box(
         Modifier.fillMaxWidth().height(48.dp)
             .clip(styledShape(12.dp))

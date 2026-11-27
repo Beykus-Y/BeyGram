@@ -194,12 +194,14 @@ class StickerPanelLogicTest {
     }
 
     @Test
-    fun theEmojiTabHasNoSearchSoOpeningOrTypingLeavesTheViewUnchanged() {
+    fun emojiSearchKeepsItsTabAndBackRestoresItsRoot() {
         val emoji = StickerPanelView().switchTab(StickerPanelTab.Emoji)
 
-        assertEquals(emoji, emoji.openSearch())
-        assertEquals(emoji, emoji.updateQuery("cat"))
-        assertFalse(emoji.searchActive)
+        val search = emoji.openSearch().updateQuery("cat")
+        assertEquals(StickerPanelTab.Emoji, search.tab)
+        assertEquals("cat", search.query)
+        assertTrue(search.searchActive)
+        assertEquals(emoji, search.back())
     }
 
     @Test

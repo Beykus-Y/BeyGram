@@ -177,6 +177,8 @@ interface ConversationRepository {
     /** Custom emoji ids of Telegram's default topic icons. They are the same for every account and need no Premium. */
     suspend fun forumTopicDefaultIcons(): Result<List<Long>>
     /** The custom emoji sets the account has installed. A Premium account may take topic icons from their emoji. */
+    suspend fun searchPickerEmoji(query: String, languages: List<String>): Result<EmojiPickerSearchResults> =
+        Result.success(EmojiPickerSearchResults())
     suspend fun installedCustomEmojiSets(): Result<List<CustomEmojiSetBrief>>
     /** The custom emoji ids of one installed set, in the set's order. */
     suspend fun customEmojiSetIds(setId: Long): Result<List<Long>>

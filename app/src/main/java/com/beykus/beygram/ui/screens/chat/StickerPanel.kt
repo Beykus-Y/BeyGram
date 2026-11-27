@@ -656,7 +656,7 @@ private fun StickerPanel(
             StickerPanelHeader(
                 selectedTab = view.tab,
                 canGoBack = view.canGoBack,
-                showSearch = view.tab != StickerPanelTab.Emoji,
+                showSearch = true,
                 onBack = ::navigateBack,
                 onSearch = { notice = null; view = view.openSearch() },
                 onClose = ::closePanel,
@@ -683,17 +683,24 @@ private fun StickerPanel(
         ) {
             tabState.SaveableStateProvider(view.tab.name) {
                 when (view.tab) {
-                    StickerPanelTab.Emoji -> EmojiPanel(
-                        recents = recentEmoji,
-                        onEmoji = ::insertEmoji,
-                        customEmoji = rememberDockCustomEmoji(conversation, observeFile, downloadFile, shelfVersions.emojiPacks) { emoji ->
+                    StickerPanelTab.Emoji -> {
+                        val dock = rememberDockCustomEmoji(conversation, observeFile, downloadFile, shelfVersions.emojiPacks) { emoji ->
                             if (premium == true) onInsertCustomEmoji(emoji)
                             else notice = premiumNotice
                             premium == true
-                        },
-                        onBackspace = onDeleteBackward,
-                        modifier = Modifier.fillMaxWidth().weight(1f)
-                    )
+                        }
+                        if (view.searchActive && view.query.isNotBlank()) {
+                            DockEmojiSearch(conversation, view.query, dock, ::insertEmoji, Modifier.fillMaxWidth().weight(1f))
+                        } else {
+                            EmojiPanel(
+                                recents = recentEmoji,
+                                onEmoji = ::insertEmoji,
+                                customEmoji = dock,
+                                onBackspace = onDeleteBackward,
+                                modifier = Modifier.fillMaxWidth().weight(1f)
+                            )
+                        }
+                    }
                     StickerPanelTab.Stickers -> {
                         if (!view.searchActive) {
                             StickerSectionStrip(

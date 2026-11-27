@@ -387,6 +387,22 @@ internal class TdConversationActions(
         }
     }
 
+    suspend fun searchPickerEmoji(query: String, languages: List<String>): Result<EmojiPickerSearchResults> = requestResult {
+        if (query.isBlank()) return@requestResult EmojiPickerSearchResults()
+        val codes = languages.toTypedArray()
+        val type = TdApi.StickerTypeCustomEmoji()
+        coroutineScope {
+            val unicode = async { request(TdApi.SearchEmojis(query, codes)).emojiKeywords.orEmpty() }
+            val custom = async { request(TdApi.SearchStickers(type, "", query, codes, 0, 40)).stickers.orEmpty() }
+            val packs = async { request(TdApi.SearchStickerSets(type, query)).sets.orEmpty() }
+            EmojiPickerSearchResults(
+                unicode = unicode.await().mapNotNull { it?.emoji?.takeIf(String::isNotBlank) }.distinct().take(60),
+                custom = custom.await().mapNotNull { it?.customEmojiIdOrNull() }.distinct(),
+                packs = packs.await().mapNotNull { it?.toCustomEmojiSetBrief() }.distinctBy { it.id }.take(20)
+            )
+        }
+    }
+
     /** The custom emoji sets the account has installed. A set's covers are custom emoji too, so the editor can preview each set. */
     suspend fun installedCustomEmojiSets(): Result<List<CustomEmojiSetBrief>> = requestResult {
         request(TdApi.GetInstalledStickerSets(TdApi.StickerTypeCustomEmoji())).sets.orEmpty()
