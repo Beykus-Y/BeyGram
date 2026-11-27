@@ -3462,7 +3462,12 @@ object PlaybackEngine {
             val snapshot = _state.value
             if (mediaId != null && reason != Player.MEDIA_ITEM_TRANSITION_REASON_PLAYLIST_CHANGED) {
                 transitionToken++
-                val index = snapshot.queue.indexOfFirst { it.key == mediaId }
+                val index = exoQueueOccurrenceIndex(
+                    snapshot.queue,
+                    mediaId,
+                    exo?.currentMediaItemIndex,
+                    exo?.mediaItemCount
+                )
                 if (index >= 0) {
                     val item = resolvedItem(snapshot.queue[index])
                     updateWaveCaptureEligibility(item)
