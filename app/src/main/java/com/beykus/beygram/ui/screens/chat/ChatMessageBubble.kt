@@ -18,7 +18,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.LayoutCoordinates
 import androidx.compose.ui.layout.onGloballyPositioned
@@ -171,7 +170,7 @@ internal fun MessageBubble(message: ChatMessage, observeFile: (Int) -> StateFlow
                         .then(if (message.media != null && !circle && !sticker)
                              Modifier.width(if (message.media.kind == MediaKind.Audio) 280.dp else 244.dp) else Modifier)
                         .then(mediaFlightModifier).clip(shape)
-                        .graphicsLayer { alpha = if (hideForContextScene) 0f else 1f }
+                        .then(if (hideForContextScene) Modifier.alpha(0f) else Modifier)
                         .background(if (circle || sticker) Color.Transparent else if (message.isOutgoing) palette.outgoingBubble else palette.incomingBubble)
                         .then(if (message.memory?.deletedAtMillis != null) Modifier.alpha(0.6f) else Modifier)
                         .then(if ((selected || highlighted) && !circle) Modifier.border(2.dp, palette.accent, shape) else Modifier)
