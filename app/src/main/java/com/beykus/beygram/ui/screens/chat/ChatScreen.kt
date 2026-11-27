@@ -1932,6 +1932,7 @@ fun ChatScreen(
     // Only the open/closed flip recomposes the screen, not every frame of the keyboard animation.
     val keyboardOpen by remember(imeInsets, imeDensity) { derivedStateOf { imeInsets.getBottom(imeDensity) > 0 } }
     val compactChrome = windowLayout.heightCompact
+    val overflowPopoverHost = remember { com.beykus.beygram.ui.components.SameWindowPopoverHost() }
     Box(Modifier.fillMaxSize().onGloballyPositioned { composerLaunch.overlayBounds = it.boundsInWindow() }) {
     // Only the status bar needs a separate fill. At the bottom the timeline and actual composer
     // surfaces draw edge-to-edge; the bottom controls reserve the safe inset themselves.
@@ -1990,6 +1991,7 @@ fun ChatScreen(
                 sharedSurface = topPanels == ChatTopPanelLayout.Combined
             )
         }
+        CompositionLocalProvider(com.beykus.beygram.ui.components.LocalSameWindowPopoverHost provides overflowPopoverHost) {
         ChatChromeHost(chatGlass, GlassEdge.BottomHairline, chatBackdrop, { topChromePx = it },
             paneContent = {
         if (selectionMode) SelectionActionBar(
@@ -2215,6 +2217,7 @@ fun ChatScreen(
                 }
             }
         )
+        }
         ChatScreenBox(Modifier.fillMaxWidth().weight(1f)) {
         ChatScreenBox(Modifier.underChatChrome({ if (chatBackdrop != null) topChromePx else 0 }, { bottomChromePx }).let { m -> if (chatBackdrop != null) m.glassBackdropSource(chatBackdrop) else m }) {
         ChatWallpaperLayer(chatWallpaper)
@@ -3127,6 +3130,7 @@ fun ChatScreen(
             onClose = { forwardId = null; selectionForwardOpen = false; frozenForwardSelection = longArrayOf(); forwardError = null; forwardAsCopy = false }
         )
     }
+    com.beykus.beygram.ui.components.SameWindowPopoverOverlay(overflowPopoverHost, chatBackdrop)
     ChatScreenOverlays {
     contextMessageId?.let { id -> MessageContextDialog(contextChatId, id, conversation, riskGuard, observeFile, onDownloadFile, onClose = { contextMessageId = null }, autoDownloadFile = onAutoDownloadFile, onOpenMessageEntity = onOpenMessageEntity, allowEntityCopy = !chat.hasProtectedContent) }
     playlistTrack?.let { track -> AddToPlaylistSheet(accountId = accountId, track = track, onDismiss = { playlistTrack = null }) }
