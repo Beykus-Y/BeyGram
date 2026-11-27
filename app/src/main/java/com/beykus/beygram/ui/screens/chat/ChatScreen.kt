@@ -2115,7 +2115,7 @@ fun ChatScreen(
                         )
                     }
                 } else null,
-                foregroundText = actionMessage.text.takeIf { sceneEligible },
+                foregroundText = actionMessage.text.takeIf { sceneEligible && it.isNotBlank() },
                 foregroundEntities = actionMessage.entities,
                 quoteMaxLength = limits.quote,
                 onQuoteFragment = { fragment ->
