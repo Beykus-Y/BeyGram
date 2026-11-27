@@ -600,10 +600,7 @@ internal class TdConversationActions(
             requireFutureSchedule(options)
             if (options.viewOnce) throw UserMessageException(UiText.Res(R.string.err_view_once_single_media))
             val boundedCaption = boundTelegramText(caption, entities, limits.value.caption)
-            val replyTarget = replyId?.let {
-                if (!request(TdApi.GetMessageProperties(chatId, it)).canBeReplied) throw UserMessageException(UiText.Res(R.string.err_message_cannot_reply))
-                request(TdApi.GetMessage(chatId, it))
-            }
+            val replyTarget = replyId?.let { loadReplyTarget(chatId, it, options) }
             val resolved = stealth.resolve(chatId, options, media, onMediaHandoff = handoff::markHandedOff)
             val protocolOptions = sendOptions(resolved.options)
             val messages = stealth.scheduledRequest(resolved, TdApi.SendMessageAlbum().apply {
@@ -649,6 +646,17 @@ internal class TdConversationActions(
         stealth.resend(chatId, orderedIds, sendNowConsent)
         Unit
     }
+    private suspend fun loadReplyTarget(chatId: Long, replyId: Long, options: MessageSendOptions): TdApi.Message {
+        val properties = request(TdApi.GetMessageProperties(chatId, replyId))
+        if (!properties.canBeReplied) throw UserMessageException(UiText.Res(R.string.err_message_cannot_reply))
+        val target = request(TdApi.GetMessage(chatId, replyId))
+        val quote = options.replyQuotePayload()
+        if (quote != null && (!properties.canBeCopied || !quote.matchesSource(messageFormattedText(target.content)?.text))) {
+            throw UserMessageException(UiText.Res(R.string.err_message_cannot_reply))
+        }
+        return target
+    }
+
     /** [forumTopicId] is used only without a reply target: a reply already carries its topic. */
     /** [content] is built from the media that stealth mode may have uploaded ahead of the send. */
     private suspend fun send(
@@ -659,10 +667,7 @@ internal class TdConversationActions(
         onVisibleId: (Long) -> Unit = {},
         content: (List<OutgoingMedia>) -> TdApi.InputMessageContent
     ) {
-        val replyTarget = replyId?.let {
-            if (!request(TdApi.GetMessageProperties(chatId, it)).canBeReplied) throw UserMessageException(UiText.Res(R.string.err_message_cannot_reply))
-            request(TdApi.GetMessage(chatId, it))
-        }
+        val replyTarget = replyId?.let { loadReplyTarget(chatId, it, options) }
         // Never persist a payment authorization or turn it into a scheduled send.
         if (confirmedPaidStars > 0L) {
             if (forumTopicId !in 0L..Int.MAX_VALUE.toLong() ||
