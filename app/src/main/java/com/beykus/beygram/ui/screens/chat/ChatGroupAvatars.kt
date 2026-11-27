@@ -29,6 +29,7 @@ import androidx.compose.ui.unit.dp
 import com.beykus.beygram.R
 import com.beykus.beygram.data.tdlib.stableColor
 import com.beykus.beygram.domain.model.AvatarPhoto
+import com.beykus.beygram.domain.model.hasSameSenderAs
 import com.beykus.beygram.domain.model.ChatMessage
 import com.beykus.beygram.domain.model.ChatPreview
 import com.beykus.beygram.domain.model.MediaFileState
@@ -62,7 +63,7 @@ internal fun groupAvatarRows(
         }
         val prior = previous
         val startsGroup = prior == null || item.key in separators ||
-            prior.senderId != first.senderId || prior.senderName != first.senderName ||
+            !prior.hasSameSenderAs(first) ||
             first.dateSeconds - prior.dateSeconds > AvatarGroupGapSeconds
         if (startsGroup) put(item.key, first)
         previous = item.messages.maxByOrNull { it.id }
@@ -112,12 +113,13 @@ internal fun ChatGroupAvatarRow(
     peerColors: ConversationRepository? = null,
     content: @Composable () -> Unit
 ) {
-    val userId = message?.senderId?.takeIf { it > 0 }
-    val appearanceFlow = remember(peerColors, userId) {
-        if (userId != null) peerColors?.observeGroupAuthor(userId) else null
+    val userId = message?.senderId ?: 0L
+    val senderChatId = message?.senderChatId ?: 0L
+    val appearanceFlow = remember(peerColors, userId, senderChatId) {
+        if (userId > 0L || senderChatId != 0L) peerColors?.observeGroupAuthor(userId, senderChatId) else null
     }
     val appearance = if (appearanceFlow != null) {
-        key(peerColors, userId) {
+        key(peerColors, userId, senderChatId) {
             val current by appearanceFlow.collectAsStateWithLifecycle(initialValue = null)
             current
         }
@@ -133,7 +135,11 @@ internal fun ChatGroupAvatarRow(
                 Spacer(Modifier.width(44.dp))
             } else {
                 val member = members[avatar.senderId]
-                val colorKey = if (avatar.senderId > 0) avatar.senderId else avatar.senderName.hashCode().toLong()
+                val colorKey = when {
+                    avatar.senderId > 0L -> avatar.senderId
+                    avatar.senderChatId != 0L -> avatar.senderChatId
+                    else -> avatar.senderName.hashCode().toLong()
+                }
                 val label = stringResource(R.string.chat_group_sender_avatar, avatar.senderName)
                 val action = if (avatar.senderId > 0 && onOpenProfile != null) {
                     Modifier.clickable(role = Role.Button) { onOpenProfile(avatar.senderId) }
@@ -141,7 +147,7 @@ internal fun ChatGroupAvatarRow(
                 Box(Modifier.width(44.dp).padding(start = 8.dp, top = 4.dp)) {
                     TelegramAvatar(
                         initials = initialsOf(avatar.senderName),
-                        color = accent?.takeIf { avatar.senderId == userId }?.avatarColor(dark)
+                        color = accent?.takeIf { avatar.senderId == userId && avatar.senderChatId == senderChatId }?.avatarColor(dark)
                             ?: Color(member?.avatarColorArgb ?: colorKey.stableColor()),
                         size = 36.dp,
                         photo = member?.photo ?: photos[avatar.senderId],

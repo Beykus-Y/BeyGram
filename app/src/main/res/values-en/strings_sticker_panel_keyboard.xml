@@ -1,4 +1,10 @@
 <resources>
     <string name="sticker_panel_open_keyboard">Open keyboard</string>
     <string name="emoji_custom_recent">Recent custom emoji</string>
+    <string name="emoji_recommended_sets">Recommended packs</string>
+    <string name="gif_panel_save">Save GIF</string>
+    <string name="gif_panel_remove_saved">Remove from saved GIFs</string>
+    <string name="gif_panel_save_failed">Could not update saved GIFs</string>
+    <string name="sticker_panel_clear_recent">Clear recent stickers</string>
+    <string name="sticker_panel_clear_recent_confirm">Clear this account’s recent sticker history?</string>
 </resources>

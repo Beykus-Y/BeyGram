@@ -19,11 +19,17 @@ internal class TdProfiles(private val client: () -> Client, private val files: M
     private val users = mutableMapOf<Long, TdApi.User>()
     private val peerColors = TdPeerColors()
 
-    fun observeGroupAuthor(userId: Long): Flow<GroupAuthorAppearance?> = peerColors.revision
+    fun observeGroupAuthor(userId: Long, senderChatId: Long): Flow<GroupAuthorAppearance?> = peerColors.revision
         .map {
             synchronized(lock) {
-                users[userId]?.let { user ->
-                    GroupAuthorAppearance(peerColors.accent(user.accentColorId), groupAuthorEmojiStatus(user.emojiStatus))
+                if (senderChatId != 0L) {
+                    chats[senderChatId]?.let { chat ->
+                        GroupAuthorAppearance(peerColors.accent(chat.accentColorId), groupAuthorEmojiStatus(chat.emojiStatus))
+                    }
+                } else {
+                    users[userId]?.let { user ->
+                        GroupAuthorAppearance(peerColors.accent(user.accentColorId), groupAuthorEmojiStatus(user.emojiStatus))
+                    }
                 }
             }
         }
@@ -104,7 +110,13 @@ internal class TdProfiles(private val client: () -> Client, private val files: M
         if (missing.isNotEmpty()) coroutineScope { missing.map { id -> async { fetchUser(id) } }.awaitAll() }
         return synchronized(lock) { unique.mapNotNull { id -> users[id]?.let { id to it } }.toMap() }
     }
-    fun putChat(chat: TdApi.Chat) = synchronized(lock) { chats[chat.id] = chat; publish() }
+    fun putChat(chat: TdApi.Chat) = synchronized(lock) {
+        val previous = chats.put(chat.id, chat)
+        if (previous?.accentColorId != chat.accentColorId ||
+            groupAuthorEmojiStatus(previous?.emojiStatus) != groupAuthorEmojiStatus(chat.emojiStatus)
+        ) peerColors.userAppearanceChanged()
+        publish()
+    }
     fun chat(chatId: Long): TdApi.Chat? = synchronized(lock) { chats[chatId] }
     /** Uses the group membership status cached with the chat, so a chat whose group is not known yet keeps its composer. */
     fun canPost(chat: TdApi.Chat): Boolean = synchronized(lock) {
@@ -152,6 +164,26 @@ internal class TdProfiles(private val client: () -> Client, private val files: M
         when (update) {
             is TdApi.UpdateUser -> putUser(update.user)
             is TdApi.UpdateAccentColors -> { peerColors.update(update); return@synchronized }
+            is TdApi.UpdateProfileAccentColors -> { peerColors.updateProfiles(update); return@synchronized }
+            is TdApi.UpdateChatAccentColors -> {
+                chats[update.chatId]?.let { chat ->
+                    if (chat.accentColorId != update.accentColorId) {
+                        chat.accentColorId = update.accentColorId
+                        peerColors.userAppearanceChanged()
+                    }
+                    chat.profileAccentColorId = update.profileAccentColorId
+                }
+                return@synchronized
+            }
+            is TdApi.UpdateChatEmojiStatus -> {
+                chats[update.chatId]?.let { chat ->
+                    if (groupAuthorEmojiStatus(chat.emojiStatus) != groupAuthorEmojiStatus(update.emojiStatus)) {
+                        chat.emojiStatus = update.emojiStatus
+                        peerColors.userAppearanceChanged()
+                    }
+                }
+                return@synchronized
+            }
             is TdApi.UpdateUserStatus -> users[update.userId]?.status = update.status
             is TdApi.UpdateUserFullInfo -> userFull[update.userId] = update.userFullInfo
             is TdApi.UpdateBasicGroup -> groups[update.basicGroup.id] = update.basicGroup

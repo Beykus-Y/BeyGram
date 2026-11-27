@@ -8,3 +8,9 @@ data class StickerShelfVersions(
     val favoriteStickers: Long = 0,
     val savedAnimations: Long = 0
 )
+
+data class EmojiPickerSearchResults(
+    val unicode: List<String> = emptyList(),
+    val custom: List<Long> = emptyList(),
+    val packs: List<CustomEmojiSetBrief> = emptyList()
+)

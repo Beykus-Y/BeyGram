@@ -194,12 +194,14 @@ class StickerPanelLogicTest {
     }
 
     @Test
-    fun theEmojiTabHasNoSearchSoOpeningOrTypingLeavesTheViewUnchanged() {
+    fun emojiSearchKeepsItsTabAndBackRestoresItsRoot() {
         val emoji = StickerPanelView().switchTab(StickerPanelTab.Emoji)
 
-        assertEquals(emoji, emoji.openSearch())
-        assertEquals(emoji, emoji.updateQuery("cat"))
-        assertFalse(emoji.searchActive)
+        val search = emoji.openSearch().updateQuery("cat")
+        assertEquals(StickerPanelTab.Emoji, search.tab)
+        assertEquals("cat", search.query)
+        assertTrue(search.searchActive)
+        assertEquals(emoji, search.back())
     }
 
     @Test
@@ -211,7 +213,7 @@ class StickerPanelLogicTest {
     }
 
     @Test
-    fun restoringTheEmojiTabAlwaysLandsOnItsPlainRoot() {
+    fun restoringEmojiSearchDropsTheStaleStickerPack() {
         val restored = restoreStickerPanelView(
             tab = StickerPanelTab.Emoji,
             section = StickerPanelSection.Favorites,
@@ -220,7 +222,7 @@ class StickerPanelLogicTest {
             query = "cat"
         )
 
-        assertEquals(StickerPanelView(tab = StickerPanelTab.Emoji), restored)
+        assertEquals(StickerPanelView(tab = StickerPanelTab.Emoji, searchOpen = true, query = "cat"), restored)
     }
 
     @Test

@@ -101,6 +101,7 @@ internal fun EmojiPanel(
                 }
             }
             if (customEmoji != null) {
+                val firstRecommended = customEmoji.packs.firstOrNull { it.id !in customEmoji.installedIds }?.id
                 if (recentCustom.isNotEmpty()) {
                     item(key = "custom-recent-header", span = { GridItemSpan(maxLineSpan) }) {
                         EmojiGroupHeader(stringResource(R.string.emoji_custom_recent))
@@ -117,7 +118,12 @@ internal fun EmojiPanel(
                     when (row) {
                         is PremiumEmojiRow.Header -> {
                             LaunchedEffect(row.setId) { customEmoji.loadPack(row.setId) }
-                            EmojiGroupHeader(row.title)
+                            Column {
+                                if (row.setId == firstRecommended) {
+                                    EmojiGroupHeader(stringResource(R.string.emoji_recommended_sets))
+                                }
+                                DockEmojiPackHeader(row.setId, row.title, customEmoji)
+                            }
                         }
                         is PremiumEmojiRow.Emoji -> DockCustomEmojiCell(row.customEmojiId, customEmoji)
                     }
@@ -161,7 +167,7 @@ private fun groupHeaderIndexes(groups: List<EmojiGroup>): Map<String, Int> {
 }
 
 @Composable
-private fun EmojiGroupHeader(title: String) {
+internal fun EmojiGroupHeader(title: String) {
     Text(
         title,
         color = beyGramPalette().textSecondary,
@@ -174,7 +180,7 @@ private fun EmojiGroupHeader(title: String) {
 
 /** One emoji on a 48dp touch target; the glyph is 28sp so it reads well in the grid. */
 @Composable
-private fun EmojiCell(emoji: String, onClick: () -> Unit) {
+internal fun EmojiCell(emoji: String, onClick: () -> Unit) {
     Box(
         Modifier.fillMaxWidth().height(48.dp)
             .clip(styledShape(12.dp))
