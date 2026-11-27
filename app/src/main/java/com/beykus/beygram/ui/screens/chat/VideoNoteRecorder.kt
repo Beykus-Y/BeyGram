@@ -1176,7 +1176,10 @@ internal fun VideoNoteRecordingOverlay(recorder: VideoNoteRecorder, modifier: Mo
     val screenLight = recorder.lightEnabled && recorder.lightMode == VideoNoteLightMode.Screen
     VideoNoteScreenBrightness(screenLight)
     Column(
-        modifier.fillMaxSize().background(videoNoteOverlayBackdropColor(screenLight)),
+        modifier.fillMaxSize()
+            .background(videoNoteOverlayBackdropColor(screenLight))
+            // Participate in hit testing across the transparent area while leaving the preview's own gestures active.
+            .pointerInput(Unit) { awaitPointerEventScope { while (true) awaitPointerEvent() } },
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center
     ) {
