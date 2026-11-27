@@ -43,6 +43,7 @@ import com.beykus.beygram.data.appearance.listDensityFromStored
 import com.beykus.beygram.data.appearance.messageAnimationConfigFromStored
 import com.beykus.beygram.data.appearance.messageLineSpacingFromStored
 import com.beykus.beygram.data.appearance.navigationPlacementFromStored
+import com.beykus.beygram.data.appearance.chatTopPanelLayoutFromStored
 import com.beykus.beygram.data.appearance.themeModeFromStored
 import com.beykus.beygram.data.appearance.themePresetFromStored
 import com.beykus.beygram.data.appearance.validBubbleCornerRadius
@@ -98,6 +99,7 @@ internal object AppearanceUserPresetStore {
         put("liquidGlassV2", config.liquidGlassV2)
         put("liquidGlassPreset", config.liquidGlassPreset.name)
         put("navigationPlacement", config.navigationPlacement.name)
+        put("chatTopPanelLayout", config.chatTopPanelLayout.name)
     }.toString()
 
     internal fun decode(raw: String): AppearanceConfig? = runCatching {
@@ -120,7 +122,8 @@ internal object AppearanceUserPresetStore {
             glassQuality = glassQualityFromStored(o.optString("glassQuality")),
             liquidGlassV2 = o.optBoolean("liquidGlassV2", true),
             liquidGlassPreset = liquidGlassLensPresetFromStored(o.optString("liquidGlassPreset")),
-            navigationPlacement = navigationPlacementFromStored(o.optString("navigationPlacement"))
+            navigationPlacement = navigationPlacementFromStored(o.optString("navigationPlacement")),
+            chatTopPanelLayout = chatTopPanelLayoutFromStored(o.optString("chatTopPanelLayout"))
         )
     }.getOrNull()
 }

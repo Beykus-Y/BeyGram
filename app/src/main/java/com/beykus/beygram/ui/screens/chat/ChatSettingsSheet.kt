@@ -90,6 +90,7 @@ internal fun ChatSettingsSheet(
     overrides: ChatOverridesStore,
     globalWallpaper: ChatWallpaper,
     isSecretChat: Boolean = false,
+    supportsGroupAvatars: Boolean = false,
     onSecretChatClosed: () -> Unit = {},
     onClose: () -> Unit
 ) {
@@ -188,6 +189,14 @@ internal fun ChatSettingsSheet(
                     .padding(bottom = 20.dp)
             ) {
                 error?.let { Text(it, color = palette.danger, fontSize = 13.sp, modifier = Modifier.padding(bottom = 8.dp)) }
+                if (supportsGroupAvatars) {
+                    SettingSwitch(
+                        title = stringResource(R.string.chat_settings_group_avatars),
+                        checked = allOverrides[chatId]?.groupAvatarsHidden != true,
+                        enabled = true,
+                        onCheckedChange = { overrides.setGroupAvatarsHidden(chatId, !it) }
+                    )
+                }
                 if (loading) {
                     CircularProgressIndicator(Modifier.size(22.dp), color = palette.accent, strokeWidth = 2.dp)
                     return@Column

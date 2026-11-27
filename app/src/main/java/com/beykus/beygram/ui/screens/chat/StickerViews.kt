@@ -18,6 +18,7 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.DpSize
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -54,7 +55,8 @@ internal fun StickerPreview(
     media: MessageMedia, file: MediaFileState, thumbnail: MediaFileState,
     downloadFile: (Int) -> Unit, onOpen: () -> Unit, onLongPress: (() -> Unit)?,
     /** Repository-backed automatic sticker download; explicit viewer actions still use [downloadFile]. */
-    autoDownloadFile: ((AutoDownloadRequest) -> Unit)? = null
+    autoDownloadFile: ((AutoDownloadRequest) -> Unit)? = null,
+    mediaSize: DpSize? = null
 ) {
     val webm = media.mimeType == WEBM_MIME
     val description = stringResource(R.string.media_kind_sticker)
@@ -91,7 +93,7 @@ internal fun StickerPreview(
     // An animated sticker plays only after it has been on screen for the autoplay dwell time. WebM is never drawn here.
     val autoplay = rememberAutoplayEligible(enabled = !webm)
     Box(
-        Modifier.size(STICKER_SIZE)
+        Modifier.size(mediaSize ?: DpSize(STICKER_SIZE, STICKER_SIZE))
             .semantics { contentDescription = description }
             .combinedClickable(onClick = onOpen, onLongClick = onLongPress)
             .then(autoplay.modifier),
