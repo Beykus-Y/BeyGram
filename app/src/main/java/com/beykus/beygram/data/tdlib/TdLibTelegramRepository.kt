@@ -2836,10 +2836,10 @@ class TdLibTelegramRepository private constructor(
             is TdApi.UpdateNewChat            -> handleNewChat(update.chat)
             is TdApi.UpdateForumTopic -> {
                 messageDrafts.receiveTopic(update.chatId, update.forumTopicId.toLong(), update.draftMessage)
-                topicStores[update.chatId to update.forumTopicId.toLong()]?.apply {
-                readInbox(update.chatId, update.lastReadInboxMessageId)
-                readOutbox(update.chatId, update.lastReadOutboxMessageId)
-                }
+                topicStores[update.chatId to update.forumTopicId.toLong()]?.updateTopicReadMarks(
+                    update.chatId, update.lastReadInboxMessageId, update.lastReadOutboxMessageId,
+                    com.beykus.beygram.domain.model.UnreadMarkCounts(update.unreadMentionCount, update.unreadReactionCount)
+                )
             }
             is TdApi.UpdateForumTopicInfo -> forumTopicBriefs.receive(update.info)
             is TdApi.UpdateChatFolders -> handleChatFolders(update)

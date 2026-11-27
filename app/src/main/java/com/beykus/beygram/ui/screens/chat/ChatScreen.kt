@@ -2508,8 +2508,8 @@ fun ChatScreen(
         ChatJumpControls(
             chatId = chat.id,
             forumTopicId = forumTopicId,
-            unreadMentions = if (forumTopicId > 0L) topicUnreadMentionCount else chat.unreadMentionCount,
-            unreadReactions = if (forumTopicId > 0L) topicUnreadReactionCount else chat.unreadReactionCount,
+            unreadMentions = if (forumTopicId > 0L) history.topicUnreadMarks?.mentions ?: topicUnreadMentionCount else chat.unreadMentionCount,
+            unreadReactions = if (forumTopicId > 0L) history.topicUnreadMarks?.reactions ?: topicUnreadReactionCount else chat.unreadReactionCount,
             showJumpLatest = away || history.hasNewerMessages,
             conversation = conversation,
             onJumpToMessage = { id -> jumpToMessage(id, R.string.chat_message_unavailable) },

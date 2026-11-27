@@ -10,6 +10,7 @@ import com.beykus.beygram.domain.model.MessageDiceState
 import com.beykus.beygram.domain.model.MessageMedia
 import com.beykus.beygram.domain.model.MessageSendState
 import com.beykus.beygram.domain.model.MessageSpecialContent
+import com.beykus.beygram.domain.model.UnreadMarkCounts
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -19,6 +20,18 @@ import kotlin.random.Random
 class MessageHistoryStoreTest {
     private fun message(id: Long, date: Long = 1L, state: MessageSendState = MessageSendState.Sent, chatId: Long = 1L) =
         ChatMessage(id, chatId, "test", "12:00", true, date, state)
+
+    @Test fun topicReadUpdatesReplaceBadgeCountsWithoutMovingTheReadCursorBackward() {
+        val store = MessageHistoryStore(maxCachedChats = 1)
+        store.readInbox(1L, 30L)
+        store.updateTopicReadMarks(1L, 25L, 21L, UnreadMarkCounts(2, 3))
+        store.finishLoad(1L, listOf(message(20L)), true)
+        assertEquals(30L, store.observe(1L).value.lastReadInboxMessageId)
+        assertEquals(UnreadMarkCounts(2, 3), store.observe(1L).value.topicUnreadMarks)
+        store.updateTopicReadMarks(1L, 31L, 21L, UnreadMarkCounts(0, 0))
+        assertEquals(UnreadMarkCounts(0, 0), store.observe(1L).value.topicUnreadMarks)
+        assertEquals(null, store.observe(2L).value.topicUnreadMarks)
+    }
 
     @Test fun successReplacesTemporaryMessageAndLateResponseCannotRestoreIt() {
         val store = MessageHistoryStore()
