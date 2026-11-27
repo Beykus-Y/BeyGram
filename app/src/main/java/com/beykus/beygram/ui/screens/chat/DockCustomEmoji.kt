@@ -11,7 +11,11 @@ import androidx.compose.foundation.lazy.grid.GridItemSpan
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.Lock
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -37,13 +41,23 @@ import com.beykus.beygram.domain.model.CustomEmojiSetBrief
 import com.beykus.beygram.domain.repository.ConversationRepository
 import com.beykus.beygram.playback.LocalPlaybackAccountId
 import com.beykus.beygram.ui.components.SystemEmojiFont
+import com.beykus.beygram.ui.components.beyGramPalette
 import com.beykus.beygram.ui.components.emojiPresentation
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
+/**
+ * Telegram decides custom emoji sending by account Premium and by Saved Messages; TDLib 1.8.65 does not expose the
+ * per-document free flag the official MTProto clients use, so this is the safe approximation. Server refusal still wins.
+ */
+internal fun customEmojiAllowed(premium: Boolean?, savedMessages: Boolean): Boolean =
+    savedMessages || premium == true
+
 internal data class DockCustomEmoji(
     val packs: List<CustomEmojiSetBrief>,
     val installedIds: Set<Long>,
+    /** The account may not insert these emoji here; the artwork stays visible with a lock. */
+    val locked: Boolean,
     val busyPacks: Set<Long>,
     val failedPacks: Set<Long>,
     val changeInstallation: (Long, Boolean) -> Unit,
@@ -66,6 +80,7 @@ internal fun rememberDockCustomEmoji(
     observeFile: ObserveMediaFile,
     downloadFile: DownloadMediaFile,
     packsVersion: Long,
+    locked: Boolean,
     onPick: (CustomEmoji) -> Boolean
 ): DockCustomEmoji {
     val context = LocalContext.current
@@ -116,7 +131,7 @@ internal fun rememberDockCustomEmoji(
     val states by loader.states.collectAsStateWithLifecycle()
     val rows = remember(packs, states) { premiumEmojiRows(packs, states) }
     return DockCustomEmoji(
-        packs, installedIds, busyPacks, failedPacks, ::changeInstallation, reorderBusy,
+        packs, installedIds, locked, busyPacks, failedPacks, ::changeInstallation, reorderBusy,
         { order ->
             if (!reorderBusy) {
                 reorderBusy = true
@@ -158,13 +173,23 @@ internal fun DockCustomEmojiCell(
         } else Modifier),
         contentAlignment = Alignment.Center
     ) {
-        if (emoji != null) CustomEmojiImage(emoji, 28.dp, dock.observeFile, dock.downloadFile) {
-            Text(
-                emojiPresentation(emoji.emoji),
-                fontSize = 24.sp,
-                lineHeight = 24.sp,
-                fontFamily = SystemEmojiFont
-            )
+if (emoji != null) {
+            CustomEmojiImage(emoji, 28.dp, dock.observeFile, dock.downloadFile) {
+                Text(
+                    emojiPresentation(emoji.emoji),
+                    fontSize = 24.sp,
+                    lineHeight = 24.sp,
+                    fontFamily = SystemEmojiFont
+                )
+            }
+            if (dock.locked) {
+                Icon(
+                    Icons.Rounded.Lock,
+                    contentDescription = stringResource(R.string.sticker_panel_premium_badge),
+                    tint = beyGramPalette().accent,
+                    modifier = Modifier.align(Alignment.TopEnd).padding(top = 2.dp, end = 2.dp).size(12.dp)
+                )
+            }
         }
     }
 }
