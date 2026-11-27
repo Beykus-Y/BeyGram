@@ -228,7 +228,9 @@ fun ChatScreen(
     fun updateDraft(transform: (com.beykus.beygram.domain.model.MessageDraft) -> com.beykus.beygram.domain.model.MessageDraft) =
         if (forumTopicId > 0L) conversation.updateForumTopicDraft(chat.id, forumTopicId, transform)
         else conversation.updateMessageDraft(chat.id, transform)
-    val quoteState = remember(accountId, chat.id, forumTopicId) { ChatQuoteState() }
+    val quoteState = key(accountId, chat.id, forumTopicId) {
+        rememberSaveable(saver = ChatQuoteState.Saver) { ChatQuoteState() }
+    }
     fun setReplyTarget(messageId: Long?) {
         quoteState.keepOnlyFor(messageId)
         updateDraft { it.copy(replyToMessageId = messageId) }
@@ -2096,7 +2098,7 @@ fun ChatScreen(
                 } else null,
                 foregroundText = actionMessage.text.takeIf { sceneEligible },
                 onQuoteFragment = { fragment ->
-                    quoteState.select(actionMessage.id, fragment.text, fragment.position)
+                    quoteState.select(actionMessage.id, fragment.text, fragment.position, restoreAfterRecreation = true)
                     setReplyTarget(actionMessage.id)
                     replyFocusRequest++
                     closeActions()
