@@ -531,7 +531,7 @@ internal fun MessageContextPopover(
                                         onDelete = onDelete
                                     )
                                 }
-                                if (onQuote != null && capabilities.canReply && hasText) {
+                                if (onQuote != null && capabilities.canReply && capabilities.canCopy && hasText) {
                                     Row(
                                         Modifier
                                             .fillMaxWidth()
