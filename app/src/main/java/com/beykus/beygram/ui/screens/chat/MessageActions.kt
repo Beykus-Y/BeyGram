@@ -402,7 +402,7 @@ internal fun MessageContextPopover(
                 .clickable(
                     interactionSource = remember { MutableInteractionSource() },
                     indication = null,
-                    onClick = dismiss
+                    onClick = { if (selectedText != null) selection?.clear() else dismiss() }
                 )
         ) {
             if (scene != null && foreground != null && anchorBounds != null) {

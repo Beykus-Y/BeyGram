@@ -2078,10 +2078,6 @@ fun ChatScreen(
                 onDismiss = { reportMessageId = null }
             )
         }
-        ChatQuoteHost(quoteState) { id ->
-            setReplyTarget(id)
-            replyFocusRequest++
-        }
         if (actionMessage != null && !deleting && !reactionPickerOpen && !pinConfirm) {
             val chosenReactions = reactionOwner?.reactions
                 ?.filter { it.isChosen && !it.isPaid }
@@ -2158,9 +2154,7 @@ fun ChatScreen(
                 onClose = ::closeActions,
                 onRetry = { capabilitiesAttempt++ },
                 onReply = { quoteState.clear(); setReplyTarget(actionMessage.id); replyFocusRequest++; closeActions() },
-                onQuote = if (actionMessage.text.isNotBlank() && !chat.isSecret && !chat.hasProtectedContent &&
-                    !actionMessage.isViewOnce && actionMessage.entities.none { it.kind == TextStyleKind.Spoiler }
-                ) { { quoteState.pickerTarget = actionMessage; closeActions() } } else null,
+                onQuote = null,
                 onCopy = { clipboard.setPrimaryClip(ClipData.newPlainText(context.getString(R.string.chat_message), actionMessage.text)); closeActions() },
                 onEdit = { editId = actionMessage.id; editText = actionMessage.text; closeActions() },
                 onDelete = { deleteEveryone = capabilities?.canDeleteForSelf == false; deleting = true },
