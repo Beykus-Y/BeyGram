@@ -123,6 +123,7 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.DpSize
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -455,20 +456,27 @@ internal fun softMinithumbnailSlot(data: ByteArray?): (@Composable () -> Unit)? 
 /**
  * Longest-side decode size that covers a center-cropped box of [boxWidthPx]x[boxHeightPx] for a [mediaWidth]x[mediaHeight] source, in 256 px steps.
  */
-internal fun bubbleDecodeDimension(mediaWidth: Int, mediaHeight: Int, boxWidthPx: Float, boxHeightPx: Float): Int {
+internal fun bubbleDecodeDimension(mediaWidth: Int, mediaHeight: Int, boxWidthPx: Float, boxHeightPx: Float, fit: Boolean = false): Int {
     if (mediaWidth <= 0 || mediaHeight <= 0 || boxWidthPx <= 0f || boxHeightPx <= 0f) return 1024
-    val scale = maxOf(boxWidthPx / mediaWidth, boxHeightPx / mediaHeight)
+    val widthScale = boxWidthPx / mediaWidth
+    val heightScale = boxHeightPx / mediaHeight
+    val scale = if (fit) minOf(widthScale, heightScale) else maxOf(widthScale, heightScale)
     val needed = kotlin.math.ceil(maxOf(mediaWidth, mediaHeight) * scale).toInt()
     return (((needed + 255) / 256) * 256).coerceIn(512, BUBBLE_MAX_DECODE_DIMENSION)
 }
 
 /** What the bubble shows before the full file: the downloaded preview at its own resolution, else the soft minithumbnail. */
 @Composable
-private fun MediaThumbnailLayer(media: MessageMedia, thumbnailPath: String?, modifier: Modifier) {
+private fun MediaThumbnailLayer(
+    media: MessageMedia,
+    thumbnailPath: String?,
+    modifier: Modifier,
+    fit: Boolean = false
+) {
     val minithumbnail = media.minithumbnail
     when {
         thumbnailPath != null -> LocalMediaImage(
-            thumbnailPath, modifier,
+            thumbnailPath, modifier, fit = fit,
             allowVideoFrame = media.kind == MediaKind.Animation || media.kind == MediaKind.Video,
             fallbackMinithumbnail = minithumbnail,
             animate = false,
@@ -588,6 +596,7 @@ internal fun MediaPreview(
     externalPlay: AudioPlayRequest? = null,
     /** Selection mode is on: a tap on the bubble selects the message instead of opening it. */
     selectionActive: Boolean = false,
+    visualSize: DpSize? = null,
 ) {
     // The bubble reads [file] and [thumb] without byte counters; progress is read only in deferred lambdas through the handles.
     val thumbId = media.thumbnailFileId ?: media.fileId
@@ -611,7 +620,7 @@ internal fun MediaPreview(
             Unit
         }
     }
-    val isVisual = media.kind in listOf(MediaKind.Photo, MediaKind.Video, MediaKind.Animation)
+    val isVisual = media.kind.isSingleVisualMedia()
     // A GIF in the bubble animates only after it has been on screen for the autoplay dwell time; until then its first frame shows.
     val autoplay = rememberAutoplayEligible(enabled = media.mimeType == "image/gif")
     // Секретное вложение в ленте не грузим и не показываем до открытия: превью иначе видно раньше просмотрщика.
@@ -742,16 +751,17 @@ internal fun MediaPreview(
         val viewOnceHint = stringResource(R.string.media_view_once_hint, mediaLabel)
         // Full file not here yet: the downloaded preview is shown at its own resolution until it arrives, with the download button on top.
         val awaitingFile = revealed && !concealed && file.localPath == null
-        val boxHeightDp = (244 / ratio).coerceIn(120f, 280f)
+        val previewSize = visualSize ?: DpSize(244.dp, (244 / ratio).coerceIn(120f, 280f).dp)
+        val fit = visualSize != null
         val density = LocalDensity.current
         // Decode size for the full image: covers the crop box, so bubbles never decode 1024 px for a small box.
-        val decodeDimension = remember(media.width, media.height, boxHeightDp, density.density) {
-            val cover = with(density) { bubbleDecodeDimension(media.width, media.height, 244.dp.toPx(), boxHeightDp.dp.toPx()) }
+        val decodeDimension = remember(media.width, media.height, previewSize, density.density, fit, media.kind, media.mimeType) {
+            val cover = with(density) { bubbleDecodeDimension(media.width, media.height, previewSize.width.toPx(), previewSize.height.toPx(), fit) }
             // Animated drawables are not cached and hold every frame at this size, so they keep the old 1024 limit.
             if (media.mimeType == "image/gif" || media.kind == MediaKind.Animation) minOf(cover, 1024) else cover
         }
         Box(
-            Modifier.width(244.dp).height(boxHeightDp.dp)
+            Modifier.size(previewSize)
                 .background(palette.disabled)
                 .combinedClickable(
                     onClickLabel = if (viewOnce) viewOnceLabel else if (revealed) openLabel else spoilerLabel,
@@ -771,17 +781,18 @@ internal fun MediaPreview(
                         modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
                     )
                 }
-            } else if (awaitingFile) MediaThumbnailLayer(media, thumb.localPath, Modifier.fillMaxSize())
+            } else if (awaitingFile) MediaThumbnailLayer(media, thumb.localPath, Modifier.fillMaxSize(), fit = fit)
             else if (revealed && posterFile != null) LocalMediaImage(
                 posterFile, Modifier.fillMaxSize(),
                 maxDimension = decodeDimension,
+                fit = fit,
                 allowVideoFrame = media.kind == MediaKind.Animation || media.kind == MediaKind.Video,
                 fallbackVideoPath = if (posterFile != file.localPath) file.localPath else null,
                 fallbackMinithumbnail = media.minithumbnail,
                 animate = autoplay.eligible.value,
                 // Without a preview or minithumbnail there is nothing to hold, so the spinner stays.
                 placeholder = if (posterFile != thumb.localPath && (thumb.localPath != null || media.minithumbnail != null)) {
-                    val layer: @Composable () -> Unit = { MediaThumbnailLayer(media, thumb.localPath, Modifier.fillMaxSize()) }
+                    val layer: @Composable () -> Unit = { MediaThumbnailLayer(media, thumb.localPath, Modifier.fillMaxSize(), fit = fit) }
                     layer
                 } else softMinithumbnailSlot(media.minithumbnail)
             )
@@ -802,7 +813,7 @@ internal fun MediaPreview(
                             modifier = Modifier.size(52.dp).background(Color.Black.copy(alpha = 0.45f), CircleShape).padding(10.dp))
                     }
                 }
-                if (revealed) Text(
+                if (revealed && (media.kind != MediaKind.Photo || !fit)) Text(
                     media.kind.label(context) + if (media.durationSeconds > 0) " · ${duration(media.durationSeconds)}" else "",
                     color = Color.White, fontSize = 11.sp,
                     modifier = Modifier.align(Alignment.TopStart).padding(6.dp).background(Color.Black.copy(alpha = 0.5f), styledShape(6.dp)).padding(horizontal = 6.dp, vertical = 3.dp)
