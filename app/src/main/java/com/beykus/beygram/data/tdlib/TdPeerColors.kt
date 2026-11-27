@@ -1,5 +1,6 @@
 package com.beykus.beygram.data.tdlib
 
+import com.beykus.beygram.domain.model.GroupAuthorEmojiStatus
 import com.beykus.beygram.domain.model.PeerAccentColor
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -24,11 +25,11 @@ internal class TdPeerColors {
         }.toMap()
         if (next != accents) {
             accents = next
-            userAccentChanged()
+            userAppearanceChanged()
         }
     }
 
-    fun userAccentChanged() {
+    fun userAppearanceChanged() {
         _revision.update { it + 1 }
     }
 
@@ -40,4 +41,14 @@ internal class TdPeerColors {
 
     private fun IntArray.validRgb(): List<Int> =
         take(3).takeIf { values -> values.all { it in 0..0xFFFFFF } }.orEmpty()
+}
+
+internal fun groupAuthorEmojiStatus(status: TdApi.EmojiStatus?): GroupAuthorEmojiStatus? {
+    status ?: return null
+    val id = when (val type = status.type) {
+        is TdApi.EmojiStatusTypeCustomEmoji -> type.customEmojiId
+        is TdApi.EmojiStatusTypeUpgradedGift -> type.modelCustomEmojiId
+        else -> return null
+    }
+    return id.takeIf { it > 0 }?.let { GroupAuthorEmojiStatus(it, status.expirationDate.toLong()) }
 }

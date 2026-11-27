@@ -259,7 +259,8 @@ internal fun MessageAlbumBubble(
                             if (showSenderHeader && !latest.isOutgoing && latest.senderName.isNotBlank()) {
                                 ChatGroupAuthorName(
                                     latest.senderName, senderMember,
-                                    Modifier.padding(start = 12.dp, end = 12.dp, top = 8.dp, bottom = 4.dp)
+                                    Modifier.padding(start = 12.dp, end = 12.dp, top = 8.dp, bottom = 4.dp),
+                                    observeCustomEmoji, observeFile, onDownloadFile
                                 )
                             }
                             chronological.firstOrNull { it.isForwarded }?.let { ForwardedMessageHeader(it) }

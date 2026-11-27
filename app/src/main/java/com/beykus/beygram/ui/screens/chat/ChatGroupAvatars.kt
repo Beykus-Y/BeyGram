@@ -113,15 +113,16 @@ internal fun ChatGroupAvatarRow(
     content: @Composable () -> Unit
 ) {
     val userId = message?.senderId?.takeIf { it > 0 }
-    val accentFlow = remember(peerColors, userId) {
-        if (userId != null) peerColors?.observeUserAccent(userId) else null
+    val appearanceFlow = remember(peerColors, userId) {
+        if (userId != null) peerColors?.observeGroupAuthor(userId) else null
     }
-    val accent = if (accentFlow != null) {
+    val appearance = if (appearanceFlow != null) {
         key(peerColors, userId) {
-            val current by accentFlow.collectAsStateWithLifecycle(initialValue = null)
+            val current by appearanceFlow.collectAsStateWithLifecycle(initialValue = null)
             current
         }
     } else null
+    val accent = appearance?.accent
     val palette = beyGramPalette()
     val dark = MaterialTheme.colorScheme.surface.luminance() < 0.5f
     val bubble = if (message?.isOutgoing == true) palette.outgoingBubble else palette.incomingBubble
@@ -152,7 +153,11 @@ internal fun ChatGroupAvatarRow(
             }
         }
         Box(Modifier.weight(1f)) {
-            CompositionLocalProvider(LocalChatAuthorColor provides author, content = content)
+            CompositionLocalProvider(
+                LocalChatAuthorColor provides author,
+                LocalChatAuthorStatus provides appearance?.emojiStatus,
+                content = content
+            )
         }
     }
 }

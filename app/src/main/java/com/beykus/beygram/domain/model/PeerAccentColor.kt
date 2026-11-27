@@ -6,3 +6,12 @@ data class PeerAccentColor(
     val lightRgb: List<Int> = emptyList(),
     val darkRgb: List<Int> = emptyList()
 )
+
+data class GroupAuthorAppearance(
+    val accent: PeerAccentColor?,
+    val emojiStatus: GroupAuthorEmojiStatus?
+)
+
+data class GroupAuthorEmojiStatus(val customEmojiId: Long, val expiresAtSeconds: Long) {
+    fun isActive(nowSeconds: Long): Boolean = expiresAtSeconds == 0L || nowSeconds < expiresAtSeconds
+}

@@ -7,8 +7,8 @@ import kotlinx.coroutines.flow.flowOf
 
 /** Conversation operations; UI never sends native TDLib requests or chooses protocol flags. */
 interface ConversationRepository {
-    /** Cache-only observation of the user name accent for this account. */
-    fun observeUserAccent(userId: Long): Flow<PeerAccentColor?> = flowOf(null)
+    /** Cache-only observation of the user appearance for this account. */
+    fun observeGroupAuthor(userId: Long): Flow<GroupAuthorAppearance?> = flowOf(null)
 
     fun observePinnedMessagesVersion(chatId: Long): StateFlow<Long>
     /** Resolve avatars from user IDs without creating private chats or opening profiles. */
