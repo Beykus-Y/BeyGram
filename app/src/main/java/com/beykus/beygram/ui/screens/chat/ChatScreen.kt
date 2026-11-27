@@ -2079,7 +2079,7 @@ fun ChatScreen(
                 anchorBounds = actionAnchorBounds,
                 paneBounds = composerLaunch.overlayBounds,
                 foreground = if (sceneEligible) {
-                    {
+                    { selection ->
                         MessageBubble(
                             message = actionMessage,
                             observeFile = observeFile,
@@ -2089,10 +2089,22 @@ fun ChatScreen(
                             onReaction = { _, _ -> },
                             observeCustomEmoji = conversation::observeCustomEmoji,
                             showSenderHeader = senderHeaderByKey["message:${actionMessage.id}"] == true,
-                            paneInset = false
+                            paneInset = false,
+                            contextTextSelection = selection
                         )
                     }
                 } else null,
+                foregroundText = actionMessage.text.takeIf { sceneEligible },
+                onQuoteFragment = { fragment ->
+                    quoteState.select(actionMessage.id, fragment.text, fragment.position)
+                    setReplyTarget(actionMessage.id)
+                    replyFocusRequest++
+                    closeActions()
+                },
+                onCopyFragment = { fragment ->
+                    clipboard.setPrimaryClip(ClipData.newPlainText(context.getString(R.string.chat_message), fragment))
+                    closeActions()
+                },
                 onForegroundVisible = { visible ->
                     if (visible) contextSceneMessageId = actionMessage.id
                     else if (contextSceneMessageId == actionMessage.id) contextSceneMessageId = null

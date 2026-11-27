@@ -97,7 +97,8 @@ internal fun MessageBubble(message: ChatMessage, observeFile: (Int) -> StateFlow
     composerMediaLaunch: ComposerMediaLaunch? = null,
     onComposerMediaLaunchFinished: (ComposerMediaLaunch) -> Unit = {},
     paneInset: Boolean = true,
-    hideForContextScene: Boolean = false
+    hideForContextScene: Boolean = false,
+    contextTextSelection: MessageContextTextSelection? = null
 ) {
     val palette = beyGramPalette()
     val metrics = LocalBubbleMetrics.current
@@ -296,7 +297,7 @@ internal fun MessageBubble(message: ChatMessage, observeFile: (Int) -> StateFlow
                                     } else null
                                     val textModifier = if (lastLineMeta && message.reply != null) Modifier.fillMaxWidth() else Modifier
                                     if (trailingMetadata != null && message.entities.isEmpty()) {
-                                        PlainMessageWithMeta(message.text, textModifier, trailingMetadata)
+                                        PlainMessageWithMeta(message.text, textModifier, trailingMetadata, contextTextSelection)
                                     } else if (showText) {
                                         FormattedMessageText(
                                             message, observeCustomEmoji, observeFile, onDownloadFile,

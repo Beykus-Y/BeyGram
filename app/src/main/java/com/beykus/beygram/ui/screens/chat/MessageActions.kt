@@ -251,7 +251,10 @@ internal fun MessageActionsBar(
 internal fun MessageContextPopover(
     anchorBounds: Rect?,
     paneBounds: Rect? = null,
-    foreground: (@Composable () -> Unit)? = null,
+    foreground: (@Composable (MessageContextTextSelection?) -> Unit)? = null,
+    foregroundText: String? = null,
+    onQuoteFragment: ((SelectedMessageQuote) -> Unit)? = null,
+    onCopyFragment: ((String) -> Unit)? = null,
     onForegroundVisible: (Boolean) -> Unit = {},
     isOutgoing: Boolean,
     capabilities: MessageCapabilities?,
@@ -348,6 +351,10 @@ internal fun MessageContextPopover(
         )
     } else null
     val showForeground = scene != null && foreground != null
+    val selection = if (showForeground && foregroundText != null && capabilities?.canCopy == true) {
+        remember(foregroundText) { MessageContextTextSelection(foregroundText) }
+    } else null
+    val selectedText = selection?.selectedText
     DisposableEffect(showForeground) {
         reportForeground(showForeground)
         onDispose { if (showForeground) reportForeground(false) }
@@ -377,7 +384,7 @@ internal fun MessageContextPopover(
     Popup(
         alignment = Alignment.TopStart,
         offset = IntOffset.Zero,
-        onDismissRequest = dismiss,
+        onDismissRequest = { if (selectedText != null) selection.clear() else dismiss() },
         properties = PopupProperties(focusable = true, clippingEnabled = false)
     ) {
         Box(
@@ -401,10 +408,32 @@ internal fun MessageContextPopover(
                             (anchorBounds.top + (target.top - anchorBounds.top) * progress - root.top).roundToInt()
                         )
                     }.size(with(density) { target.width.toDp() }, with(density) { target.height.toDp() }).clipToBounds()
-                ) { foreground() }
+                ) { foreground(selection) }
             }
             val cardContent: @Composable () -> Unit = {
                 Column(Modifier.fillMaxWidth()) {
+                    if (selectedText != null && selection != null) {
+                        val fragment = remember(selection.value.selection, selection.source) {
+                            selectedMessageQuote(selection.source, selection.value.selection)
+                        }
+                        Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                            if (onQuoteFragment != null && capabilities?.canReply == true) {
+                                TextButton(enabled = fragment != null, onClick = { fragment?.let(onQuoteFragment) }) {
+                                    Text(stringResource(R.string.chat_quote_action))
+                                }
+                            }
+                            if (onCopyFragment != null) {
+                                TextButton(onClick = { onCopyFragment(selectedText) }) {
+                                    Text(stringResource(R.string.message_action_copy))
+                                }
+                            }
+                            IconButton(onClick = selection::clear) {
+                                Icon(Icons.Rounded.Close, stringResource(R.string.common_close))
+                            }
+                        }
+                        return@Column
+                    }
+
                     if (showReactionStrip && onQuickReaction != null) {
                         Row(
                             Modifier
@@ -513,12 +542,13 @@ internal fun MessageContextPopover(
                                         onDelete = onDelete
                                     )
                                 }
-                                if (onQuote != null && capabilities.canReply && hasText) {
+                                val quoteAction = if (selection != null && onQuoteFragment != null) selection::selectAll else onQuote
+                                if (quoteAction != null && capabilities.canReply && hasText) {
                                     Row(
                                         Modifier
                                             .fillMaxWidth()
                                             .heightIn(min = 48.dp)
-                                            .clickable(role = Role.Button, onClick = onQuote)
+                                            .clickable(role = Role.Button, onClick = quoteAction)
                                             .padding(horizontal = 16.dp),
                                         verticalAlignment = Alignment.CenterVertically
                                     ) {

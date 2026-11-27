@@ -52,6 +52,7 @@ internal fun PlainMessageWithMeta(
     text: String,
     modifier: Modifier = Modifier,
     meta: @Composable () -> Unit,
+    selection: MessageContextTextSelection? = null
 ) {
     val size = LocalMessageTextSize.current
     val spacing = LocalMessageLineSpacing.current
@@ -59,10 +60,15 @@ internal fun PlainMessageWithMeta(
     MeasuredMessageTextWithMeta(
         modifier = modifier,
         text = { onTextLayout ->
-            Text(
-                text, color = color, fontSize = size, fontFamily = FontFamily.Default,
-                lineHeight = (size.value * spacing).sp, onTextLayout = onTextLayout
-            )
+            val lineHeight = (size.value * spacing).sp
+            if (selection != null) {
+                ContextSelectableMessageText(selection, color, size, lineHeight, onTextLayout)
+            } else {
+                Text(
+                    text, color = color, fontSize = size, fontFamily = FontFamily.Default,
+                    lineHeight = lineHeight, onTextLayout = onTextLayout
+                )
+            }
         },
         meta = meta
     )
