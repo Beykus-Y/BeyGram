@@ -74,6 +74,7 @@ import com.beykus.beygram.ui.components.BeyGramDialog
 import com.beykus.beygram.ui.components.BeyGramPopover
 import com.beykus.beygram.ui.components.BeyGramPopoverItem
 import com.beykus.beygram.data.appearance.DesignStyle
+import com.beykus.beygram.domain.model.MessageTextEntity
 import com.beykus.beygram.domain.model.CustomEmoji
 import com.beykus.beygram.domain.model.MediaFileState
 import com.beykus.beygram.domain.model.ReactionOption
@@ -254,6 +255,8 @@ internal fun MessageContextPopover(
     paneBounds: Rect? = null,
     foreground: (@Composable (MessageContextTextSelection?) -> Unit)? = null,
     foregroundText: String? = null,
+    foregroundEntities: List<MessageTextEntity> = emptyList(),
+    quoteMaxLength: Int = 1024,
     onQuoteFragment: ((SelectedMessageQuote) -> Unit)? = null,
     onCopyFragment: ((String) -> Unit)? = null,
     onForegroundVisible: (Boolean) -> Unit = {},
@@ -357,7 +360,7 @@ internal fun MessageContextPopover(
     } else null
     val showForeground = scene != null && foreground != null
     val selection = if (showForeground && foregroundText != null && capabilities?.canCopy == true) {
-        remember(foregroundText) { MessageContextTextSelection(foregroundText) }
+        remember(foregroundText, foregroundEntities) { MessageContextTextSelection(foregroundText, foregroundEntities) }
     } else null
     val selectedText = selection?.selectedText
     DisposableEffect(showForeground) {
@@ -480,8 +483,8 @@ internal fun MessageContextPopover(
             val cardContent: @Composable () -> Unit = {
                 Column(Modifier.fillMaxWidth()) {
                     if (selectedText != null && selection != null) {
-                        val fragment = remember(selection.value.selection, selection.source) {
-                            selectedMessageQuote(selection.source, selection.value.selection)
+                        val fragment = remember(selection, selection.value.selection, quoteMaxLength) {
+                            selectedMessageQuote(selection.source, selection.value.selection, selection.entities, quoteMaxLength)
                         }
                         Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                             if (onQuoteFragment != null && capabilities?.canReply == true) {

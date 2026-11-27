@@ -2109,8 +2109,13 @@ fun ChatScreen(
                     }
                 } else null,
                 foregroundText = actionMessage.text.takeIf { sceneEligible },
+                foregroundEntities = actionMessage.entities,
+                quoteMaxLength = limits.quote,
                 onQuoteFragment = { fragment ->
-                    quoteState.select(actionMessage.id, fragment.text, fragment.position, restoreAfterRecreation = true)
+                    quoteState.select(
+                        actionMessage.id, fragment.text, fragment.position,
+                        restoreAfterRecreation = true, entities = fragment.entities
+                    )
                     setReplyTarget(actionMessage.id)
                     replyFocusRequest++
                     closeActions()

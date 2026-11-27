@@ -208,7 +208,8 @@ data class MessageLimits(
     val text: Int = 4096,
     val caption: Int = 1024,
     /** TDLib's largest Stars amount for one paid reaction; null until the option has been read. */
-    val paidReactionStarMax: Int? = null
+    val paidReactionStarMax: Int? = null,
+    val quote: Int = 1024
 )
 
 data class PinnedMessagePage(val messages: List<ChatMessage>, val totalCount: Int, val nextFromMessageId: Long)

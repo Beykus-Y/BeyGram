@@ -305,7 +305,7 @@ internal fun MessageBubble(message: ChatMessage, observeFile: (Int) -> StateFlow
                                         }
                                     } else null
                                     val textModifier = if (lastLineMeta && message.reply != null) Modifier.fillMaxWidth() else Modifier
-                                    if (trailingMetadata != null && message.entities.isEmpty()) {
+                                    if (trailingMetadata != null && (message.entities.isEmpty() || contextTextSelection != null)) {
                                         PlainMessageWithMeta(message.text, textModifier, trailingMetadata, contextTextSelection)
                                     } else if (showText) {
                                         FormattedMessageText(

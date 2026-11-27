@@ -13,28 +13,57 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.TextLayoutResult
 import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.input.OffsetMapping
 import androidx.compose.ui.text.input.TextFieldValue
+import androidx.compose.ui.text.input.TransformedText
+import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.TextUnit
 
-internal data class SelectedMessageQuote(val text: String, val position: Int)
+import com.beykus.beygram.domain.model.MessageTextEntity
+import com.beykus.beygram.domain.model.TextStyleKind
+import com.beykus.beygram.domain.model.validTextEntities
+import com.beykus.beygram.ui.components.beyGramPalette
+
+internal data class SelectedMessageQuote(
+    val text: String,
+    val position: Int,
+    val entities: List<MessageTextEntity> = emptyList()
+)
 
 /** TDLib positions are UTF-16 code units. Do not reinterpret a quote by searching for its text. */
-internal fun selectedMessageQuote(source: String, range: TextRange): SelectedMessageQuote? {
+internal fun selectedMessageQuote(
+    source: String,
+    range: TextRange,
+    entities: List<MessageTextEntity> = emptyList(),
+    maxLength: Int = 1024
+): SelectedMessageQuote? {
     val start = range.min
     val end = range.max
-    if (start < 0 || end > source.length || start >= end || end - start > 1024) return null
+    if (start < 0 || end > source.length || start >= end || source.codePointCount(start, end) > maxLength) return null
     val graphemes = BreakIterator.getCharacterInstance().apply { setText(source) }
     if (!graphemes.isBoundary(start) || !graphemes.isBoundary(end)) return null
     val text = source.substring(start, end)
-    return text.takeUnless(String::isBlank)?.let { SelectedMessageQuote(it, start) }
+    if (text.isBlank()) return null
+    val fragmentEntities = validTextEntities(source, entities).mapNotNull { entity ->
+        val from = maxOf(start, entity.offset)
+        val until = minOf(end, entity.offset + entity.length)
+        if (from >= until) return@mapNotNull null
+        if (entity.kind == TextStyleKind.Spoiler) return null
+        if (entity.kind == TextStyleKind.CustomEmoji &&
+            (from != entity.offset || until != entity.offset + entity.length)
+        ) return null
+        entity.copy(offset = from - start, length = until - from)
+    }
+    return SelectedMessageQuote(text, start, fragmentEntities)
 }
 
 @Stable
-internal class MessageContextTextSelection(val source: String) {
+internal class MessageContextTextSelection(val source: String, val entities: List<MessageTextEntity>) {
     var value by mutableStateOf(TextFieldValue(source))
         private set
 
@@ -61,6 +90,17 @@ internal fun ContextSelectableMessageText(
     lineHeight: TextUnit,
     onTextLayout: (TextLayoutResult) -> Unit
 ) {
+    val palette = beyGramPalette()
+    val annotated = buildAnnotatedString {
+        append(selection.source)
+        for (entity in validTextEntities(selection.source, selection.entities)) {
+            addStyle(
+                entitySpan(entity.kind, palette.accentInk, palette.textSecondary),
+                entity.offset,
+                entity.offset + entity.length
+            )
+        }
+    }
     CompositionLocalProvider(
         LocalTextContextMenuToolbarProvider provides SceneSelectionMenuProvider,
         LocalTextContextMenuDropdownProvider provides SceneSelectionMenuProvider
@@ -69,6 +109,7 @@ internal fun ContextSelectableMessageText(
             value = selection.value,
             onValueChange = selection::update,
             readOnly = true,
+            visualTransformation = VisualTransformation { TransformedText(annotated, OffsetMapping.Identity) },
             textStyle = TextStyle(color = color, fontSize = size, fontFamily = FontFamily.Default, lineHeight = lineHeight),
             onTextLayout = onTextLayout
         )

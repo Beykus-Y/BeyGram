@@ -40,10 +40,11 @@ internal class TdConversationActions(
         when (name) {
             "message_text_length_max" -> _limits.update { it.copy(text = limit) }
             "message_caption_length_max" -> _limits.update { it.copy(caption = limit) }
+            "message_reply_quote_length_max" -> _limits.update { it.copy(quote = limit) }
             "paid_reaction_star_count_max" -> _limits.update { it.copy(paidReactionStarMax = limit) }
         }
     }
-    fun initialize() { scope.launch { listOf("message_text_length_max", "message_caption_length_max", "paid_reaction_star_count_max").forEach { name -> runCatching { option(name, request(TdApi.GetOption(name))) } } } }
+    fun initialize() { scope.launch { listOf("message_text_length_max", "message_caption_length_max", "message_reply_quote_length_max", "paid_reaction_star_count_max").forEach { name -> runCatching { option(name, request(TdApi.GetOption(name))) } } } }
 
     suspend fun capabilities(chatId: Long, messageId: Long): Result<MessageCapabilities> = conversationResult {
         val properties = request(TdApi.GetMessageProperties(chatId, messageId))

@@ -2,6 +2,8 @@ package com.beykus.beygram.ui.screens.chat
 
 import android.app.Application
 import androidx.compose.ui.text.TextRange
+import com.beykus.beygram.domain.model.MessageTextEntity
+import com.beykus.beygram.domain.model.TextStyleKind
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Test
@@ -24,6 +26,25 @@ class SelectedMessageQuoteTest {
         assertNull(selectedMessageQuote(source, TextRange(1, 2)))
         assertNull(selectedMessageQuote(source, TextRange(1, 3)))
         assertNull(selectedMessageQuote(source, TextRange(source.length - 2, source.length - 1)))
+    }
+
+    @Test fun preservesIntersectingFormattingForTheSelectedOccurrence() {
+        val source = "hello again hello"
+        val entities = listOf(
+            MessageTextEntity(0, 5, TextStyleKind.Italic),
+            MessageTextEntity(11, 6, TextStyleKind.Bold),
+            MessageTextEntity(13, 3, TextStyleKind.Url, "https://example.com")
+        )
+        val fragment = selectedMessageQuote(source, TextRange(12, 17), entities)
+        assertEquals(SelectedMessageQuote("hello", 12, listOf(
+            MessageTextEntity(0, 5, TextStyleKind.Bold),
+            MessageTextEntity(1, 3, TextStyleKind.Url, "https://example.com")
+        )), fragment)
+    }
+
+    @Test fun rejectsSelectionsThatWouldExposeSpoilers() {
+        val hidden = listOf(MessageTextEntity(0, 6, TextStyleKind.Spoiler))
+        assertNull(selectedMessageQuote("secret", TextRange(1, 4), hidden))
     }
 
     @Test fun whitespaceAndOversizedQuotesAreUnavailable() {

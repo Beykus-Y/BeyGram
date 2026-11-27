@@ -40,6 +40,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.beykus.beygram.R
+import com.beykus.beygram.domain.model.MessageTextEntity
 import com.beykus.beygram.domain.model.ChatMessage
 import com.beykus.beygram.domain.model.MessageSendOptions
 import com.beykus.beygram.ui.components.BeyGramSheet
@@ -51,12 +52,24 @@ import com.beykus.beygram.ui.motion.motionEntrance
 
 @Stable
 internal class ChatQuoteState {
-    private data class Quote(val messageId: Long, val text: String, val position: Int, val restoreAfterRecreation: Boolean)
+    private data class Quote(
+        val messageId: Long,
+        val text: String,
+        val position: Int,
+        val restoreAfterRecreation: Boolean,
+        val entities: List<MessageTextEntity>
+    )
     private var quote by mutableStateOf<Quote?>(null)
     var pickerTarget by mutableStateOf<ChatMessage?>(null)
 
-    fun select(messageId: Long, text: String, position: Int, restoreAfterRecreation: Boolean = false) {
-        quote = Quote(messageId, text, position, restoreAfterRecreation)
+    fun select(
+        messageId: Long,
+        text: String,
+        position: Int,
+        restoreAfterRecreation: Boolean = false,
+        entities: List<MessageTextEntity> = emptyList()
+    ) {
+        quote = Quote(messageId, text, position, restoreAfterRecreation, entities)
     }
 
     fun textFor(replyId: Long?): String? = quote?.takeIf { it.messageId == replyId }?.text
@@ -73,14 +86,14 @@ internal class ChatQuoteState {
         val current = quote
         clear()
         if (current == null || current.messageId != replyId) return options
-        return options.copy(replyQuote = current.text, replyQuotePosition = current.position)
+        return options.copy(replyQuote = current.text, replyQuotePosition = current.position, replyQuoteEntities = current.entities)
     }
 
     companion object {
         val Saver = listSaver<ChatQuoteState, Any>(
             save = { state ->
                 val eligible = state.quote?.takeIf { it.restoreAfterRecreation }
-                if (eligible == null) emptyList() else listOf(eligible.messageId, eligible.text, eligible.position)
+                if (eligible == null) emptyList() else listOf(eligible.messageId, eligible.text, eligible.position, ArrayList(eligible.entities))
             },
             restore = { saved ->
                 ChatQuoteState().apply {
@@ -88,7 +101,8 @@ internal class ChatQuoteState {
                     val text = saved.getOrNull(1) as? String
                     val position = saved.getOrNull(2) as? Int
                     if (messageId != null && text != null && position != null) {
-                        select(messageId, text, position, restoreAfterRecreation = true)
+                        val entities = (saved.getOrNull(3) as? List<*>)?.filterIsInstance<MessageTextEntity>().orEmpty()
+                        select(messageId, text, position, restoreAfterRecreation = true, entities = entities)
                     }
                 }
             }
