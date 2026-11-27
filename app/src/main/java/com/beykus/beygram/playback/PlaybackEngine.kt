@@ -144,6 +144,7 @@ private data class DeferredGrowingSeek(val key: String, val positionMs: Long, va
  * Passes ExoPlayer events to a session listener, except while BG Mix owns playback. The BG Mix values
  * reach the session through the callbacks the engine calls directly.
  */
+@OptIn(UnstableApi::class)
 private class BgMixAwareListener(
     private val target: Player.Listener,
     private val bgMixOwnsPlayback: () -> Boolean
@@ -174,6 +175,22 @@ private class BgMixAwareListener(
 
     override fun onPlayerError(error: PlaybackException) {
         if (!bgMixOwnsPlayback()) target.onPlayerError(error)
+    }
+
+    override fun onMediaMetadataChanged(mediaMetadata: MediaMetadata) {
+        if (!bgMixOwnsPlayback()) target.onMediaMetadataChanged(mediaMetadata)
+    }
+
+    override fun onAvailableCommandsChanged(availableCommands: Player.Commands) {
+        if (!bgMixOwnsPlayback()) target.onAvailableCommandsChanged(availableCommands)
+    }
+
+    override fun onPlaybackSuppressionReasonChanged(playbackSuppressionReason: Int) {
+        if (!bgMixOwnsPlayback()) target.onPlaybackSuppressionReasonChanged(playbackSuppressionReason)
+    }
+
+    override fun onIsLoadingChanged(isLoading: Boolean) {
+        if (!bgMixOwnsPlayback()) target.onIsLoadingChanged(isLoading)
     }
 
     override fun onEvents(player: Player, events: Player.Events) {
@@ -508,6 +525,7 @@ object PlaybackEngine {
         val updatedItem = item?.takeIf { it.key == key }?.copy(artworkPath = path)
         if (updatedItem == item && updatedQueue == queue) return
         _state.update { it.copy(item = updatedItem ?: it.item, queue = updatedQueue) }
+        if (bgMixActive()) notifyChanges(snapshot, _state.value)
 
         val current = updatedItem ?: updatedQueue.firstOrNull { it.key == key } ?: return
         if (current.systemPrivate) return
@@ -647,6 +665,16 @@ object PlaybackEngine {
                 } else super.seekTo(mediaItemIndex, positionMs)
             }
 
+            override fun seekToDefaultPosition() {
+                if (bgMixActive()) seekToPosition(0L) else super.seekToDefaultPosition()
+            }
+
+            override fun seekToDefaultPosition(mediaItemIndex: Int) {
+                if (bgMixActive()) {
+                    if (mediaItemIndex == 0) seekToPosition(0L)
+                } else super.seekToDefaultPosition(mediaItemIndex)
+            }
+
             override fun seekBack() {
                 if (bgMixActive()) seekToPosition((currentPosition - seekBackIncrement).coerceAtLeast(0L)) else super.seekBack()
             }
@@ -682,8 +710,25 @@ object PlaybackEngine {
                 if (bgMixActive()) Player.PLAYBACK_SUPPRESSION_REASON_NONE else super.getPlaybackSuppressionReason()
 
             override fun getMediaMetadata(): MediaMetadata =
-                if (bgMixActive()) _state.value.item?.let { placeholderItem(it).mediaMetadata } ?: MediaMetadata.EMPTY
-                else super.getMediaMetadata()
+                if (bgMixActive()) {
+                    val snapshot = _state.value
+                    val metadata = snapshot.item?.let { placeholderItem(it).mediaMetadata } ?: MediaMetadata.EMPTY
+                    if (snapshot.durationMs > 0L && snapshot.item?.systemPrivate == false) {
+                        metadata.buildUpon().setDurationMs(snapshot.durationMs).build()
+                    } else metadata
+                } else super.getMediaMetadata()
+
+            override fun isLoading(): Boolean = if (bgMixActive()) _state.value.isBuffering else super.isLoading()
+
+            override fun getBufferedPosition(): Long =
+                if (bgMixActive()) _state.value.let { if (it.isBuffering) it.positionMs else maxOf(it.positionMs, it.durationMs) }
+                else super.getBufferedPosition()
+
+            override fun getContentBufferedPosition(): Long =
+                if (bgMixActive()) bufferedPosition else super.getContentBufferedPosition()
+
+            override fun getTotalBufferedDuration(): Long =
+                if (bgMixActive()) (bufferedPosition - currentPosition).coerceAtLeast(0L) else super.getTotalBufferedDuration()
 
             override fun getCurrentPosition(): Long =
                 if (bgMixActive()) _state.value.positionMs else super.getCurrentPosition()
@@ -1864,6 +1909,7 @@ object PlaybackEngine {
                 listener.onPlayWhenReadyChanged(player.playWhenReady, Player.PLAY_WHEN_READY_CHANGE_REASON_USER_REQUEST)
             }
             if (events.contains(Player.EVENT_IS_PLAYING_CHANGED)) listener.onIsPlayingChanged(player.isPlaying)
+            if (events.contains(Player.EVENT_IS_LOADING_CHANGED)) listener.onIsLoadingChanged(player.isLoading)
             if (events.contains(Player.EVENT_MEDIA_ITEM_TRANSITION)) {
                 listener.onMediaItemTransition(after.item?.let { placeholderItem(it) }, Player.MEDIA_ITEM_TRANSITION_REASON_AUTO)
             }
