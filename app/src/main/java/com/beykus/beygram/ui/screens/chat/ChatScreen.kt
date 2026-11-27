@@ -91,6 +91,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.repeatOnLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.beykus.beygram.R
+import com.beykus.beygram.data.appearance.ChatTopPanelLayout
 import com.beykus.beygram.data.appearance.MessageAnimationConfig
 import com.beykus.beygram.data.appearance.MessageAnimationPreset
 import com.beykus.beygram.deeplink.MessageEntityLink
@@ -1953,7 +1954,10 @@ fun ChatScreen(
         // is its own surface under it. The search, the selection mode, a hidden bar and a keyboard in a short window
         // skip the row, never the data.
         val showPinnedBar = !(compactChrome && keyboardOpen) && !searching && !selectionMode && !pinnedBarHidden
-        val pinnedBarSlot: @Composable ColumnScope.() -> Unit = {
+        val topPanels = design.chatTopPanelLayout
+        val pinInHeader = topPanels == ChatTopPanelLayout.Current && !design.navigationFloating
+        val showChatPlayer = !windowLayout.twoPane
+        val pinnedBarSlot: @Composable () -> Unit = {
             if (showPinnedBar) PinnedMessagesBar(
                 state = pinnedChrome.messages,
                 conversation = conversation,
@@ -1966,7 +1970,10 @@ fun ChatScreen(
                 onPreviewMeasured = { pinnedChrome.livePreview = it },
                 onHideBar = { chatOverrides.setPinnedBarHidden(chat.id, true) },
                 onUnpin = { message -> setPinned(message, false) },
-                onRowShownChange = { pinnedChrome.previewShown = it }
+                onRowShownChange = { pinnedChrome.previewShown = it },
+                floating = topPanels == ChatTopPanelLayout.Separate ||
+                    (topPanels == ChatTopPanelLayout.Current && design.navigationFloating),
+                sharedSurface = topPanels == ChatTopPanelLayout.Combined
             )
         }
         ChatChromeHost(chatGlass, GlassEdge.BottomHairline, chatBackdrop, { topChromePx = it },
@@ -2017,7 +2024,7 @@ fun ChatScreen(
             onStatistics = onStatistics,
             onExport = { exportOpen = true },
             secretChat = secretChat,
-            pinnedBelow = pinnedChrome.previewShown && !design.navigationFloating,
+            pinnedBelow = pinInHeader && pinnedChrome.previewShown,
             showBack = !windowLayout.twoPane || forumTopicId > 0L || forumAllMessages,
             compact = compactChrome,
             pinnedCount = pinnedChrome.messages.count,
@@ -2032,7 +2039,7 @@ fun ChatScreen(
         // Keep playback accessible below the chat header, not between messages and the composer.
         // The input/IME and reply controls should remain adjacent to the message list.
         // In the split layout the player already lives under the list on the left, so the chat has no strip of its own.
-        if (!windowLayout.twoPane) NowPlayingBar(compact = true)
+        if (topPanels == ChatTopPanelLayout.Current && showChatPlayer) NowPlayingBar(compact = true)
         // The target picker lives above the message list so the action bar can close before selection.
         val translationTargetMessage = translationPickerId?.let { id -> messages.firstOrNull { it.id == id } }
         if (translationTargetMessage != null && TranslationPolicy.canTranslate(chat.isSecret, translationTargetMessage.text.isNotBlank())) {
@@ -2136,11 +2143,22 @@ fun ChatScreen(
             }
         }
         // Sync the pinned preview with what the reader is currently seeing, as in official Telegram.
-        if (!design.navigationFloating) pinnedBarSlot()
+        if (pinInHeader) pinnedBarSlot()
         ChatConnectionBanner(accountId, connectionState)
         // Non-inline wrappers keep these large blocks out of ChatScreen's own bytecode (JVM 64 KB method limit).
             },
-            floatingContent = { if (design.navigationFloating) pinnedBarSlot() }
+            floatingContent = {
+                when (topPanels) {
+                    ChatTopPanelLayout.Current -> if (!pinInHeader) pinnedBarSlot()
+                    ChatTopPanelLayout.Separate -> {
+                        if (showChatPlayer) Box(Modifier.fillMaxWidth().chatTopPanelSpacing()) {
+                            NowPlayingBar(floatingDock = true, compact = true)
+                        }
+                        pinnedBarSlot()
+                    }
+                    ChatTopPanelLayout.Combined -> ChatTopPanelCapsule(showChatPlayer, pinnedBarSlot)
+                }
+            }
         )
         ChatScreenBox(Modifier.fillMaxWidth().weight(1f)) {
         ChatScreenBox(Modifier.underChatChrome({ if (chatBackdrop != null) topChromePx else 0 }, { if (chatBackdrop != null || floatingComposer) bottomChromePx else 0 }).let { m -> if (chatBackdrop != null) m.glassBackdropSource(chatBackdrop) else m }) {
