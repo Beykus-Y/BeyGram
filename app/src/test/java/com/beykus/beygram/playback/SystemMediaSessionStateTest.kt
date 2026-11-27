@@ -46,6 +46,21 @@ class SystemMediaSessionStateTest {
         val events = nativeSessionEventFlags(first, next)
         assertTrue(Player.EVENT_MEDIA_ITEM_TRANSITION in events)
         assertTrue(Player.EVENT_MEDIA_METADATA_CHANGED in events)
+        assertTrue(Player.EVENT_POSITION_DISCONTINUITY in events)
+        assertFalse(sameNativeSessionOccurrence(first, next))
+    }
+
+    @Test
+    fun metadataAndRealDurationAreRepublishedWithoutChangingTracks() {
+        val artwork = native.copy(item = item.copy(artworkPath = "/cover.jpg"))
+        assertTrue(Player.EVENT_MEDIA_METADATA_CHANGED in nativeSessionEventFlags(native, artwork))
+        assertTrue(Player.EVENT_MEDIA_METADATA_CHANGED in nativeSessionEventFlags(native, native.copy(durationMs = 10_000)))
+        assertFalse(Player.EVENT_MEDIA_ITEM_TRANSITION in nativeSessionEventFlags(native, artwork))
+    }
+
+    @Test
+    fun pendingNativePlaybackIsNotFalselyReadyAndPlaying() {
+        assertEquals(Player.STATE_BUFFERING, nativeSessionPlaybackState(native.copy(playing = false, intentPlaying = true)))
     }
 
     @Test
@@ -55,5 +70,7 @@ class SystemMediaSessionStateTest {
         assertFalse(canRecoverPlaybackService(native.copy(playing = false), native = true, exoPlaying = true))
         assertFalse(canRecoverPlaybackService(native.copy(ended = true), native = true, exoPlaying = false))
         assertFalse(canRecoverPlaybackService(PlaybackState(), native = false, exoPlaying = true))
+        assertFalse(canRecoverPlaybackService(native.copy(item = item.copy(secret = true)), native = true, exoPlaying = true))
+        assertFalse(canRecoverPlaybackService(exo.copy(item = item.copy(viewOnce = true)), native = false, exoPlaying = true))
     }
 }
