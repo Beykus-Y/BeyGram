@@ -24,6 +24,14 @@ class StickerPanelLogicTest {
         assertEquals(2.1f, gifPickerAspectRatio(AnimationItem(4, width = 100, height = 1)), 0.001f)
     }
 
+    @Test fun deduplicateRecentStickersRemovesFavoritesFromDisplay() {
+        val a = sticker(1L, 10L)
+        val b = sticker(1L, 20L)
+        val c = sticker(2L, 30L)
+        assertEquals(listOf(b), deduplicateRecentStickers(listOf(a, b, b, c), listOf(a, c)))
+        assertEquals(listOf(a, b), deduplicateRecentStickers(listOf(a, b), emptyList()))
+    }
+
     private fun sticker(setId: Long, id: Long, fileId: Int = id.toInt()) =
         StickerItem(setId = setId, stickerId = id, fileId = fileId)
 

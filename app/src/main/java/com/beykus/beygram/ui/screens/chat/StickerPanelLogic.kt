@@ -131,6 +131,16 @@ internal fun updateFavoriteStickers(
     current.filterNot { it.key == item.key }
 }
 
+/** Hides stickers already shown in Favorites from the Recent section without mutating history. */
+internal fun deduplicateRecentStickers(
+    recent: List<StickerItem>,
+    favorites: List<StickerItem>
+): List<StickerItem> {
+    if (favorites.isEmpty()) return recent.distinctBy { it.key }
+    val favoriteKeys = favorites.mapTo(HashSet()) { it.key }
+    return recent.distinctBy { it.key }.filterNot { it.key in favoriteKeys }
+}
+
 /** Size the mosaic before downloads finish so replacing the placeholder never reflows the grid. */
 internal fun gifPickerAspectRatio(item: AnimationItem): Float {
     val ratio = when {
