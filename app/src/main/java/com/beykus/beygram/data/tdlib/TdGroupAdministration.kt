@@ -114,7 +114,8 @@ internal class TdGroupAdministration(
                 canBeEdited = (member.status as? TdApi.ChatMemberStatusAdministrator)?.canBeEdited == true,
                 restrictedUntilSeconds = (member.status as? TdApi.ChatMemberStatusRestricted)?.restrictedUntilDate ?: 0,
                 bannedUntilSeconds = (member.status as? TdApi.ChatMemberStatusBanned)?.bannedUntilDate ?: 0,
-                isCurrentUser = profiles.isSelf(userId)
+                isCurrentUser = profiles.isSelf(userId),
+                accentColor = profiles.accentForUser(userId)
             )
         }
     }

@@ -1095,7 +1095,12 @@ internal class TdConversationActions(
             try {
                 val original = request(TdApi.GetRepliedMessage(message.chatId, message.id))
                 val mapped = map(original)
-                val preview = MessageReply(original.chatId, original.id, reply.quote?.text?.text?.takeIf { it.isNotBlank() }?.take(180)?.let { UiText.Raw(it) } ?: mapped.preview(), mapped.senderName)
+                val preview = MessageReply(
+                    original.chatId, original.id,
+                    reply.quote?.text?.text?.takeIf { it.isNotBlank() }?.take(180)?.let { UiText.Raw(it) } ?: mapped.preview(),
+                    mapped.senderName,
+                    senderAccentColor = mapped.senderAccentColor
+                )
                 history.update(message.chatId, message.id) { if (it.reply?.messageId == reply.messageId) it.copy(reply = preview) else it }
             } catch (cancelled: CancellationException) { throw cancelled }
             catch (error: TdRequestError) {

@@ -1180,6 +1180,34 @@ fun ChatsScreen(
               .padding(bottom = fabPlacement.bottomPadding +
                   if (createChatPlacement == CreateChatPlacement.Fab) design.fab.size + 16.dp else 8.dp)
       )
+      selectedActions?.let { selected ->
+          ChatActionsSheet(
+              chat = selected,
+              observeFile = observeFile,
+              downloadFile = downloadFile,
+              onClose = { selectedActions = null },
+              setPinned = { pinned ->
+                  if (activeFolderId != null) onPinFolderChat(activeFolderId, selected.id, pinned)
+                  else onPinChat(selected.id, pinned)
+              },
+              setMuted = { onMuteChat(selected.id, it) },
+              setRead = {
+                  if (onMarkRead(selected)) Result.success(Unit) else Result.failure(IllegalStateException("mark read"))
+              },
+              setUnread = { onMarkUnread(selected) },
+              archive = {
+                  if (onArchive(selected)) {
+                      onSwipePerformed(selected, ChatSwipeActionKind.Archive)
+                      Result.success(Unit)
+                  } else {
+                      Result.failure(IllegalStateException("archive"))
+                  }
+              },
+              delete = { onDeleteChat(selected.id) },
+              onPeek = { peekedChat = selected },
+              glassBackdrop = chatsBackdrop
+          )
+      }
     }
     if (showSwipeSettings) ChatSwipeSettingsDialog(
         preferences = swipePreferences,
@@ -1198,33 +1226,6 @@ fun ChatsScreen(
         dismissText = stringResource(R.string.common_cancel),
         onDismiss = { confirmReadAll = false }
     )
-    selectedActions?.let { selected ->
-        ChatActionsSheet(
-            chat = selected,
-            observeFile = observeFile,
-            downloadFile = downloadFile,
-            onClose = { selectedActions = null },
-            setPinned = { pinned ->
-                if (activeFolderId != null) onPinFolderChat(activeFolderId, selected.id, pinned)
-                else onPinChat(selected.id, pinned)
-            },
-            setMuted = { onMuteChat(selected.id, it) },
-            setRead = {
-                if (onMarkRead(selected)) Result.success(Unit) else Result.failure(IllegalStateException("mark read"))
-            },
-            setUnread = { onMarkUnread(selected) },
-            archive = {
-                if (onArchive(selected)) {
-                    onSwipePerformed(selected, ChatSwipeActionKind.Archive)
-                    Result.success(Unit)
-                } else {
-                    Result.failure(IllegalStateException("archive"))
-                }
-            },
-            delete = { onDeleteChat(selected.id) },
-            onPeek = { peekedChat = selected }
-        )
-    }
     peekedChat?.let { peek ->
         ChatPeekSheet(
             chat = peek,

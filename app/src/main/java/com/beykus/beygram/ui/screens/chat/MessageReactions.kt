@@ -158,7 +158,7 @@ internal fun MessageReactionPicker(
 ) {
     if (options.isEmpty()) return
     val palette = beyGramPalette()
-    Column(Modifier.fillMaxWidth().background(palette.surface)) {
+    Column(Modifier.fillMaxWidth().chatChromeBackground(palette.surface)) {
         // Two 48dp touch rows, 2dp apart, inside 4dp of padding.
         LazyHorizontalGrid(
             rows = GridCells.Fixed(2),

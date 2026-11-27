@@ -143,7 +143,7 @@ internal fun VoiceBubble(
     }
     val voiceDescription = stringResource(R.string.a11y_voice_message, duration(shownSeconds))
     // Промежутки между кнопкой и волной тоже запускают воспроизведение, а не открывают просмотрщик вложения.
-    Column(Modifier.width(244.dp)) {
+    Column(Modifier.widthIn(max = 244.dp).fillMaxWidth()) {
         Row(
             Modifier.fillMaxWidth().combinedClickable(onClick = ::togglePlay, onLongClick = onLongPress).padding(horizontal = 12.dp, vertical = 8.dp),
             verticalAlignment = Alignment.CenterVertically

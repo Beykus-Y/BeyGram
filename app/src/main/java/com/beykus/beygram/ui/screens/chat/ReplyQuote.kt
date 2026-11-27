@@ -47,14 +47,16 @@ internal fun ReplyQuote(
 ) {
     val palette = beyGramPalette()
     val metrics = LocalBubbleMetrics.current
+    val dark = androidx.compose.foundation.isSystemInDarkTheme()
+    val stripeColor = reply.senderAccentColor?.authorColor(dark, palette.surface, palette.accent) ?: palette.accent
     Column(
         modifier.fillMaxWidth()
             .clip(RoundedCornerShape(metrics.replyRadius))
-            .background(palette.accent.copy(alpha = 0.10f))
+            .background(stripeColor.copy(alpha = 0.10f))
             .drawBehind {
                 val stripe = 3.dp.toPx().coerceAtMost(size.width)
                 drawRect(
-                    color = palette.accent,
+                    color = stripeColor,
                     topLeft = Offset(if (layoutDirection == LayoutDirection.Ltr) 0f else size.width - stripe, 0f),
                     size = Size(stripe, size.height),
                 )

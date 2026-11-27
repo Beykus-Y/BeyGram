@@ -53,6 +53,8 @@ import com.beykus.beygram.ui.design.LocalDesignSystem
 import com.beykus.beygram.ui.design.SurfaceTreatment
 import com.beykus.beygram.ui.design.TopBarVariant
 import com.beykus.beygram.ui.design.GlassEdge
+import com.beykus.beygram.ui.design.GlassPanel
+import com.beykus.beygram.ui.design.LocalGlassBackdrop
 import com.beykus.beygram.ui.design.glassBackdropSource
 import com.beykus.beygram.ui.design.rememberGlassBackdrop
 import com.beykus.beygram.ui.design.recordsGlassBackdrop
@@ -1930,6 +1932,7 @@ fun ChatScreen(
     // Only the open/closed flip recomposes the screen, not every frame of the keyboard animation.
     val keyboardOpen by remember(imeInsets, imeDensity) { derivedStateOf { imeInsets.getBottom(imeDensity) > 0 } }
     val compactChrome = windowLayout.heightCompact
+    val overflowPopoverHost = remember { com.beykus.beygram.ui.components.SameWindowPopoverHost() }
     Box(Modifier.fillMaxSize().onGloballyPositioned { composerLaunch.overlayBounds = it.boundsInWindow() }) {
     // Only the status bar needs a separate fill. At the bottom the timeline and actual composer
     // surfaces draw edge-to-edge; the bottom controls reserve the safe inset themselves.
@@ -1988,6 +1991,7 @@ fun ChatScreen(
                 sharedSurface = topPanels == ChatTopPanelLayout.Combined
             )
         }
+        CompositionLocalProvider(com.beykus.beygram.ui.components.LocalSameWindowPopoverHost provides overflowPopoverHost) {
         ChatChromeHost(chatGlass, GlassEdge.BottomHairline, chatBackdrop, { topChromePx = it },
             paneContent = {
         if (selectionMode) SelectionActionBar(
@@ -2213,6 +2217,7 @@ fun ChatScreen(
                 }
             }
         )
+        }
         ChatScreenBox(Modifier.fillMaxWidth().weight(1f)) {
         ChatScreenBox(Modifier.underChatChrome({ if (chatBackdrop != null) topChromePx else 0 }, { bottomChromePx }).let { m -> if (chatBackdrop != null) m.glassBackdropSource(chatBackdrop) else m }) {
         ChatWallpaperLayer(chatWallpaper)
@@ -2546,6 +2551,7 @@ fun ChatScreen(
             }
         }
         }
+        CompositionLocalProvider(LocalGlassBackdrop provides chatBackdrop) {
         ChatTimelineJumpOverlays(
             listState = listState,
             items = messageListItems,
@@ -2562,6 +2568,7 @@ fun ChatScreen(
             onJumpToMessage = { id -> jumpToMessage(id, R.string.chat_message_unavailable) },
             onError = { error = it }
         )
+        }
         if (searching) ChatSearchResults(
             query = searchQuery,
             filter = searchFilter,
@@ -2797,11 +2804,15 @@ fun ChatScreen(
             Spacer(Modifier.width(8.dp))
             // Keep the same pointer-input node mounted while recording. Removing the button here
             // cancels its gesture coroutine immediately after onStart changes active to true.
-            if (recordingActive && recordingLocked) Box(Modifier.size(48.dp).clip(CircleShape)
-                .background(palette.accent).clickable(enabled = !busy, role = androidx.compose.ui.semantics.Role.Button) {
-                    if (recordingMode == ComposerRecordingMode.Voice) audioNote.finishLocked() else videoNote.sendLocked()
-                }, contentAlignment = Alignment.Center) {
-                Icon(Icons.AutoMirrored.Rounded.Send, stringResource(R.string.recorder_send), tint = palette.onAccent, modifier = Modifier.size(ComposerIconSize))
+            if (recordingActive && recordingLocked) Box(
+                Modifier.size(ComposerButtonSize)
+                    .clickable(enabled = !busy, role = androidx.compose.ui.semantics.Role.Button) {
+                        if (recordingMode == ComposerRecordingMode.Voice) audioNote.finishLocked() else videoNote.sendLocked()
+                    }
+                    .semantics { contentDescription = context.getString(R.string.recorder_send) },
+                contentAlignment = Alignment.Center
+            ) {
+                SendControlFace(busy = busy, canSend = true, editing = false)
             }
             else if (showRecord) RecordingControlButton(
                 mode = recordingMode, active = recordingActive, canceling = recordingCanceling, enabled = !sending && !busy,
@@ -3119,6 +3130,7 @@ fun ChatScreen(
             onClose = { forwardId = null; selectionForwardOpen = false; frozenForwardSelection = longArrayOf(); forwardError = null; forwardAsCopy = false }
         )
     }
+    com.beykus.beygram.ui.components.SameWindowPopoverOverlay(overflowPopoverHost, chatBackdrop)
     ChatScreenOverlays {
     contextMessageId?.let { id -> MessageContextDialog(contextChatId, id, conversation, riskGuard, observeFile, onDownloadFile, onClose = { contextMessageId = null }, autoDownloadFile = onAutoDownloadFile, onOpenMessageEntity = onOpenMessageEntity, allowEntityCopy = !chat.hasProtectedContent) }
     playlistTrack?.let { track -> AddToPlaylistSheet(accountId = accountId, track = track, onDismiss = { playlistTrack = null }) }
@@ -3312,9 +3324,45 @@ fun ChatScreen(
  * container; the other styles keep the solid accent, and Material 2 keeps its rounded square.
  */
 @Composable
-private fun SendControlFace(busy: Boolean, canSend: Boolean, editing: Boolean) {
+internal fun SendControlFace(busy: Boolean, canSend: Boolean, editing: Boolean) {
     val palette = beyGramPalette()
     val design = LocalDesignSystem.current
+    if (design.usesGlassPanels) {
+        val glass = design.surfaces.glass
+        val canSample = !LocalComposerOnGlassPlane.current && glass?.samplesBackdrop == true &&
+            LocalGlassBackdrop.current != null && android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.S
+        val activeAlpha = if (canSend || busy) 0.48f else 0.22f
+        val iconAlpha = if (canSend || busy) 1f else 0.78f
+        if (canSample) {
+            GlassPanel(
+                design = design,
+                tint = palette.accent,
+                rim = palette.onAccent.copy(alpha = 0.65f),
+                backdropBase = palette.screen,
+                shape = CircleShape,
+                modifier = Modifier.size(ComposerButtonSize)
+            ) {
+                Box(Modifier.matchParentSize().background(palette.accent.copy(alpha = activeAlpha)), contentAlignment = Alignment.Center) {
+                    if (busy) CircularProgressIndicator(Modifier.size(20.dp), color = palette.onAccent, strokeWidth = 2.dp)
+                    else Icon(if (editing) Icons.Rounded.Check else Icons.AutoMirrored.Rounded.Send, contentDescription = null,
+                        tint = palette.onAccent.copy(alpha = iconAlpha), modifier = Modifier.size(ComposerIconSize))
+                }
+            }
+        } else {
+            Box(
+                Modifier.size(ComposerButtonSize)
+                    .clip(CircleShape)
+                    .background(palette.accent.copy(alpha = if (canSend || busy) 0.84f else 0.36f))
+                    .border(0.75.dp, palette.onAccent.copy(alpha = 0.35f), CircleShape),
+                contentAlignment = Alignment.Center
+            ) {
+                if (busy) CircularProgressIndicator(Modifier.size(20.dp), color = palette.onAccent, strokeWidth = 2.dp)
+                else Icon(if (editing) Icons.Rounded.Check else Icons.AutoMirrored.Rounded.Send, contentDescription = null,
+                    tint = palette.onAccent.copy(alpha = iconAlpha), modifier = Modifier.size(ComposerIconSize))
+            }
+        }
+        return
+    }
     val fill = if (design.composerTonal) palette.accentSoft else palette.accent
     val ink = if (design.composerTonal) palette.accentInk else palette.onAccent
     Box(Modifier.size(ComposerButtonSize).clip(if (design.squareSendButton) RoundedCornerShape(design.shapes.button) else CircleShape).background(fill.copy(alpha = if (canSend || busy) 1f else 0.4f)), contentAlignment = Alignment.Center) {
@@ -3346,8 +3394,10 @@ private fun ChatScreenOverlays(content: @Composable () -> Unit) {
 @Composable
 private fun ReadOnlyChatBar(message: String) {
     val palette = beyGramPalette()
-    Box(Modifier.fillMaxWidth().chatChromeBackground(palette.surface).chatBottomInsets(WindowInsets.safeDrawing).padding(horizontal = 16.dp, vertical = 14.dp), contentAlignment = Alignment.Center) {
-        Text(message, color = palette.textSecondary, fontSize = 14.sp, textAlign = TextAlign.Center)
+    ChatFloatingBarHost {
+        Box(Modifier.fillMaxWidth().chatBottomInsets(WindowInsets.safeDrawing).padding(horizontal = 16.dp, vertical = 14.dp), contentAlignment = Alignment.Center) {
+            Text(message, color = palette.textSecondary, fontSize = 14.sp, textAlign = TextAlign.Center)
+        }
     }
 }
 

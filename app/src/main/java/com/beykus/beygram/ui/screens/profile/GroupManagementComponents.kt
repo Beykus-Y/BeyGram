@@ -33,6 +33,7 @@ import androidx.compose.ui.unit.sp
 import com.beykus.beygram.R
 import com.beykus.beygram.domain.model.GroupAdminRights
 import com.beykus.beygram.domain.model.GroupMemberEntry
+import com.beykus.beygram.ui.screens.chat.avatarColor
 import com.beykus.beygram.domain.model.GroupMemberStatus
 import com.beykus.beygram.domain.model.ManagedChatKind
 import com.beykus.beygram.domain.model.MediaFileState
@@ -167,7 +168,10 @@ internal fun GroupMemberRow(
                 .padding(start = 16.dp, end = 4.dp, top = 8.dp, bottom = 8.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            TelegramAvatar(member.initials, Color(member.avatarColorArgb), 44.dp, member.photo, observeFile, downloadFile, Modifier.clearAndSetSemantics {})
+            val dark = androidx.compose.foundation.isSystemInDarkTheme()
+            val avatarColor = member.accentColor?.avatarColor(dark)
+                ?: Color(member.avatarColorArgb)
+            TelegramAvatar(member.initials, avatarColor, 44.dp, member.photo, observeFile, downloadFile, Modifier.clearAndSetSemantics {})
             Spacer(Modifier.width(12.dp))
             Column(Modifier.weight(1f)) {
                 Text(
