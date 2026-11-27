@@ -449,6 +449,8 @@ class TdLibTelegramRepository private constructor(
 
     override fun observePinnedMessagesVersion(chatId: Long): StateFlow<Long> = pinnedVersions.getOrPut(chatId) { MutableStateFlow(0L) }.asStateFlow()
     override suspend fun pinnedMessages(chatId: Long, fromMessageId: Long, forumTopicId: Long, query: String) = conversationActions.pinnedMessages(chatId, fromMessageId, forumTopicId, query)
+    override fun observeGroupAuthor(userId: Long, senderChatId: Long) = profiles.observeGroupAuthor(userId, senderChatId)
+
     override suspend fun loadPinnedSenderAvatars(userIds: Collection<Long>): Map<Long, com.beykus.beygram.domain.model.AvatarPhoto?> =
         profiles.resolveUsers(userIds).mapValues { (_, user) ->
             user.profilePhoto?.let { profiles.photo(it.small, it.big) }
@@ -3848,6 +3850,7 @@ class TdLibTelegramRepository private constructor(
         mediaAlbumId = mediaAlbumId,
         senderName = profiles.senderName(senderId),
         senderId = (this.senderId as? TdApi.MessageSenderUser)?.userId?.toLong() ?: 0L,
+        senderChatId = (this.senderId as? TdApi.MessageSenderChat)?.chatId ?: 0L,
         isEdited = editDate > 0,
         entities = messageFormattedText(content)?.domainEntities().orEmpty(),
         inlineKeyboard = inlineKeyboard(replyMarkup),

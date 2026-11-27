@@ -17,6 +17,31 @@ internal class TdProfiles(private val client: () -> Client, private val files: M
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val chats = mutableMapOf<Long, TdApi.Chat>()
     private val users = mutableMapOf<Long, TdApi.User>()
+    private val peerColors = TdPeerColors()
+
+    fun observeGroupAuthor(userId: Long, senderChatId: Long): Flow<GroupAuthorAppearance?> = peerColors.revision
+        .map {
+            synchronized(lock) {
+                if (senderChatId != 0L) {
+                    chats[senderChatId]?.let { chat ->
+                        GroupAuthorAppearance(peerColors.accent(chat.accentColorId), groupAuthorEmojiStatus(chat.emojiStatus))
+                    }
+                } else {
+                    users[userId]?.let { user ->
+                        GroupAuthorAppearance(peerColors.accent(user.accentColorId), groupAuthorEmojiStatus(user.emojiStatus))
+                    }
+                }
+            }
+        }
+        .distinctUntilChanged()
+
+    private fun putUser(user: TdApi.User) {
+        val previous = users.put(user.id, user)
+        if (previous?.accentColorId != user.accentColorId ||
+            groupAuthorEmojiStatus(previous?.emojiStatus) != groupAuthorEmojiStatus(user.emojiStatus)
+        ) peerColors.userAppearanceChanged()
+    }
+
     private val userFull = mutableMapOf<Long, TdApi.UserFullInfo>()
     private val profileAudios = mutableMapOf<Long, List<ProfileAudio>>()
     /** Orders the answers about a user's profile music, so an answer that arrives late cannot put back an older list. */
@@ -38,7 +63,7 @@ internal class TdProfiles(private val client: () -> Client, private val files: M
     private val _bioLimit = MutableStateFlow(70)
     val bioLimit = _bioLimit.asStateFlow()
     fun rememberServiceUser(user: TdApi.User) = synchronized(lock) {
-        users[user.id] = user
+        putUser(user)
         publish()
     }
     /** Whether TDLib reports this user as a deleted Telegram account. */
@@ -73,7 +98,7 @@ internal class TdProfiles(private val client: () -> Client, private val files: M
         val me = request(TdApi.GetMe())
         synchronized(lock) {
             myId = me.id
-            users[me.id] = me
+            putUser(me)
             publish()
         }
         return me.id
@@ -85,7 +110,13 @@ internal class TdProfiles(private val client: () -> Client, private val files: M
         if (missing.isNotEmpty()) coroutineScope { missing.map { id -> async { fetchUser(id) } }.awaitAll() }
         return synchronized(lock) { unique.mapNotNull { id -> users[id]?.let { id to it } }.toMap() }
     }
-    fun putChat(chat: TdApi.Chat) = synchronized(lock) { chats[chat.id] = chat; publish() }
+    fun putChat(chat: TdApi.Chat) = synchronized(lock) {
+        val previous = chats.put(chat.id, chat)
+        if (previous?.accentColorId != chat.accentColorId ||
+            groupAuthorEmojiStatus(previous?.emojiStatus) != groupAuthorEmojiStatus(chat.emojiStatus)
+        ) peerColors.userAppearanceChanged()
+        publish()
+    }
     fun chat(chatId: Long): TdApi.Chat? = synchronized(lock) { chats[chatId] }
     /** Uses the group membership status cached with the chat, so a chat whose group is not known yet keeps its composer. */
     fun canPost(chat: TdApi.Chat): Boolean = synchronized(lock) {
@@ -131,7 +162,28 @@ internal class TdProfiles(private val client: () -> Client, private val files: M
     private fun typingFlow(chatId: Long): MutableStateFlow<List<String>> = typingFlows.getOrPut(chatId) { MutableStateFlow(emptyList()) }
     fun handle(update: TdApi.Object) = synchronized(lock) {
         when (update) {
-            is TdApi.UpdateUser -> users[update.user.id] = update.user
+            is TdApi.UpdateUser -> putUser(update.user)
+            is TdApi.UpdateAccentColors -> { peerColors.update(update); return@synchronized }
+            is TdApi.UpdateProfileAccentColors -> { peerColors.updateProfiles(update); return@synchronized }
+            is TdApi.UpdateChatAccentColors -> {
+                chats[update.chatId]?.let { chat ->
+                    if (chat.accentColorId != update.accentColorId) {
+                        chat.accentColorId = update.accentColorId
+                        peerColors.userAppearanceChanged()
+                    }
+                    chat.profileAccentColorId = update.profileAccentColorId
+                }
+                return@synchronized
+            }
+            is TdApi.UpdateChatEmojiStatus -> {
+                chats[update.chatId]?.let { chat ->
+                    if (groupAuthorEmojiStatus(chat.emojiStatus) != groupAuthorEmojiStatus(update.emojiStatus)) {
+                        chat.emojiStatus = update.emojiStatus
+                        peerColors.userAppearanceChanged()
+                    }
+                }
+                return@synchronized
+            }
             is TdApi.UpdateUserStatus -> users[update.userId]?.status = update.status
             is TdApi.UpdateUserFullInfo -> userFull[update.userId] = update.userFullInfo
             is TdApi.UpdateBasicGroup -> groups[update.basicGroup.id] = update.basicGroup
@@ -157,7 +209,7 @@ internal class TdProfiles(private val client: () -> Client, private val files: M
         scope.launch {
             val result = runCatching { withTimeout(25_000) {
                 val user = request(TdApi.GetMe())
-                synchronized(lock) { myId = user.id; users[user.id] = user; publish() }
+                synchronized(lock) { myId = user.id; putUser(user); publish() }
                 val full = request(TdApi.GetUserFullInfo(user.id))
                 synchronized(lock) { userFull[user.id] = full; publish() }
                 loadPersonalChatIfPresent(full.personalChatId)
@@ -279,7 +331,7 @@ internal class TdProfiles(private val client: () -> Client, private val files: M
         }
     }
     private suspend fun fetchUser(id: Long): TdApi.User? = try {
-        request(TdApi.GetUser(id)).also { user -> synchronized(lock) { users[id] = user } }
+        request(TdApi.GetUser(id)).also { user -> synchronized(lock) { putUser(user) } }
     } catch (cancelled: CancellationException) {
         throw cancelled
     } catch (error: Exception) {
@@ -287,7 +339,7 @@ internal class TdProfiles(private val client: () -> Client, private val files: M
     }
     private suspend fun loadUser(id: Long) {
         val user = request(TdApi.GetUser(id))
-        synchronized(lock) { users[id] = user; publish() }
+        synchronized(lock) { putUser(user); publish() }
         val full = request(TdApi.GetUserFullInfo(id))
         synchronized(lock) { userFull[id] = full }
         loadPersonalChatIfPresent(full.personalChatId)

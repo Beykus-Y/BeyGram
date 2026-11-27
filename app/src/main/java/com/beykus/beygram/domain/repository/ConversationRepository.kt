@@ -8,6 +8,8 @@ import kotlinx.coroutines.flow.flowOf
 /** Conversation operations; UI never sends native TDLib requests or chooses protocol flags. */
 interface ConversationRepository {
     fun observeStickerShelfVersions(): Flow<StickerShelfVersions> = flowOf(StickerShelfVersions())
+    /** Cache-only observation of the public sender appearance for this account. */
+    fun observeGroupAuthor(userId: Long, senderChatId: Long): Flow<GroupAuthorAppearance?> = flowOf(null)
     fun observePinnedMessagesVersion(chatId: Long): StateFlow<Long>
     /** Resolve avatars from user IDs without creating private chats or opening profiles. */
     suspend fun loadPinnedSenderAvatars(userIds: Collection<Long>): Map<Long, AvatarPhoto?> = emptyMap()
