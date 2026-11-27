@@ -2,6 +2,7 @@ package com.beykus.beygram.data.delayed
 
 import com.beykus.beygram.domain.model.MessageTextEntity
 import com.beykus.beygram.domain.model.TextStyleKind
+import com.beykus.beygram.domain.model.OutgoingReplyQuote
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -55,6 +56,17 @@ class DelayedSendOutboxTest {
         val saved = entry("first", text = text, entities = entities)
         outbox().save(saved)
         assertEquals(listOf(saved), outbox().entries())
+    }
+
+    @Test fun quotedFragmentAndFormattingSurviveReopenAndDispatch() {
+        val quote = OutgoingReplyQuote("👋 test", 17, listOf(MessageTextEntity(3, 4, TextStyleKind.Bold)))
+        val saved = entry("quoted").copy(quote = quote)
+        outbox().save(saved)
+        val reopened = outbox().entries().single()
+        assertEquals(saved, reopened)
+        assertEquals(quote.text, delayedDispatchOptions(reopened, explicitSend = false).replyQuote)
+        assertEquals(quote.entities, delayedDispatchOptions(reopened, explicitSend = false).replyQuoteEntities)
+        assertEquals(quote.position, delayedDispatchOptions(reopened, explicitSend = false).replyQuotePosition)
     }
 
     @Test fun entriesComeBackOldestFirst() {

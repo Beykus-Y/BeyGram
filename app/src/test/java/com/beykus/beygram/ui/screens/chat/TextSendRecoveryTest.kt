@@ -1,6 +1,8 @@
 package com.beykus.beygram.ui.screens.chat
 
 import com.beykus.beygram.domain.model.MessageSendOptions
+import com.beykus.beygram.domain.model.MessageTextEntity
+import com.beykus.beygram.domain.model.TextStyleKind
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.test.StandardTestDispatcher
@@ -234,6 +236,20 @@ class TextSendRecoveryTest {
         val restored = TextSendSnapshotCodec.decode(TextSendSnapshotCodec.encode(queue.current(feed))).single()
         assertEquals(feed, restored.scope)
         assertEquals(5L, restored.destinationTopicId)
+    }
+
+    @Test fun failedTextRetainsItsQuoteAcrossTheDurableSnapshot() = runTest(UnconfinedTestDispatcher()) {
+        val queue = TextSendQueue(backgroundScope, storageDispatcher =
+            backgroundScope.coroutineContext[kotlin.coroutines.ContinuationInterceptor] as kotlinx.coroutines.CoroutineDispatcher)
+        val options = MessageSendOptions(
+            replyQuote = "👋 test", replyQuotePosition = 17,
+            replyQuoteEntities = listOf(MessageTextEntity(3, 4, TextStyleKind.Bold))
+        )
+        queue.enqueue(key, "reply", emptyList(), 42L, null, options, 0, "12:00",
+            execute = { Result.failure(IllegalStateException("failed")) }, formatError = { "error" })
+        val restored = TextSendSnapshotCodec.decode(TextSendSnapshotCodec.encode(queue.current(key))).single()
+        assertEquals(42L, restored.replyToMessageId)
+        assertEquals(options, restored.options)
     }
 
     @Test fun snapshotRowsWithoutADestinationReadBackAsTheirScopeTopic() {

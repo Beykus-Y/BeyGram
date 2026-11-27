@@ -82,9 +82,8 @@ internal class ChatQuoteState {
         quote = null
     }
 
-    fun consumeInto(options: MessageSendOptions, replyId: Long?): MessageSendOptions {
+    fun applyTo(options: MessageSendOptions, replyId: Long?): MessageSendOptions {
         val current = quote
-        clear()
         if (current == null || current.messageId != replyId) return options
         return options.copy(replyQuote = current.text, replyQuotePosition = current.position, replyQuoteEntities = current.entities)
     }

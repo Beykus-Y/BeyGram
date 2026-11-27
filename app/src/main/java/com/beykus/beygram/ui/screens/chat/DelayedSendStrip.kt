@@ -38,6 +38,7 @@ import com.beykus.beygram.data.delayed.delayedSendEligible
 import com.beykus.beygram.data.settings.DelayedSendSettingsStore
 import com.beykus.beygram.data.tdlib.TdLibTelegramRepository
 import com.beykus.beygram.domain.model.MessageDraft
+import com.beykus.beygram.domain.model.replyQuotePayload
 import com.beykus.beygram.domain.model.MessageSendOptions
 import com.beykus.beygram.domain.model.MessageTextEntity
 import com.beykus.beygram.domain.repository.ConversationRepository
@@ -162,7 +163,10 @@ internal class DelayedSendController(
             // Not cancellable: once the message is stored it will be sent, so leaving the chat in between must still
             // clear the draft. Otherwise the old text comes back and is easily sent twice.
             withContext(NonCancellable) {
-                val result = store.enqueue(chatId, topicId, replyTo ?: 0L, text, entities, options.disableNotification, delaySeconds)
+                val result = store.enqueue(
+                    chatId, topicId, replyTo ?: 0L, text, entities, options.disableNotification, delaySeconds,
+                    quote = options.replyQuotePayload()
+                )
                 storing = false
                 result.onSuccess { onQueued() }.onFailure { error ->
                     val message = if (error is DelayedSendQueueFullException) R.string.delayed_send_queue_full else R.string.delayed_send_queue_failed

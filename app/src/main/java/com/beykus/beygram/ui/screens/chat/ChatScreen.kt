@@ -1771,7 +1771,7 @@ fun ChatScreen(
         }
         // View-once is selected in the attachment panel; scheduling or groups silently drop the flag instead of
         // producing a TDLib error, and the composer hides those paths for view-once media.
-        val quotedOptions = quoteState.consumeInto(options, replyId)
+        val quotedOptions = quoteState.applyTo(options, replyId)
         val effectiveOptions = if (attachments.active) {
             quotedOptions.copy(viewOnce = attachments.viewOnce && ViewOncePolicy.canSend(attachments.pending, isPrivateChat = allowViewOnce, isSecretChat = chat.isSecret, scheduled = quotedOptions.scheduledAtSeconds != null))
         } else quotedOptions
@@ -2157,7 +2157,9 @@ fun ChatScreen(
                 onClose = ::closeActions,
                 onRetry = { capabilitiesAttempt++ },
                 onReply = { quoteState.clear(); setReplyTarget(actionMessage.id); replyFocusRequest++; closeActions() },
-                onQuote = if (actionMessage.text.isNotBlank()) { { quoteState.pickerTarget = actionMessage; closeActions() } } else null,
+                onQuote = if (actionMessage.text.isNotBlank() && !chat.isSecret && !chat.hasProtectedContent &&
+                    !actionMessage.isViewOnce && actionMessage.entities.none { it.kind == TextStyleKind.Spoiler }
+                ) { { quoteState.pickerTarget = actionMessage; closeActions() } } else null,
                 onCopy = { clipboard.setPrimaryClip(ClipData.newPlainText(context.getString(R.string.chat_message), actionMessage.text)); closeActions() },
                 onEdit = { editId = actionMessage.id; editText = actionMessage.text; closeActions() },
                 onDelete = { deleteEveryone = capabilities?.canDeleteForSelf == false; deleting = true },
@@ -2560,8 +2562,8 @@ fun ChatScreen(
             chatId = chat.id,
             forumTopicId = forumTopicId,
             unread = if (forumTopicId > 0L) topicUnreadCount else chat.unreadCount,
-            unreadMentions = if (forumTopicId > 0L) topicUnreadMentionCount else chat.unreadMentionCount,
-            unreadReactions = if (forumTopicId > 0L) topicUnreadReactionCount else chat.unreadReactionCount,
+            unreadMentions = if (forumTopicId > 0L) history.topicUnreadMarks?.mentions ?: topicUnreadMentionCount else chat.unreadMentionCount,
+            unreadReactions = if (forumTopicId > 0L) history.topicUnreadMarks?.reactions ?: topicUnreadReactionCount else chat.unreadReactionCount,
             hasNewerMessages = history.hasNewerMessages,
             conversation = conversation,
             scope = scope,

@@ -1,6 +1,7 @@
 package com.beykus.beygram.data.tdlib
 
 import com.beykus.beygram.domain.UiText
+import com.beykus.beygram.domain.model.UnreadMarkCounts
 import com.beykus.beygram.domain.model.ChatHistory
 import com.beykus.beygram.domain.model.ChatMemoryMark
 import com.beykus.beygram.domain.model.ChatMessage
@@ -28,6 +29,7 @@ internal class MessageHistoryStore(private val maxCachedChats: Int = 16, maxStat
     private val cachedChats = LinkedHashSet<Long>()
     // Read markers outlive a chat's state, which is dropped while the chat is idle; see [states].
     private val readMarks = HashMap<Long, ReadMarks>()
+    private val topicUnreadMarks = HashMap<Long, UnreadMarkCounts>()
     // Bumped whenever the loaded window is replaced, so responses to loads started before it are dropped.
     private val windowEpochs = mutableMapOf<Long, Long>()
     /**
@@ -39,7 +41,11 @@ internal class MessageHistoryStore(private val maxCachedChats: Int = 16, maxStat
         lock = lock,
         maxEntries = maxStates,
         seed = { chatId ->
-            readMarks[chatId]?.let { ChatHistory(lastReadInboxMessageId = it.inbox, lastReadOutboxMessageId = it.outbox) } ?: ChatHistory()
+            ChatHistory(
+                lastReadInboxMessageId = readMarks[chatId]?.inbox ?: 0L,
+                lastReadOutboxMessageId = readMarks[chatId]?.outbox ?: 0L,
+                topicUnreadMarks = topicUnreadMarks[chatId]
+            )
         },
         isIdle = { chatId, history -> chatId !in openedChats && isBare(history) }
     )
@@ -222,6 +228,17 @@ internal class MessageHistoryStore(private val maxCachedChats: Int = 16, maxStat
         rememberReadMarks(chatId, state.value)
     }
 
+    fun updateTopicReadMarks(chatId: Long, inboxId: Long, outboxId: Long, unread: UnreadMarkCounts) = synchronized(lock) {
+        val state = flow(chatId)
+        state.value = state.value.copy(
+            lastReadInboxMessageId = maxOf(state.value.lastReadInboxMessageId, inboxId),
+            lastReadOutboxMessageId = maxOf(state.value.lastReadOutboxMessageId, outboxId),
+            topicUnreadMarks = unread
+        )
+        topicUnreadMarks[chatId] = unread
+        rememberReadMarks(chatId, state.value)
+    }
+
     /** Keeps the read markers of a chat, so they survive the chat's state being dropped. */
     private fun rememberReadMarks(chatId: Long, history: ChatHistory) {
         val marks = ReadMarks(history.lastReadInboxMessageId, history.lastReadOutboxMessageId)
@@ -326,7 +343,8 @@ internal class MessageHistoryStore(private val maxCachedChats: Int = 16, maxStat
             candidates.remove()
             state.value = ChatHistory(
                 lastReadInboxMessageId = state.value.lastReadInboxMessageId,
-                lastReadOutboxMessageId = state.value.lastReadOutboxMessageId
+                lastReadOutboxMessageId = state.value.lastReadOutboxMessageId,
+                topicUnreadMarks = state.value.topicUnreadMarks
             )
             // The chat now holds only its read markers, which [readMarks] keeps: its state goes at once unless collected.
             states.removeIfIdleLocked(candidate)
@@ -336,7 +354,8 @@ internal class MessageHistoryStore(private val maxCachedChats: Int = 16, maxStat
     /** A state that holds nothing but read markers is rebuilt from [readMarks] without any loss. */
     private fun isBare(history: ChatHistory): Boolean = history == ChatHistory(
         lastReadInboxMessageId = history.lastReadInboxMessageId,
-        lastReadOutboxMessageId = history.lastReadOutboxMessageId
+        lastReadOutboxMessageId = history.lastReadOutboxMessageId,
+        topicUnreadMarks = history.topicUnreadMarks
     )
 
     /**
