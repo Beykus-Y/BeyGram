@@ -284,6 +284,8 @@ internal abstract class LazyTrackResolver<T : Any>(private val prefix: String, p
             }
         } finally {
             entry.waiting = false
+            // A cancelled highest-priority waiter must let the next one occupy a still-free slot.
+            wakeWaiters()
         }
     }
 
