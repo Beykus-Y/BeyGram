@@ -52,7 +52,8 @@ data class ChatPreview(
     /** TDLib ChatListFolder positions, keyed by server folder ID; independent of Main/Archive. */
     val folderPositions: Map<Int, FolderChatPosition> = emptyMap(),
     val unreadMentionCount: Int = 0,
-    val unreadReactionCount: Int = 0
+    val unreadReactionCount: Int = 0,
+    val accentColor: PeerAccentColor? = null
 )
 
 /**
