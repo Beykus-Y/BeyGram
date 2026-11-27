@@ -48,7 +48,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
-import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.compositeOver
 import androidx.compose.ui.draw.shadow
@@ -1311,8 +1310,9 @@ fun ChatScreen(
     val chatBackdrop = if (chatGlass && design.recordsGlassBackdrop) rememberGlassBackdrop() else null
     var topChromePx by remember { mutableIntStateOf(0) }
     var bottomChromePx by remember { mutableIntStateOf(0) }
-    // With glass chrome the list also runs under the header and composer; those strips do not count as seen.
-    val coveredByChrome by rememberUpdatedState((if (chatBackdrop != null) topChromePx else 0) to (if (chatBackdrop != null || floatingComposer) bottomChromePx else 0))
+    // The timeline draws under the measured bottom chrome (including its safe inset) in every style.
+    // Covered rows must not count as seen, even when the navigation area is transparent.
+    val coveredByChrome by rememberUpdatedState((if (chatBackdrop != null) topChromePx else 0) to bottomChromePx)
     // Loading/caching messages never triggers receipts; only the focused, resumed viewport does, and not while the full player covers it (the player takes no focus).
     LaunchedEffect(chat.id, lifecycle, conversation, threadOpen) {
         lifecycle.repeatOnLifecycle(Lifecycle.State.RESUMED) {
@@ -1323,8 +1323,7 @@ fun ChatScreen(
                     val ids = ArrayList<Long>()
                     for (item in layout.visibleItemsInfo) {
                         // Reverse list: the main axis starts at the composer, so the bottom strip is the start side.
-                        val visible = minOf(item.offset + item.size, layout.viewportEndOffset - coveredTop) -
-                            maxOf(item.offset, layout.viewportStartOffset + coveredBottom)
+                        val visible = chatVisibleItemHeight(item.offset, item.size, layout.viewportStartOffset, layout.viewportEndOffset, coveredTop, coveredBottom)
                         if (visible < minOf(item.size / 2, minimumVisible).coerceAtLeast(1)) continue
                         val messages = currentMessageItemsByKey[item.key as? String]?.messages ?: continue
                         for (message in messages) if (message.sendState == MessageSendState.Sent) ids += message.id
@@ -1376,7 +1375,10 @@ fun ChatScreen(
             }
             is UnreadOpenStep.Scroll -> {
                 // Scrolling by an offset needs the viewport height, which exists only after the first layout.
-                val viewportHeight = snapshotFlow { listState.layoutInfo.viewportSize.height }.first { it > 0 }
+                val viewportHeight = snapshotFlow {
+                    val (top, bottom) = coveredByChrome
+                    chatUncoveredViewportHeight(listState.layoutInfo.viewportSize.height, top, bottom)
+                }.first { it > 0 }
                 if (scrollPosition.readBoundaryId == null) {
                     val itemsBefore = listState.layoutInfo.totalItemsCount
                     scrollPosition.readBoundaryId = boundary
@@ -1390,7 +1392,11 @@ fun ChatScreen(
         }
     }
     // Targets land above the bottom edge, where the jump badges and the composer do not cover them.
-    fun targetScrollOffset(): Int = -(listState.layoutInfo.viewportSize.height * UNREAD_SEPARATOR_VIEWPORT_FRACTION).roundToInt()
+    fun targetScrollOffset(): Int {
+        val (top, bottom) = coveredByChrome
+        val height = chatUncoveredViewportHeight(listState.layoutInfo.viewportSize.height, top, bottom)
+        return -(height * UNREAD_SEPARATOR_VIEWPORT_FRACTION).roundToInt()
+    }
     // Read marks stay held while a focused message from outside the chat is being opened; its jump decides the position.
     fun settleFocusedOpening() { if (scrollPosition.focusClaimed) scrollPosition.readBoundaryChecked = true }
     LaunchedEffect(pendingJumpId, messageListItems) {
@@ -1919,16 +1925,15 @@ fun ChatScreen(
     // In a short window the keyboard leaves the messages almost nothing: the pinned strip yields its line while it is up.
     val imeInsets = WindowInsets.ime
     val imeDensity = LocalDensity.current
+    val bottomSystemInsets = WindowInsets.systemBars.union(WindowInsets.displayCutout)
     // Only the open/closed flip recomposes the screen, not every frame of the keyboard animation.
     val keyboardOpen by remember(imeInsets, imeDensity) { derivedStateOf { imeInsets.getBottom(imeDensity) > 0 } }
     val compactChrome = windowLayout.heightCompact
     Box(Modifier.fillMaxSize().onGloballyPositioned { composerLaunch.overlayBounds = it.boundsInWindow() }) {
-    // The system bar bands take the colour of the bar next to them (header on top, composer at the bottom), so the edges
-    // of the screen are not two-toned. In Liquid Glass that is the pane tint over the screen colour. The status bar band
-    // is drawn only for non-glass styles; in glass the header pane covers the status bar.
+    // Only the status bar needs a separate fill. At the bottom the timeline and actual composer
+    // surfaces draw edge-to-edge; the bottom controls reserve the safe inset themselves.
     val systemBarDensity = LocalDensity.current
     val statusBarPx = WindowInsets.statusBars.getTop(systemBarDensity).toFloat()
-    val navBarPx = WindowInsets.navigationBars.getBottom(systemBarDensity).toFloat()
     val glassBandFill = palette.surface.copy(alpha = 0.72f).compositeOver(palette.screen)
     // The band takes the colour of the header next to it: Signature's header stands on the canvas, the rest on the surface.
     val topBandFill = when {
@@ -1936,27 +1941,20 @@ fun ChatScreen(
         design.components.topBar == TopBarVariant.Signature -> palette.screen
         else -> palette.surface
     }
-    val bottomBandFill = when {
-        chatGlass -> glassBandFill
-        design.components.composer == ComposerVariant.Signature -> palette.screen
-        else -> palette.surface
-    }
     Column(Modifier.fillMaxSize().drawBehind {
         drawRect(palette.screen)
         if (!chatGlass) drawRect(topBandFill, size = Size(size.width, statusBarPx))
-        drawRect(bottomBandFill, topLeft = Offset(0f, size.height - navBarPx), size = Size(size.width, navBarPx))
-    }.windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Horizontal + WindowInsetsSides.Bottom))) {
+    }.chatViewportInsets(WindowInsets.safeDrawing, imeInsets)) {
         // The boundary must reflect what the reader really sees: rows fully hidden behind the overlapping chrome do
         // not pick the pin, and fast scrolling stays stable because partially visible rows still count.
         val visibleOldestPinnedBoundary by remember(listState, messageListItems) {
             derivedStateOf {
                 var oldest: Long? = null
                 val layout = listState.layoutInfo
-                val coveredTop = if (chatBackdrop != null) topChromePx else 0
-                val uncoveredTop = layout.viewportEndOffset - coveredTop
+                val (coveredTop, coveredBottom) = coveredByChrome
                 for (item in layout.visibleItemsInfo) {
-                    // Reverse list: the main axis starts at the composer, so the header covers the highest offsets.
-                    if (coveredTop > 0 && item.offset >= uncoveredTop) continue
+                    // Reverse list: the lower offsets are under the composer/system area, the higher under the header.
+                    if (chatVisibleItemHeight(item.offset, item.size, layout.viewportStartOffset, layout.viewportEndOffset, coveredTop, coveredBottom) == 0) continue
                     val messages = messageListItems.getOrNull(item.index)?.messages ?: continue
                     for (message in messages) if (oldest == null || message.id < oldest) oldest = message.id
                 }
@@ -2174,12 +2172,12 @@ fun ChatScreen(
             }
         )
         ChatScreenBox(Modifier.fillMaxWidth().weight(1f)) {
-        ChatScreenBox(Modifier.underChatChrome({ if (chatBackdrop != null) topChromePx else 0 }, { if (chatBackdrop != null || floatingComposer) bottomChromePx else 0 }).let { m -> if (chatBackdrop != null) m.glassBackdropSource(chatBackdrop) else m }) {
+        ChatScreenBox(Modifier.underChatChrome({ if (chatBackdrop != null) topChromePx else 0 }, { bottomChromePx }).let { m -> if (chatBackdrop != null) m.glassBackdropSource(chatBackdrop) else m }) {
         ChatWallpaperLayer(chatWallpaper)
         val metrics = LocalBubbleMetrics.current
         val chromeDensity = LocalDensity.current
         val chromeTopPad = if (chatBackdrop != null) with(chromeDensity) { topChromePx.toDp() } else 0.dp
-        val chromeBottomPad = if (chatBackdrop != null || floatingComposer) with(chromeDensity) { bottomChromePx.toDp() } else 0.dp
+        val chromeBottomPad = with(chromeDensity) { bottomChromePx.toDp() }
         LazyColumn(state = listState, reverseLayout = true, modifier = Modifier.fillMaxSize(),
             contentPadding = PaddingValues(top = metrics.listPadding + chromeTopPad, bottom = metrics.listPadding + chromeBottomPad), verticalArrangement = Arrangement.spacedBy(metrics.itemSpacing)) {
             items(messageListItems, key = { it.key }, contentType = { chatListContentType(it) }) { listItem ->
@@ -2664,8 +2662,10 @@ fun ChatScreen(
         val recordingLocked = if (recordingMode == ComposerRecordingMode.Voice) audioNote.locked else videoNote.locked
         val recordingCanceling = if (recordingMode == ComposerRecordingMode.Voice) audioNote.canceling else videoNote.canceling
         val showRecord = recordingActive || (!editing && !attachments.active && fieldText.isBlank())
+        // Exactly one bottom inset owner, including modes without a composer (search, selection, deletion).
+        val showBottomComposer = !deleting && !searching && !selectionMode
         // Chats the user cannot write to get no composer, only a plain notice, as in Telegram.
-        if (!deleting && !searching && !selectionMode && !canPostHere) ReadOnlyChatBar(
+        if (showBottomComposer && !canPostHere) ReadOnlyChatBar(
             when {
                 secretChatClosed -> stringResource(R.string.secret_chat_closed_composer)
                 // The feed needs a reply or a writable General topic; a chat without posting rights keeps the plain notice.
@@ -2673,12 +2673,12 @@ fun ChatScreen(
                 else -> stringResource(R.string.chat_read_only)
             }
         )
-        if (!deleting && !searching && !selectionMode && canPostHere) ChatScreenColumn(Modifier.fillMaxWidth().then(
+        if (showBottomComposer && canPostHere) ChatScreenColumn(Modifier.fillMaxWidth().then(
             // Signature keeps the composer on the canvas behind one hairline; the field itself is the only filled plane.
             if (chatGlass || floatingComposer) Modifier
             else if (design.components.composer == ComposerVariant.Signature) Modifier.signatureChrome(palette.screen, palette.divider, HairlineEdge.Top)
             else Modifier.background(palette.surface)
-        ).navigationBarsPadding().imePadding()) {
+        ).chatBottomInsets(WindowInsets.safeDrawing)) {
         // A bot with no outgoing message in its whole history gets an explicit /start action, independent of inline mode or Mini Apps.
         if (info?.kind == ProfileKind.Bot && !editing && !recordingActive && !attachments.active &&
             !history.isLoading && !history.hasOlderMessages && history.messages.none { it.isOutgoing }
@@ -2756,7 +2756,8 @@ fun ChatScreen(
                                     attachments.menuOpen = false
                                     val keyboardHeight = imeInsets.getBottom(imeDensity)
                                     if (keyboardHeight > 0) {
-                                        stickerPanelKeyboardHeight = with(imeDensity) { keyboardHeight.toDp().value }
+                                        val replacementHeight = chatKeyboardReplacementHeight(keyboardHeight, bottomSystemInsets.getBottom(imeDensity))
+                                        stickerPanelKeyboardHeight = with(imeDensity) { replacementHeight.toDp().value }
                                     }
                                     stickerPanelOpen = true
                                 }
@@ -2871,6 +2872,7 @@ fun ChatScreen(
                 onCloseStickerPanel = { stickerPanelOpen = false }
             )
         }
+        if (!showBottomComposer) Spacer(Modifier.fillMaxWidth().chatBottomInsets(WindowInsets.safeDrawing))
         })
     }
     ChatComposerLaunchOverlay(composerLaunch, chat.id)
@@ -3344,7 +3346,7 @@ private fun ChatScreenOverlays(content: @Composable () -> Unit) {
 @Composable
 private fun ReadOnlyChatBar(message: String) {
     val palette = beyGramPalette()
-    Box(Modifier.fillMaxWidth().chatChromeBackground(palette.surface).navigationBarsPadding().padding(horizontal = 16.dp, vertical = 14.dp), contentAlignment = Alignment.Center) {
+    Box(Modifier.fillMaxWidth().chatChromeBackground(palette.surface).chatBottomInsets(WindowInsets.safeDrawing).padding(horizontal = 16.dp, vertical = 14.dp), contentAlignment = Alignment.Center) {
         Text(message, color = palette.textSecondary, fontSize = 14.sp, textAlign = TextAlign.Center)
     }
 }
