@@ -5,6 +5,7 @@ import com.beykus.beygram.ui.design.LocalDesignSystem
 import com.beykus.beygram.ui.design.glassSheet
 import com.beykus.beygram.ui.design.styledShape
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.layout.Arrangement
@@ -53,6 +54,8 @@ import androidx.compose.material.icons.rounded.Search
 import androidx.compose.material.icons.rounded.Star
 import androidx.compose.material.icons.rounded.StarBorder
 import androidx.compose.material.icons.rounded.Tune
+import com.beykus.beygram.playback.LocalPlaybackAccountId
+import com.beykus.beygram.ui.components.BeyGramDialog
 import com.beykus.beygram.ui.components.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
@@ -70,8 +73,11 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import com.beykus.beygram.ui.motion.rememberMotionInstant
+import com.beykus.beygram.ui.motion.scrollToItemRespectingMotion
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.saveable.rememberSaveableStateHolder
 import androidx.compose.runtime.setValue
@@ -103,6 +109,8 @@ import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.beykus.beygram.ui.components.BeyGramSheet
 import com.beykus.beygram.R
+import com.beykus.beygram.domain.model.StickerShelfVersions
+import com.beykus.beygram.domain.model.CustomEmoji
 import com.beykus.beygram.domain.model.AnimationItem
 import com.beykus.beygram.domain.model.AnimationPage
 import com.beykus.beygram.domain.model.MediaFileState
@@ -195,6 +203,8 @@ internal fun StickerPanelHost(
     onStickerOptions: (StickerItem) -> Unit,
     onSendError: (String) -> Unit,
     onInsertEmoji: (String) -> Unit,
+    onInsertCustomEmoji: (CustomEmoji) -> Unit,
+    savedMessages: Boolean,
     onDeleteBackward: () -> Unit,
     onClose: () -> Unit
 ) {
@@ -265,6 +275,8 @@ internal fun StickerPanelHost(
             },
             onAttachAnimation = onAnimationAttach,
             onInsertEmoji = onInsertEmoji,
+            onInsertCustomEmoji = onInsertCustomEmoji,
+            savedMessages = savedMessages,
             onDeleteBackward = onDeleteBackward,
             onClose = onClose
         )
@@ -286,6 +298,8 @@ private fun StickerPanel(
     onSendAnimation: (AnimationItem) -> Unit,
     onAttachAnimation: (AnimationItem) -> Unit,
     onInsertEmoji: (String) -> Unit,
+    onInsertCustomEmoji: (CustomEmoji) -> Unit,
+    savedMessages: Boolean,
     onDeleteBackward: () -> Unit,
     onClose: () -> Unit
 ) {
@@ -303,6 +317,7 @@ private fun StickerPanel(
     var favoritesRetry by remember { mutableIntStateOf(0) }
     var setsState by remember { mutableStateOf<PickerLoad<List<StickerSetSummary>>>(PickerLoad.Loading) }
     var setsRetry by remember { mutableIntStateOf(0) }
+    val packContents = remember(conversation) { androidx.compose.runtime.mutableStateMapOf<Long, PickerLoad<StickerSetContent>>() }
     var packState by remember { mutableStateOf<PickerLoad<StickerSetContent>>(PickerLoad.Loading) }
     var packRetry by remember { mutableIntStateOf(0) }
     var stickerSearchState by remember { mutableStateOf<PickerLoad<StickerSearchPage>>(PickerLoad.Ready(StickerSearchPage())) }
@@ -319,6 +334,7 @@ private fun StickerPanel(
     var gifSavedState by remember { mutableStateOf<PickerLoad<List<AnimationItem>>>(PickerLoad.Loading) }
     var gifSavedRetry by remember { mutableIntStateOf(0) }
     var gifSavedLoadedRetry by remember { mutableIntStateOf(-1) }
+    var gifSavedLoadedVersion by remember { mutableStateOf(-1L) }
     var gifSavedLoadedConversation by remember { mutableStateOf<ConversationRepository?>(null) }
     var gifSearchState by remember { mutableStateOf<PickerLoad<AnimationPage>>(PickerLoad.Ready(AnimationPage())) }
     var gifSearchRetry by remember { mutableIntStateOf(0) }
@@ -326,11 +342,16 @@ private fun StickerPanel(
     var gifSearchMoreError by remember { mutableStateOf<String?>(null) }
     var premium by remember { mutableStateOf<Boolean?>(null) }
     var notice by remember { mutableStateOf<String?>(null) }
+    var reorderingStickers by remember { mutableStateOf(false) }
+    var savingGifKeys by remember { mutableStateOf<Set<String>>(emptySet()) }
+    var confirmClearRecent by remember { mutableStateOf(false) }
     var favoriteBusyKeys by remember { mutableStateOf<Set<String>>(emptySet()) }
     var searchGeneration by remember { mutableIntStateOf(0) }
     var overlay by remember { mutableStateOf<StickerPanelOverlay?>(null) }
-    // Recent emoji are shared by the whole app; the list is read again each time the panel is opened.
-    val emojiStore = remember(context) { RecentEmojiStore(context) }
+    val accountId = LocalPlaybackAccountId.current
+    val emojiStore = remember(context, accountId) { RecentEmojiStore(context, accountId) }
+    val shelfVersions by remember(conversation) { conversation.observeStickerShelfVersions() }
+        .collectAsStateWithLifecycle(StickerShelfVersions())
     var recentEmoji by remember(emojiStore) { mutableStateOf(emojiStore.load()) }
 
     val premiumNotice = stringResource(R.string.sticker_panel_premium_locked)
@@ -362,21 +383,21 @@ private fun StickerPanel(
         overlay = null
         favoriteBusyKeys = emptySet()
     }
-    LaunchedEffect(conversation, recentRetry) {
+    LaunchedEffect(conversation, recentRetry, shelfVersions.recentStickers) {
         recentState = PickerLoad.Loading
         conversation.recentStickers().fold(
             onSuccess = { recentState = PickerLoad.Ready(it.distinctBy { sticker -> sticker.key }) },
             onFailure = { recentState = PickerLoad.Failed(it.userMessage(context, R.string.sticker_panel_load_failed)) }
         )
     }
-    LaunchedEffect(conversation, favoritesRetry) {
+    LaunchedEffect(conversation, favoritesRetry, shelfVersions.favoriteStickers) {
         favoritesState = PickerLoad.Loading
         conversation.favoriteStickers().fold(
             onSuccess = { favoritesState = PickerLoad.Ready(it.distinctBy { sticker -> sticker.key }) },
             onFailure = { favoritesState = PickerLoad.Failed(it.userMessage(context, R.string.sticker_panel_load_failed)) }
         )
     }
-    LaunchedEffect(conversation, setsRetry) {
+    LaunchedEffect(conversation, setsRetry, shelfVersions.stickerPacks) {
         setsState = PickerLoad.Loading
         conversation.installedStickerSets().fold(
             onSuccess = { setsState = PickerLoad.Ready(it) },
@@ -410,14 +431,18 @@ private fun StickerPanel(
             onFailure = { gifRecentState = PickerLoad.Failed(it.userMessage(context, R.string.gif_panel_load_failed)) }
         )
     }
-    LaunchedEffect(conversation, view.tab, gifSavedRetry) {
+    LaunchedEffect(conversation, view.tab, gifSavedRetry, shelfVersions.savedAnimations) {
         if (view.tab != StickerPanelTab.Gifs) return@LaunchedEffect
-        if (gifSavedLoadedRetry == gifSavedRetry && gifSavedLoadedConversation === conversation && gifSavedState.readyValue() != null) return@LaunchedEffect
+        val savedVersion = shelfVersions.savedAnimations
+        if (gifSavedLoadedRetry == gifSavedRetry && gifSavedLoadedVersion == savedVersion &&
+            gifSavedLoadedConversation === conversation && gifSavedState.readyValue() != null
+        ) return@LaunchedEffect
         gifSavedState = PickerLoad.Loading
         conversation.savedAnimations().fold(
             onSuccess = {
                 gifSavedState = PickerLoad.Ready(it.distinctBy { animation -> animation.key })
                 gifSavedLoadedRetry = gifSavedRetry
+                gifSavedLoadedVersion = savedVersion
                 gifSavedLoadedConversation = conversation
             },
             onFailure = { gifSavedState = PickerLoad.Failed(it.userMessage(context, R.string.gif_panel_load_failed)) }
@@ -520,6 +545,37 @@ private fun StickerPanel(
                 }
                 .onFailure { notice = it.userMessage(context, R.string.sticker_panel_favorite_failed) }
             favoriteBusyKeys = favoriteBusyKeys - item.key
+        }
+    }
+
+    fun loadPackContent(setId: Long, force: Boolean = false) {
+        val current = packContents[setId]
+        if (!force && (current is PickerLoad.Loading || current is PickerLoad.Ready)) return
+        packContents[setId] = PickerLoad.Loading
+        scope.launch {
+            conversation.stickerSet(setId).fold(
+                onSuccess = {
+                    val clean = it.copy(stickers = it.stickers.distinctBy { sticker -> sticker.key })
+                    packContents[setId] = PickerLoad.Ready(clean)
+                },
+                onFailure = {
+                    packContents[setId] = PickerLoad.Failed(it.userMessage(context, R.string.sticker_panel_load_failed))
+                }
+            )
+        }
+    }
+
+    fun updateSavedGif(item: AnimationItem, saved: Boolean) {
+        if (item.key in savingGifKeys) return
+        savingGifKeys = savingGifKeys + item.key
+        scope.launch {
+            try {
+                conversation.setAnimationSaved(item, saved)
+                    .onSuccess { gifSavedRetry++ }
+                    .onFailure { notice = it.userMessage(context, R.string.gif_panel_save_failed) }
+            } finally {
+                savingGifKeys = savingGifKeys - item.key
+            }
         }
     }
 
@@ -643,7 +699,7 @@ private fun StickerPanel(
             StickerPanelHeader(
                 selectedTab = view.tab,
                 canGoBack = view.canGoBack,
-                showSearch = view.tab != StickerPanelTab.Emoji,
+                showSearch = true,
                 onBack = ::navigateBack,
                 onSearch = { notice = null; view = view.openSearch() },
                 onClose = ::closePanel,
@@ -670,45 +726,146 @@ private fun StickerPanel(
         ) {
             tabState.SaveableStateProvider(view.tab.name) {
                 when (view.tab) {
-                    StickerPanelTab.Emoji -> EmojiPanel(
-                        recents = recentEmoji,
-                        onEmoji = ::insertEmoji,
-                        onBackspace = onDeleteBackward,
-                        modifier = Modifier.fillMaxWidth().weight(1f)
-                    )
+                    StickerPanelTab.Emoji -> {
+                        val dock = rememberDockCustomEmoji(conversation, observeFile, downloadFile, shelfVersions.emojiPacks) { emoji ->
+                            val allowed = premium == true || savedMessages
+                            if (allowed) onInsertCustomEmoji(emoji)
+                            else notice = premiumNotice
+                            allowed
+                        }
+                        if (view.searchActive && view.query.isNotBlank()) {
+                            DockEmojiSearch(conversation, view.query, dock, ::insertEmoji, Modifier.fillMaxWidth().weight(1f))
+                        } else {
+                            EmojiPanel(
+                                recents = recentEmoji,
+                                onEmoji = ::insertEmoji,
+                                customEmoji = dock,
+                                onBackspace = onDeleteBackward,
+                                modifier = Modifier.fillMaxWidth().weight(1f)
+                            )
+                        }
+                    }
                     StickerPanelTab.Stickers -> {
+                        val stickerFeedState = rememberLazyGridState()
+                        val listMotionInstant = rememberMotionInstant(MotionToken.ListReorder)
+                        val favList = favoritesState.readyValue().orEmpty()
+                        val recList = remember(recentState, favList) {
+                            deduplicateRecentStickers(recentState.readyValue().orEmpty(), favList)
+                        }
+                        val setsList = setsState.readyValue().orEmpty()
+                        val favIndex = if (favList.isNotEmpty()) 0 else null
+                        val recIndex = if (recList.isNotEmpty()) (if (favList.isNotEmpty()) 1 + favList.size else 0) else null
+                        val packStartIndexes = remember(favList, recList, setsList, packContents.toMap()) {
+                            val map = LinkedHashMap<Long, Int>()
+                            var idx = (if (favList.isNotEmpty()) 1 + favList.size else 0) +
+                                (if (recList.isNotEmpty()) 1 + recList.size else 0)
+                            for (set in setsList) {
+                                map[set.id] = idx
+                                val loaded = (packContents[set.id] as? PickerLoad.Ready)?.value?.stickers.orEmpty()
+                                idx += 1 + if (loaded.isNotEmpty()) loaded.size else 1
+                            }
+                            map
+                        }
+                        val activeFeedSection by remember(favIndex, recIndex, packStartIndexes) {
+                            derivedStateOf {
+                                val top = stickerFeedState.firstVisibleItemIndex
+                                val matchedPack = packStartIndexes.entries.lastOrNull { it.value <= top }?.key
+                                when {
+                                    matchedPack != null -> StickerPanelSection.Pack to matchedPack
+                                    recIndex != null && top >= recIndex -> StickerPanelSection.Recent to null
+                                    favIndex != null && top >= favIndex -> StickerPanelSection.Favorites to null
+                                    else -> view.section to view.selectedSetId
+                                }
+                            }
+                        }
+                        val stripView = if (!view.searchActive) {
+                            view.copy(section = activeFeedSection.first, selectedSetId = activeFeedSection.second)
+                        } else view
                         if (!view.searchActive) {
                             StickerSectionStrip(
-                                view = view,
+                                view = stripView,
                                 setsState = setsState,
                                 observeFile = observeFile,
                                 downloadFile = downloadFile,
-                                onRecent = { notice = null; view = view.showRecent() },
-                                onFavorites = { notice = null; view = view.showFavorites() },
-                                onPack = { summary -> selectPack(summary.id) },
+                                onRecent = {
+                                    notice = null
+                                    view = view.showRecent()
+                                    recIndex?.let { idx ->
+                                        scope.launch { stickerFeedState.scrollToItemRespectingMotion(idx, motionInstant = listMotionInstant) }
+                                    }
+                                },
+                                onFavorites = {
+                                    notice = null
+                                    view = view.showFavorites()
+                                    favIndex?.let { idx ->
+                                        scope.launch { stickerFeedState.scrollToItemRespectingMotion(idx, motionInstant = listMotionInstant) }
+                                    }
+                                },
+                                onPack = { summary ->
+                                    selectPack(summary.id)
+                                    packStartIndexes[summary.id]?.let { idx ->
+                                        scope.launch { stickerFeedState.scrollToItemRespectingMotion(idx, motionInstant = listMotionInstant) }
+                                    }
+                                },
                                 onPackMenu = { summary -> openOverlay(StickerPanelOverlay.Pack(summary)) },
                                 onRetrySets = { setsRetry++ }
                             )
                         }
                         Box(Modifier.fillMaxWidth().weight(1f)) {
-                            StickerContent(
-                                view = view,
-                                recentState = recentState,
-                                favoritesState = favoritesState,
-                                packState = packState,
-                                searchState = stickerSearchState,
-                                searchLoadingMore = stickerSearchLoadingMore,
-                                searchMoreError = stickerSearchMoreError,
-                                observeFile = observeFile,
-                                downloadFile = downloadFile,
-                                onRetryRecent = { recentRetry++ },
-                                onRetryFavorites = { favoritesRetry++ },
-                                onRetryPack = { packRetry++ },
-                                onRetrySearch = { stickerSearchRetry++ },
-                                onLoadMoreSearch = ::loadMoreStickerSearch,
-                                onSend = ::requestSend,
-                                onOptions = { item -> openOverlay(StickerPanelOverlay.Sticker(item)) }
-                            )
+                            if (view.query.isNotBlank()) {
+                                StickerContent(
+                                    view = view,
+                                    recentState = recentState,
+                                    favoritesState = favoritesState,
+                                    packState = packState,
+                                    searchState = stickerSearchState,
+                                    searchLoadingMore = stickerSearchLoadingMore,
+                                    searchMoreError = stickerSearchMoreError,
+                                    observeFile = observeFile,
+                                    downloadFile = downloadFile,
+                                    onRetryRecent = { recentRetry++ },
+                                    onRetryFavorites = { favoritesRetry++ },
+                                    onRetryPack = { packRetry++ },
+                                    onRetrySearch = { stickerSearchRetry++ },
+                                    onLoadMoreSearch = ::loadMoreStickerSearch,
+                                    onSend = ::requestSend,
+                                    onOptions = { item -> openOverlay(StickerPanelOverlay.Sticker(item)) }
+                                )
+                            } else {
+                                StickerUnifiedFeed(
+                                    gridState = stickerFeedState,
+                                    favorites = favList,
+                                    recent = recList,
+                                    sets = setsList,
+                                    setsState = setsState,
+                                    packContents = packContents,
+                                    packOrder = setsList.map { it.id },
+                                    reordering = reorderingStickers,
+                                    onReorder = { order ->
+                                        if (!reorderingStickers) {
+                                            reorderingStickers = true
+                                            scope.launch {
+                                                try {
+                                                    conversation.reorderStickerSets(customEmoji = false, orderedIds = order)
+                                                        .onSuccess { setsRetry++ }
+                                                        .onFailure { notice = it.userMessage(context, R.string.sticker_panel_load_failed) }
+                                                } finally {
+                                                    reorderingStickers = false
+                                                }
+                                            }
+                                        }
+                                    },
+                                    onLoadPack = { id -> loadPackContent(id) },
+                                    onRetryPack = { id -> loadPackContent(id, force = true) },
+                                    onRetrySets = { setsRetry++ },
+                                    onClearRecent = { confirmClearRecent = true },
+                                    onPackMenu = { summary -> openOverlay(StickerPanelOverlay.Pack(summary)) },
+                                    observeFile = observeFile,
+                                    downloadFile = downloadFile,
+                                    onSend = ::requestSend,
+                                    onOptions = { item -> openOverlay(StickerPanelOverlay.Sticker(item)) }
+                                )
+                            }
                         }
                     }
                     StickerPanelTab.Gifs -> {
@@ -746,6 +903,24 @@ private fun StickerPanel(
         }
     }
 
+    if (confirmClearRecent) {
+        BeyGramDialog(
+            onDismissRequest = { confirmClearRecent = false },
+            title = stringResource(R.string.sticker_panel_clear_recent),
+            message = stringResource(R.string.sticker_panel_clear_recent_confirm),
+            confirmText = stringResource(R.string.sticker_panel_clear_recent),
+            dismissText = stringResource(R.string.common_cancel),
+            onDismiss = { confirmClearRecent = false },
+            onConfirm = {
+                confirmClearRecent = false
+                scope.launch {
+                    conversation.clearRecentStickers()
+                        .onSuccess { recentRetry++ }
+                        .onFailure { notice = it.userMessage(context, R.string.sticker_panel_load_failed) }
+                }
+            }
+        )
+    }
     val currentOverlay = overlay
     if (currentOverlay != null) {
         val overlayPackTitle = (currentOverlay as? StickerPanelOverlay.Sticker)?.item?.let { item ->
@@ -760,6 +935,25 @@ private fun StickerPanel(
             downloadFile = downloadFile,
             favoriteKeys = favoriteKeys,
             favoriteBusyKeys = favoriteBusyKeys,
+            savedGifs = gifSavedState.readyValue()?.mapTo(HashSet()) { it.key },
+            savingGifKeys = savingGifKeys,
+            onSetSavedGif = ::updateSavedGif,
+            regularPackOrder = setsState.readyValue().orEmpty().map { it.id },
+            reorderingStickers = reorderingStickers,
+            reorderStickers = { order ->
+                if (!reorderingStickers) {
+                    reorderingStickers = true
+                    scope.launch {
+                        try {
+                            conversation.reorderStickerSets(customEmoji = false, orderedIds = order)
+                                .onSuccess { setsRetry++ }
+                                .onFailure { notice = it.userMessage(context, R.string.sticker_panel_load_failed) }
+                        } finally {
+                            reorderingStickers = false
+                        }
+                    }
+                }
+            },
             premium = premium,
             onDismiss = { overlay = null },
             onSendSticker = { item ->
@@ -1150,8 +1344,13 @@ private fun StickerContent(
             else StickerGrid(content.stickers, observeFile, downloadFile, onSend, onOptions)
         }
         else -> PickerLoadContent(recentState, onRetryRecent) { stickers ->
-            if (stickers.isEmpty()) PanelEmpty(emptyRecent)
-            else StickerGrid(stickers, observeFile, downloadFile, onSend, onOptions)
+            val favorites = favoritesState.readyValue()
+            val visible = remember(stickers, favorites) {
+                val keys = favorites.orEmpty().mapTo(HashSet()) { it.key }
+                stickers.filterNot { it.key in keys }
+            }
+            if (visible.isEmpty()) PanelEmpty(emptyRecent)
+            else StickerGrid(visible, observeFile, downloadFile, onSend, onOptions)
         }
     }
 }
@@ -1236,6 +1435,112 @@ private fun GifContent(
                             onPreview = onPreview,
                             footer = footer
                         )
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun StickerUnifiedFeed(
+    gridState: androidx.compose.foundation.lazy.grid.LazyGridState,
+    favorites: List<StickerItem>,
+    recent: List<StickerItem>,
+    sets: List<StickerSetSummary>,
+    setsState: PickerLoad<List<StickerSetSummary>>,
+    packContents: Map<Long, PickerLoad<StickerSetContent>>,
+    packOrder: List<Long>,
+    reordering: Boolean,
+    onReorder: (List<Long>) -> Unit,
+    onLoadPack: (Long) -> Unit,
+    onRetryPack: (Long) -> Unit,
+    onRetrySets: () -> Unit,
+    onClearRecent: () -> Unit,
+    onPackMenu: (StickerSetSummary) -> Unit,
+    observeFile: (Int) -> StateFlow<MediaFileState>,
+    downloadFile: (Int) -> Unit,
+    onSend: (StickerItem) -> Unit,
+    onOptions: (StickerItem) -> Unit
+) {
+    val palette = beyGramPalette()
+    if (favorites.isEmpty() && recent.isEmpty() && sets.isEmpty()) {
+        when (setsState) {
+            PickerLoad.Loading -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                CircularProgressIndicator(Modifier.size(24.dp), color = palette.accent, strokeWidth = 2.dp)
+            }
+            is PickerLoad.Failed -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                TextButton(onClick = onRetrySets) { Text(stringResource(R.string.common_retry)) }
+            }
+            is PickerLoad.Ready -> PanelEmpty(stringResource(R.string.sticker_panel_empty_recent))
+        }
+        return
+    }
+    LazyVerticalGrid(
+        columns = GridCells.Adaptive(82.dp),
+        modifier = Modifier.fillMaxSize(),
+        state = gridState,
+        contentPadding = PaddingValues(8.dp),
+        horizontalArrangement = Arrangement.spacedBy(4.dp),
+        verticalArrangement = Arrangement.spacedBy(4.dp)
+    ) {
+        if (favorites.isNotEmpty()) {
+            item(key = "header-favorites", span = { GridItemSpan(maxLineSpan) }) {
+                EmojiGroupHeader(stringResource(R.string.sticker_panel_favorites))
+            }
+            gridItems(favorites, key = { "fav-${it.key}" }) { item ->
+                StickerPanelCell(item, observeFile, downloadFile, onSend = { onSend(item) }, onOptions = { onOptions(item) })
+            }
+        }
+        if (recent.isNotEmpty()) {
+            item(key = "header-recent", span = { GridItemSpan(maxLineSpan) }) {
+                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                    Box(Modifier.weight(1f)) { EmojiGroupHeader(stringResource(R.string.sticker_panel_recent)) }
+                    TextButton(onClick = onClearRecent) {
+                        Text(stringResource(R.string.sticker_panel_clear_recent))
+                    }
+                }
+            }
+            gridItems(recent, key = { "rec-${it.key}" }) { item ->
+                StickerPanelCell(item, observeFile, downloadFile, onSend = { onSend(item) }, onOptions = { onOptions(item) })
+            }
+        }
+        for (summary in sets) {
+            item(key = "header-pack-${summary.id}", span = { GridItemSpan(maxLineSpan) }) {
+                LaunchedEffect(summary.id) { onLoadPack(summary.id) }
+                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                    Box(
+                        Modifier.weight(1f).clickable { onPackMenu(summary) }
+                    ) {
+                        EmojiGroupHeader(summary.title)
+                    }
+                    PickerPackOrderButtons(packOrder, summary.id, reordering, onReorder)
+                }
+            }
+            when (val content = packContents[summary.id]) {
+                is PickerLoad.Ready -> {
+                    val stickers = content.value.stickers
+                    if (stickers.isEmpty()) {
+                        item(key = "pack-empty-${summary.id}", span = { GridItemSpan(maxLineSpan) }) {
+                            Text(
+                                stringResource(R.string.sticker_panel_empty_pack),
+                                color = palette.textSecondary,
+                                fontSize = 12.sp,
+                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                            )
+                        }
+                    } else {
+                        gridItems(stickers, key = { "pack-${summary.id}-${it.key}" }) { item ->
+                            StickerPanelCell(item, observeFile, downloadFile, onSend = { onSend(item) }, onOptions = { onOptions(item) })
+                        }
+                    }
+                }
+                is PickerLoad.Failed -> item(key = "pack-fail-${summary.id}", span = { GridItemSpan(maxLineSpan) }) {
+                    TextButton(onClick = { onRetryPack(summary.id) }) { Text(stringResource(R.string.common_retry)) }
+                }
+                else -> item(key = "pack-load-${summary.id}", span = { GridItemSpan(maxLineSpan) }) {
+                    Box(Modifier.fillMaxWidth().padding(vertical = 8.dp), contentAlignment = Alignment.Center) {
+                        CircularProgressIndicator(Modifier.size(18.dp), color = palette.accent, strokeWidth = 2.dp)
                     }
                 }
             }
@@ -1586,6 +1891,12 @@ private fun StickerPanelOverlayContent(
     downloadFile: (Int) -> Unit,
     favoriteKeys: Set<String>,
     favoriteBusyKeys: Set<String>,
+    savedGifs: Set<String>?,
+    savingGifKeys: Set<String>,
+    onSetSavedGif: (AnimationItem, Boolean) -> Unit,
+    regularPackOrder: List<Long>,
+    reorderingStickers: Boolean,
+    reorderStickers: (List<Long>) -> Unit,
     premium: Boolean?,
     onDismiss: () -> Unit,
     onSendSticker: (StickerItem) -> Unit,
@@ -1619,13 +1930,19 @@ private fun StickerPanelOverlayContent(
                 observeFile = observeFile,
                 downloadFile = downloadFile,
                 onSend = { onSendAnimation(overlay.item) },
-                onAttach = { onAttachAnimation(overlay.item) }
+                onAttach = { onAttachAnimation(overlay.item) },
+                saved = savedGifs?.contains(overlay.item.key),
+                saving = overlay.item.key in savingGifKeys,
+                onSetSaved = { onSetSavedGif(overlay.item, it) }
             )
             is StickerPanelOverlay.Pack -> PackPreviewContent(
                 summary = overlay.summary,
                 observeFile = observeFile,
                 downloadFile = downloadFile,
-                onOpen = { onOpenPack(overlay.summary.id) }
+                onOpen = { onOpenPack(overlay.summary.id) },
+                orderButtons = {
+                    PickerPackOrderButtons(regularPackOrder, overlay.summary.id, reorderingStickers, reorderStickers)
+                }
             )
         }
     }
@@ -1760,7 +2077,10 @@ private fun GifPreviewContent(
     observeFile: (Int) -> StateFlow<MediaFileState>,
     downloadFile: (Int) -> Unit,
     onSend: () -> Unit,
-    onAttach: () -> Unit
+    onAttach: () -> Unit,
+    saved: Boolean?,
+    saving: Boolean,
+    onSetSaved: (Boolean) -> Unit
 ) {
     val palette = beyGramPalette()
     Column(
@@ -1811,6 +2131,15 @@ private fun GifPreviewContent(
             enabled = !sending,
             modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)
         ) { Text(stringResource(R.string.gif_panel_add_caption)) }
+        if (saved != null) {
+            TextButton(
+                onClick = { onSetSaved(!saved) },
+                enabled = !saving,
+                modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)
+            ) {
+                Text(stringResource(if (saved) R.string.gif_panel_remove_saved else R.string.gif_panel_save))
+            }
+        }
     }
 }
 
@@ -1819,7 +2148,8 @@ private fun PackPreviewContent(
     summary: StickerSetSummary,
     observeFile: (Int) -> StateFlow<MediaFileState>,
     downloadFile: (Int) -> Unit,
-    onOpen: () -> Unit
+    onOpen: () -> Unit,
+    orderButtons: @Composable () -> Unit
 ) {
     val palette = beyGramPalette()
     Column(
@@ -1835,6 +2165,7 @@ private fun PackPreviewContent(
             fontWeight = FontWeight.SemiBold,
             modifier = Modifier.fillMaxWidth()
         )
+        Row { orderButtons() }
         Spacer(Modifier.height(12.dp))
         val cover = summary.cover
         if (cover != null) {

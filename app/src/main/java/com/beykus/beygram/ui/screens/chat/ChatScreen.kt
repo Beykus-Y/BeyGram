@@ -1219,15 +1219,16 @@ fun ChatScreen(
         if (hidingComposerForLaunch) return
         val before = if (editMessage != null) editText else draft
         val result = edit(before, composerCursor.selectionFor(before))
-        if (result.text == before) return
+        if (result.text == before && result.insertedEntity == null) return
         // The field adopts this selection when the new text reaches it, so the cursor stays after the inserted emoji.
         composerCursor.update(result.text, result.selection)
         if (editMessage != null) {
-            editEntities = adjustTextEntities(before, result.text, editEntities)
+            editEntities = result.entitiesAfter(before, editEntities)
             editText = result.text
         } else {
-            updateDraft { it.copy(entities = adjustTextEntities(before, result.text, it.entities)) }
-            typedDraft(result.text)
+            updateDraft { it.copy(text = result.text, entities = result.entitiesAfter(before, it.entities)) }
+            if (result.text.isBlank()) conversation.endChatActivity(chat.id, ChatActivity.Typing)
+            else conversation.startChatActivity(chat.id, ChatActivity.Typing)
         }
     }
     ChatMessageActionEffects(messageActions, conversation, chat.id, actionMessage?.id, reactionOwner?.id) {
@@ -2892,6 +2893,10 @@ fun ChatScreen(
                 },
                 onSendError = { message -> error = message },
                 onInsertEmoji = { emoji -> editComposerText { text, selection -> insertAtSelection(text, selection, emoji) } },
+                onInsertCustomEmoji = { emoji ->
+                    editComposerText { text, selection -> insertCustomEmojiAtSelection(text, selection, emoji) }
+                },
+                savedMessages = chat.isSavedMessages,
                 onDeleteBackward = { editComposerText(::deleteBeforeSelection) },
                 onCloseStickerPanel = { stickerPanelOpen = false }
             )

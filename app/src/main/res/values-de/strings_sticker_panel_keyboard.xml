@@ -1,3 +1,10 @@
 <resources>
     <string name="sticker_panel_open_keyboard">Tastatur öffnen</string>
+    <string name="emoji_custom_recent">Letzte benutzerdefinierte Emojis</string>
+    <string name="emoji_recommended_sets">Empfohlene Sets</string>
+    <string name="gif_panel_save">GIF speichern</string>
+    <string name="gif_panel_remove_saved">Aus gespeicherten GIFs entfernen</string>
+    <string name="gif_panel_save_failed">Gespeicherte GIFs konnten nicht aktualisiert werden</string>
+    <string name="sticker_panel_clear_recent">Letzte Sticker löschen</string>
+    <string name="sticker_panel_clear_recent_confirm">Den Stickerverlauf dieses Kontos löschen?</string>
 </resources>
