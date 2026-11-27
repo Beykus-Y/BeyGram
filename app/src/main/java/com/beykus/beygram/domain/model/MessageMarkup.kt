@@ -55,12 +55,24 @@ fun adjustTextEntities(before: String, after: String, entities: List<MessageText
     var oldEnd = before.length
     var newEnd = after.length
     while (oldEnd > start && newEnd > start && before[oldEnd - 1] == after[newEnd - 1]) { oldEnd--; newEnd-- }
+    return adjustTextEntitiesForReplacement(after, entities, start, oldEnd, newEnd)
+}
+
+/** Use the known replacement range when equal text or repeated fragments make a diff ambiguous. */
+internal fun adjustTextEntitiesForReplacement(
+    after: String,
+    entities: List<MessageTextEntity>,
+    start: Int,
+    oldEnd: Int,
+    newEnd: Int
+): List<MessageTextEntity> {
     val delta = newEnd - oldEnd
     return validTextEntities(after, entities.mapNotNull {
         val end = it.offset + it.length
         when {
             end <= start -> it
             it.offset >= oldEnd -> it.copy(offset = it.offset + delta)
+            it.kind == TextStyleKind.CustomEmoji -> null
             else -> {
                 val left = minOf(it.offset, start)
                 val right = if (end >= oldEnd) end + delta else newEnd

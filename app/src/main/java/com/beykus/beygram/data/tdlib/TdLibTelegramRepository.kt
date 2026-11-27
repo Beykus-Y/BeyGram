@@ -444,6 +444,9 @@ class TdLibTelegramRepository private constructor(
 
     /** Кэш сообщений по chatId. */
     private val pinnedVersions = ConcurrentHashMap<Long, MutableStateFlow<Long>>()
+    private val stickerShelfVersions = MutableStateFlow(com.beykus.beygram.domain.model.StickerShelfVersions())
+    override fun observeStickerShelfVersions() = stickerShelfVersions.asStateFlow()
+
     override fun observePinnedMessagesVersion(chatId: Long): StateFlow<Long> = pinnedVersions.getOrPut(chatId) { MutableStateFlow(0L) }.asStateFlow()
     override suspend fun pinnedMessages(chatId: Long, fromMessageId: Long, forumTopicId: Long, query: String) = conversationActions.pinnedMessages(chatId, fromMessageId, forumTopicId, query)
     override suspend fun loadPinnedSenderAvatars(userIds: Collection<Long>): Map<Long, com.beykus.beygram.domain.model.AvatarPhoto?> =
@@ -2651,6 +2654,11 @@ class TdLibTelegramRepository private constructor(
     override suspend fun changeStickerSet(setId: Long, installed: Boolean): Result<Unit> =
         stickerCatalog.changeStickerSet(setId, installed)
     override suspend fun searchStickers(query: String, offset: Int): Result<StickerSearchPage> = stickerCatalog.searchStickers(query, offset)
+    override suspend fun reorderStickerSets(customEmoji: Boolean, orderedIds: List<Long>) =
+        stickerCatalog.reorderStickerSets(customEmoji, orderedIds)
+    override suspend fun clearRecentStickers() = stickerCatalog.clearRecentStickers()
+    override suspend fun setAnimationSaved(animation: AnimationItem, saved: Boolean) =
+        stickerCatalog.setAnimationSaved(animation, saved)
     override suspend fun savedAnimations(): Result<List<AnimationItem>> = stickerCatalog.savedAnimations()
     override suspend fun recentAnimations(offset: String): Result<AnimationPage> = stickerCatalog.recentAnimations(offset)
     override suspend fun searchAnimations(query: String, offset: String): Result<AnimationPage> = stickerCatalog.searchAnimations(query, offset)
@@ -2764,6 +2772,9 @@ class TdLibTelegramRepository private constructor(
     override suspend fun editForumTopic(chatId: Long, forumTopicId: Long, name: String, iconCustomEmojiId: Long?): Result<Unit> =
         conversationActions.editTopic(chatId, forumTopicId, name, iconCustomEmojiId)
     override suspend fun forumTopicDefaultIcons(): Result<List<Long>> = conversationActions.forumTopicDefaultIcons()
+    override suspend fun searchPickerEmoji(query: String, languages: List<String>) =
+        conversationActions.searchPickerEmoji(query, languages)
+    override suspend fun recommendedCustomEmojiSets() = conversationActions.recommendedCustomEmojiSets()
     override suspend fun installedCustomEmojiSets(): Result<List<CustomEmojiSetBrief>> = conversationActions.installedCustomEmojiSets()
     override suspend fun customEmojiSetIds(setId: Long): Result<List<Long>> = conversationActions.customEmojiSetIds(setId)
     override suspend fun setForumTopicClosed(chatId: Long, forumTopicId: Long, closed: Boolean) = conversationActions.closeTopic(chatId, forumTopicId, closed)
@@ -2829,6 +2840,16 @@ class TdLibTelegramRepository private constructor(
         stories.handle(update)
         notificationFeed.handle(update)
         when (update) {
+            is TdApi.UpdateInstalledStickerSets -> when (update.stickerType) {
+                is TdApi.StickerTypeRegular -> stickerShelfVersions.update { it.copy(stickerPacks = it.stickerPacks + 1) }
+                is TdApi.StickerTypeCustomEmoji -> stickerShelfVersions.update { it.copy(emojiPacks = it.emojiPacks + 1) }
+                else -> Unit
+            }
+            is TdApi.UpdateRecentStickers -> if (!update.isAttached) {
+                stickerShelfVersions.update { it.copy(recentStickers = it.recentStickers + 1) }
+            }
+            is TdApi.UpdateFavoriteStickers -> stickerShelfVersions.update { it.copy(favoriteStickers = it.favoriteStickers + 1) }
+            is TdApi.UpdateSavedAnimations -> stickerShelfVersions.update { it.copy(savedAnimations = it.savedAnimations + 1) }
             is TdApi.UpdateUser -> refreshLastSenders(update.user.id)
             is TdApi.UpdateAuthorizationState -> handleAuthorizationState(update.authorizationState)
             is TdApi.UpdateNewChat            -> handleNewChat(update.chat)

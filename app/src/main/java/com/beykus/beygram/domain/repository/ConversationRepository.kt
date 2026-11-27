@@ -1,10 +1,13 @@
 package com.beykus.beygram.domain.repository
 
 import com.beykus.beygram.domain.model.*
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.flowOf
 
 /** Conversation operations; UI never sends native TDLib requests or chooses protocol flags. */
 interface ConversationRepository {
+    fun observeStickerShelfVersions(): Flow<StickerShelfVersions> = flowOf(StickerShelfVersions())
     fun observePinnedMessagesVersion(chatId: Long): StateFlow<Long>
     /** Resolve avatars from user IDs without creating private chats or opening profiles. */
     suspend fun loadPinnedSenderAvatars(userIds: Collection<Long>): Map<Long, AvatarPhoto?> = emptyMap()
@@ -174,6 +177,9 @@ interface ConversationRepository {
     /** Custom emoji ids of Telegram's default topic icons. They are the same for every account and need no Premium. */
     suspend fun forumTopicDefaultIcons(): Result<List<Long>>
     /** The custom emoji sets the account has installed. A Premium account may take topic icons from their emoji. */
+    suspend fun searchPickerEmoji(query: String, languages: List<String>): Result<EmojiPickerSearchResults> =
+        Result.success(EmojiPickerSearchResults())
+    suspend fun recommendedCustomEmojiSets(): Result<List<CustomEmojiSetBrief>> = Result.success(emptyList())
     suspend fun installedCustomEmojiSets(): Result<List<CustomEmojiSetBrief>>
     /** The custom emoji ids of one installed set, in the set's order. */
     suspend fun customEmojiSetIds(setId: Long): Result<List<Long>>
@@ -232,10 +238,15 @@ interface ConversationRepository {
      * from a chat only needs the installed state.
      */
     suspend fun changeStickerSet(setId: Long, installed: Boolean): Result<Unit>
+    suspend fun reorderStickerSets(customEmoji: Boolean, orderedIds: List<Long>): Result<Unit> =
+        Result.failure(UnsupportedOperationException())
     /** Sticker text search across sets. Pass 0 first, then [StickerSearchPage.nextOffset]. */
     suspend fun searchStickers(query: String, offset: Int = 0): Result<StickerSearchPage>
     /** GIFs explicitly saved by the user in this Telegram account. */
     suspend fun savedAnimations(): Result<List<AnimationItem>>
+    suspend fun setAnimationSaved(animation: AnimationItem, saved: Boolean): Result<Unit> =
+        Result.failure(UnsupportedOperationException())
+    suspend fun clearRecentStickers(): Result<Unit> = Result.failure(UnsupportedOperationException())
     /** GIFs recently seen in this account's chats, newest first. An empty [offset] starts the list. */
     suspend fun recentAnimations(offset: String = ""): Result<AnimationPage>
     /** GIFs found in this account's message history. [offset] comes from the previous page's nextOffset. */

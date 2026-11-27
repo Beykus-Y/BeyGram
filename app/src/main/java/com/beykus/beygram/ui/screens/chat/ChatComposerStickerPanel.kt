@@ -10,6 +10,7 @@ import androidx.compose.runtime.key
 import androidx.compose.runtime.saveable.rememberSaveableStateHolder
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import com.beykus.beygram.domain.model.CustomEmoji
 import com.beykus.beygram.domain.model.MediaFileState
 import com.beykus.beygram.domain.model.OutgoingMedia
 import com.beykus.beygram.domain.repository.ConversationRepository
@@ -37,6 +38,8 @@ internal fun ChatComposerStickerPanel(
     onStickerOptions: (OutgoingMedia) -> Unit,
     onSendError: (String) -> Unit,
     onInsertEmoji: (String) -> Unit,
+    onInsertCustomEmoji: (CustomEmoji) -> Unit,
+    savedMessages: Boolean,
     onDeleteBackward: () -> Unit,
     onCloseStickerPanel: () -> Unit
 ) {
@@ -70,6 +73,8 @@ internal fun ChatComposerStickerPanel(
                     },
                     onSendError = onSendError,
                     onInsertEmoji = onInsertEmoji,
+                    onInsertCustomEmoji = onInsertCustomEmoji,
+                    savedMessages = savedMessages,
                     onDeleteBackward = onDeleteBackward,
                     onClose = onCloseStickerPanel
                 )

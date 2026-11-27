@@ -1,10 +1,26 @@
 package com.beykus.beygram.ui.screens.chat
 
 import androidx.compose.ui.text.TextRange
+import com.beykus.beygram.domain.model.CustomEmoji
+import com.beykus.beygram.domain.model.MessageTextEntity
+import com.beykus.beygram.domain.model.TextStyleKind
+import com.beykus.beygram.domain.model.adjustTextEntities
+import com.beykus.beygram.domain.model.adjustTextEntitiesForReplacement
 import java.text.BreakIterator
 
 /** Result of an edit made outside the text field: the new text and where the cursor goes. */
-internal data class ComposerTextEdit(val text: String, val selection: TextRange)
+internal data class ComposerTextEdit(
+    val text: String,
+    val selection: TextRange,
+    val replaced: TextRange? = null,
+    val insertedEntity: MessageTextEntity? = null
+) {
+    fun entitiesAfter(before: String, entities: List<MessageTextEntity>): List<MessageTextEntity> {
+        val range = replaced ?: return adjustTextEntities(before, text, entities)
+        val adjusted = adjustTextEntitiesForReplacement(text, entities, range.min, range.max, selection.end)
+        return if (insertedEntity != null) adjusted + insertedEntity else adjusted
+    }
+}
 
 /**
  * Shares the composer field's selection with the emoji panel, which edits the text from outside the field. It is a
@@ -33,6 +49,16 @@ internal fun insertAtSelection(text: String, selection: TextRange, insert: Strin
     val range = clampSelection(selection, text.length)
     val next = text.substring(0, range.min) + insert + text.substring(range.max)
     return ComposerTextEdit(next, TextRange(range.min + insert.length))
+}
+
+internal fun insertCustomEmojiAtSelection(text: String, selection: TextRange, emoji: CustomEmoji): ComposerTextEdit {
+    val range = clampSelection(selection, text.length)
+    val glyph = emoji.emoji
+    if (glyph.isBlank() || emoji.customEmojiId <= 0L) return ComposerTextEdit(text, range)
+    return insertAtSelection(text, range, glyph).copy(
+        replaced = range,
+        insertedEntity = MessageTextEntity(range.min, glyph.length, TextStyleKind.CustomEmoji, emoji.customEmojiId.toString())
+    )
 }
 
 /**
