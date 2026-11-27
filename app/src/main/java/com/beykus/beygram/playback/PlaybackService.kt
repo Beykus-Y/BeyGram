@@ -83,6 +83,11 @@ class PlaybackService : MediaSessionService() {
             stopSelf()
             return
         }
+        setListener(object : MediaSessionService.Listener {
+            override fun onForegroundServiceStartNotAllowedException() {
+                Log.w(TAG, "foreground_start_denied generation=$generation")
+            }
+        })
         setMediaNotificationProvider(
             DefaultMediaNotificationProvider.Builder(this)
                 .setChannelId(CHANNEL_ID)
@@ -129,6 +134,7 @@ class PlaybackService : MediaSessionService() {
 
     override fun onDestroy() {
         scope.cancel()
+        clearListener()
         runCatching { EqualizerRuntime.stop() }
         val created = session
         session = null
