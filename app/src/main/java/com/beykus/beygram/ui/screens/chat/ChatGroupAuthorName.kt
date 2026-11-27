@@ -14,6 +14,7 @@ import com.beykus.beygram.domain.UiText
 import com.beykus.beygram.domain.model.ProfileMember
 import com.beykus.beygram.domain.model.ProfileMemberRole
 import com.beykus.beygram.ui.components.beyGramPalette
+import com.beykus.beygram.ui.text.resolve
 
 internal fun groupSenderTag(member: ProfileMember?): UiText? = member?.let {
     val title = it.tag.takeIf(String::isNotBlank)
