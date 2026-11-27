@@ -53,6 +53,7 @@ import com.beykus.beygram.ui.design.LocalDesignSystem
 import com.beykus.beygram.ui.design.SurfaceTreatment
 import com.beykus.beygram.ui.design.TopBarVariant
 import com.beykus.beygram.ui.design.GlassEdge
+import com.beykus.beygram.ui.design.LocalGlassBackdrop
 import com.beykus.beygram.ui.design.glassBackdropSource
 import com.beykus.beygram.ui.design.rememberGlassBackdrop
 import com.beykus.beygram.ui.design.recordsGlassBackdrop
@@ -2546,6 +2547,7 @@ fun ChatScreen(
             }
         }
         }
+        CompositionLocalProvider(LocalGlassBackdrop provides chatBackdrop) {
         ChatTimelineJumpOverlays(
             listState = listState,
             items = messageListItems,
@@ -2562,6 +2564,7 @@ fun ChatScreen(
             onJumpToMessage = { id -> jumpToMessage(id, R.string.chat_message_unavailable) },
             onError = { error = it }
         )
+        }
         if (searching) ChatSearchResults(
             query = searchQuery,
             filter = searchFilter,
