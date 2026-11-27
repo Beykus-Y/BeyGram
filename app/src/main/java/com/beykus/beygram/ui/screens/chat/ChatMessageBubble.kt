@@ -94,7 +94,11 @@ internal fun MessageBubble(message: ChatMessage, observeFile: (Int) -> StateFlow
     connectionState: TelegramConnectionState = TelegramConnectionState.Connected,
     onShowFailureDetails: (() -> Unit)? = null,
     composerMediaLaunch: ComposerMediaLaunch? = null,
-    onComposerMediaLaunchFinished: (ComposerMediaLaunch) -> Unit = {}
+    onComposerMediaLaunchFinished: (ComposerMediaLaunch) -> Unit = {},
+    paneInset: Boolean = true,
+    hideForContextScene: Boolean = false,
+    contextTextSelection: MessageContextTextSelection? = null,
+    contextScenePassive: Boolean = false
 ) {
     val palette = beyGramPalette()
     val metrics = LocalBubbleMetrics.current
@@ -118,7 +122,7 @@ internal fun MessageBubble(message: ChatMessage, observeFile: (Int) -> StateFlow
     // Время и статус кружка находятся под кругом, вне обрезки видео.
     val inCircle = circle && message.sendState != MessageSendState.Failed
     // Пока сообщение отправляется или не ушло, его id временный и потом меняется: место для общего плеера не ставим.
-    val playbackOrigin = if (message.sendState == MessageSendState.Sent) PlaybackOrigin(message.chatId, message.id, LocalPlaybackAccountId.current) else null
+    val playbackOrigin = if (!contextScenePassive && message.sendState == MessageSendState.Sent) PlaybackOrigin(message.chatId, message.id, LocalPlaybackAccountId.current) else null
     val statusIcon = when {
         !message.isOutgoing -> null
         message.sendState == MessageSendState.Sending -> Icons.Rounded.Schedule
@@ -161,7 +165,7 @@ internal fun MessageBubble(message: ChatMessage, observeFile: (Int) -> StateFlow
     Column(
         Modifier.fillMaxWidth()
             .quickReactionOnFreeSpace(message.chatId, message.id, quickReaction.takeIf { quickReactionAcrossRow })
-            .then(if (circle) Modifier else Modifier.padding(horizontal = metrics.sideInset)),
+            .then(if (circle || !paneInset) Modifier else Modifier.padding(horizontal = metrics.sideInset)),
         horizontalAlignment = if (message.isOutgoing) Alignment.End else Alignment.Start
     ) {
         SwipeToReply(
@@ -177,6 +181,7 @@ internal fun MessageBubble(message: ChatMessage, observeFile: (Int) -> StateFlow
                         .then(if (message.media != null && !circle && !sticker)
                              Modifier.width(mediaSize?.width ?: if (message.media.kind == MediaKind.Audio) 280.dp else 244.dp) else Modifier)
                         .then(mediaFlightModifier).clip(shape)
+                        .then(if (hideForContextScene) Modifier.alpha(0f) else Modifier)
                         .background(if (circle || sticker) Color.Transparent else if (message.isOutgoing) palette.outgoingBubble else palette.incomingBubble)
                         .then(if (message.memory?.deletedAtMillis != null) Modifier.alpha(0.6f) else Modifier)
                         .then(if ((selected || highlighted) && !circle) Modifier.border(2.dp, palette.accent, shape) else Modifier)
@@ -198,18 +203,20 @@ internal fun MessageBubble(message: ChatMessage, observeFile: (Int) -> StateFlow
                             },
                             onLongClickLabel = if (selectionMode) selectionLabel else longPressLabel,
                             onClick = {
-                                when {
-                                    selectionMode -> onToggleSelection()
-                                    sticker -> stickerMedia?.let { onStickerOpen?.invoke(it) }
-                                    // A tap on the caption of a track, such as a shared timecode, plays it in the music player.
-                                    message.media?.kind == MediaKind.Audio ->
-                                        captionPlay = AudioPlayRequest(parseShareTimecodeMs(message.text, message.media.durationSeconds))
-                                    message.media != null && !message.media.kind.playsInline() -> onOpen()
+                                if (!contextScenePassive) {
+                                    when {
+                                        selectionMode -> onToggleSelection()
+                                        sticker -> stickerMedia?.let { onStickerOpen?.invoke(it) }
+                                        // A tap on the caption of a track, such as a shared timecode, plays it in the music player.
+                                        message.media?.kind == MediaKind.Audio ->
+                                            captionPlay = AudioPlayRequest(parseShareTimecodeMs(message.text, message.media.durationSeconds))
+                                        message.media != null && !message.media.kind.playsInline() -> onOpen()
+                                    }
                                 }
                             },
                             // Media and other interactive content need an immediate single tap.
-                            onDoubleClick = quickReaction.takeIf { message.media == null && message.special == null },
-                            onLongClick = if (selectionMode) onToggleSelection else onActions
+                            onDoubleClick = quickReaction.takeIf { !contextScenePassive && message.media == null && message.special == null },
+                            onLongClick = if (contextScenePassive) ({}) else if (selectionMode) onToggleSelection else onActions
                         ),
                     overlayMeta = overlayMeta,
                     body = {
@@ -301,7 +308,9 @@ internal fun MessageBubble(message: ChatMessage, observeFile: (Int) -> StateFlow
                                         }
                                     } else null
                                     val textModifier = if (lastLineMeta && message.reply != null) Modifier.fillMaxWidth() else Modifier
-                                    if (trailingMetadata != null && message.entities.isEmpty()) {
+                                    if (contextTextSelection != null && showText) {
+                                        SelectableMessageBody(contextTextSelection, textModifier, trailingMetadata)
+                                    } else if (trailingMetadata != null && message.entities.isEmpty()) {
                                         PlainMessageWithMeta(message.text, textModifier, trailingMetadata)
                                     } else if (showText) {
                                         FormattedMessageText(

@@ -1,5 +1,6 @@
 package com.beykus.beygram.data.delayed
 
+import com.beykus.beygram.domain.model.OutgoingReplyQuote
 import com.beykus.beygram.domain.model.MessageTextEntity
 import com.beykus.beygram.domain.model.TextStyleKind
 import java.io.BufferedInputStream
@@ -73,7 +74,6 @@ internal class DelayedSendOutbox(private val directory: File, private val accoun
     }
 
     private fun encode(entry: DelayedSendEntry, output: DataOutputStream) {
-        if (entry.entities.size > MAX_ENTITIES) throw IOException("Delayed message has too many formatting entities")
         output.writeInt(FORMAT_VERSION)
         output.writeUTF(entry.id)
         output.writeUTF(entry.accountId)
@@ -85,8 +85,19 @@ internal class DelayedSendOutbox(private val directory: File, private val accoun
         output.writeLong(entry.notBeforeMillis)
         output.writeUTF(entry.status.name)
         writeBlock(output, entry.text.toByteArray(Charsets.UTF_8))
-        output.writeInt(entry.entities.size)
-        for (entity in entry.entities) {
+        writeEntities(output, entry.entities)
+        entry.quote?.let { quote ->
+            output.writeByte(QUOTE_TAIL_MARKER)
+            writeBlock(output, quote.text.toByteArray(Charsets.UTF_8))
+            output.writeInt(quote.position)
+            writeEntities(output, quote.entities)
+        }
+    }
+
+    private fun writeEntities(output: DataOutputStream, entities: List<MessageTextEntity>) {
+        if (entities.size > MAX_ENTITIES) throw IOException("Delayed message has too many formatting entities")
+        output.writeInt(entities.size)
+        for (entity in entities) {
             output.writeInt(entity.offset)
             output.writeInt(entity.length)
             output.writeUTF(entity.kind.name)
@@ -128,13 +139,16 @@ internal class DelayedSendOutbox(private val directory: File, private val accoun
         val notBeforeMillis = input.readLong()
         val status = namedEnum<DelayedSendStatus>(input.readUTF())
         val text = String(readBlock(input), Charsets.UTF_8)
-        val count = input.readInt()
-        if (count !in 0..MAX_ENTITIES) throw CorruptDelayedSendException()
-        val entities = List(count) {
-            val offset = input.readInt()
-            val length = input.readInt()
-            val kind = namedEnum<TextStyleKind>(input.readUTF())
-            MessageTextEntity(offset, length, kind, String(readBlock(input), Charsets.UTF_8))
+        val entities = readEntities(input)
+        val quote = when (input.read()) {
+            -1 -> null // Original records ended here; older readers ignore the optional tail.
+            QUOTE_TAIL_MARKER -> {
+                val fragment = String(readBlock(input), Charsets.UTF_8)
+                val position = input.readInt()
+                if (fragment.isBlank() || position < 0) throw CorruptDelayedSendException()
+                OutgoingReplyQuote(fragment, position, readEntities(input))
+            }
+            else -> throw CorruptDelayedSendException()
         }
         DelayedSendEntry(
             id = id,
@@ -147,14 +161,27 @@ internal class DelayedSendOutbox(private val directory: File, private val accoun
             disableNotification = disableNotification,
             createdAtMillis = createdAtMillis,
             notBeforeMillis = notBeforeMillis,
-            status = status
+            status = status,
+            quote = quote
         )
+    }
+
+    private fun readEntities(input: DataInputStream): List<MessageTextEntity> {
+        val count = input.readInt()
+        if (count !in 0..MAX_ENTITIES) throw CorruptDelayedSendException()
+        return List(count) {
+            val offset = input.readInt()
+            val length = input.readInt()
+            val kind = namedEnum<TextStyleKind>(input.readUTF())
+            MessageTextEntity(offset, length, kind, String(readBlock(input), Charsets.UTF_8))
+        }
     }
 
     private companion object {
         const val SUFFIX = ".delayed"
         const val TEMP_SUFFIX = ".delayed.tmp"
         const val FORMAT_VERSION = 1
+        const val QUOTE_TAIL_MARKER = 1
         const val MAX_BYTES = 64 * 1024
         const val MAX_ENTITIES = 4096
     }

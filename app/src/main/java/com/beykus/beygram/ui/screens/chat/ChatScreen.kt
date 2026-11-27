@@ -226,7 +226,9 @@ fun ChatScreen(
     fun updateDraft(transform: (com.beykus.beygram.domain.model.MessageDraft) -> com.beykus.beygram.domain.model.MessageDraft) =
         if (forumTopicId > 0L) conversation.updateForumTopicDraft(chat.id, forumTopicId, transform)
         else conversation.updateMessageDraft(chat.id, transform)
-    val quoteState = remember(accountId, chat.id, forumTopicId) { ChatQuoteState() }
+    val quoteState = key(accountId, chat.id, forumTopicId) {
+        rememberSaveable(saver = ChatQuoteState.Saver) { ChatQuoteState() }
+    }
     fun setReplyTarget(messageId: Long?) {
         quoteState.keepOnlyFor(messageId)
         updateDraft { it.copy(replyToMessageId = messageId) }
@@ -260,6 +262,7 @@ fun ChatScreen(
     var swipedReplyId by remember(chat.id) { mutableLongStateOf(0L) }
     val messageActions = rememberChatMessageActions(accountId, chat.id, forumTopicId)
     val actionsId by messageActions::targetId
+    var contextSceneMessageId by remember(accountId, chat.id, forumTopicId) { mutableStateOf<Long?>(null) }
     var exportOpen by rememberSaveable(chat.id) { mutableStateOf(false) }
     val exportModel: ChatExportViewModel = viewModel(key = "chat-export-$accountId-${chat.id}")
     val exportVisible by remember(exportModel) {
@@ -1767,7 +1770,7 @@ fun ChatScreen(
         }
         // View-once is selected in the attachment panel; scheduling or groups silently drop the flag instead of
         // producing a TDLib error, and the composer hides those paths for view-once media.
-        val quotedOptions = quoteState.consumeInto(options, replyId)
+        val quotedOptions = quoteState.applyTo(options, replyId)
         val effectiveOptions = if (attachments.active) {
             quotedOptions.copy(viewOnce = attachments.viewOnce && ViewOncePolicy.canSend(attachments.pending, isPrivateChat = allowViewOnce, isSecretChat = chat.isSecret, scheduled = quotedOptions.scheduledAtSeconds != null))
         } else quotedOptions
@@ -2072,17 +2075,58 @@ fun ChatScreen(
                 onDismiss = { reportMessageId = null }
             )
         }
-        ChatQuoteHost(quoteState) { id ->
-            setReplyTarget(id)
-            replyFocusRequest++
-        }
         if (actionMessage != null && !deleting && !reactionPickerOpen && !pinConfirm) {
             val chosenReactions = reactionOwner?.reactions
                 ?.filter { it.isChosen && !it.isPaid }
                 ?.mapTo(hashSetOf()) { it.option }
                 .orEmpty()
+            val sceneEligible = !chat.isSecret && !chat.hasProtectedContent && !waveChat &&
+                actionMessage.supportsContextScene() &&
+                (actionMessage.media == null || capabilities?.canForward == true)
             MessageContextPopover(
                 anchorBounds = actionAnchorBounds,
+                paneBounds = composerLaunch.overlayBounds,
+                foreground = if (sceneEligible) {
+                    { selection ->
+                        MessageBubble(
+                            message = actionMessage,
+                            observeFile = observeFile,
+                            onDownloadFile = onDownloadFile,
+                            isRead = actionMessage.isOutgoing && actionMessage.id <= history.lastReadOutboxMessageId,
+                            onOpen = {},
+                            onPlayed = {},
+                            onAutoDownloadFile = {},
+                            onReaction = { _, _ -> },
+                            onMusicPlay = { _, _ -> },
+                            animateSpecial = false,
+                            observeCustomEmoji = conversation::observeCustomEmoji,
+                            showSenderHeader = senderHeaderByKey["message:${actionMessage.id}"] == true,
+                            paneInset = false,
+                            contextTextSelection = selection,
+                            contextScenePassive = true
+                        )
+                    }
+                } else null,
+                foregroundText = actionMessage.text.takeIf { sceneEligible && it.isNotBlank() },
+                foregroundEntities = actionMessage.entities,
+                quoteMaxLength = limits.quote,
+                onQuoteFragment = { fragment ->
+                    quoteState.select(
+                        actionMessage.id, fragment.text, fragment.position,
+                        restoreAfterRecreation = true, entities = fragment.entities
+                    )
+                    setReplyTarget(actionMessage.id)
+                    replyFocusRequest++
+                    closeActions()
+                },
+                onCopyFragment = { fragment ->
+                    clipboard.setPrimaryClip(ClipData.newPlainText(context.getString(R.string.chat_message), fragment))
+                    closeActions()
+                },
+                onForegroundVisible = { visible ->
+                    if (visible) contextSceneMessageId = actionMessage.id
+                    else if (contextSceneMessageId == actionMessage.id) contextSceneMessageId = null
+                },
                 isOutgoing = actionMessage.isOutgoing,
                 capabilities = capabilities?.let { caps ->
                     // TDLib already forbids this; keep a local guard so a stale capability response cannot expose view-once.
@@ -2107,7 +2151,7 @@ fun ChatScreen(
                 onClose = ::closeActions,
                 onRetry = { capabilitiesAttempt++ },
                 onReply = { quoteState.clear(); setReplyTarget(actionMessage.id); replyFocusRequest++; closeActions() },
-                onQuote = if (actionMessage.text.isNotBlank()) { { quoteState.pickerTarget = actionMessage; closeActions() } } else null,
+                onQuote = null,
                 onCopy = { clipboard.setPrimaryClip(ClipData.newPlainText(context.getString(R.string.chat_message), actionMessage.text)); closeActions() },
                 onEdit = { editId = actionMessage.id; editText = actionMessage.text; closeActions() },
                 onDelete = { deleteEveryone = capabilities?.canDeleteForSelf == false; deleting = true },
@@ -2463,6 +2507,7 @@ fun ChatScreen(
                                     }
                                 },
                                 animateSpecial = animateArrival && launch == null,
+                                hideForContextScene = contextSceneMessageId == message.id,
                                 diceAnimationId = diceAnimationId,
                                 selectionMode = selectionMode,
                                 selected = message.id in selectionIds,

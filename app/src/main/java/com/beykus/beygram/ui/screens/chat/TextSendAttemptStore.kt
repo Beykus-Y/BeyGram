@@ -4,6 +4,7 @@ import android.util.AtomicFile
 import com.beykus.beygram.domain.model.MessageSendOptions
 import com.beykus.beygram.domain.model.MessageTextEntity
 import com.beykus.beygram.domain.model.TextStyleKind
+import com.beykus.beygram.domain.model.replyQuotePayload
 import org.json.JSONArray
 import org.json.JSONObject
 import org.json.JSONTokener
@@ -26,16 +27,17 @@ internal object TextSendSnapshotCodec {
     fun encode(attempts: List<TextSendAttempt>): ByteArray {
         val rows = JSONArray()
         attempts.forEach { a ->
-            val entities = JSONArray()
-            a.entities.forEach { e -> entities.put(JSONObject().put("offset", e.offset).put("length", e.length)
-                .put("kind", e.kind.name).put("argument", e.argument)) }
+            val quote = a.options.replyQuotePayload()
             rows.put(JSONObject().put("id", a.attemptId).put("account", a.scope.accountId)
                 .put("chat", a.scope.chatId).put("topic", a.scope.forumTopicId).put("dest", a.destinationTopicId).put("text", a.text)
-                .put("entities", entities).put("reply", a.replyToMessageId).put("time", a.timeLabel)
+                .put("entities", encodeEntities(a.entities)).put("reply", a.replyToMessageId).put("time", a.timeLabel)
                 .put("forceReply", a.dismissForceReplyMessageId).put("baseline", a.baselineSequence)
                 .put("silent", a.options.disableNotification).put("scheduled", a.options.scheduledAtSeconds)
                 .put("viewOnce", a.options.viewOnce).put("consent", a.options.sendNowConsent)
-                .put("noPreview", a.options.disableLinkPreview).put("phase", a.phase.name).put("error", a.errorMessage))
+                .put("noPreview", a.options.disableLinkPreview).put("phase", a.phase.name).put("error", a.errorMessage).apply {
+                    if (quote != null) put("quote", JSONObject().put("text", quote.text)
+                        .put("position", quote.position).put("entities", encodeEntities(quote.entities)))
+                })
         }
         val bytes = JSONObject().put("version", VERSION).put("attempts", rows)
             .toString().toByteArray(Charsets.UTF_8)
@@ -60,16 +62,22 @@ internal object TextSendSnapshotCodec {
             val a = rows.getJSONObject(index)
             val id = a.getLong("id")
             require(id > 0 && id < Long.MAX_VALUE && seen.add(id)) { "Invalid pending text attempt id" }
-            val entities = a.getJSONArray("entities")
+            val quote = a.optJSONObject("quote")
             val scope = TextSendScopeKey(a.getString("account"), a.getLong("chat"), a.getLong("topic"))
             TextSendAttempt(
                 attemptId = id, scope = scope,
-                text = a.getString("text"), entities = (0 until entities.length()).map { i ->
-                    val e = entities.getJSONObject(i)
-                    MessageTextEntity(e.getInt("offset"), e.getInt("length"), TextStyleKind.valueOf(e.getString("kind")), e.getString("argument"))
-                }, replyToMessageId = if (a.has("reply")) a.getLong("reply") else null, replyPreview = null,
-                options = MessageSendOptions(a.getBoolean("silent"), if (a.has("scheduled")) a.getLong("scheduled") else null,
-                    a.getBoolean("viewOnce"), a.getBoolean("consent"), a.getBoolean("noPreview")),
+                text = a.getString("text"), entities = decodeEntities(a.getJSONArray("entities")),
+                replyToMessageId = if (a.has("reply")) a.getLong("reply") else null, replyPreview = null,
+                options = MessageSendOptions(
+                    disableNotification = a.getBoolean("silent"),
+                    scheduledAtSeconds = if (a.has("scheduled")) a.getLong("scheduled") else null,
+                    viewOnce = a.getBoolean("viewOnce"),
+                    sendNowConsent = a.getBoolean("consent"),
+                    disableLinkPreview = a.getBoolean("noPreview"),
+                    replyQuote = quote?.getString("text"),
+                    replyQuotePosition = quote?.getInt("position") ?: 0,
+                    replyQuoteEntities = quote?.getJSONArray("entities")?.let(::decodeEntities).orEmpty()
+                ),
                 baselineSequence = a.getLong("baseline"), timeLabel = a.getString("time"),
                 dismissForceReplyMessageId = if (a.has("forceReply")) a.getLong("forceReply") else null,
                 phase = TextSendAttemptPhase.valueOf(a.optString("phase", "Sending")),
@@ -79,6 +87,16 @@ internal object TextSendSnapshotCodec {
             )
         }
     }
+    private fun encodeEntities(entities: List<MessageTextEntity>): JSONArray = JSONArray().apply {
+        entities.forEach { e -> put(JSONObject().put("offset", e.offset).put("length", e.length)
+            .put("kind", e.kind.name).put("argument", e.argument)) }
+    }
+
+    private fun decodeEntities(entities: JSONArray): List<MessageTextEntity> = List(entities.length()) { index ->
+        val e = entities.getJSONObject(index)
+        MessageTextEntity(e.getInt("offset"), e.getInt("length"), TextStyleKind.valueOf(e.getString("kind")), e.getString("argument"))
+    }
+
 }
 
 /** Private app storage: commit the snapshot before the composer may clear its draft. */

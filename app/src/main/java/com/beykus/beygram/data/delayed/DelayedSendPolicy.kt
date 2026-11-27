@@ -1,6 +1,7 @@
 package com.beykus.beygram.data.delayed
 
 import com.beykus.beygram.domain.model.MessageTextEntity
+import com.beykus.beygram.domain.model.OutgoingReplyQuote
 
 /** Where a delayed text message is in its life. Only [Queued] messages wait for their time; the others wait for the user. */
 enum class DelayedSendStatus {
@@ -30,7 +31,8 @@ data class DelayedSendEntry(
     val createdAtMillis: Long,
     /** Wall-clock time in milliseconds from which the message may be sent. */
     val notBeforeMillis: Long,
-    val status: DelayedSendStatus
+    val status: DelayedSendStatus,
+    val quote: OutgoingReplyQuote? = null
 )
 
 /** A stored message older than this is dropped when the outbox is read, so an unsent message cannot wait forever. */

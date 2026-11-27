@@ -5,6 +5,7 @@ import android.os.SystemClock
 import com.beykus.beygram.data.settings.StealthSettingsStore
 import com.beykus.beygram.data.tdlib.TdAccountStorageLayout
 import com.beykus.beygram.domain.model.MessageSendOptions
+import com.beykus.beygram.domain.model.OutgoingReplyQuote
 import com.beykus.beygram.domain.model.MessageTextEntity
 import com.beykus.beygram.domain.repository.ConversationRepository
 import kotlinx.coroutines.CancellationException
@@ -33,7 +34,13 @@ internal class DelayedSendQueueFullException : IllegalStateException("Too many d
  * stealth policy still decides for an automatic send.
  */
 internal fun delayedDispatchOptions(entry: DelayedSendEntry, explicitSend: Boolean): MessageSendOptions =
-    MessageSendOptions(disableNotification = entry.disableNotification, sendNowConsent = explicitSend)
+    MessageSendOptions(
+        disableNotification = entry.disableNotification,
+        sendNowConsent = explicitSend,
+        replyQuote = entry.quote?.text,
+        replyQuotePosition = entry.quote?.position ?: 0,
+        replyQuoteEntities = entry.quote?.entities.orEmpty()
+    )
 
 /**
  * Delayed sending for one account. [enqueue] stores a message on disk before the composer is cleared. A stored message is
@@ -88,7 +95,8 @@ internal class DelayedSendQueue private constructor(context: Context, private va
         text: String,
         entities: List<MessageTextEntity>,
         disableNotification: Boolean,
-        delaySeconds: Int
+        delaySeconds: Int,
+        quote: OutgoingReplyQuote? = null
     ): Result<Unit> = withContext(Dispatchers.IO) {
         runCatching {
             val now = System.currentTimeMillis()
@@ -106,7 +114,8 @@ internal class DelayedSendQueue private constructor(context: Context, private va
                     disableNotification = disableNotification,
                     createdAtMillis = now,
                     notBeforeMillis = now + delaySeconds * 1000L,
-                    status = DelayedSendStatus.Queued
+                    status = DelayedSendStatus.Queued,
+                    quote = quote.takeIf { replyToMessageId != 0L }
                 )
                 outbox.save(created)
                 _entries.value = _entries.value + created

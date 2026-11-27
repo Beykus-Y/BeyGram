@@ -40,10 +40,11 @@ internal class TdConversationActions(
         when (name) {
             "message_text_length_max" -> _limits.update { it.copy(text = limit) }
             "message_caption_length_max" -> _limits.update { it.copy(caption = limit) }
+            "message_reply_quote_length_max" -> _limits.update { it.copy(quote = limit) }
             "paid_reaction_star_count_max" -> _limits.update { it.copy(paidReactionStarMax = limit) }
         }
     }
-    fun initialize() { scope.launch { listOf("message_text_length_max", "message_caption_length_max", "paid_reaction_star_count_max").forEach { name -> runCatching { option(name, request(TdApi.GetOption(name))) } } } }
+    fun initialize() { scope.launch { listOf("message_text_length_max", "message_caption_length_max", "message_reply_quote_length_max", "paid_reaction_star_count_max").forEach { name -> runCatching { option(name, request(TdApi.GetOption(name))) } } } }
 
     suspend fun capabilities(chatId: Long, messageId: Long): Result<MessageCapabilities> = conversationResult {
         val properties = request(TdApi.GetMessageProperties(chatId, messageId))
@@ -599,10 +600,7 @@ internal class TdConversationActions(
             requireFutureSchedule(options)
             if (options.viewOnce) throw UserMessageException(UiText.Res(R.string.err_view_once_single_media))
             val boundedCaption = boundTelegramText(caption, entities, limits.value.caption)
-            val replyTarget = replyId?.let {
-                if (!request(TdApi.GetMessageProperties(chatId, it)).canBeReplied) throw UserMessageException(UiText.Res(R.string.err_message_cannot_reply))
-                request(TdApi.GetMessage(chatId, it))
-            }
+            val replyTarget = replyId?.let { loadReplyTarget(chatId, it, options) }
             val resolved = stealth.resolve(chatId, options, media, onMediaHandoff = handoff::markHandedOff)
             val protocolOptions = sendOptions(resolved.options)
             val messages = stealth.scheduledRequest(resolved, TdApi.SendMessageAlbum().apply {
@@ -612,12 +610,10 @@ internal class TdConversationActions(
                 if (replyTarget != null) {
                     topicId = replySendTopic(replyTarget.topicId)
                     replyTo = TdApi.InputMessageReplyToMessage().apply {
-                    messageId = replyTarget.id
-                    pollOptionId = ""
-                    options.replyQuote?.takeIf { it.isNotBlank() }?.let { q ->
-                        quote = TdApi.InputTextQuote(TdApi.FormattedText(q, emptyArray()), options.replyQuotePosition.coerceAtLeast(0))
+                        messageId = replyTarget.id
+                        pollOptionId = ""
+                        quote = options.toInputTextQuote()
                     }
-                }
                 } else if (forumTopicId > 0L) {
                     topicId = TdApi.MessageTopicForum(forumTopicId.toInt())
                 }
@@ -650,6 +646,17 @@ internal class TdConversationActions(
         stealth.resend(chatId, orderedIds, sendNowConsent)
         Unit
     }
+    private suspend fun loadReplyTarget(chatId: Long, replyId: Long, options: MessageSendOptions): TdApi.Message {
+        val properties = request(TdApi.GetMessageProperties(chatId, replyId))
+        if (!properties.canBeReplied) throw UserMessageException(UiText.Res(R.string.err_message_cannot_reply))
+        val target = request(TdApi.GetMessage(chatId, replyId))
+        val quote = options.replyQuotePayload()
+        if (quote != null && (!properties.canBeCopied || !quote.matchesSource(messageFormattedText(target.content)?.text))) {
+            throw UserMessageException(UiText.Res(R.string.err_message_cannot_reply))
+        }
+        return target
+    }
+
     /** [forumTopicId] is used only without a reply target: a reply already carries its topic. */
     /** [content] is built from the media that stealth mode may have uploaded ahead of the send. */
     private suspend fun send(
@@ -660,10 +667,7 @@ internal class TdConversationActions(
         onVisibleId: (Long) -> Unit = {},
         content: (List<OutgoingMedia>) -> TdApi.InputMessageContent
     ) {
-        val replyTarget = replyId?.let {
-            if (!request(TdApi.GetMessageProperties(chatId, it)).canBeReplied) throw UserMessageException(UiText.Res(R.string.err_message_cannot_reply))
-            request(TdApi.GetMessage(chatId, it))
-        }
+        val replyTarget = replyId?.let { loadReplyTarget(chatId, it, options) }
         // Never persist a payment authorization or turn it into a scheduled send.
         if (confirmedPaidStars > 0L) {
             if (forumTopicId !in 0L..Int.MAX_VALUE.toLong() ||
@@ -695,9 +699,7 @@ internal class TdConversationActions(
                 replyTo = TdApi.InputMessageReplyToMessage().apply {
                     messageId = replyTarget.id
                     pollOptionId = ""
-                    options.replyQuote?.takeIf { it.isNotBlank() }?.let { q ->
-                        quote = TdApi.InputTextQuote(TdApi.FormattedText(q, emptyArray()), options.replyQuotePosition.coerceAtLeast(0))
-                    }
+                    quote = options.toInputTextQuote()
                 }
             } else if (forumTopicId > 0L) {
                 topicId = TdApi.MessageTopicForum(forumTopicId.toInt())

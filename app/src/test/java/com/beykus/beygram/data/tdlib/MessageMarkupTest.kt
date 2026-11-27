@@ -6,6 +6,27 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class MessageMarkupTest {
+    @Test fun `reply quote sends the exact position and fragment formatting`() {
+        val entities = listOf(MessageTextEntity(2, 4, TextStyleKind.Bold))
+        val quote = MessageSendOptions(
+            replyQuote = "😀word",
+            replyQuotePosition = 24,
+            replyQuoteEntities = entities
+        ).toInputTextQuote()!!
+
+        assertEquals(24, quote.position)
+        assertEquals("😀word", quote.text.text)
+        assertEquals(entities, quote.text.domainEntities())
+        assertNull(MessageSendOptions(replyQuote = "word", replyQuotePosition = -1).toInputTextQuote())
+    }
+
+    @Test fun `an edited source cannot retarget a quote to another occurrence`() {
+        val quote = OutgoingReplyQuote("word", 8, emptyList())
+        assertTrue(quote.matchesSource("word 😀 word"))
+        assertFalse(quote.matchesSource("word 😀 gone"))
+        assertFalse(quote.matchesSource("word"))
+    }
+
     @Test fun `UTF16 styles and hidden links survive an outgoing incoming round trip`() {
         val text = "😀 hello link"
         val entities = listOf(MessageTextEntity(3, 5, TextStyleKind.Bold), MessageTextEntity(9, 4, TextStyleKind.Url, "https://example.com"))
