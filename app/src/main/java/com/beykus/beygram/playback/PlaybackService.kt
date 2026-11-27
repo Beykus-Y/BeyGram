@@ -3,6 +3,8 @@ package com.beykus.beygram.playback
 import android.app.PendingIntent
 import android.content.Intent
 import android.os.Bundle
+import android.util.Log
+import java.util.concurrent.atomic.AtomicInteger
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.session.CommandButton
 import androidx.media3.session.DefaultMediaNotificationProvider
@@ -12,6 +14,9 @@ import androidx.media3.session.SessionCommand
 import androidx.media3.session.SessionResult
 import com.beykus.beygram.MainActivity
 import com.beykus.beygram.R
+import com.beykus.beygram.diagnostics.recordAppEvent
+import com.beykus.beygram.diagnostics.report.EventKind
+import com.beykus.beygram.diagnostics.report.Severity
 import com.google.common.collect.ImmutableList
 import com.google.common.util.concurrent.Futures
 import com.google.common.util.concurrent.ListenableFuture
@@ -30,6 +35,8 @@ import kotlinx.coroutines.launch
 @UnstableApi
 class PlaybackService : MediaSessionService() {
     private var session: MediaSession? = null
+    private val generation = nextGeneration.incrementAndGet()
+    private var lastForegroundRequest: Boolean? = null
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
 
     private val shuffleCommand = SessionCommand(COMMAND_SHUFFLE, Bundle.EMPTY)
@@ -75,6 +82,20 @@ class PlaybackService : MediaSessionService() {
 
     override fun onCreate() {
         super.onCreate()
+        if (PlaybackEngine.state.value.item?.systemPrivate == true) {
+            stopSelf()
+            return
+        }
+        setListener(object : MediaSessionService.Listener {
+            override fun onForegroundServiceStartNotAllowedException() {
+                Log.w(TAG, "foreground_start_denied generation=$generation")
+                recordSessionEvent(
+                    "media_session_foreground_denied",
+                    "Плеер: системе не разрешено поднять сервис воспроизведения",
+                    Severity.WARNING
+                )
+            }
+        })
         setMediaNotificationProvider(
             DefaultMediaNotificationProvider.Builder(this)
                 .setChannelId(CHANNEL_ID)
@@ -94,6 +115,11 @@ class PlaybackService : MediaSessionService() {
             .setMediaButtonPreferences(buttons(PlaybackEngine.state.value.shuffleEnabled))
             .build()
         session = created
+        // The app starts this service directly, not through a MediaController. Register now so
+        // Media3 attaches its notification controller even if no external controller binds.
+        addSession(created)
+        Log.i(TAG, "session_registered generation=$generation count=${sessions.size}")
+        recordSessionEvent("media_session_registered", "Плеер: медиасессия зарегистрирована", Severity.INFO)
         scope.launch {
             PlaybackEngine.state.map { it.shuffleEnabled }.distinctUntilChanged().collect { shuffleOn ->
                 created.setMediaButtonPreferences(buttons(shuffleOn))
@@ -103,17 +129,66 @@ class PlaybackService : MediaSessionService() {
         runCatching { EqualizerRuntime.start(this) }
     }
 
-    override fun onGetSession(controllerInfo: MediaSession.ControllerInfo): MediaSession? = session
+    override fun onGetSession(controllerInfo: MediaSession.ControllerInfo): MediaSession? =
+        session?.takeUnless { PlaybackEngine.state.value.item?.systemPrivate == true }
+
+    override fun onUpdateNotification(session: MediaSession, startInForegroundRequired: Boolean) {
+        if (lastForegroundRequest != startInForegroundRequired) {
+            lastForegroundRequest = startInForegroundRequired
+            Log.i(TAG, "notification_update generation=$generation foregroundRequested=$startInForegroundRequired")
+            runCatching {
+                recordAppEvent(
+                    kind = EventKind.NOTIFICATION,
+                    code = "media_session_foreground_changed",
+                    text = "Плеер: передний план медиасессии изменён",
+                    attrs = mapOf(
+                        "generation" to generation.toString(),
+                        "foreground_required" to startInForegroundRequired.toString(),
+                        "renderer" to if (PlaybackEngine.state.value.bgMixActive) "bgmix" else "exo",
+                    )
+                )
+            }
+        }
+        // Keep Media3 in charge of the actual notification and foreground-service lifecycle.
+        super.onUpdateNotification(session, startInForegroundRequired)
+    }
 
     override fun onDestroy() {
         scope.cancel()
+        clearListener()
         runCatching { EqualizerRuntime.stop() }
-        session?.release()
+        val created = session
         session = null
+        if (created != null) {
+            if (isSessionAdded(created)) removeSession(created)
+            created.release()
+            Log.i(TAG, "session_released generation=$generation count=${sessions.size}")
+            recordSessionEvent("media_session_released", "Плеер: медиасессия освобождена", Severity.INFO)
+        }
         super.onDestroy()
     }
 
+    /** Privacy-safe lifecycle rows for the diagnostics export: generation, renderer and counts only. */
+    private fun recordSessionEvent(code: String, text: String, severity: Severity) {
+        runCatching {
+            recordAppEvent(
+                kind = EventKind.NOTIFICATION,
+                code = code,
+                text = text,
+                severity = severity,
+                attrs = mapOf(
+                    "generation" to generation.toString(),
+                    "sessions" to sessions.size.toString(),
+                    "renderer" to if (PlaybackEngine.state.value.bgMixActive) "bgmix" else "exo",
+                    "channel" to CHANNEL_ID,
+                )
+            )
+        }
+    }
+
     companion object {
+        private const val TAG = "PlaybackService"
+        private val nextGeneration = AtomicInteger()
         private const val CHANNEL_ID = "playback"
 
         /** Set on the notification's tap intent; [MainActivity] then opens the full player. */
