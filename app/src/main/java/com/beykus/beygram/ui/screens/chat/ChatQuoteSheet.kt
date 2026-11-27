@@ -27,6 +27,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.Stable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.saveable.listSaver
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -50,12 +51,12 @@ import com.beykus.beygram.ui.motion.motionEntrance
 
 @Stable
 internal class ChatQuoteState {
-    private data class Quote(val messageId: Long, val text: String, val position: Int)
+    private data class Quote(val messageId: Long, val text: String, val position: Int, val restoreAfterRecreation: Boolean)
     private var quote by mutableStateOf<Quote?>(null)
     var pickerTarget by mutableStateOf<ChatMessage?>(null)
 
-    fun select(messageId: Long, text: String, position: Int) {
-        quote = Quote(messageId, text, position)
+    fun select(messageId: Long, text: String, position: Int, restoreAfterRecreation: Boolean = false) {
+        quote = Quote(messageId, text, position, restoreAfterRecreation)
     }
 
     fun textFor(replyId: Long?): String? = quote?.takeIf { it.messageId == replyId }?.text
@@ -73,6 +74,25 @@ internal class ChatQuoteState {
         clear()
         if (current == null || current.messageId != replyId) return options
         return options.copy(replyQuote = current.text, replyQuotePosition = current.position)
+    }
+
+    companion object {
+        val Saver = listSaver<ChatQuoteState, Any>(
+            save = { state ->
+                val eligible = state.quote?.takeIf { it.restoreAfterRecreation }
+                if (eligible == null) emptyList() else listOf(eligible.messageId, eligible.text, eligible.position)
+            },
+            restore = { saved ->
+                ChatQuoteState().apply {
+                    val messageId = saved.getOrNull(0) as? Long
+                    val text = saved.getOrNull(1) as? String
+                    val position = saved.getOrNull(2) as? Int
+                    if (messageId != null && text != null && position != null) {
+                        select(messageId, text, position, restoreAfterRecreation = true)
+                    }
+                }
+            }
+        )
     }
 }
 
