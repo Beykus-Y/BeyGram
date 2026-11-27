@@ -122,6 +122,7 @@ class LyricsRepository(
         var best: RankedDoc? = null
         var sawAuth = false
         var sawRetryable = false
+        var retryBackoffMs = 0L
         var sawNonRetryableFailure = false
         var remaining = eligibleSources.size
 
@@ -151,7 +152,13 @@ class LyricsRepository(
                                 emitUpgrading = false
                             }
                             is LyricsFetchResult.Unavailable -> {
-                                if (outcome.retryable) sawRetryable = true else sawNonRetryableFailure = true
+                                if (outcome.retryable) {
+                                    sawRetryable = true
+                                    val hint = outcome.retryAfterMs ?: RETRYABLE_BACKOFF_DEFAULT_MS
+                                    if (hint > retryBackoffMs) retryBackoffMs = hint
+                                } else {
+                                    sawNonRetryableFailure = true
+                                }
                                 emitDoc = null
                                 emitUpgrading = false
                             }
@@ -181,9 +188,14 @@ class LyricsRepository(
             send(LyricsLoadState.Ready(finalBest.document, isUpgrading = false))
         } else {
             val reason = fallbackUnavailableReason(identity, settings, sawAuth, sawRetryable)
-            if (!sawAuth && !sawRetryable && !sawNonRetryableFailure) {
-                val negTtl = if (identity.audioSource == TrackAudioSource.YandexMusic) YANDEX_NEGATIVE_TTL_MS else EXTERNAL_NEGATIVE_TTL_MS
-                writeMemory(negKey, MemoryEntry.Miss(now(), negTtl), startedMemGen)
+            if (!sawAuth && !sawNonRetryableFailure) {
+                if (sawRetryable) {
+                    val backoffTtl = retryBackoffMs.coerceIn(RETRYABLE_BACKOFF_MIN_MS, RETRYABLE_BACKOFF_MAX_MS)
+                    writeMemory(negKey, MemoryEntry.Miss(now(), backoffTtl), startedMemGen)
+                } else {
+                    val negTtl = if (identity.audioSource == TrackAudioSource.YandexMusic) YANDEX_NEGATIVE_TTL_MS else EXTERNAL_NEGATIVE_TTL_MS
+                    writeMemory(negKey, MemoryEntry.Miss(now(), negTtl), startedMemGen)
+                }
             }
             send(LyricsLoadState.Unavailable(reason))
         }
@@ -201,6 +213,22 @@ class LyricsRepository(
         clearMemoryCache()
         if (diskCache != null) {
             withContext(Dispatchers.IO) { diskCache.clear() }
+        }
+    }
+
+    /** Clears both in-memory and disk-cached lyrics belonging to [accountId] on sign-out or account removal. */
+    suspend fun clearAccountCacheOffMain(accountId: String) {
+        if (accountId.isBlank()) return
+        val prefix = "$accountId|"
+        synchronized(cacheLock) {
+            cacheGeneration += 1
+            val iter = memoryCache.keys.iterator()
+            while (iter.hasNext()) {
+                if (iter.next().startsWith(prefix)) iter.remove()
+            }
+        }
+        if (diskCache != null) {
+            withContext(Dispatchers.IO) { diskCache.removeByAccount(accountId) }
         }
     }
 
@@ -331,6 +359,9 @@ class LyricsRepository(
         private const val EXTERNAL_POSITIVE_TTL_MS = 7L * 24 * 60 * 60_000L
         private const val YANDEX_NEGATIVE_TTL_MS = 60_000L
         private const val EXTERNAL_NEGATIVE_TTL_MS = 15 * 60_000L
+        private const val RETRYABLE_BACKOFF_MIN_MS = 15_000L
+        private const val RETRYABLE_BACKOFF_DEFAULT_MS = 60_000L
+        private const val RETRYABLE_BACKOFF_MAX_MS = 10 * 60_000L
     }
 }
 

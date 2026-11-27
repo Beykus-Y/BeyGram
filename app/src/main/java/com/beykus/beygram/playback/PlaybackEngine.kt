@@ -9,6 +9,7 @@ import android.media.AudioManager
 import android.net.Uri
 import android.os.PowerManager
 import android.os.SystemClock
+import android.util.Log
 import android.view.TextureView
 import androidx.core.content.ContextCompat
 import androidx.core.content.FileProvider
@@ -50,7 +51,9 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -60,6 +63,7 @@ import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
@@ -390,7 +394,10 @@ object PlaybackEngine {
     private var queuePageJob: Job? = null
     private var persistence: MusicSessionPersistence? = null
     private var queuePageRetryJob: Job? = null
+    private var queuePageNetworkJob: Job? = null
     private var queuePageRetries = 0
+    /** True when an endless radio reached the end of loaded tracks while the user intended to keep playing. */
+    private var endlessWaitingForRecovery = false
     /** Tracks skipped in a row without one starting; see [MAX_CONSECUTIVE_SKIPS]. */
     private var consecutiveSkips = 0
     /** Start of the current wait for the network, 0 when the queue is not waiting. */
@@ -415,6 +422,8 @@ object PlaybackEngine {
     private var prefetchPolicyAccount: String? = null
     /** BG Mix music path: used only for eligible local music queues while the experimental flag is on. */
     private var bgMix: BgMixQueueDriver? = null
+    /** Deferred queue edit while a native crossfade is running, applied as soon as the transition finishes. */
+    private var pendingBgMixRetarget: Pair<List<PlaybackItem>, PlaybackQueueSource?>? = null
     /** Listeners the media session registered on the wrapper; BG Mix events go to them directly. */
     private val bgMixListeners = mutableSetOf<Player.Listener>()
     /** Session listener -> the copy that drops ExoPlayer events while BG Mix plays. */
@@ -1012,7 +1021,8 @@ object PlaybackEngine {
         offerBgMix: Boolean = true
     ) {
         val selected = queue.items.getOrNull(queue.index) ?: return
-        YandexTrackResolver.cancelOutside(queue.items.mapTo(HashSet()) { it.key }, includePlayback = true)
+        YandexTrackResolver.evictOutside(queue.items.mapTo(HashSet()) { it.key }, includePlayback = true)
+        appContext?.let { YandexTrackResolver.pruneUnused(it) }
         restoredRadioStart = null
         // The queue always starts on ExoPlayer, which plays a local file at once and streams one that is still downloading.
         // With BG Mix on, the handover below moves the queue into BG Mix once the track is ready for it (see
@@ -1245,7 +1255,15 @@ object PlaybackEngine {
 
     private fun resolvedItem(item: PlaybackItem): PlaybackItem {
         val handle = PlaybackSources.handle(item.systemMediaId) ?: return item
-        val resolved = handle.resolve() ?: return handle.item
+        val resolved = handle.resolve() ?: run {
+            val stale = handle.item
+            if (stale.path.isNotBlank() && stale.growing == null && !java.io.File(stale.path).isFile) {
+                val cleared = stale.copy(path = "")
+                handle.item = cleared
+                return cleared
+            }
+            return stale
+        }
         val updated = handle.item.copy(path = resolved.path, growing = resolved.growing)
         handle.item = updated
         return updated
@@ -1563,6 +1581,10 @@ object PlaybackEngine {
         }
         // At ENDED ExoPlayer keeps playWhenReady=true; the user's Play must restart, not "pause" an already silent item.
         if (_state.value.ended) {
+            if (currentQueueIsEndless()) {
+                triggerManualEndlessRecovery(startServiceIfNeeded = true)
+                return
+            }
             _state.update { it.copy(failed = false, intentPlaying = true) }
             if (_state.value.item?.systemPrivate != true) startPlaybackService()
             target.play()
@@ -1583,6 +1605,7 @@ object PlaybackEngine {
 
     /** Пауза без сброса файла: так голосовое или кружок могут остановить музыку, не теряя её места. Состояние меняем сразу: если файл ещё буферизуется, плеер не пришлёт событие о паузе. */
     fun pause() {
+        endlessWaitingForRecovery = false
         if (bgMixActive()) {
             pauseBgMix()
             return
@@ -1699,7 +1722,8 @@ object PlaybackEngine {
         queuePageJob = null
         prefetchedKeys.clear()
         haltPlayer()
-        YandexTrackResolver.cancelOutside(emptySet(), includePlayback = true)
+        YandexTrackResolver.evictOutside(emptySet(), includePlayback = true)
+        appContext?.let { YandexTrackResolver.pruneUnused(it) }
     }
 
     /** Any new playback or an explicit stop ends the chance to undo the last close. */
@@ -2035,7 +2059,11 @@ object PlaybackEngine {
                 val currentIndex = _state.value.queueIndex
                 val end = bgMixWindowEndExclusive(driver.queueItems.size, currentIndex, BG_MIX_DOWNLOAD_AHEAD)
                 if (currentIndex in driver.queueItems.indices) {
-                    YandexTrackResolver.cancelOutside(driver.queueItems.subList(currentIndex, end).mapTo(HashSet()) { it.key })
+                    val keepStart = (currentIndex - 1).coerceAtLeast(0)
+                    val keep = driver.queueItems.subList(keepStart, end).mapTo(HashSet()) { it.key }
+                    if (YandexTrackResolver.evictOutside(keep)) {
+                        appContext?.let { YandexTrackResolver.pruneUnused(it) }
+                    }
                 }
                 driver.appendReady(currentIndex, ::bgMixFileFor)
                 val first = driver.pendingIndex ?: return@launch
@@ -2063,8 +2091,14 @@ object PlaybackEngine {
         cancelBgMixHandover()
         val context = appContext ?: return
         BgMixSettingsStore.load(context)
-        if (!BgMixSettingsStore.enabled.value) return
-        if (!BgMixNative.isAvailable) return
+        if (!BgMixSettingsStore.enabled.value) {
+            Log.i("BgMixHandover", "blocked reason=${BgMixHandoverBlockReason.Disabled.name}")
+            return
+        }
+        if (!BgMixNative.isAvailable) {
+            Log.i("BgMixHandover", "blocked reason=${BgMixHandoverBlockReason.NativeUnavailable.name}")
+            return
+        }
         bgMixHandoverJob = scope.launch {
             runBgMixHandover(context, rejectedKey)
             if (!bgMixActive()) setBgMixPreparing(false)
@@ -2086,47 +2120,65 @@ object PlaybackEngine {
     private suspend fun runBgMixHandover(context: Context, initialRejectedKey: String? = null) {
         var failures = 0
         var rejectedKey = initialRejectedKey
-        while (failures < BG_HANDOVER_ATTEMPTS) {
+        var lastItemKey: String? = null
+        var exhaustedKey: String? = null
+        var lastLoggedReason: BgMixHandoverBlockReason? = null
+        while (currentCoroutineContext().isActive) {
             if (bgMixActive()) return
-            // A previous host can still be releasing PCM. Exo keeps playing while we wait.
-            if (bgMix?.isRetiring == true) {
-                delay(BG_HANDOVER_POLL_MS)
-                continue
-            }
             val state = _state.value
             val item = state.item ?: return
             if (!item.isMusic || item.systemPrivate || state.queueIndex !in state.queue.indices) return
-            if (item.key == rejectedKey) {
-                setBgMixPreparing(false)
-                delay(BG_HANDOVER_IDLE_POLL_MS)
-                continue
+            if (item.key != lastItemKey) {
+                failures = 0
+                exhaustedKey = null
+                lastItemKey = item.key
             }
-            val candidate = BgMixQueueDriver.isCandidate(item) || bgMixFileFor(item) != null
-            setBgMixPreparing(candidate)
-            val file = if (candidate && bgMixHandoverMoment(state, item)) bgMixFileFor(item) else null
-            if (file == null) {
-                delay(if (state.intentPlaying) BG_HANDOVER_POLL_MS else BG_HANDOVER_IDLE_POLL_MS)
+            val file = bgMixFileFor(item)
+            val candidate = BgMixQueueDriver.isCandidate(item) || file != null
+            val target = exo
+            val remainingMs = target?.duration?.takeIf { it != C.TIME_UNSET }?.let { it - target.currentPosition }
+            val reason = bgMixHandoverBlockReason(
+                enabled = BgMixSettingsStore.enabled.value,
+                nativeAvailable = BgMixNative.isAvailable,
+                isMusic = item.isMusic,
+                systemPrivate = item.systemPrivate,
+                isCandidate = candidate,
+                isRetiring = bgMix?.isRetiring == true,
+                isRejected = item.key == rejectedKey,
+                isAttemptsExhausted = item.key == exhaustedKey,
+                playing = state.playing,
+                intentPlaying = state.intentPlaying,
+                ended = state.ended,
+                waitingForNetwork = state.waitingForNetwork,
+                hasDeferredSeek = deferredSeek != null,
+                speed = effectiveSpeed(item),
+                remainingMs = remainingMs,
+                minRemainingMs = BG_HANDOVER_MIN_REMAINING_MS,
+                fileReady = file != null,
+            )
+            if (reason != lastLoggedReason) {
+                Log.i("BgMixHandover", "state reason=${reason.name} attempts=$failures")
+                lastLoggedReason = reason
+            }
+            setBgMixPreparing(reason.showsPreparingIndicator())
+            if (reason != BgMixHandoverBlockReason.Ready || file == null) {
+                delay(if (state.intentPlaying && reason.showsPreparingIndicator()) BG_HANDOVER_POLL_MS else BG_HANDOVER_IDLE_POLL_MS)
                 continue
             }
             when (handOverToBgMix(context, state, file) { rejectedKey = file.key }) {
                 true -> return
-                // The queue changed while the session was being prepared: prepare again for the new one.
+                // The queue or playback state changed while the session was being prepared: re-evaluate without burning attempts.
                 null -> continue
                 false -> {
                     if (rejectedKey != file.key) failures++ else failures = 0
+                    if (failures >= BG_HANDOVER_ATTEMPTS) {
+                        exhaustedKey = file.key
+                        setBgMixPreparing(false)
+                    }
                     delay(BG_HANDOVER_RETRY_MS)
                 }
             }
         }
-    }
-
-    /** ExoPlayer plays this music track audibly at normal speed, with enough of it left to be worth moving. */
-    private fun bgMixHandoverMoment(state: PlaybackState, item: PlaybackItem): Boolean {
-        val target = exo ?: return false
-        if (!state.playing || !state.intentPlaying || state.ended || state.waitingForNetwork) return false
-        if (deferredSeek != null || effectiveSpeed(item) != 1f) return false
-        val duration = target.duration
-        return duration == C.TIME_UNSET || duration - target.currentPosition >= BG_HANDOVER_MIN_REMAINING_MS
     }
 
     /**
@@ -2146,10 +2198,13 @@ object PlaybackEngine {
         val index = if (shuffled) 0 else state.queueIndex
         val queueKeys = state.queue.map { it.key }
         fun queueChanged(): Boolean = _state.value.queue.map { it.key } != queueKeys || _state.value.shuffleEnabled != state.shuffleEnabled
-        if (!driver.stage(order, index, single, ::bgMixFileFor)) return false
+        if (!driver.stage(order, index, single, ::bgMixFileFor)) {
+            Log.w("BgMixHandover", "handover_failed stage=stage")
+            return false
+        }
         if (generation != bgMixHandoverGeneration || !stillHandingOver(file)) {
             driver.discardStaged()
-            return false
+            return null
         }
         val status = driver.stagedStatus
         val loaded = status?.let {
@@ -2165,18 +2220,25 @@ object PlaybackEngine {
             return null
         }
         if (loaded?.queue?.any { it.state == "failed" } == true) {
+            Log.w("BgMixHandover", "handover_failed stage=decode_rejected")
             onRejected()
             driver.discardStaged()
             return false
         }
-        if (loaded == null || !stillHandingOver(file)) {
+        if (!stillHandingOver(file) || generation != bgMixHandoverGeneration) {
+            driver.discardStaged()
+            return null
+        }
+        if (loaded == null) {
+            Log.w("BgMixHandover", "handover_failed stage=prepare_timeout")
             driver.discardStaged()
             return false
         }
-        val target = exo ?: run { driver.discardStaged(); return false }
+        val target = exo ?: run { driver.discardStaged(); return null }
         // A starting guess: the alignment below measures where the native output is really heard.
         val positionMs = target.currentPosition + BG_HANDOVER_LEAD_MS
         if (!driver.seekStaged(positionMs / 1000.0)) {
+            Log.w("BgMixHandover", "handover_failed stage=seek_staged")
             driver.discardStaged()
             return false
         }
@@ -2187,7 +2249,12 @@ object PlaybackEngine {
         val started = withTimeoutOrNull(BG_HANDOVER_START_TIMEOUT_MS) {
             driver.stagedStatus?.first { snapshot -> snapshot?.decks?.getOrNull(snapshot.master)?.playing == true }
         }
-        if (started == null || !stillHandingOver(file) || generation != bgMixHandoverGeneration) {
+        if (!stillHandingOver(file) || generation != bgMixHandoverGeneration) {
+            driver.discardStaged()
+            return null
+        }
+        if (started == null) {
+            Log.w("BgMixHandover", "handover_failed stage=start_timeout")
             driver.discardStaged()
             return false
         }
@@ -2401,14 +2468,24 @@ object PlaybackEngine {
         }
         // An endless queue (a radio) played out its known tracks while the next page loads or waits for its retry: keep the
         // play intent and wait. The page is requested on every track change, and its result applies this status again.
+        val pageInFlight = queuePageJob?.isActive == true || (
+            queuePageRetryJob?.isActive == true &&
+                queuePageRetries <= ENDLESS_AWAIT_FAST_RETRIES &&
+                AutoDownloadNetworkStatus.network.value != AutoDownloadNetwork.None
+            )
         val awaitingPage = bgMixAwaitsNextPage(
             finished = finished,
             pendingIndex = pending,
             endless = queueSource?.loadMore != null,
             repeat = _state.value.repeatMode,
-            pageInFlight = queuePageJob?.isActive == true || queuePageRetryJob?.isActive == true
+            pageInFlight = pageInFlight
         )
         val reportFinished = finished && !awaitingPage
+        if (reportFinished && queueSource?.loadMore != null && (before.intentPlaying || before.playing) &&
+            _state.value.repeatMode == PlaybackRepeatMode.Off
+        ) {
+            endlessWaitingForRecovery = true
+        }
         val playing = !status.paused && deckPlaying && !finished
         val hasNext = status.queue.any { (driver.indexOfNative(it.id) ?: -1) > index } || pending != null
         _state.update { current ->
@@ -2431,7 +2508,15 @@ object PlaybackEngine {
             )
         }
         // A radio asks for its next page as BG Mix advances, the same way the regular player does on a track change.
-        if (before.queueIndex != index) loadNextQueuePage()
+        if (before.queueIndex != index) {
+            queuePageRetries = 0
+            queuePageRetryJob?.cancel()
+            queuePageRetryJob = null
+            queuePageNetworkJob?.cancel()
+            queuePageNetworkJob = null
+            endlessWaitingForRecovery = false
+            loadNextQueuePage()
+        }
         if (before.item?.key != _state.value.item?.key) {
             exo?.let { target ->
                 if (target.mediaItemCount > 0) target.replaceMediaItem(0, placeholderItem(item))
@@ -2454,6 +2539,22 @@ object PlaybackEngine {
         }
         notifyChanges(before, _state.value)
         fireStartedCallback()
+        if (!status.transitionActive) {
+            val deferred = pendingBgMixRetarget
+            if (deferred != null) {
+                pendingBgMixRetarget = null
+                if (!retargetBgMix(deferred.first, deferred.second)) {
+                    val fallbackIdx = deferred.first.indexOfFirst { it.key == item.key }.coerceAtLeast(0)
+                    scope.launch {
+                        continueBgMixQueueOnExo(
+                            deferred.first,
+                            fallbackIdx,
+                            autoPlay = _state.value.intentPlaying || _state.value.playing
+                        )
+                    }
+                }
+            }
+        }
     }
 
     private fun toggleBgMix() {
@@ -2464,6 +2565,10 @@ object PlaybackEngine {
     /** Resumes BG Mix, or restarts the queue from its current index when it has ended. */
     private fun bgMixPlay() {
         if (_state.value.ended) {
+            if (currentQueueIsEndless()) {
+                triggerManualEndlessRecovery(startServiceIfNeeded = false)
+                return
+            }
             playQueueIndex(_state.value.queueIndex)
             return
         }
@@ -2479,6 +2584,7 @@ object PlaybackEngine {
     private fun pauseBgMix() {
         // Any pause but the focus listener's transient one is final: a later focus gain must not restart playback.
         bgResumeOnFocusGain = false
+        endlessWaitingForRecovery = false
         val before = _state.value
         bgMix?.pause()
         releaseBgWakeLock()
@@ -2498,6 +2604,7 @@ object PlaybackEngine {
         bgMixSeekJob?.cancel()
         bgMixSeekJob = null
         bgMixOriginalQueue = null
+        pendingBgMixRetarget = null
         bgMix?.attachWaveTap(0L)
         BgWaveHostTap.exoSuppressedForBgMix = false
         bgMix?.stop()
@@ -2609,6 +2716,7 @@ object PlaybackEngine {
                     continueBgMixQueueOnExo(state.queue, state.queueIndex + 1, autoPlay = state.playing || state.intentPlaying || state.ended)
                 }
                 state.repeatMode == PlaybackRepeatMode.All -> restartBgMix(state.queue, 0, 0L, state.intentPlaying || state.ended)
+                currentQueueIsEndless() -> triggerManualEndlessRecovery(startServiceIfNeeded = false)
             }
             return
         }
@@ -2617,7 +2725,10 @@ object PlaybackEngine {
         val hasNext = target.hasNextMediaItem()
         val fallback = if (state.shuffleEnabled) null else (state.queueIndex + 1).takeIf { it in state.queue.indices }
         val wrapAll = state.repeatMode == PlaybackRepeatMode.All && target.mediaItemCount > 1
-        if (!hasNext && !wrapAll && fallback == null) return
+        if (!hasNext && !wrapAll && fallback == null) {
+            if (currentQueueIsEndless()) triggerManualEndlessRecovery(startServiceIfNeeded = true)
+            return
+        }
         _manualSkips.update { it + 1 }
         val wasPlaying = state.playing || state.intentPlaying || state.ended
         transitionToken++
@@ -2778,11 +2889,23 @@ object PlaybackEngine {
         }
     }
 
-    /** Files the player still reads: the playing track, its queue, and a music track waiting behind a voice note. */
+    /** Files the player still reads: the playing track, its bounded ownership window, and any music waiting behind a voice note. */
     fun musicPathsInUse(): Set<String> {
         val current = _state.value
-        val waiting = interruptedMusic?.let { listOf(it.item) + it.queue }.orEmpty()
-        return (listOfNotNull(current.item) + current.queue + waiting).map { it.path }.filter { it.isNotBlank() }.toSet()
+        val waiting = interruptedMusic?.let {
+            val idx = it.queueIndex
+            val start = (idx - 1).coerceAtLeast(0)
+            val end = (idx + 2).coerceAtMost(it.queue.size)
+            listOf(it.item) + if (start < end) it.queue.subList(start, end) else emptyList()
+        }.orEmpty()
+        val bgMixPaths = bgMix?.let { driver ->
+            val idx = current.queueIndex
+            val start = (idx - 1).coerceAtLeast(0)
+            val end = bgMixWindowEndExclusive(driver.queueItems.size, idx, BG_MIX_DOWNLOAD_AHEAD)
+            if (start < end) driver.queueItems.subList(start, end).mapNotNull { it.path.takeIf(String::isNotBlank) }.toSet()
+            else emptySet()
+        }.orEmpty()
+        return activeMusicOwnershipPaths(current, waiting, bgMixPaths)
     }
 
     fun setShuffle(enabled: Boolean) {
@@ -3025,6 +3148,21 @@ object PlaybackEngine {
     private fun retargetBgMix(queue: List<PlaybackItem>, source: PlaybackQueueSource? = queueSource): Boolean {
         val driver = bgMix?.takeIf { it.isActive } ?: return false
         val current = _state.value.item ?: return false
+        if (driver.status?.value?.transitionActive == true) {
+            val newIndex = queue.indexOfFirst { it.key == current.key }.takeIf { it >= 0 } ?: return false
+            pendingBgMixRetarget = queue to source
+            val known = _state.value.queue.mapTo(HashSet()) { it.key }
+            queue.filterNot { it.key in known }.forEach { registerSource(it, source) }
+            _state.update {
+                it.copy(
+                    queue = queue,
+                    queueIndex = newIndex,
+                    timelineHasNext = bgMixHasNext(newIndex, queue.size) || driver.pendingIndex != null
+                )
+            }
+            return true
+        }
+        pendingBgMixRetarget = null
         // Only new items get a source registration: re-registering a known one would replace its handle with a copy
         // that may predate a resolved file.
         val known = _state.value.queue.mapTo(HashSet()) { it.key }
@@ -3045,11 +3183,16 @@ object PlaybackEngine {
 
     /** Ends the page load of a queue that a new one replaces: its result is dropped when it arrives. */
     private fun dropQueuePages() {
+        pendingBgMixRetarget = null
         queuePageGeneration++
+        queuePageRetries = 0
+        endlessWaitingForRecovery = false
         queuePageJob?.cancel()
         queuePageJob = null
         queuePageRetryJob?.cancel()
         queuePageRetryJob = null
+        queuePageNetworkJob?.cancel()
+        queuePageNetworkJob = null
         _queuePageLoading.value = false
     }
 
@@ -3092,10 +3235,14 @@ object PlaybackEngine {
         if (state.queue.size <= 1 || keep !in state.queue.indices) return
         // A page that is still loading, or one that the source would load later, must not refill the cleared queue.
         queuePageGeneration++
+        queuePageRetries = 0
+        endlessWaitingForRecovery = false
         queuePageJob?.cancel()
         queuePageJob = null
         queuePageRetryJob?.cancel()
         queuePageRetryJob = null
+        queuePageNetworkJob?.cancel()
+        queuePageNetworkJob = null
         _queuePageLoading.value = false
         queueSource = queueSource?.let {
             PlaybackQueueSource(it.accountId, it.observeFile, it.download, it.autoDownload, loadMore = null)
@@ -3326,6 +3473,11 @@ object PlaybackEngine {
                 requestSilenceMeasurement()
                 queuePageRetries = 0
                 loadNextQueuePage()
+                if (!bgMixActive() && bgMixHandoverJob?.isActive != true &&
+                    _state.value.item?.let { it.isMusic && !it.systemPrivate } == true
+                ) {
+                    scheduleBgMixHandover()
+                }
             }
         }
 
@@ -3374,8 +3526,11 @@ object PlaybackEngine {
         networkWaitJob?.cancel()
         networkWaitJob = null
         queuePageRetries = 0
+        endlessWaitingForRecovery = false
         queuePageRetryJob?.cancel()
         queuePageRetryJob = null
+        queuePageNetworkJob?.cancel()
+        queuePageNetworkJob = null
         if (_state.value.waitingForNetwork) _state.update { it.copy(waitingForNetwork = false) }
     }
 
@@ -3459,6 +3614,9 @@ object PlaybackEngine {
         // The last loaded track ended while the next queue page is still loading (or about to be retried). The page
         // restarts playback, and Android would refuse to start the service again from the background, so it stays up.
         if (queuePageJob?.isActive == true || queuePageRetryJob?.isActive == true) return
+        if (queueSource?.loadMore != null && _state.value.intentPlaying && _state.value.repeatMode == PlaybackRepeatMode.Off) {
+            endlessWaitingForRecovery = true
+        }
         // ExoPlayer already advanced through Repeat/Next when it could; ENDED means the session is finished.
         stopPlaybackService()
         _audioSessionId.value = null
@@ -3561,6 +3719,22 @@ object PlaybackEngine {
     }
 
     /**
+     * Manual recovery when the listener taps Play or Next at the tail of an endless radio queue
+     * (e.g. after temporary network loss or exhausted page retries).
+     */
+    private fun triggerManualEndlessRecovery(startServiceIfNeeded: Boolean) {
+        queuePageRetries = 0
+        queuePageRetryJob?.cancel()
+        queuePageRetryJob = null
+        queuePageNetworkJob?.cancel()
+        queuePageNetworkJob = null
+        endlessWaitingForRecovery = true
+        _state.update { it.copy(failed = false, ended = false, intentPlaying = true, isBuffering = true) }
+        if (startServiceIfNeeded && _state.value.item?.systemPrivate != true) startPlaybackService()
+        loadNextQueuePage()
+    }
+
+    /**
      * Extends the existing Media3 timeline without rebuilding the current source or resetting the seek position.
      * The loader belongs to the active Telegram account, and a stale result cannot resurrect a stopped queue.
      */
@@ -3593,13 +3767,25 @@ object PlaybackEngine {
                 }
                 if (bgMixActive()) {
                     // BG Mix plays its own queue: the page extends it instead of the Exo timeline.
-                    if (extendBgMixQueue(fresh, source)) queuePageRetries = 0 else scheduleQueuePageRetry(generation)
+                    if (extendBgMixQueue(fresh, source)) {
+                        queuePageRetries = 0
+                        queuePageNetworkJob?.cancel()
+                        queuePageNetworkJob = null
+                        val shouldResume = now.ended && (now.intentPlaying || endlessWaitingForRecovery)
+                        endlessWaitingForRecovery = false
+                        if (shouldResume) _state.update { it.copy(intentPlaying = true) }
+                    } else {
+                        scheduleQueuePageRetry(generation)
+                    }
                     return@launch
                 }
                 val target = exo ?: return@launch
                 fresh.forEach { registerSource(it, source) }
                 target.addMediaItems(fresh.map(::mediaItemFor))
-                val ended = now.ended && now.intentPlaying
+                val ended = (now.ended && now.intentPlaying) || (now.ended && endlessWaitingForRecovery)
+                endlessWaitingForRecovery = false
+                queuePageNetworkJob?.cancel()
+                queuePageNetworkJob = null
                 _state.update { it.copy(queue = it.queue + fresh).withTimelineNavigation(target) }
                 if (ended) {
                     target.seekTo(now.queue.size, 0L)
@@ -3613,7 +3799,7 @@ object PlaybackEngine {
             } catch (cancelled: CancellationException) {
                 throw cancelled
             } catch (_: Exception) {
-                // Keep the existing playable timeline and try again after 2, 5 and 15 seconds while the track plays.
+                // Keep the existing playable timeline and try again with bounded backoff while the track plays.
                 scheduleQueuePageRetry(generation)
             } finally {
                 if (generation == queuePageGeneration) {
@@ -3629,9 +3815,35 @@ object PlaybackEngine {
     }
 
     private fun scheduleQueuePageRetry(generation: Long) {
-        val pause = queuePageRetryDelayMs(queuePageRetries) ?: run {
+        val endless = queueSource?.loadMore != null
+        if (endless && AutoDownloadNetworkStatus.network.value == AutoDownloadNetwork.None) {
+            queuePageRetryJob?.cancel()
+            queuePageRetryJob = scope.launch {
+                appContext?.let { AutoDownloadNetworkStatus.ensureStarted(it) }
+                AutoDownloadNetworkStatus.network.first { it != AutoDownloadNetwork.None }
+                if (generation == queuePageGeneration) {
+                    queuePageRetries = 0
+                    loadNextQueuePage()
+                }
+            }
+            if (generation == queuePageGeneration && bgMixActive()) bgMix?.status?.value?.let(::applyBgMix)
+            return
+        }
+        val pause = if (endless) endlessQueuePageRetryDelayMs(queuePageRetries) else queuePageRetryDelayMs(queuePageRetries)
+        if (pause == null) {
             // No retry left: a BG Mix queue that waited for this page reports its end now.
             if (generation == queuePageGeneration && bgMixActive()) bgMix?.status?.value?.let(::applyBgMix)
+            if (endless && generation == queuePageGeneration) {
+                queuePageNetworkJob?.cancel()
+                queuePageNetworkJob = scope.launch {
+                    appContext?.let { AutoDownloadNetworkStatus.ensureStarted(it) }
+                    AutoDownloadNetworkStatus.network.drop(1).first { it != AutoDownloadNetwork.None }
+                    if (generation == queuePageGeneration) {
+                        queuePageRetries = 0
+                        loadNextQueuePage()
+                    }
+                }
+            }
             return
         }
         queuePageRetries++
@@ -3639,6 +3851,9 @@ object PlaybackEngine {
         queuePageRetryJob = scope.launch {
             delay(pause)
             if (generation == queuePageGeneration) loadNextQueuePage()
+        }
+        if (endless && queuePageRetries > ENDLESS_AWAIT_FAST_RETRIES && generation == queuePageGeneration && bgMixActive()) {
+            bgMix?.status?.value?.let(::applyBgMix)
         }
     }
 
@@ -3805,7 +4020,10 @@ object PlaybackEngine {
         val candidates = prefetchCandidates(state, playbackOrder)
         val keep = candidates.mapTo(HashSet()) { it.key }
         state.item?.let { keep.add(it.key) }
-        YandexTrackResolver.cancelOutside(keep)
+        state.queue.getOrNull(state.queueIndex - 1)?.let { keep.add(it.key) }
+        if (YandexTrackResolver.evictOutside(keep)) {
+            YandexTrackResolver.pruneUnused(context)
+        }
         candidates.forEachIndexed { index, item ->
             if (currentPending && LazyTrackRegistry.isLazyKey(item.key)) return@forEachIndexed
             prefetchItem(context, source, item, playbackNext = index == 0)
@@ -3911,4 +4129,31 @@ object PlaybackEngine {
     /** A provider row belongs to no account, so its download decision follows the signed-in account, not the legacy one. */
     private fun prefetchAccountFor(item: PlaybackItem): String =
         if (item.accountId == LEGACY_PLAYBACK_ACCOUNT_ID) activeAccountId ?: item.accountId else item.accountId
+}
+
+/**
+ * Bounded set of local file paths pinned against cache eviction during playback:
+ * the playing item, its immediate predecessor, the lookahead prefetch window,
+ * any active BG Mix paths, and an interrupted music track waiting behind a voice/video note.
+ */
+internal fun activeMusicOwnershipPaths(
+    state: PlaybackState,
+    interrupted: List<PlaybackItem> = emptyList(),
+    bgMixPaths: Set<String> = emptySet(),
+    behindCount: Int = 1,
+    aheadCount: Int = 3,
+): Set<String> {
+    val result = HashSet<String>()
+    state.item?.path?.takeIf { it.isNotBlank() }?.let { result.add(it) }
+    if (state.queue.isNotEmpty()) {
+        val anchor = state.queueIndex.coerceIn(0, state.queue.lastIndex)
+        val start = (anchor - behindCount).coerceAtLeast(0)
+        val endExclusive = (anchor + aheadCount + 1).coerceAtMost(state.queue.size)
+        for (i in start until endExclusive) {
+            state.queue[i].path.takeIf { it.isNotBlank() }?.let { result.add(it) }
+        }
+    }
+    interrupted.forEach { it.path.takeIf { p -> p.isNotBlank() }?.let(result::add) }
+    bgMixPaths.forEach { if (it.isNotBlank()) result.add(it) }
+    return result
 }

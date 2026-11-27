@@ -11,21 +11,11 @@ class BubbleMetaPlacementTest {
     )
 
     @Test
-    fun shortPlainTextIsEligibleForInlineTime() {
-        assertTrue(useInlineTextMetadata(message("Привет"), false, false))
-        assertTrue(useInlineTextMetadata(message("ok"), false, false))
-    }
-
-    @Test
-    fun multilineAndLongTextKeepSeparateMetadataRow() {
-        assertFalse(useInlineTextMetadata(message("Привет\nКак дела?"), false, false))
-        assertFalse(useInlineTextMetadata(message("This is a longer sentence with many words"), false, false))
-    }
-
-    @Test
-    fun senderHeaderOrTranslationPreventsInlineMetadata() {
-        assertFalse(useInlineTextMetadata(message("ok"), true, false))
-        assertFalse(useInlineTextMetadata(message("ok"), false, true))
+    fun plainTextUsesMeasuredPlacementAtAnyLength() {
+        assertTrue(useLastLineTextMetadata(message("Привет"), false))
+        assertTrue(useLastLineTextMetadata(message("Первая строка\nПоследняя строка"), false))
+        assertTrue(useLastLineTextMetadata(message("A longer sentence with many very different words"), false))
+        assertFalse(useLastLineTextMetadata(message("Привет"), true))
     }
 
     @Test

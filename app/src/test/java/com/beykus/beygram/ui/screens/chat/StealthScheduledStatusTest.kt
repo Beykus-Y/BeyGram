@@ -12,9 +12,9 @@ class StealthScheduledStatusTest {
         assertEquals(R.string.stealth_schedule_status_queued, scheduledMessageStatus(MessageSendState.Sent, queueKnown = true))
     }
 
-    @Test fun staleRowsNeverClaimAConfirmedStatus() {
-        MessageSendState.entries.forEach { state ->
-            assertEquals(R.string.stealth_schedule_status_unknown, scheduledMessageStatus(state, queueKnown = false))
-        }
+    @Test fun aFailedSendIsNeverHiddenBehindAStaleQueue() {
+        assertEquals(R.string.chat_scheduled_failed, scheduledMessageStatus(MessageSendState.Failed, queueKnown = false))
+        assertEquals(R.string.stealth_schedule_status_unknown, scheduledMessageStatus(MessageSendState.Sending, queueKnown = false))
+        assertEquals(R.string.stealth_schedule_status_unknown, scheduledMessageStatus(MessageSendState.Sent, queueKnown = false))
     }
 }

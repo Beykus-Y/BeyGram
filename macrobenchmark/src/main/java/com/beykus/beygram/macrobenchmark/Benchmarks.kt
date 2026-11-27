@@ -42,6 +42,12 @@ internal object Benchmarks {
     /** The suffix every benchmark build type carries; Dev and Stable never have it. */
     const val BENCHMARK_PACKAGE_SUFFIX = ".benchmark"
 
+    /** A silent skip used to hide an empty benchmark package; a run without a chat must fail with this text instead. */
+    const val NO_ACCOUNT_MESSAGE =
+        "No chat is visible in the benchmark package. The benchmark build has its own empty TDLib storage: " +
+            "sign in to com.beykus.beygram.dev.benchmark before measuring, or use a synthetic fixture " +
+            "(see docs/performance-2.0-audit.md, section 4.6). A skipped measurement is not a green result."
+
     /** The chat list: the first scrollable container on screen. */
     fun chatList(device: UiDevice): UiObject2? = device.findObject(By.scrollable(true))
 

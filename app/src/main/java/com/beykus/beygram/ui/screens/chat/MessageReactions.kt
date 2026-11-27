@@ -95,7 +95,7 @@ private fun ReactionChip(
     }
     // Compact vertical geometry; Compose expands small click targets for touch input.
     Box(
-        Modifier.defaultMinSize(minWidth = 48.dp, minHeight = 40.dp)
+        Modifier.defaultMinSize(minWidth = 48.dp, minHeight = 36.dp)
             .semantics { contentDescription = description; selected = reaction.isChosen }
             .clickable { onToggle(reaction.option) },
         contentAlignment = Alignment.Center

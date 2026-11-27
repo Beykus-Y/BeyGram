@@ -8,6 +8,7 @@ import com.beykus.beygram.domain.model.MediaKind
 import com.beykus.beygram.domain.model.MessageSendOptions
 import com.beykus.beygram.domain.model.OutgoingMedia
 import com.beykus.beygram.ui.screens.theme.AppearanceUserPresetStore
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -20,7 +21,8 @@ class UxMegaUpgradeTest {
         val parts = extractQuoteCandidates(text)
         assertEquals(listOf("First sentence here.", "Second sentence!", "Third line", "Fourth line"), parts)
         assertEquals(21, quoteOffsetIn(text, "Second sentence!"))
-        assertEquals(0, quoteOffsetIn(text, "Custom edited phrase"))
+        assertNull(quoteOffsetIn(text, "Custom edited phrase"))
+        assertEquals(0, quoteOffsetIn(text, "First"))
     }
 
     @Test

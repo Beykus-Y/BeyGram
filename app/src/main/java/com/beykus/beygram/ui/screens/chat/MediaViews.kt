@@ -1298,7 +1298,7 @@ internal fun MediaViewer(
                         // Never index the backing list until this page exists in our current snapshot.
                         currentPages.getOrNull(page)?.let { item ->
                             MediaViewerPage(item, observeFile, downloadFile, autoDownload, playbackCoordinator, canExport = canExport, active = page == safeSettledPage,
-                                fullFileOnlyWhenActive = fullFileOnlyWhenActive,
+                                fullFileOnlyWhenActive = fullFileOnlyWhenActive, forceSecure = forceSecure,
                                 revealed = item.messageId in revealedSpoilers, onReveal = { revealedSpoilers += item.messageId },
                                 onOpenFile = { path -> openExternal(item, path) }, onViewed = onViewed,
                                 onDismiss = ::requestClose, onToggleControls = { controlsVisible = !controlsVisible },
@@ -1439,7 +1439,7 @@ private fun MediaViewerPage(
     item: MediaViewerItem, observeFile: (Int) -> StateFlow<MediaFileState>, downloadFile: (Int) -> Unit,
     autoDownloadFile: (AutoDownloadRequest) -> Unit,
     playbackCoordinator: UserRangeCoordinator?,
-    canExport: Boolean, active: Boolean, fullFileOnlyWhenActive: Boolean, revealed: Boolean, onReveal: () -> Unit, onOpenFile: (String) -> Unit, onViewed: (Long) -> Unit,
+    canExport: Boolean, active: Boolean, fullFileOnlyWhenActive: Boolean, forceSecure: Boolean, revealed: Boolean, onReveal: () -> Unit, onOpenFile: (String) -> Unit, onViewed: (Long) -> Unit,
     onDismiss: () -> Unit, onToggleControls: () -> Unit, onDismissProgress: (Float) -> Unit, showZoomControls: Boolean, zoomControlsBottomPadding: Dp, onUserInteraction: () -> Unit
 ) {
     val media = item.media
@@ -1458,6 +1458,9 @@ private fun MediaViewerPage(
     // Миниатюра показывается вместо оригинала, пока тот грузится.
     val thumbId = previewId ?: media.fileId
     val thumb by remember(thumbId) { observeFile(thumbId) }.collectAsStateWithLifecycle()
+    val pipAccountId = accountId.takeIf {
+        MediaViewerPolicy.canOpenPip(media, item.viewOnce, forceSecure)
+    }
     val exportable = canExport && !media.isSecret
     // Спойлер не грузится и не показывается, пока пользователь не раскроет именно эту страницу.
     val spoilerHidden = media.hasSpoiler && !media.isSecret && !revealed
@@ -1640,6 +1643,7 @@ private fun MediaViewerPage(
                 streamSource.path, loop = media.kind == MediaKind.Animation, active = active,
                 onStarted = { currentOnViewed(item.messageId) }, progressive = streamSource,
                 onManualDownload = { downloadFile(media.fileId) },
+                pipAccountId = pipAccountId.takeIf { path != null },
                 onOpenPipDismiss = onDismiss
             )
             path == null && media.mimeType.startsWith("image/") -> PhotoPreview(file, thumb.localPath) { downloadFile(media.fileId) }
@@ -1676,7 +1680,11 @@ private fun MediaViewerPage(
                 showZoomControls = showZoomControls, zoomControlsBottomPadding = zoomControlsBottomPadding, onUserInteraction = onUserInteraction,
                 contentDescription = media.kind.label(context))
             media.kind == MediaKind.Video || media.kind == MediaKind.Animation || media.mimeType.startsWith("video/") ->
-                LocalVideo(path, media.kind == MediaKind.Animation, active, onStarted = { currentOnViewed(item.messageId) }, onOpenPipDismiss = onDismiss)
+                LocalVideo(
+                    path, media.kind == MediaKind.Animation, active,
+                    onStarted = { currentOnViewed(item.messageId) },
+                    pipAccountId = pipAccountId, onOpenPipDismiss = onDismiss
+                )
             else -> Column(horizontalAlignment = Alignment.CenterHorizontally) {
                 Text(formatMediaSize(file.size), color = Color.LightGray)
                 if (exportable) TextButton(onClick = { onOpenFile(path) }) { Text(stringResource(R.string.media_open_file)) }
@@ -2065,12 +2073,23 @@ private fun LocalVideo(
     onStarted: () -> Unit,
     progressive: ProgressiveVideoSource? = null,
     onManualDownload: (() -> Unit)? = null,
+    pipAccountId: String? = null,
     onOpenPipDismiss: () -> Unit = {}
 ) {
     val context = LocalContext.current
     val lifecycle = LocalLifecycleOwner.current.lifecycle
     val currentOnStarted by rememberUpdatedState(onStarted)
     val currentActive by rememberUpdatedState(active)
+    val brightnessWindow = (context as? android.app.Activity)?.window
+    val originalBrightness = remember(brightnessWindow, active) { mutableStateOf<Float?>(null) }
+    DisposableEffect(brightnessWindow, active) {
+        onDispose {
+            val brightness = originalBrightness.value
+            if (brightnessWindow != null && brightness != null) {
+                brightnessWindow.attributes = brightnessWindow.attributes.apply { screenBrightness = brightness }
+            }
+        }
+    }
     val sourceKey = progressive?.fileId ?: -1
     // Стартовый буфер: по умолчанию не задан (Media3), выбирается только в диагностическом режиме (Issue #1121).
     val startBuffer = remember(context) { VideoStartBufferSettings.load(context) }
@@ -2260,7 +2279,8 @@ private fun LocalVideo(
                                     }
                                 )
                             }
-                            .pointerInput(context, path) {
+                            .pointerInput(context, path, active) {
+                                if (!active) return@pointerInput
                                 val audioManager = context.getSystemService(android.content.Context.AUDIO_SERVICE) as? android.media.AudioManager
                                 val maxVol = (audioManager?.getStreamMaxVolume(android.media.AudioManager.STREAM_MUSIC) ?: 15).coerceAtLeast(1)
                                 var mode = 0 // -1 = brightness, 1 = volume
@@ -2276,8 +2296,7 @@ private fun LocalVideo(
                                             else -> 0
                                         }
                                         if (mode == -1) {
-                                            val window = (context as? android.app.Activity)?.window
-                                            val cur = window?.attributes?.screenBrightness ?: 0.5f
+                                            val cur = brightnessWindow?.attributes?.screenBrightness ?: 0.5f
                                             startLevel = if (cur in 0f..1f) cur else 0.5f
                                         } else if (mode == 1 && audioManager != null) {
                                             startLevel = audioManager.getStreamVolume(android.media.AudioManager.STREAM_MUSIC).toFloat() / maxVol
@@ -2293,8 +2312,14 @@ private fun LocalVideo(
                                         val next = (startLevel + totalDy / range).coerceIn(0.05f, 1f)
                                         val pct = (next * 100f).toInt().coerceIn(0, 100)
                                         if (mode == -1) {
-                                            val window = (context as? android.app.Activity)?.window
-                                            window?.attributes = window?.attributes?.apply { screenBrightness = next }
+                                            if (brightnessWindow != null) {
+                                                val attrs = brightnessWindow.attributes
+                                                if (originalBrightness.value == null) {
+                                                    originalBrightness.value = attrs.screenBrightness
+                                                }
+                                                attrs.screenBrightness = next
+                                                brightnessWindow.attributes = attrs
+                                            }
                                             gestureHud = "$brightnessLabel $pct%"
                                         } else if (mode == 1 && audioManager != null) {
                                             val targetVol = (next * maxVol).toInt().coerceIn(0, maxVol)
@@ -2336,11 +2361,14 @@ private fun LocalVideo(
             state = video,
             onAction = { action -> if (action == VideoAction.Pause) player.pause() else play() },
             onSeek = ::seek,
-            onOpenPip = {
-                player.pause()
-                InAppVideoPip.open(path, player.currentPosition)
-                onOpenPipDismiss()
-            },
+            onOpenPip = if (active && pipAccountId != null) {
+                {
+                    if (InAppVideoPip.open(path, player.currentPosition, pipAccountId)) {
+                        player.pause()
+                        onOpenPipDismiss()
+                    }
+                }
+            } else null,
             modifier = Modifier.align(Alignment.BottomCenter)
         )
     }

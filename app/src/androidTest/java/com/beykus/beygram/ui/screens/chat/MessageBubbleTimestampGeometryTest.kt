@@ -1,7 +1,10 @@
 package com.beykus.beygram.ui.screens.chat
 
+import androidx.compose.ui.semantics.SemanticsActions
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithText
+import androidx.compose.ui.test.performSemanticsAction
+import androidx.compose.ui.text.TextLayoutResult
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.beykus.beygram.domain.model.ChatMessage
 import com.beykus.beygram.domain.model.CustomEmoji
@@ -48,13 +51,17 @@ class MessageBubbleTimestampGeometryTest {
         assertTrue("Time cannot overlap the last word", time.left >= text.right - 1f || time.top >= text.bottom - 1f)
     }
 
-    @Test fun longOutgoingMessagePlacesTimeBelowText() {
+    @Test fun longOutgoingMessageKeepsTimeOutsideFinalLineGlyphs() {
         val content = "покажи свой взгляд в кружочек и расскажи, что ты думаешь об этом"
         render(content)
-        val text = composeRule.onNodeWithText(content, useUnmergedTree = true)
-            .fetchSemanticsNode().boundsInRoot
+        val node = composeRule.onNodeWithText(content, useUnmergedTree = true)
+        val results = mutableListOf<TextLayoutResult>()
+        node.performSemanticsAction(SemanticsActions.GetTextLayoutResult) { it(results) }
+        val layout = results.single()
+        val text = node.fetchSemanticsNode().boundsInRoot
         val time = composeRule.onNodeWithText("23:02", useUnmergedTree = true)
             .fetchSemanticsNode().boundsInRoot
-        assertTrue("Long text must have its own metadata row", time.top >= text.bottom - 1f)
+        val finalLineRight = text.left + layout.getLineRight(layout.lineCount - 1)
+        assertTrue("Time cannot overlap the final line", time.top >= text.bottom - 1f || time.left >= finalLineRight - 1f)
     }
 }

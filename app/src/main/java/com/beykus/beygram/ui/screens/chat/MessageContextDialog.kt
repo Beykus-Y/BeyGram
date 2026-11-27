@@ -113,7 +113,7 @@ internal fun MessageContextDialog(chatId: Long, targetId: Long, conversation: Co
                             viewerItem = message.media?.let { MediaViewerItem(message.id, it, message.isViewOnce, message.chatId) }
                             viewerChatId = message.chatId
                         }, onStickerOpen = { media -> stickerSetId = media.stickerSetId },
-                            onReaction = ::react, observeCustomEmoji = conversation::observeCustomEmoji, inlineContent = { InlineBotButtons(message, conversation, riskGuard, onOpenEntity = onOpenMessageEntity) },
+                            onReaction = ::react, loadQuickReactions = conversation::availableReactions, observeCustomEmoji = conversation::observeCustomEmoji, inlineContent = { InlineBotButtons(message, conversation, riskGuard, onOpenEntity = onOpenMessageEntity) },
                             onActions = if (!allowEntityCopy || message.isViewOnce) null else copyableMessageLinks(message.text, message.entities)
                                 .takeIf { it.isNotEmpty() }
                                 ?.let { links -> { copyLinks = links } },

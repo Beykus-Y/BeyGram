@@ -205,6 +205,8 @@ import com.beykus.beygram.ui.screens.music.rememberProviderCover
 import com.beykus.beygram.playback.speedLabel
 import com.beykus.beygram.ui.components.beyGramPalette
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 import com.beykus.beygram.data.music.MusicLibraries
 import com.beykus.beygram.data.music.provider.YANDEX_TRACK_KEY_PREFIX
@@ -949,13 +951,18 @@ private fun PlayerArtwork(
         animationSpec = mediaMotion.animationSpec(),
         label = "artworkElevation"
     )
-    val playbackState by PlaybackEngine.state.collectAsStateWithLifecycle()
-    val nextAdjacent = remember(playbackState.queue, playbackState.queueIndex, player.canNext) {
-        if (player.canNext) adjacentQueueItem(playbackState, -1) else null
+    val adjacentItems = remember {
+        PlaybackEngine.state.map { state -> adjacentQueueItem(state, -1) to adjacentQueueItem(state, 1) }
+            .distinctUntilChanged()
     }
-    val prevAdjacent = remember(playbackState.queue, playbackState.queueIndex, player.canPrevious) {
-        if (player.canPrevious) adjacentQueueItem(playbackState, 1) else null
-    }
+    val adjacent by adjacentItems.collectAsStateWithLifecycle(
+        initialValue = PlaybackEngine.state.value.let { adjacentQueueItem(it, -1) to adjacentQueueItem(it, 1) }
+    )
+    val nextAdjacent = adjacent.first.takeIf { player.canNext }
+    val prevAdjacent = adjacent.second.takeIf { player.canPrevious }
+    val queue by remember {
+        PlaybackEngine.state.map { it.queue }.distinctUntilChanged()
+    }.collectAsStateWithLifecycle(initialValue = PlaybackEngine.state.value.queue)
     // Preload adjacent provider covers so static artwork appears immediately during swipe.
     val nextProviderCover = rememberProviderCover(nextAdjacent?.let { ProviderTracks.byKey(it.key)?.coverUrl })
     val prevProviderCover = rememberProviderCover(prevAdjacent?.let { ProviderTracks.byKey(it.key)?.coverUrl })
@@ -972,9 +979,9 @@ private fun PlayerArtwork(
             }
         }
     }
-    LaunchedEffect(playbackState.queue) {
+    LaunchedEffect(queue) {
         val commit = pendingCommit ?: return@LaunchedEffect
-        if (playbackState.queue.none { it.key == commit.targetKey }) {
+        if (queue.none { it.key == commit.targetKey }) {
             pendingCommit = null
             offsetFraction.animateTo(0f, mediaMotion.animationSpec())
         }
