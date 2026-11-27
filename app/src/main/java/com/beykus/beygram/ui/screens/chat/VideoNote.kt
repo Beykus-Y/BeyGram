@@ -33,6 +33,9 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.ProgressBarRangeInfo
+import androidx.compose.ui.semantics.progressBarRangeInfo
+import androidx.compose.ui.semantics.setProgress
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
@@ -75,7 +78,7 @@ internal fun MediaKind.playsInline(): Boolean = this == MediaKind.Voice || this 
 
 /** Кольцо прогресса поверх кружка: серая дорожка и дуга, которая заполняется до [fraction]. */
 @Composable
-private fun ProgressRing(fraction: () -> Float) {
+private fun ProgressRing(fraction: () -> Float, scrubbing: () -> Boolean = { false }) {
     val palette = beyGramPalette()
     Canvas(Modifier.fillMaxSize()) {
         val stroke = 4.dp.toPx()
@@ -83,6 +86,17 @@ private fun ProgressRing(fraction: () -> Float) {
         val inset = Offset(stroke / 2, stroke / 2)
         drawArc(palette.textSecondary.copy(alpha = 0.3f), startAngle = -90f, sweepAngle = 360f, useCenter = false, topLeft = inset, size = arcSize, style = Stroke(stroke))
         drawArc(palette.accent, startAngle = -90f, sweepAngle = 360f * fraction(), useCenter = false, topLeft = inset, size = arcSize, style = Stroke(stroke))
+        if (scrubbing()) {
+            val angle = (fraction() * 360.0 - 90.0) * kotlin.math.PI / 180.0
+            drawCircle(
+                palette.accent,
+                radius = 6.dp.toPx(),
+                center = center + Offset(
+                    kotlin.math.cos(angle).toFloat() * arcSize.width / 2,
+                    kotlin.math.sin(angle).toFloat() * arcSize.height / 2
+                )
+            )
+        }
     }
 }
 
@@ -165,6 +179,19 @@ internal fun VideoNoteBubble(
     // Отметку «прослушано» получает только кружок, по которому нажали, и только когда плеер сообщил о старте. Плеер вызывает её сам, поэтому пузырь может уйти с экрана раньше.
     var played by remember(media.fileId) { mutableStateOf(false) }
     val path = file.localPath
+    val seekEnabled = showing && path != null && circle != null && circle.durationMs > 0L
+    var scrubFraction by remember(key, seekEnabled) { mutableStateOf<Float?>(null) }
+    val seek: (Float) -> Boolean = { requested ->
+        val current = PlaybackEngine.state.value
+        val item = current.item
+        if (item?.key == key && item.accountId == accountId && current.started &&
+            !current.ended && !current.failed && current.durationMs > 0L && requested.isFinite()
+        ) {
+            PlaybackEngine.seekToPosition((requested.coerceIn(0f, 1f) * current.durationMs).toLong())
+            true
+        } else false
+    }
+    val currentSeek by rememberUpdatedState(seek)
     val currentOnPlayed by rememberUpdatedState(onPlayed)
     val markPlayed: () -> Unit = { if (!played) { played = true; currentOnPlayed() } }
     val playingSize = LocalConfiguration.current.screenWidthDp.dp
@@ -236,10 +263,19 @@ internal fun VideoNoteBubble(
         Box(Modifier.size(size).then(if (highlighted) Modifier.border(2.dp, palette.accent, CircleShape) else Modifier)) {
             Box(
                 Modifier.fillMaxSize().clip(CircleShape).background(VideoNoteBackground)
+                    .then(
+                        if (seekEnabled) Modifier.videoNoteSeekGesture(
+                            key, onPreview = { scrubFraction = it }, onSeek = { currentSeek(it) }
+                        ) else Modifier
+                    )
                     .combinedClickable(onClick = ::togglePlay, onLongClick = onLongPress)
                     .semantics {
                         contentDescription = circleDescription
                         playbackStateLabel?.let { stateDescription = it }
+                        if (seekEnabled) {
+                            progressBarRangeInfo = ProgressBarRangeInfo(scrubFraction ?: fraction, 0f..1f)
+                            setProgress { currentSeek(it) }
+                        }
                     },
                 contentAlignment = Alignment.Center
             ) {
@@ -261,9 +297,18 @@ internal fun VideoNoteBubble(
                     modifier = Modifier.fillMaxSize()
                 )
                 // Свой кружок во время загрузки на сервер: кольцо показывает прогресс, после приёма кружок принимает обычный вид.
-                if (showing) ProgressRing({ fraction })
+                if (showing) ProgressRing({ scrubFraction ?: fraction }, { scrubFraction != null })
                 else if (file.isUploading) ProgressRing({ fileHandle.raw.value.uploadProgress })
-                if (showing && showControls) Box(Modifier.size(56.dp).clip(CircleShape).background(Color.Black.copy(alpha = 0.4f)), contentAlignment = Alignment.Center) {
+                val scrubbing = scrubFraction
+                if (scrubbing != null && circle != null) {
+                    val seconds = (scrubbing * circle.durationMs / 1_000).toInt()
+                    Text(
+                        duration(seconds), color = Color.White, fontSize = 13.sp,
+                        modifier = Modifier.clip(styledShape(10.dp)).background(Color.Black.copy(alpha = 0.65f))
+                            .padding(horizontal = 8.dp, vertical = 4.dp)
+                    )
+                }
+                if (showing && showControls && scrubbing == null) Box(Modifier.size(56.dp).clip(CircleShape).background(Color.Black.copy(alpha = 0.4f)), contentAlignment = Alignment.Center) {
                     Icon(if (playing) Icons.Rounded.Pause else Icons.Rounded.PlayArrow, contentDescription = null, tint = Color.White, modifier = Modifier.size(32.dp))
                 }
                 if (path == null && (waitingForCircle || file.isDownloading)) CircularProgressIndicator(modifier = Modifier.size(40.dp), color = Color.White, strokeWidth = 3.dp)
