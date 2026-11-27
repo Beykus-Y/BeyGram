@@ -1,5 +1,6 @@
 package com.beykus.beygram.ui.components
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.EnterTransition
 import androidx.compose.animation.ExitTransition
@@ -8,14 +9,19 @@ import androidx.compose.animation.scaleIn
 import androidx.compose.animation.scaleOut
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.ime
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
@@ -25,17 +31,28 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.Stable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.TransformOrigin
+import androidx.compose.ui.layout.boundsInWindow
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.DpOffset
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.IntRect
@@ -45,6 +62,9 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Popup
 import androidx.compose.ui.window.PopupPositionProvider
 import androidx.compose.ui.window.PopupProperties
+import androidx.compose.ui.zIndex
+import com.beykus.beygram.ui.design.GlassBackdrop
+import com.beykus.beygram.ui.design.GlassPanel
 import com.beykus.beygram.ui.design.LocalDesignSystem
 import com.beykus.beygram.ui.design.LocalGlassBackdrop
 import com.beykus.beygram.ui.design.glassCard
@@ -76,6 +96,110 @@ private const val PopoverScaleStep = 0.08f
  *   keyboard. Its height is limited to 60% of the screen and longer content scrolls.
  * - Put [BeyGramPopoverItem] rows in [content].
  */
+@Stable
+class SameWindowPopoverHost {
+    internal data class Entry(
+        val anchorBounds: IntRect,
+        val alignEnd: Boolean,
+        val offset: DpOffset,
+        val shape: Shape,
+        val maxHeight: Dp,
+        val enter: EnterTransition,
+        val exit: ExitTransition,
+        val visibleState: MutableTransitionState<Boolean>,
+        val onDismissRequest: () -> Unit,
+        val modifier: Modifier,
+        val content: @Composable ColumnScope.() -> Unit
+    )
+    internal var active by mutableStateOf<Entry?>(null)
+}
+
+val LocalSameWindowPopoverHost = staticCompositionLocalOf<SameWindowPopoverHost?> { null }
+
+@Composable
+fun SameWindowPopoverOverlay(host: SameWindowPopoverHost, backdrop: GlassBackdrop?) {
+    val entry = host.active ?: return
+    val design = LocalDesignSystem.current
+    val palette = beyGramPalette()
+    val density = LocalDensity.current
+    val gapPx = with(density) { PopoverGap.roundToPx() }
+    val marginPx = with(density) { PopoverMargin.roundToPx() }
+    val shiftPx = with(density) { IntOffset(entry.offset.x.roundToPx(), entry.offset.y.roundToPx()) }
+    val imeBottomPx = WindowInsets.ime.getBottom(density)
+    var rootBounds by remember { mutableStateOf<IntRect?>(null) }
+    var contentSize by remember { mutableStateOf(IntSize.Zero) }
+    BackHandler(onBack = entry.onDismissRequest)
+    CompositionLocalProvider(LocalGlassBackdrop provides backdrop) {
+        Box(
+            Modifier
+                .fillMaxSize()
+                .zIndex(20f)
+                .onGloballyPositioned { coords ->
+                    val r = coords.boundsInWindow()
+                    rootBounds = IntRect(r.left.toInt(), r.top.toInt(), r.right.toInt(), r.bottom.toInt())
+                }
+                .clickable(
+                    interactionSource = remember { MutableInteractionSource() },
+                    indication = null,
+                    onClick = entry.onDismissRequest
+                )
+        ) {
+            val root = rootBounds
+            val pos = if (root != null && contentSize.width > 0 && contentSize.height > 0) {
+                val localAnchor = IntRect(
+                    left = entry.anchorBounds.left - root.left,
+                    top = entry.anchorBounds.top - root.top,
+                    right = entry.anchorBounds.right - root.left,
+                    bottom = entry.anchorBounds.bottom - root.top
+                )
+                popoverOffset(
+                    anchorBounds = localAnchor,
+                    windowSize = IntSize(root.width, root.height),
+                    contentSize = contentSize,
+                    alignEnd = entry.alignEnd,
+                    gapPx = gapPx,
+                    marginPx = marginPx,
+                    imeBottomPx = imeBottomPx,
+                    shift = shiftPx
+                )
+            } else IntOffset.Zero
+            Box(
+                Modifier
+                    .offset { pos }
+                    .onSizeChanged { contentSize = it }
+                    .clickable(interactionSource = remember { MutableInteractionSource() }, indication = null) {}
+            ) {
+                AnimatedVisibility(visibleState = entry.visibleState, enter = entry.enter, exit = entry.exit) {
+                    val menuModifier = entry.modifier
+                        .widthIn(min = PopoverMinWidth, max = PopoverMaxWidth)
+                        .heightIn(max = entry.maxHeight)
+                    if (design.usesGlassPanels && backdrop != null) {
+                        GlassPanel(
+                            design = design,
+                            tint = palette.surface,
+                            rim = palette.textSecondary,
+                            backdropBase = palette.screen,
+                            shape = entry.shape,
+                            modifier = menuModifier,
+                            contentPadding = PaddingValues(vertical = 6.dp)
+                        ) {
+                            Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()), content = entry.content)
+                        }
+                    } else {
+                        Column(
+                            menuModifier
+                                .glassCard(design, palette.surface2, palette.textSecondary, entry.shape)
+                                .verticalScroll(rememberScrollState())
+                                .padding(vertical = 6.dp),
+                            content = entry.content
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
 @Composable
 fun BeyGramPopover(
     expanded: Boolean,
@@ -83,6 +207,7 @@ fun BeyGramPopover(
     modifier: Modifier = Modifier,
     alignEnd: Boolean = true,
     offset: DpOffset = DpOffset.Zero,
+    sameWindowAnchorBounds: IntRect? = null,
     content: @Composable ColumnScope.() -> Unit
 ) {
     if (com.beykus.beygram.LocalMainTabsCovered.current) {
@@ -91,11 +216,21 @@ fun BeyGramPopover(
     }
     val visibleState = remember { MutableTransitionState(false) }
     visibleState.targetState = expanded
+    val sameWindowHost = LocalSameWindowPopoverHost.current
+    val design = LocalDesignSystem.current
+    val useSameWindow = sameWindowHost != null && sameWindowAnchorBounds != null &&
+        design.usesGlassPanels && LocalGlassBackdrop.current != null
     // Keep the popup while its exit animation runs, and leave composition once the exit has finished.
-    if (!visibleState.currentState && !visibleState.targetState) return
+    if (!visibleState.currentState && !visibleState.targetState) {
+        if (sameWindowHost != null) {
+            DisposableEffect(Unit) {
+                onDispose { }
+            }
+        }
+        return
+    }
 
     val palette = beyGramPalette()
-    val design = LocalDesignSystem.current
     val density = LocalDensity.current
     val screenHeightDp = LocalConfiguration.current.screenHeightDp
     val fill = groupSurfaceColor()
@@ -115,6 +250,31 @@ fun BeyGramPopover(
             targetScale = 1f - PopoverScaleStep * exitSpec.intensity,
             transformOrigin = origin
         )
+    val maxHeight = (screenHeightDp * 0.6f).dp
+    if (useSameWindow && sameWindowHost != null && sameWindowAnchorBounds != null) {
+        val entry = SameWindowPopoverHost.Entry(
+            anchorBounds = sameWindowAnchorBounds,
+            alignEnd = alignEnd,
+            offset = offset,
+            shape = shape,
+            maxHeight = maxHeight,
+            enter = enter,
+            exit = exit,
+            visibleState = visibleState,
+            onDismissRequest = onDismissRequest,
+            modifier = modifier,
+            content = content
+        )
+        sameWindowHost.active = entry
+        DisposableEffect(sameWindowHost) {
+            onDispose {
+                if (sameWindowHost.active?.visibleState === visibleState) {
+                    sameWindowHost.active = null
+                }
+            }
+        }
+        return
+    }
     val gapPx = with(density) { PopoverGap.roundToPx() }
     val marginPx = with(density) { PopoverMargin.roundToPx() }
     val shiftPx = with(density) { IntOffset(offset.x.roundToPx(), offset.y.roundToPx()) }
@@ -122,7 +282,6 @@ fun BeyGramPopover(
     val positionProvider = remember(alignEnd, gapPx, marginPx, imeBottomPx, shiftPx) {
         BeyGramPopoverPosition(alignEnd, gapPx, marginPx, imeBottomPx, shiftPx)
     }
-    val maxHeight = (screenHeightDp * 0.6f).dp
 
     Popup(
         popupPositionProvider = positionProvider,

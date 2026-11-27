@@ -33,8 +33,12 @@ import androidx.compose.ui.unit.sp
 import com.beykus.beygram.R
 import com.beykus.beygram.ui.components.ActionBubble
 import com.beykus.beygram.ui.components.beyGramPalette
+import com.beykus.beygram.ui.design.GlassEdge
+import com.beykus.beygram.ui.design.GlassPanel
 import com.beykus.beygram.ui.design.LocalDesignSystem
 import com.beykus.beygram.ui.design.glassSheet
+import com.beykus.beygram.ui.design.styledTopShape
+import com.beykus.beygram.ui.design.usesGlassPanels
 import com.beykus.beygram.ui.motion.MotionToken
 import com.beykus.beygram.ui.motion.motionEntrance
 
@@ -108,41 +112,60 @@ internal fun AttachmentMenu(
     val palette = beyGramPalette()
     val design = LocalDesignSystem.current
     val actions = remember(allowsPolls, allowsMusic) { attachmentActions(allowsPolls, allowsMusic) }
-    Column(
-        Modifier
-            .fillMaxWidth()
-            .motionEntrance(MotionToken.SheetEnter, EntranceRise)
-            .glassSheet(design, palette.surface, palette.textSecondary)
-    ) {
-        if (!chatObjectsEnabled) {
-            Text(
-                stringResource(R.string.composer_menu_chat_unavailable),
-                color = palette.textSecondary,
-                fontSize = 12.sp,
-                modifier = Modifier.padding(start = 16.dp, end = 16.dp, bottom = 4.dp)
-            )
-        }
-        BoxWithConstraints(Modifier.fillMaxWidth()) {
-            val columns = attachmentMenuColumns(maxWidth.value, LocalDensity.current.fontScale, actions.size)
-            LazyVerticalGrid(
-                columns = GridCells.Fixed(columns),
-                modifier = Modifier.fillMaxWidth().heightIn(max = 380.dp),
-                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 6.dp),
-                horizontalArrangement = Arrangement.spacedBy(4.dp),
-                verticalArrangement = Arrangement.spacedBy(4.dp)
-            ) {
-                items(actions.size, key = { actions[it].name }) { index ->
-                    val action = actions[index]
-                    ActionBubble(
-                        icon = action.icon(),
-                        label = stringResource(action.labelRes()),
-                        onClick = { onAction(action) },
-                        enabled = enabled && (chatObjectsEnabled || !action.replacesTray),
-                        entranceIndex = index,
-                        compact = true
-                    )
+    val menuBody: @Composable () -> Unit = {
+        Column(Modifier.fillMaxWidth()) {
+            if (!chatObjectsEnabled) {
+                Text(
+                    stringResource(R.string.composer_menu_chat_unavailable),
+                    color = palette.textSecondary,
+                    fontSize = 12.sp,
+                    modifier = Modifier.padding(start = 16.dp, end = 16.dp, bottom = 4.dp)
+                )
+            }
+            BoxWithConstraints(Modifier.fillMaxWidth()) {
+                val columns = attachmentMenuColumns(maxWidth.value, LocalDensity.current.fontScale, actions.size)
+                LazyVerticalGrid(
+                    columns = GridCells.Fixed(columns),
+                    modifier = Modifier.fillMaxWidth().heightIn(max = 380.dp),
+                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 6.dp),
+                    horizontalArrangement = Arrangement.spacedBy(4.dp),
+                    verticalArrangement = Arrangement.spacedBy(4.dp)
+                ) {
+                    items(actions.size, key = { actions[it].name }) { index ->
+                        val action = actions[index]
+                        ActionBubble(
+                            icon = action.icon(),
+                            label = stringResource(action.labelRes()),
+                            onClick = { onAction(action) },
+                            enabled = enabled && (chatObjectsEnabled || !action.replacesTray),
+                            entranceIndex = index,
+                            compact = true
+                        )
+                    }
                 }
             }
+        }
+    }
+    val onSharedGlass = LocalComposerOnGlassPlane.current || LocalChatChromeOnGlass.current
+    val baseModifier = Modifier.fillMaxWidth().motionEntrance(MotionToken.SheetEnter, EntranceRise)
+    if (design.usesGlassPanels && !onSharedGlass) {
+        GlassPanel(
+            design = design,
+            tint = palette.surface,
+            rim = palette.textSecondary,
+            backdropBase = palette.screen,
+            shape = styledTopShape(20.dp),
+            edge = GlassEdge.TopHairline,
+            lensOnFreeEdge = true,
+            modifier = baseModifier
+        ) {
+            menuBody()
+        }
+    } else {
+        Column(
+            if (design.usesGlassPanels) baseModifier else baseModifier.glassSheet(design, palette.surface, palette.textSecondary)
+        ) {
+            menuBody()
         }
     }
 }

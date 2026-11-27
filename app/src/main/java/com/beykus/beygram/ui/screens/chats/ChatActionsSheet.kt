@@ -2,8 +2,14 @@ package com.beykus.beygram.ui.screens.chats
 
 import android.content.ClipData
 import android.content.ClipboardManager
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Archive
 import androidx.compose.material.icons.rounded.ContentCopy
@@ -19,10 +25,12 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.zIndex
 import com.beykus.beygram.R
 import com.beykus.beygram.domain.model.ChatPreview
 import com.beykus.beygram.domain.model.MediaFileState
@@ -35,9 +43,14 @@ import com.beykus.beygram.ui.components.ChatAvatar
 import com.beykus.beygram.ui.components.SheetActionRow
 import com.beykus.beygram.ui.components.beyGramPalette
 import com.beykus.beygram.ui.components.groupSurfaceColor
+import com.beykus.beygram.ui.design.GlassBackdrop
+import com.beykus.beygram.ui.design.GlassEdge
+import com.beykus.beygram.ui.design.GlassPanel
 import com.beykus.beygram.ui.design.LocalDesignSystem
+import com.beykus.beygram.ui.design.LocalGlassBackdrop
 import com.beykus.beygram.ui.design.glassCard
 import com.beykus.beygram.ui.design.groupCardShape
+import com.beykus.beygram.ui.design.styledTopShape
 import com.beykus.beygram.ui.design.usesGlassPanels
 import com.beykus.beygram.ui.text.userMessage
 import kotlinx.coroutines.flow.StateFlow
@@ -60,7 +73,8 @@ internal fun ChatActionsSheet(
     setUnread: suspend () -> Result<Unit>,
     archive: suspend () -> Result<Unit>,
     delete: suspend () -> Result<Unit>,
-    onPeek: (() -> Unit)? = null
+    onPeek: (() -> Unit)? = null,
+    glassBackdrop: GlassBackdrop? = null
 ) {
     val palette = beyGramPalette()
     val design = LocalDesignSystem.current
@@ -78,7 +92,7 @@ internal fun ChatActionsSheet(
         }
     }
     val hasUnread = chat.unreadCount > 0 || chat.isMarkedAsUnread
-    BeyGramSheet(onDismissRequest = onClose) {
+    val sheetBody: @Composable ColumnScope.() -> Unit = {
         Row(
             Modifier.fillMaxWidth().padding(start = 20.dp, end = 20.dp, top = 8.dp, bottom = 12.dp),
             verticalAlignment = Alignment.CenterVertically
@@ -189,6 +203,57 @@ internal fun ChatActionsSheet(
             )
         }
         Spacer(Modifier.height(20.dp))
+    }
+    if (design.usesGlassPanels && glassBackdrop != null) {
+        BackHandler(onBack = onClose)
+        CompositionLocalProvider(LocalGlassBackdrop provides glassBackdrop) {
+            Box(
+                Modifier
+                    .fillMaxSize()
+                    .zIndex(20f)
+                    .background(Color.Black.copy(alpha = 0.32f))
+                    .clickable(
+                        interactionSource = remember { MutableInteractionSource() },
+                        indication = null,
+                        onClick = onClose
+                    )
+            ) {
+                GlassPanel(
+                    design = design,
+                    tint = palette.surface,
+                    rim = palette.textSecondary,
+                    backdropBase = palette.screen,
+                    shape = styledTopShape(24.dp),
+                    edge = GlassEdge.TopHairline,
+                    lensOnFreeEdge = true,
+                    modifier = Modifier
+                        .align(Alignment.BottomCenter)
+                        .fillMaxWidth()
+                        .widthIn(max = 520.dp)
+                        .heightIn(max = 600.dp)
+                        .clickable(interactionSource = remember { MutableInteractionSource() }, indication = null) {}
+                ) {
+                    Column(
+                        Modifier
+                            .fillMaxWidth()
+                            .verticalScroll(rememberScrollState())
+                            .navigationBarsPadding()
+                    ) {
+                        Box(
+                            Modifier
+                                .padding(top = 10.dp, bottom = 4.dp)
+                                .size(width = 36.dp, height = 4.dp)
+                                .clip(RoundedCornerShape(2.dp))
+                                .background(palette.textSecondary.copy(alpha = 0.35f))
+                                .align(Alignment.CenterHorizontally)
+                        )
+                        sheetBody()
+                    }
+                }
+            }
+        }
+    } else {
+        BeyGramSheet(onDismissRequest = onClose, content = sheetBody)
     }
     if (confirmDelete) BeyGramDialog(
         onDismissRequest = { confirmDelete = false },

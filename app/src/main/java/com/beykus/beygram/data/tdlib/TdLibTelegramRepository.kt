@@ -3887,6 +3887,12 @@ class TdLibTelegramRepository private constructor(
                 .ifBlank { origin.authorSignature.orEmpty() }
             else -> ""
         },
+        forwardedAccentColor = when (val origin = forwardInfo?.origin) {
+            is TdApi.MessageOriginUser -> profiles.accentForUser(origin.senderUserId)
+            is TdApi.MessageOriginChat -> profiles.accentForChat(origin.senderChatId)
+            is TdApi.MessageOriginChannel -> profiles.accentForChat(origin.chatId)
+            else -> null
+        },
         sendState = sendingState.toSendState(),
         sendError = (sendingState as? TdApi.MessageSendingStateFailed)?.error?.message?.takeIf { it.isNotBlank() },
         media = if (secretChat) attachment?.copy(isSecretChat = true) else attachment,
@@ -3895,6 +3901,11 @@ class TdLibTelegramRepository private constructor(
         senderName = profiles.senderName(senderId),
         senderId = (this.senderId as? TdApi.MessageSenderUser)?.userId?.toLong() ?: 0L,
         senderChatId = (this.senderId as? TdApi.MessageSenderChat)?.chatId ?: 0L,
+        senderAccentColor = when (val sender = this.senderId) {
+            is TdApi.MessageSenderUser -> profiles.accentForUser(sender.userId)
+            is TdApi.MessageSenderChat -> profiles.accentForChat(sender.chatId)
+            else -> null
+        },
         isEdited = editDate > 0,
         entities = messageFormattedText(content)?.domainEntities().orEmpty(),
         inlineKeyboard = inlineKeyboard(replyMarkup),
@@ -4138,7 +4149,8 @@ class TdLibTelegramRepository private constructor(
             isChannelAdmin = profiles.isChannelAdministrator(this),
             isForum = profiles.isForum(this),
             photo = profiles.photo(photo),
-            folderPositions = folderPositions
+            folderPositions = folderPositions,
+            accentColor = profiles.accentForColorId(accentColorId)
         )
     }
 

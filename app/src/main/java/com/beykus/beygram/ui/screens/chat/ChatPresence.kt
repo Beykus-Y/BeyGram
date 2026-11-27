@@ -14,6 +14,7 @@ import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -45,6 +46,7 @@ import com.beykus.beygram.domain.model.ChatPreview
 import com.beykus.beygram.domain.model.ProfileInfo
 import com.beykus.beygram.domain.model.ProfilePresence
 import com.beykus.beygram.ui.components.beyGramPalette
+import com.beykus.beygram.ui.design.GlassPanel
 import com.beykus.beygram.ui.design.LocalDesignSystem
 import com.beykus.beygram.ui.design.glassCard
 import com.beykus.beygram.ui.design.usesGlassPanels
@@ -137,6 +139,26 @@ internal fun TypingRow(names: List<String>) {
     val someone = stringResource(R.string.presence_someone)
     // In Liquid Glass the line is a floating card, so it keeps a fill without the glass pane behind it.
     val design = LocalDesignSystem.current
+    val onSharedGlass = LocalComposerOnGlassPlane.current || LocalChatChromeOnGlass.current
+    if (design.usesGlassPanels && !onSharedGlass) {
+        GlassPanel(
+            design = design,
+            tint = palette.surface,
+            rim = palette.textSecondary,
+            backdropBase = palette.screen,
+            shape = RoundedCornerShape(16.dp),
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 10.dp, vertical = 4.dp),
+            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp)
+        ) {
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                Text(typingLabel(names.map { it.ifBlank { someone } }).resolve(), color = palette.textSecondary, fontSize = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f, fill = false))
+                Spacer(Modifier.width(8.dp))
+                TypingDots(palette.accent)
+            }
+        }
+        return
+    }
     val frame = if (design.usesGlassPanels) Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
         .glassCard(design, palette.surface, palette.textSecondary, RoundedCornerShape(16.dp)).padding(horizontal = 12.dp, vertical = 6.dp)
     else Modifier.padding(start = 16.dp, end = 16.dp, bottom = 8.dp)

@@ -22,9 +22,12 @@ internal fun ForwardedMessageHeader(message: ChatMessage) {
     } else {
         stringResource(R.string.chat_message_forwarded)
     }
+    val palette = beyGramPalette()
+    val dark = androidx.compose.foundation.isSystemInDarkTheme()
+    val textColor = message.forwardedAccentColor?.authorColor(dark, palette.surface, palette.accentInk) ?: palette.accentInk
     Text(
         text = label,
-        color = beyGramPalette().accentInk,
+        color = textColor,
         fontSize = 13.sp,
         fontWeight = FontWeight.Medium,
         maxLines = 2,
