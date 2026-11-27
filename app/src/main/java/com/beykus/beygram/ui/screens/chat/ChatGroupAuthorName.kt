@@ -5,6 +5,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.takeOrElse
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -29,14 +30,15 @@ internal fun groupSenderTag(member: ProfileMember?): UiText? = member?.let {
 @Composable
 internal fun ChatGroupAuthorName(name: String, member: ProfileMember?, modifier: Modifier) {
     val palette = beyGramPalette()
+    val authorColor = LocalChatAuthorColor.current.takeOrElse { palette.accentInk }
     val tag = groupSenderTag(member)
     if (tag == null) {
-        Text(name, color = palette.accentInk, fontSize = 13.sp, fontWeight = FontWeight.SemiBold,
+        Text(name, color = authorColor, fontSize = 13.sp, fontWeight = FontWeight.SemiBold,
             maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = modifier)
         return
     }
     Row(modifier, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-        Text(name, color = palette.accentInk, fontSize = 13.sp, fontWeight = FontWeight.SemiBold,
+        Text(name, color = authorColor, fontSize = 13.sp, fontWeight = FontWeight.SemiBold,
             maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(2f, fill = false).alignByBaseline())
         Text(tag.resolve(), color = palette.textSecondary, fontSize = 11.sp,
             maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f, fill = false).alignByBaseline())

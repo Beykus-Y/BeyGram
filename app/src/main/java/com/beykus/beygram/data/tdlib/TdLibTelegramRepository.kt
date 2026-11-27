@@ -446,6 +446,8 @@ class TdLibTelegramRepository private constructor(
     private val pinnedVersions = ConcurrentHashMap<Long, MutableStateFlow<Long>>()
     override fun observePinnedMessagesVersion(chatId: Long): StateFlow<Long> = pinnedVersions.getOrPut(chatId) { MutableStateFlow(0L) }.asStateFlow()
     override suspend fun pinnedMessages(chatId: Long, fromMessageId: Long, forumTopicId: Long, query: String) = conversationActions.pinnedMessages(chatId, fromMessageId, forumTopicId, query)
+    override fun observeUserAccent(userId: Long) = profiles.observeUserAccent(userId)
+
     override suspend fun loadPinnedSenderAvatars(userIds: Collection<Long>): Map<Long, com.beykus.beygram.domain.model.AvatarPhoto?> =
         profiles.resolveUsers(userIds).mapValues { (_, user) ->
             user.profilePhoto?.let { profiles.photo(it.small, it.big) }

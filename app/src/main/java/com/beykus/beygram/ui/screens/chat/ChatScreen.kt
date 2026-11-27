@@ -2236,7 +2236,8 @@ fun ChatScreen(
                                 val albumComments = commentsPost?.takeIf { showsChannelComments(chat.isChannel, it.isChannelPost, linkedDiscussionChatId) }
                                 ChatGroupAvatarRow(
                                     showGroupAvatars, latest, groupAvatars[listItem.key], groupMembers, groupAvatarPhotos,
-                                    observeFile, onDownloadFile, onServiceUser.takeUnless { selectionMode }
+                                    observeFile, onDownloadFile, onServiceUser.takeUnless { selectionMode },
+                                    peerColors = conversation.takeIf { supportsGroupAvatars }
                                 ) {
                                 MessageAlbumBubble(listItem.messages, observeFile, onDownloadFile,
                                     isRead = latest?.let { it.isOutgoing && it.sendState == MessageSendState.Sent && it.id <= history.lastReadOutboxMessageId } == true,
@@ -2340,7 +2341,8 @@ fun ChatScreen(
                                 val localAttempt = localTextAttemptIds[message.id]
                                 ChatGroupAvatarRow(
                                     showGroupAvatars, message, groupAvatars[listItem.key], groupMembers, groupAvatarPhotos,
-                                    observeFile, onDownloadFile, onServiceUser.takeUnless { selectionMode }
+                                    observeFile, onDownloadFile, onServiceUser.takeUnless { selectionMode },
+                                    peerColors = conversation.takeIf { supportsGroupAvatars }
                                 ) {
                                 MessageBubble(message, observeFile, onDownloadFile, isRead = message.isOutgoing && message.sendState == MessageSendState.Sent && message.id <= history.lastReadOutboxMessageId,
                                     highlighted = message.id == highlighted || message.id == actionsId,
