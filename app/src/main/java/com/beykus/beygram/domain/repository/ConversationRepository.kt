@@ -257,6 +257,22 @@ interface ConversationRepository {
     suspend fun searchAnimations(query: String, offset: String = ""): Result<AnimationPage>
     /** Whether the current account may send premium stickers. */
     suspend fun isPremiumAccount(): Result<Boolean>
+
+    /**
+     * The account's Premium status as TDLib reports it, updated when the status changes in another client. Null until
+     * the profile is known; the picker must not lock items before that.
+     */
+    fun observeIsPremium(): Flow<Boolean?> = flowOf(null)
+
+    /**
+     * Rebuilds recently used emoji from this account's own sent messages, newest first. Telegram has no server-side
+     * recent-emoji list, so this is a bounded local recovery for a fresh install; it never scans the whole account.
+     * An offline TDLib answers with a failure and the local list stays as it is.
+     */
+    suspend fun recoverRecentEmoji(
+        unicodeLimit: Int = 48,
+        customLimit: Int = 36
+    ): Result<RecentEmojiHistory> = Result.success(RecentEmojiHistory())
     /** Scheduled queue straight from TDLib; no local scheduled-message cache is created. */
     suspend fun scheduledMessages(chatId: Long): Result<List<ChatMessage>>
     /** Cancels one queued message in TDLib. */

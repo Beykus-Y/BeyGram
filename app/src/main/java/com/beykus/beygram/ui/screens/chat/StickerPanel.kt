@@ -135,6 +135,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.launch
 import kotlin.math.roundToInt
 
@@ -214,6 +215,8 @@ internal fun StickerPanelHost(
     onClose: () -> Unit
 ) {
     val context = LocalContext.current
+    val accountId = LocalPlaybackAccountId.current
+    val packUsage = remember(context, accountId) { PackUsageStore(context, accountId, PackKind.Sticker) }
     key(conversation, chatId) {
         var sending by remember { mutableStateOf(false) }
         var error by remember { mutableStateOf<String?>(null) }
@@ -239,8 +242,10 @@ internal fun StickerPanelHost(
                                 replyToMessageId = targetReplyId,
                                 forumTopicId = forumTopicId
                             )
-                            if (result.isSuccess) onReplyConsumed(targetReplyId)
-                            else {
+                            if (result.isSuccess) {
+                                packUsage.record(item.setId)
+                                onReplyConsumed(targetReplyId)
+                            } else {
                                 val message = result.exceptionOrNull().userMessage(context, R.string.sticker_panel_send_failed)
                                 error = message
                                 onSendError(message)
@@ -354,10 +359,16 @@ private fun StickerPanel(
     var searchGeneration by remember { mutableIntStateOf(0) }
     var overlay by remember { mutableStateOf<StickerPanelOverlay?>(null) }
     val accountId = LocalPlaybackAccountId.current
+    val stickerUsage = remember(context, accountId) { PackUsageStore(context, accountId, PackKind.Sticker) }
+    val emojiUsage = remember(context, accountId) { PackUsageStore(context, accountId, PackKind.CustomEmoji) }
+    var dynamicPacks by remember { mutableStateOf(stickerUsage.isDynamic()) }
+    var packOrderDialog by remember { mutableStateOf(false) }
     val emojiStore = remember(context, accountId) { RecentEmojiStore(context, accountId) }
     val shelfVersions by remember(conversation) { conversation.observeStickerShelfVersions() }
         .collectAsStateWithLifecycle(StickerShelfVersions())
     var recentEmoji by remember(emojiStore) { mutableStateOf(emojiStore.load()) }
+    var recentCustomEmoji by remember(emojiStore) { mutableStateOf(emojiStore.loadCustom()) }
+    var confirmClearEmoji by remember { mutableStateOf(false) }
 
     val premiumNotice = stringResource(R.string.sticker_panel_premium_locked)
     val favoriteKeys: Set<String> = remember(favoritesState) {
@@ -410,7 +421,23 @@ private fun StickerPanel(
         )
     }
     LaunchedEffect(conversation) {
+        // The one-shot resolves the state even before the profile screen has loaded it; the flow then keeps locked
+        // marks correct when Premium is bought or expires in another client.
         conversation.isPremiumAccount().onSuccess { premium = it }
+        conversation.observeIsPremium().collect { observed -> if (observed != null) premium = observed }
+    }
+    // Telegram keeps recent emoji locally, so a fresh install can only rebuild them from own sent messages. The scan
+    // starts only when the Emoji tab is actually opened, is bounded in the repository, and is suppressed for good by
+    // an explicit clear. A cancelled/failed attempt is retried after the store's pause, not on every dock opening.
+    LaunchedEffect(conversation, accountId, view.tab) {
+        if (view.tab != StickerPanelTab.Emoji) return@LaunchedEffect
+        val now = System.currentTimeMillis()
+        if (!emojiStore.mayAttemptRestore(now)) return@LaunchedEffect
+        emojiStore.markRestoreAttempt(now)
+        val history = conversation.recoverRecentEmoji().getOrNull() ?: return@LaunchedEffect
+        recentEmoji = emojiStore.mergeRecovered(history)
+        recentCustomEmoji = emojiStore.mergeRecoveredCustom(history.customEmojiIds)
+        emojiStore.markRestoreDone()
     }
     LaunchedEffect(conversation, view.selectedSetId, packRetry) {
         val setId = view.selectedSetId ?: return@LaunchedEffect
@@ -732,12 +759,24 @@ private fun StickerPanel(
             tabState.SaveableStateProvider(view.tab.name) {
                 when (view.tab) {
                     StickerPanelTab.Emoji -> {
-                        val dock = rememberDockCustomEmoji(conversation, observeFile, downloadFile, shelfVersions.emojiPacks) { emoji ->
-                            val allowed = premium == true || savedMessages
-                            if (allowed) onInsertCustomEmoji(emoji)
-                            else notice = premiumNotice
-                            allowed
-                        }
+                        val customEmojiAvailable = customEmojiAllowed(premium, savedMessages)
+                        val dock = rememberDockCustomEmoji(
+                            conversation = conversation,
+                            observeFile = observeFile,
+                            downloadFile = downloadFile,
+                            packsVersion = shelfVersions.emojiPacks,
+locked = customEmojiLocked(premium, savedMessages),
+                            recentIds = recentCustomEmoji,
+                            packUsage = emojiUsage,
+                            dynamicOrder = dynamicPacks,
+                            onPackOrder = { packOrderDialog = true },
+                            onPick = { emoji ->
+                                if (customEmojiAvailable) onInsertCustomEmoji(emoji)
+                                else notice = premiumNotice
+                                customEmojiAvailable
+                            },
+                            onPicked = { id -> recentCustomEmoji = emojiStore.recordCustom(id) }
+                        )
                         if (view.searchActive && view.query.isNotBlank()) {
                             DockEmojiSearch(conversation, view.query, dock, ::insertEmoji, Modifier.fillMaxWidth().weight(1f))
                         } else {
@@ -746,6 +785,7 @@ private fun StickerPanel(
                                 onEmoji = ::insertEmoji,
                                 customEmoji = dock,
                                 onBackspace = onDeleteBackward,
+                                onClearRecent = { confirmClearEmoji = true },
                                 modifier = Modifier.fillMaxWidth().weight(1f)
                             )
                         }
@@ -757,7 +797,14 @@ private fun StickerPanel(
                         val recList = remember(recentState, favList) {
                             deduplicateRecentStickers(recentState.readyValue().orEmpty(), favList)
                         }
-                        val setsList = setsState.readyValue().orEmpty()
+                        // Usage order is applied once when the list is available, never on a send or a tab switch: the pack under the
+                        // finger must not move. With the mode off the server/manual order is used unchanged.
+                        val orderedSetsState = remember(setsState, dynamicPacks) {
+                            val ready = setsState.readyValue()
+                            if (ready == null) setsState
+                            else PickerLoad.Ready(if (dynamicPacks) stickerUsage.ordered(ready) { it.id } else ready)
+                        }
+                        val setsList = orderedSetsState.readyValue().orEmpty()
                         val favIndex = if (favList.isNotEmpty()) 0 else null
                         val recIndex = if (recList.isNotEmpty()) (if (favList.isNotEmpty()) 1 + favList.size else 0) else null
                         val packStartIndexes = remember(favList, recList, setsList, packContents.toMap()) {
@@ -789,7 +836,7 @@ private fun StickerPanel(
                         if (!view.searchActive) {
                             StickerSectionStrip(
                                 view = stripView,
-                                setsState = setsState,
+                                setsState = orderedSetsState,
                                 observeFile = observeFile,
                                 downloadFile = downloadFile,
                                 onRecent = {
@@ -842,9 +889,10 @@ private fun StickerPanel(
                                     favorites = favList,
                                     recent = recList,
                                     sets = setsList,
-                                    setsState = setsState,
+                                    setsState = orderedSetsState,
                                     packContents = packContents,
                                     packOrder = setsList.map { it.id },
+                                    dynamicOrder = dynamicPacks,
                                     reordering = reorderingStickers,
                                     onReorder = { order ->
                                         if (!reorderingStickers) {
@@ -946,6 +994,33 @@ private fun StickerPanel(
             }
         )
     }
+if (confirmClearEmoji) {
+        BeyGramDialog(
+            onDismissRequest = { confirmClearEmoji = false },
+            title = stringResource(R.string.emoji_clear_recent),
+            message = stringResource(R.string.emoji_clear_recent_confirm),
+            confirmText = stringResource(R.string.emoji_clear_recent),
+            dismissText = stringResource(R.string.common_cancel),
+            onDismiss = { confirmClearEmoji = false },
+            onConfirm = {
+                confirmClearEmoji = false
+                val (unicode, custom) = emojiStore.clearAll()
+                recentEmoji = unicode
+                recentCustomEmoji = custom
+            }
+        )
+    }
+    if (packOrderDialog) {
+        PackOrderDialog(
+            dynamic = dynamicPacks,
+            onToggle = { enabled ->
+                dynamicPacks = enabled
+                stickerUsage.setDynamic(enabled)
+                emojiUsage.setDynamic(enabled)
+            },
+            onDismiss = { packOrderDialog = false }
+        )
+    }
     val currentOverlay = overlay
     if (currentOverlay != null) {
         val overlayPackTitle = (currentOverlay as? StickerPanelOverlay.Sticker)?.item?.let { item ->
@@ -964,6 +1039,8 @@ private fun StickerPanel(
             savingGifKeys = savingGifKeys,
             onSetSavedGif = ::updateSavedGif,
             regularPackOrder = setsState.readyValue().orEmpty().map { it.id },
+            dynamicOrder = dynamicPacks,
+            onPackOrder = { packOrderDialog = true },
             reorderingStickers = reorderingStickers,
             reorderStickers = { order ->
                 if (!reorderingStickers) {
@@ -1203,29 +1280,7 @@ private fun StickerSectionStrip(
 }
 
 @Composable
-private fun GifSectionStrip(favorites: Boolean, onRecent: () -> Unit, onFavorites: () -> Unit) {
-    Row(
-        Modifier.fillMaxWidth().heightIn(min = 60.dp).padding(horizontal = 12.dp, vertical = 6.dp),
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        SectionPill(
-            label = stringResource(R.string.gif_panel_recent),
-            icon = Icons.Rounded.History,
-            selected = !favorites,
-            onClick = onRecent
-        )
-        SectionPill(
-            label = stringResource(R.string.gif_panel_saved),
-            icon = Icons.Rounded.Star,
-            selected = favorites,
-            onClick = onFavorites
-        )
-    }
-}
-
-@Composable
-private fun SectionPill(
+internal fun SectionPill(
     label: String,
     icon: androidx.compose.ui.graphics.vector.ImageVector,
     selected: Boolean,
@@ -1381,93 +1436,6 @@ private fun StickerContent(
 }
 
 @Composable
-private fun GifContent(
-    view: StickerPanelView,
-    recentState: PickerLoad<AnimationPage>,
-    savedState: PickerLoad<List<AnimationItem>>,
-    searchState: PickerLoad<AnimationPage>,
-    recentLoadingMore: Boolean,
-    recentMoreError: String?,
-    searchLoadingMore: Boolean,
-    searchMoreError: String?,
-    observeFile: (Int) -> StateFlow<MediaFileState>,
-    downloadFile: (Int) -> Unit,
-    onRetryRecent: () -> Unit,
-    onRetrySaved: () -> Unit,
-    onRetrySearch: () -> Unit,
-    onLoadMoreRecent: () -> Unit,
-    onLoadMoreSearch: () -> Unit,
-    onSend: (AnimationItem) -> Unit,
-    onPreview: (AnimationItem) -> Unit
-) {
-    val emptyRecent = stringResource(R.string.gif_panel_empty_recent)
-    val emptySaved = stringResource(R.string.gif_panel_empty_saved)
-    val emptySearch = stringResource(R.string.gif_panel_empty_search)
-    Column(Modifier.fillMaxSize()) {
-        if (view.searchActive && view.query.isNotBlank()) {
-            Text(
-                stringResource(R.string.gif_panel_search_note),
-                color = beyGramPalette().textSecondary,
-                fontSize = 11.sp,
-                modifier = Modifier.padding(horizontal = 16.dp, vertical = 2.dp)
-            )
-        }
-        Box(Modifier.fillMaxWidth().weight(1f)) {
-            when {
-                view.query.isNotBlank() -> PickerLoadContent(searchState, onRetrySearch) { page ->
-                    if (page.animations.isEmpty()) PanelEmpty(emptySearch)
-                    else {
-                        val footer: (@Composable () -> Unit)? = when {
-                            searchMoreError != null -> {
-                                { PaginationError(searchMoreError, onLoadMoreSearch) }
-                            }
-                            page.nextOffset.isNotBlank() -> {
-                                { PickerMore(searchLoadingMore, onLoadMoreSearch) }
-                            }
-                            else -> null
-                        }
-                        GifGrid(
-                            animations = page.animations,
-                            observeFile = observeFile,
-                            downloadFile = downloadFile,
-                            onSend = onSend,
-                            onPreview = onPreview,
-                            footer = footer
-                        )
-                    }
-                }
-                view.section == StickerPanelSection.Favorites -> PickerLoadContent(savedState, onRetrySaved) { animations ->
-                    if (animations.isEmpty()) PanelEmpty(emptySaved)
-                    else GifGrid(animations, observeFile, downloadFile, onSend, onPreview)
-                }
-                else -> PickerLoadContent(recentState, onRetryRecent) { page ->
-                    if (page.animations.isEmpty()) PanelEmpty(emptyRecent)
-                    else {
-                        val footer: (@Composable () -> Unit)? = when {
-                            recentMoreError != null -> {
-                                { PaginationError(recentMoreError, onLoadMoreRecent) }
-                            }
-                            page.nextOffset.isNotBlank() -> {
-                                { PickerMore(recentLoadingMore, onLoadMoreRecent) }
-                            }
-                            else -> null
-                        }
-                        GifGrid(
-                            animations = page.animations,
-                            observeFile = observeFile,
-                            downloadFile = downloadFile,
-                            onSend = onSend,
-                            onPreview = onPreview,
-                            footer = footer
-                        )
-                    }
-                }
-            }
-        }
-    }
-}
-
-@Composable
 private fun StickerUnifiedFeed(
     gridState: androidx.compose.foundation.lazy.grid.LazyGridState,
     favorites: List<StickerItem>,
@@ -1476,6 +1444,8 @@ private fun StickerUnifiedFeed(
     setsState: PickerLoad<List<StickerSetSummary>>,
     packContents: Map<Long, PickerLoad<StickerSetContent>>,
     packOrder: List<Long>,
+    /** Usage order is controlled by its own switch; the manual arrows would lie while it is on. */
+    dynamicOrder: Boolean,
     reordering: Boolean,
     onReorder: (List<Long>) -> Unit,
     onLoadPack: (Long) -> Unit,
@@ -1502,12 +1472,12 @@ private fun StickerUnifiedFeed(
         return
     }
     LazyVerticalGrid(
-        columns = GridCells.Adaptive(82.dp),
+        columns = GridCells.Adaptive(StickerPickerMetrics.columnMin),
         modifier = Modifier.fillMaxSize(),
         state = gridState,
-        contentPadding = PaddingValues(8.dp),
-        horizontalArrangement = Arrangement.spacedBy(4.dp),
-        verticalArrangement = Arrangement.spacedBy(4.dp)
+        contentPadding = PaddingValues(StickerPickerMetrics.contentPadding),
+        horizontalArrangement = Arrangement.spacedBy(StickerPickerMetrics.gap),
+        verticalArrangement = Arrangement.spacedBy(StickerPickerMetrics.gap)
     ) {
         if (favorites.isNotEmpty()) {
             item(key = "header-favorites", span = { GridItemSpan(maxLineSpan) }) {
@@ -1539,7 +1509,9 @@ private fun StickerUnifiedFeed(
                     ) {
                         EmojiGroupHeader(summary.title)
                     }
-                    PickerPackOrderButtons(packOrder, summary.id, reordering, onReorder)
+                    if (!dynamicOrder) {
+                            PickerPackOrderButtons(packOrder, summary.id, reordering, onReorder)
+                        }
                 }
             }
             when (val content = packContents[summary.id]) {
@@ -1594,12 +1566,12 @@ private fun StickerGrid(
         }
     }
     LazyVerticalGrid(
-        columns = GridCells.Adaptive(82.dp),
+        columns = GridCells.Adaptive(StickerPickerMetrics.columnMin),
         modifier = Modifier.fillMaxSize(),
         state = gridState,
-        contentPadding = PaddingValues(8.dp),
-        horizontalArrangement = Arrangement.spacedBy(4.dp),
-        verticalArrangement = Arrangement.spacedBy(4.dp)
+        contentPadding = PaddingValues(StickerPickerMetrics.contentPadding),
+        horizontalArrangement = Arrangement.spacedBy(StickerPickerMetrics.gap),
+        verticalArrangement = Arrangement.spacedBy(StickerPickerMetrics.gap)
     ) {
         gridItems(uniqueStickers, key = { it.key }) { item ->
             StickerPanelCell(item, observeFile, downloadFile, onSend = { onSend(item) }, onOptions = { onOptions(item) })
@@ -1626,7 +1598,7 @@ private fun StickerPanelCell(
         "$baseDescription, ${stringResource(R.string.sticker_panel_premium_badge)}"
     } else baseDescription
     Box(
-        Modifier.size(76.dp).clip(styledShape(14.dp))
+        Modifier.size(StickerPickerMetrics.cell).clip(styledShape(12.dp))
             .combinedClickable(
                 role = Role.Button,
                 onClickLabel = stringResource(R.string.common_send),
@@ -1669,7 +1641,7 @@ private fun StickerPanelArtwork(
         // WebM stickers and strip covers cannot be drawn by the picker; their still thumbnail is enough.
         if (!thumbnailOnly && item.format != StickerFileFormat.Webm) downloadFile(item.fileId)
     }
-    val emoji = item.emoji.ifBlank { "🙂" }
+    val emoji = item.emoji.ifBlank { "СЂСџв„ўвЂљ" }
     val thumbnailPath = thumbnail.localPath.takeIf { item.thumbnailIsStatic }
     val fullPath = file.localPath
     Box(modifier.clipToBounds().then(autoplay.modifier), contentAlignment = Alignment.Center) {
@@ -1694,132 +1666,11 @@ private fun StickerPanelArtwork(
     }
 }
 
-@Composable
-private fun GifGrid(
-    animations: List<AnimationItem>,
-    observeFile: (Int) -> StateFlow<MediaFileState>,
-    downloadFile: (Int) -> Unit,
-    onSend: (AnimationItem) -> Unit,
-    onPreview: (AnimationItem) -> Unit,
-    footer: (@Composable () -> Unit)? = null
-) {
-    val gridState = rememberLazyStaggeredGridState()
-    // Search pages and recents can repeat an item; a duplicate lazy key would crash the grid.
-    val uniqueAnimations = remember(animations) { animations.distinctBy { it.key } }
-    val firstKey = uniqueAnimations.firstOrNull()?.key
-    var previousFirst by rememberSaveable { mutableStateOf(firstKey) }
-    LaunchedEffect(firstKey) {
-        if (firstKey != null && previousFirst != firstKey) {
-            gridState.scrollToItem(0)
-            previousFirst = firstKey
-        }
-    }
-    LazyVerticalStaggeredGrid(
-        columns = StaggeredGridCells.Adaptive(132.dp),
-        modifier = Modifier.fillMaxSize(),
-        state = gridState,
-        contentPadding = PaddingValues(8.dp),
-        horizontalArrangement = Arrangement.spacedBy(6.dp),
-        verticalItemSpacing = 6.dp
-    ) {
-        staggeredItems(uniqueAnimations, key = { it.key }) { item ->
-            GifPanelCell(
-                item = item,
-                observeFile = observeFile,
-                downloadFile = downloadFile,
-                onSend = { onSend(item) },
-                onPreview = { onPreview(item) }
-            )
-        }
-        if (footer != null) {
-            item(span = StaggeredGridItemSpan.FullLine, key = "footer") { footer() }
-        }
-    }
-}
-
-@Composable
-private fun GifPanelCell(
-    item: AnimationItem,
-    observeFile: (Int) -> StateFlow<MediaFileState>,
-    downloadFile: (Int) -> Unit,
-    onSend: () -> Unit,
-    onPreview: () -> Unit
-) {
-    val palette = beyGramPalette()
-    val name = item.fileName.ifBlank { stringResource(R.string.gif_panel_label) }
-    val description = stringResource(R.string.gif_panel_item_description, name)
-    Box(
-        Modifier.fillMaxWidth().aspectRatio(gifPickerAspectRatio(item)).clip(styledShape(12.dp))
-            .background(palette.surface2)
-            .combinedClickable(
-                role = Role.Button,
-                onClickLabel = stringResource(R.string.gif_panel_send),
-                onLongClickLabel = stringResource(R.string.gif_panel_preview_title),
-                onClick = onSend,
-                onLongClick = onPreview
-            )
-            .semantics { contentDescription = description }
-    ) {
-        GifPanelArtwork(item, Modifier.fillMaxSize(), observeFile, downloadFile)
-        Text(
-            stringResource(R.string.gif_panel_label),
-            color = palette.onAccent,
-            fontSize = 10.sp,
-            fontWeight = FontWeight.SemiBold,
-            modifier = Modifier.align(Alignment.TopStart).padding(6.dp)
-                .clip(styledShape(6.dp)).background(palette.accent.copy(alpha = 0.88f))
-                .padding(horizontal = 5.dp, vertical = 2.dp)
-        )
-        if (item.durationSeconds > 0) {
-            Text(
-                stringResource(R.string.gif_panel_duration, item.durationSeconds),
-                color = palette.textPrimary,
-                fontSize = 10.sp,
-                modifier = Modifier.align(Alignment.BottomEnd).padding(6.dp)
-                    .clip(styledShape(6.dp)).background(palette.surface.copy(alpha = 0.84f))
-                    .padding(horizontal = 5.dp, vertical = 2.dp)
-            )
-        }
-    }
-}
-
-/** Only the small thumbnail is downloaded; an animated preview is intentionally not started here. */
-@Composable
-private fun GifPanelArtwork(
-    item: AnimationItem,
-    modifier: Modifier,
-    observeFile: (Int) -> StateFlow<MediaFileState>,
-    downloadFile: (Int) -> Unit
-) {
-    val palette = beyGramPalette()
-    val thumbnail = rememberPanelFile(item.thumbnailFileId, observeFile)
-    // Use a cached full animation only if already present; never download every GIF merely to draw the grid.
-    val fullFile = rememberPanelFile(item.fileId, observeFile)
-    LaunchedEffect(item.thumbnailFileId) { item.thumbnailFileId?.let(downloadFile) }
-    val path = thumbnail.localPath ?: fullFile.localPath
-    // A GIF animates only after it has been on screen for the autoplay dwell time; until then its first frame shows.
-    val autoplay = rememberAutoplayEligible()
-    Box(modifier.then(autoplay.modifier), contentAlignment = Alignment.Center) {
-        when {
-            path != null -> LocalMediaImage(
-                path, Modifier.fillMaxSize(), fit = true, maxDimension = 320,
-                allowVideoFrame = true,
-                fallbackVideoPath = if (path != fullFile.localPath) fullFile.localPath else null,
-                fallbackMinithumbnail = item.minithumbnail,
-                animate = autoplay.eligible.value
-            )
-            item.minithumbnail != null -> MinithumbnailImage(item.minithumbnail, Modifier.fillMaxSize())
-            thumbnail.isDownloading -> CircularProgressIndicator(Modifier.size(20.dp), color = palette.accent, strokeWidth = 2.dp)
-            else -> Icon(Icons.Rounded.Animation, contentDescription = null, tint = palette.textSecondary, modifier = Modifier.size(28.dp))
-        }
-    }
-}
-
 @Suppress("UNCHECKED_CAST")
-private fun <T> PickerLoad<T>.readyValue(): T? = (this as? PickerLoad.Ready<T>)?.value
+internal fun <T> PickerLoad<T>.readyValue(): T? = (this as? PickerLoad.Ready<T>)?.value
 
 @Composable
-private fun <T> PickerLoadContent(
+internal fun <T> PickerLoadContent(
     state: PickerLoad<T>,
     onRetry: () -> Unit,
     content: @Composable (T) -> Unit
@@ -1833,21 +1684,21 @@ private fun <T> PickerLoadContent(
 }
 
 @Composable
-private fun PanelLoading() {
+internal fun PanelLoading() {
     Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
         CircularProgressIndicator(Modifier.size(28.dp), color = beyGramPalette().accent, strokeWidth = 2.dp)
     }
 }
 
 @Composable
-private fun PanelEmpty(text: String) {
+internal fun PanelEmpty(text: String) {
     Box(Modifier.fillMaxSize().padding(24.dp), contentAlignment = Alignment.Center) {
         Text(text, color = beyGramPalette().textSecondary, fontSize = 14.sp, textAlign = TextAlign.Center)
     }
 }
 
 @Composable
-private fun PanelError(text: String, onRetry: () -> Unit) {
+internal fun PanelError(text: String, onRetry: () -> Unit) {
     Column(
         Modifier.fillMaxSize().padding(16.dp).errorAnnouncement(),
         horizontalAlignment = Alignment.CenterHorizontally,
@@ -1871,7 +1722,7 @@ private fun PanelNotice(text: String) {
 }
 
 @Composable
-private fun PickerMore(loading: Boolean, onClick: () -> Unit) {
+internal fun PickerMore(loading: Boolean, onClick: () -> Unit) {
     Box(Modifier.fillMaxWidth().heightIn(min = 48.dp), contentAlignment = Alignment.Center) {
         if (loading) CircularProgressIndicator(Modifier.size(22.dp), color = beyGramPalette().accent, strokeWidth = 2.dp)
         else TextButton(onClick = onClick) { Text(stringResource(R.string.sticker_panel_load_more)) }
@@ -1879,7 +1730,7 @@ private fun PickerMore(loading: Boolean, onClick: () -> Unit) {
 }
 
 @Composable
-private fun PaginationError(text: String, onRetry: () -> Unit) {
+internal fun PaginationError(text: String, onRetry: () -> Unit) {
     Row(
         Modifier.fillMaxWidth().padding(horizontal = 8.dp).errorAnnouncement(),
         verticalAlignment = Alignment.CenterVertically
@@ -1893,7 +1744,7 @@ private fun PaginationError(text: String, onRetry: () -> Unit) {
 
 /** Collects a nullable TDLib file; a missing thumbnail never changes the number of remembered states. */
 @Composable
-private fun rememberPanelFile(fileId: Int?, observeFile: (Int) -> StateFlow<MediaFileState>): MediaFileState {
+internal fun rememberPanelFile(fileId: Int?, observeFile: (Int) -> StateFlow<MediaFileState>): MediaFileState {
     val placeholder = remember { MutableStateFlow(MediaFileState(0)) }
     val flow = remember(fileId) { fileId?.let(observeFile) ?: placeholder }
     val state by flow.collectAsStateWithLifecycle()
@@ -1920,6 +1771,8 @@ private fun StickerPanelOverlayContent(
     savingGifKeys: Set<String>,
     onSetSavedGif: (AnimationItem, Boolean) -> Unit,
     regularPackOrder: List<Long>,
+    dynamicOrder: Boolean,
+    onPackOrder: () -> Unit,
     reorderingStickers: Boolean,
     reorderStickers: (List<Long>) -> Unit,
     premium: Boolean?,
@@ -1965,8 +1818,12 @@ private fun StickerPanelOverlayContent(
                 observeFile = observeFile,
                 downloadFile = downloadFile,
                 onOpen = { onOpenPack(overlay.summary.id) },
+                dynamicOrder = dynamicOrder,
+                onPackOrder = onPackOrder,
                 orderButtons = {
-                    PickerPackOrderButtons(regularPackOrder, overlay.summary.id, reorderingStickers, reorderStickers)
+                    if (!dynamicOrder) {
+                        PickerPackOrderButtons(regularPackOrder, overlay.summary.id, reorderingStickers, reorderStickers)
+                    }
                 }
             )
         }
@@ -2022,7 +1879,7 @@ private fun StickerPreviewContent(
             stringResource(R.string.sticker_panel_dimensions, item.width, item.height)
         } else null
         Text(
-            listOfNotNull(format, dimensions).joinToString(" · "),
+            listOfNotNull(format, dimensions).joinToString(" Р’В· "),
             color = palette.textSecondary,
             fontSize = 12.sp
         )
@@ -2135,7 +1992,7 @@ private fun GifPreviewContent(
         } else null
         val duration = item.durationSeconds.takeIf { it > 0 }?.let { stringResource(R.string.gif_panel_duration, it) }
         Text(
-            listOfNotNull(duration, dimensions).joinToString(" · "),
+            listOfNotNull(duration, dimensions).joinToString(" Р’В· "),
             color = palette.textSecondary,
             fontSize = 12.sp
         )
@@ -2174,6 +2031,8 @@ private fun PackPreviewContent(
     observeFile: (Int) -> StateFlow<MediaFileState>,
     downloadFile: (Int) -> Unit,
     onOpen: () -> Unit,
+    dynamicOrder: Boolean,
+    onPackOrder: () -> Unit,
     orderButtons: @Composable () -> Unit
 ) {
     val palette = beyGramPalette()
@@ -2190,7 +2049,15 @@ private fun PackPreviewContent(
             fontWeight = FontWeight.SemiBold,
             modifier = Modifier.fillMaxWidth()
         )
-        Row { orderButtons() }
+        if (!dynamicOrder) Row { orderButtons() }
+        TextButton(
+            onClick = onPackOrder,
+            modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)
+        ) {
+            Icon(Icons.Rounded.Tune, contentDescription = null, modifier = Modifier.size(18.dp))
+            Spacer(Modifier.width(8.dp))
+            Text(stringResource(R.string.pack_order_settings))
+        }
         Spacer(Modifier.height(12.dp))
         val cover = summary.cover
         if (cover != null) {

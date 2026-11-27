@@ -7,4 +7,11 @@
     <string name="gif_panel_save_failed">Impossible de mettre à jour les GIF enregistrés</string>
     <string name="sticker_panel_clear_recent">Effacer les stickers récents</string>
     <string name="sticker_panel_clear_recent_confirm">Effacer l’historique des stickers récents de ce compte ?</string>
+    <string name="emoji_clear_recent">Effacer les emojis récents</string>
+    <string name="emoji_clear_recent_confirm">Effacer les emojis récents de ce compte ? Ils ne seront plus récupérés depuis l\'historique des messages.</string>
+    <string name="emoji_clear_recent_short">Effacer</string>
+    <string name="pack_order_title">Ordre des packs</string>
+    <string name="pack_order_dynamic">Trier par utilisation</string>
+    <string name="pack_order_dynamic_hint">Les packs les plus utilisés passent devant. Désactivé, votre ordre manuel est conservé.</string>
+    <string name="pack_order_settings">Réglages de l\'ordre des packs</string>
 </resources>

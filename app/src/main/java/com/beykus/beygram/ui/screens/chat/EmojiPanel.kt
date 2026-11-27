@@ -26,6 +26,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.Backspace
+import androidx.compose.material.icons.rounded.Tune
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.Text
@@ -49,7 +50,9 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.beykus.beygram.R
+import com.beykus.beygram.ui.components.SystemEmojiFont
 import com.beykus.beygram.ui.components.beyGramPalette
+import com.beykus.beygram.ui.components.emojiPresentation
 import kotlinx.coroutines.launch
 
 /**
@@ -62,7 +65,9 @@ internal fun EmojiPanel(
     onEmoji: (String) -> Unit,
     onBackspace: () -> Unit,
     modifier: Modifier = Modifier,
-    customEmoji: DockCustomEmoji? = null
+    customEmoji: DockCustomEmoji? = null,
+    /** Clears Unicode and custom recents; the panel also suppresses recovering them from history afterwards. */
+    onClearRecent: (() -> Unit)? = null
 ) {
     val groups = remember(recents) { EmojiCatalog.withRecent(recents) }
     val headerIndexes = remember(groups) { groupHeaderIndexes(groups) }
@@ -94,7 +99,16 @@ internal fun EmojiPanel(
         ) {
             groups.forEach { group ->
                 item(span = { GridItemSpan(maxLineSpan) }, key = "header-${group.id}") {
-                    EmojiGroupHeader(stringResource(group.titleRes))
+                    if (group.id == RECENT_EMOJI_GROUP_ID && onClearRecent != null) {
+                        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                            Box(Modifier.weight(1f)) { EmojiGroupHeader(stringResource(group.titleRes)) }
+                            TextButton(onClick = onClearRecent) {
+                                Text(stringResource(R.string.emoji_clear_recent_short))
+                            }
+                        }
+                    } else {
+                        EmojiGroupHeader(stringResource(group.titleRes))
+                    }
                 }
                 gridItems(group.emoji, key = { "${group.id}-$it" }) { emoji ->
                     EmojiCell(emoji = emoji, onClick = { onEmoji(emoji) })
@@ -104,7 +118,14 @@ internal fun EmojiPanel(
                 val firstRecommended = customEmoji.packs.firstOrNull { it.id !in customEmoji.installedIds }?.id
                 if (recentCustom.isNotEmpty()) {
                     item(key = "custom-recent-header", span = { GridItemSpan(maxLineSpan) }) {
-                        EmojiGroupHeader(stringResource(R.string.emoji_custom_recent))
+                        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                            Box(Modifier.weight(1f)) { EmojiGroupHeader(stringResource(R.string.emoji_custom_recent)) }
+                            if (onClearRecent != null) {
+                                TextButton(onClick = onClearRecent) {
+                                    Text(stringResource(R.string.emoji_clear_recent_short))
+                                }
+                            }
+                        }
                     }
                     gridItems(recentCustom, key = { "custom-recent-$it" }) { id ->
                         DockCustomEmojiCell(id, customEmoji)
@@ -187,7 +208,13 @@ internal fun EmojiCell(emoji: String, onClick: () -> Unit) {
             .clickable(role = Role.Button, onClick = onClick),
         contentAlignment = Alignment.Center
     ) {
-        Text(emoji, fontSize = 28.sp, maxLines = 1)
+        Text(
+            emojiPresentation(emoji),
+            fontSize = 28.sp,
+            lineHeight = 28.sp,
+            fontFamily = SystemEmojiFont,
+            maxLines = 1
+        )
     }
 }
 
@@ -240,6 +267,11 @@ private fun EmojiGroupStrip(
                 }
             }
         }
+        if (customEmoji != null) {
+            IconButton(onClick = customEmoji.onPackOrder, modifier = Modifier.size(48.dp)) {
+                Icon(Icons.Rounded.Tune, stringResource(R.string.pack_order_settings), tint = palette.textSecondary)
+            }
+        }
         IconButton(onClick = onBackspace, modifier = Modifier.size(48.dp)) {
             Icon(Icons.AutoMirrored.Rounded.Backspace, stringResource(R.string.emoji_backspace), tint = palette.textSecondary)
         }
@@ -258,7 +290,13 @@ private fun EmojiGroupButton(group: EmojiGroup, selected: Boolean, onClick: () -
             .semantics { contentDescription = label },
         contentAlignment = Alignment.Center
     ) {
-        Text(group.icon, fontSize = 20.sp)
+        Text(
+            emojiPresentation(group.icon),
+            fontSize = 20.sp,
+            lineHeight = 20.sp,
+            fontFamily = SystemEmojiFont,
+            maxLines = 1
+        )
     }
 }
 

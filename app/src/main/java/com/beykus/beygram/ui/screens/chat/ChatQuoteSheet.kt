@@ -29,6 +29,7 @@ import com.beykus.beygram.R
 import com.beykus.beygram.domain.model.MessageTextEntity
 import com.beykus.beygram.domain.model.MessageSendOptions
 import com.beykus.beygram.ui.components.beyGramPalette
+import com.beykus.beygram.ui.components.emojiFontText
 import com.beykus.beygram.ui.design.styledShape
 import com.beykus.beygram.ui.motion.MotionToken
 import com.beykus.beygram.ui.motion.motionEntrance
@@ -116,7 +117,7 @@ internal fun ChatReplyHeaderStrip(
                 .padding(horizontal = 10.dp, vertical = 6.dp)
         ) {
             Text(senderLabel, color = palette.accentInk, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
-            Text(previewText, color = palette.textSecondary, maxLines = 2, overflow = TextOverflow.Ellipsis, fontSize = 14.sp)
+            Text(emojiFontText(previewText), color = palette.textSecondary, maxLines = 2, overflow = TextOverflow.Ellipsis, fontSize = 14.sp)
         }
         IconButton(enabled = !sending, onClick = onClear) {
             Icon(Icons.Rounded.Close, stringResource(R.string.chat_cancel_reply_description), tint = palette.textSecondary)

@@ -57,11 +57,11 @@ internal fun StickerGrid(
     footer: (@Composable () -> Unit)? = null
 ) {
     LazyVerticalGrid(
-        columns = GridCells.Adaptive(76.dp),
+        columns = GridCells.Adaptive(StickerPickerMetrics.columnMin),
         modifier = Modifier.fillMaxSize(),
-        contentPadding = PaddingValues(8.dp),
-        horizontalArrangement = Arrangement.spacedBy(4.dp),
-        verticalArrangement = Arrangement.spacedBy(4.dp)
+        contentPadding = PaddingValues(StickerPickerMetrics.contentPadding),
+        horizontalArrangement = Arrangement.spacedBy(StickerPickerMetrics.gap),
+        verticalArrangement = Arrangement.spacedBy(StickerPickerMetrics.gap)
     ) {
         items(stickers, key = { it.key }) { item ->
             StickerCell(
@@ -99,7 +99,7 @@ private fun StickerCell(
         )
     }
     Box(
-        Modifier.size(68.dp).clip(styledShape(12.dp))
+        Modifier.size(StickerPickerMetrics.cell).clip(styledShape(12.dp))
             .then(clickModifier)
             .semantics { contentDescription = description },
         contentAlignment = Alignment.Center
