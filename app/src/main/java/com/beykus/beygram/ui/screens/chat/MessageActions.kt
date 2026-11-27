@@ -564,7 +564,7 @@ internal fun MessageContextPopover(
                                     )
                                 }
                                 val quoteAction = if (selection != null && onQuoteFragment != null) selection::selectAll else onQuote
-                                if (quoteAction != null && capabilities.canReply && hasText) {
+                                if (quoteAction != null && capabilities.canReply && capabilities.canCopy && hasText) {
                                     Row(
                                         Modifier
                                             .fillMaxWidth()
