@@ -29,6 +29,7 @@ import androidx.compose.ui.unit.dp
 import com.beykus.beygram.R
 import com.beykus.beygram.data.tdlib.stableColor
 import com.beykus.beygram.domain.model.AvatarPhoto
+import com.beykus.beygram.domain.model.hasSameSenderAs
 import com.beykus.beygram.domain.model.ChatMessage
 import com.beykus.beygram.domain.model.ChatPreview
 import com.beykus.beygram.domain.model.MediaFileState
@@ -62,7 +63,7 @@ internal fun groupAvatarRows(
         }
         val prior = previous
         val startsGroup = prior == null || item.key in separators ||
-            prior.senderId != first.senderId || prior.senderChatId != first.senderChatId || prior.senderName != first.senderName ||
+            !prior.hasSameSenderAs(first) ||
             first.dateSeconds - prior.dateSeconds > AvatarGroupGapSeconds
         if (startsGroup) put(item.key, first)
         previous = item.messages.maxByOrNull { it.id }
