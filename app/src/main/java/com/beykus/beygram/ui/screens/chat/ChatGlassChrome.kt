@@ -75,7 +75,11 @@ internal fun ChatChromeHost(
     }
     if (!glass) {
         // The top stack is drawn above the message list, so a header shadow (Material 2) is not painted over by it.
-        Column(Modifier.fillMaxWidth().zIndex(if (edge == GlassEdge.BottomHairline) 1f else 0f)) {
+        Column(Modifier.fillMaxWidth().zIndex(1f).then(
+            if (edge == GlassEdge.TopHairline) Modifier.onSizeChanged { onHeight(it.height) }
+                .pointerInput(Unit) { awaitPointerEventScope { while (true) awaitPointerEvent() } }
+            else Modifier
+        )) {
             statusBarSpacer()
             paneContent()
             floatingContent()
