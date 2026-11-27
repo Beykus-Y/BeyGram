@@ -765,7 +765,7 @@ private fun StickerPanel(
                             observeFile = observeFile,
                             downloadFile = downloadFile,
                             packsVersion = shelfVersions.emojiPacks,
-                            locked = !customEmojiAvailable,
+locked = customEmojiLocked(premium, savedMessages),
                             recentIds = recentCustomEmoji,
                             packUsage = emojiUsage,
                             dynamicOrder = dynamicPacks,
