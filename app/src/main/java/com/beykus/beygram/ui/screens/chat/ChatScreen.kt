@@ -27,7 +27,6 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.rounded.ArrowDownward
 import androidx.compose.material.icons.rounded.Call
 import androidx.compose.material.icons.rounded.ChatBubbleOutline
 import androidx.compose.material.icons.rounded.ChevronRight
@@ -51,7 +50,6 @@ import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.compositeOver
-import androidx.compose.ui.draw.shadow
 import com.beykus.beygram.ui.design.LocalDesignSystem
 import com.beykus.beygram.ui.design.SurfaceTreatment
 import com.beykus.beygram.ui.design.TopBarVariant
@@ -73,7 +71,6 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalWindowInfo
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
-import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.selected
@@ -1222,15 +1219,16 @@ fun ChatScreen(
         if (hidingComposerForLaunch) return
         val before = if (editMessage != null) editText else draft
         val result = edit(before, composerCursor.selectionFor(before))
-        if (result.text == before) return
+        if (result.text == before && result.insertedEntity == null) return
         // The field adopts this selection when the new text reaches it, so the cursor stays after the inserted emoji.
         composerCursor.update(result.text, result.selection)
         if (editMessage != null) {
-            editEntities = adjustTextEntities(before, result.text, editEntities)
+            editEntities = result.entitiesAfter(before, editEntities)
             editText = result.text
         } else {
-            updateDraft { it.copy(entities = adjustTextEntities(before, result.text, it.entities)) }
-            typedDraft(result.text)
+            updateDraft { it.copy(text = result.text, entities = result.entitiesAfter(before, it.entities)) }
+            if (result.text.isBlank()) conversation.endChatActivity(chat.id, ChatActivity.Typing)
+            else conversation.startChatActivity(chat.id, ChatActivity.Typing)
         }
     }
     ChatMessageActionEffects(messageActions, conversation, chat.id, actionMessage?.id, reactionOwner?.id) {
@@ -2555,39 +2553,22 @@ fun ChatScreen(
             }
         }
         }
-        if (!searching) FloatingMessageDate(listState, messageListItems, Modifier.align(Alignment.TopCenter).padding(top = 8.dp))
-        val away by remember(listState) { derivedStateOf { listState.firstVisibleItemIndex > 3 } }
-        ChatJumpControls(
+        ChatTimelineJumpOverlays(
+            listState = listState,
+            items = messageListItems,
+            searching = searching,
             chatId = chat.id,
             forumTopicId = forumTopicId,
+            unread = if (forumTopicId > 0L) topicUnreadCount else chat.unreadCount,
             unreadMentions = if (forumTopicId > 0L) topicUnreadMentionCount else chat.unreadMentionCount,
             unreadReactions = if (forumTopicId > 0L) topicUnreadReactionCount else chat.unreadReactionCount,
-            showJumpLatest = away || history.hasNewerMessages,
+            hasNewerMessages = history.hasNewerMessages,
             conversation = conversation,
+            scope = scope,
+            listScrollInstant = listScrollInstant,
             onJumpToMessage = { id -> jumpToMessage(id, R.string.chat_message_unavailable) },
-            onReadAllFailed = { error = context.getString(R.string.chat_read_all_failed) },
-            onJumpEmpty = { error = context.getString(R.string.global_search_empty) },
-            onJumpFailed = { failure ->
-                error = failure?.userMessage(context, R.string.chat_search_failed)
-                    ?: context.getString(R.string.err_tdlib_request_timeout)
-            },
-            modifier = Modifier.align(Alignment.BottomEnd).padding(end = 12.dp, bottom = 12.dp)
-        ) {
-            JumpToLatestButton(unread = if (forumTopicId > 0L) topicUnreadCount else chat.unreadCount, onClick = {
-                val hasNewerMessages = history.hasNewerMessages
-                if (hasNewerMessages) {
-                    if (forumTopicId > 0L) conversation.loadForumTopicHistory(chat.id, forumTopicId)
-                    else conversation.loadLatestMessages(chat.id)
-                }
-                scope.launch {
-                    if (shouldAnimateJumpToLatest(listScrollInstant.value, hasNewerMessages)) {
-                        listState.scrollToItemRespectingMotion(0, motionInstant = listScrollInstant)
-                    } else {
-                        listState.scrollToItem(0)
-                    }
-                }
-            })
-        }
+            onError = { error = it }
+        )
         if (searching) ChatSearchResults(
             query = searchQuery,
             filter = searchFilter,
@@ -2919,6 +2900,9 @@ fun ChatScreen(
                 },
                 onSendError = { message -> error = message },
                 onInsertEmoji = { emoji -> editComposerText { text, selection -> insertAtSelection(text, selection, emoji) } },
+                onInsertCustomEmoji = { emoji ->
+                    editComposerText { text, selection -> insertCustomEmojiAtSelection(text, selection, emoji) }
+                },
                 onDeleteBackward = { editComposerText(::deleteBeforeSelection) },
                 onCloseStickerPanel = { stickerPanelOpen = false }
             )
@@ -3325,38 +3309,6 @@ fun ChatScreen(
  * The return-to-latest control: a 48dp round floating button with an arrow and, when there are unread messages, the
  * chat's unread count on its edge. It sits over the message list, so the composer and the keyboard never cover it.
  */
-@Composable
-private fun JumpToLatestButton(unread: Int, onClick: () -> Unit) {
-    val palette = beyGramPalette()
-    val label = stringResource(R.string.chat_jump_to_latest)
-    Box(
-        Modifier.size(48.dp).semantics(mergeDescendants = true) { contentDescription = label },
-        contentAlignment = Alignment.Center
-    ) {
-        Box(
-            Modifier.fillMaxSize().let { m ->
-                // Liquid Glass: a translucent disc with a hairline rim instead of a solid disc with a shadow.
-                if (LocalDesignSystem.current.usesGlassPanels) m.clip(CircleShape).background(palette.surface.copy(alpha = 0.72f))
-                    .border(0.5.dp, palette.textSecondary.copy(alpha = 0.35f), CircleShape)
-                else m.shadow(elevation = 4.dp, shape = CircleShape).clip(CircleShape).background(palette.surface)
-            }.clickable(role = Role.Button, onClick = onClick),
-            contentAlignment = Alignment.Center
-        ) {
-            Icon(Icons.Rounded.ArrowDownward, contentDescription = null, tint = palette.accent, modifier = Modifier.size(22.dp))
-        }
-        // The badge sits outside the clipped circle so the corner offset does not crop it.
-        if (unread > 0) Box(
-            Modifier.align(Alignment.TopEnd).offset(x = 4.dp, y = (-4).dp)
-                .defaultMinSize(minWidth = 18.dp, minHeight = 18.dp)
-                .clip(CircleShape).background(palette.accent).padding(horizontal = 4.dp)
-                .clearAndSetSemantics {},
-            contentAlignment = Alignment.Center
-        ) {
-            Text(if (unread > 99) "99+" else unread.toString(), color = palette.onAccent, fontSize = 11.sp, fontWeight = FontWeight.SemiBold, maxLines = 1)
-        }
-    }
-}
-
 /**
  * The round send control: a checkmark while editing, a spinner while sending. Material 3 fills it with the tonal accent
  * container; the other styles keep the solid accent, and Material 2 keeps its rounded square.

@@ -103,6 +103,7 @@ import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.beykus.beygram.ui.components.BeyGramSheet
 import com.beykus.beygram.R
+import com.beykus.beygram.domain.model.CustomEmoji
 import com.beykus.beygram.domain.model.AnimationItem
 import com.beykus.beygram.domain.model.AnimationPage
 import com.beykus.beygram.domain.model.MediaFileState
@@ -195,6 +196,7 @@ internal fun StickerPanelHost(
     onStickerOptions: (StickerItem) -> Unit,
     onSendError: (String) -> Unit,
     onInsertEmoji: (String) -> Unit,
+    onInsertCustomEmoji: (CustomEmoji) -> Unit,
     onDeleteBackward: () -> Unit,
     onClose: () -> Unit
 ) {
@@ -265,6 +267,7 @@ internal fun StickerPanelHost(
             },
             onAttachAnimation = onAnimationAttach,
             onInsertEmoji = onInsertEmoji,
+            onInsertCustomEmoji = onInsertCustomEmoji,
             onDeleteBackward = onDeleteBackward,
             onClose = onClose
         )
@@ -286,6 +289,7 @@ private fun StickerPanel(
     onSendAnimation: (AnimationItem) -> Unit,
     onAttachAnimation: (AnimationItem) -> Unit,
     onInsertEmoji: (String) -> Unit,
+    onInsertCustomEmoji: (CustomEmoji) -> Unit,
     onDeleteBackward: () -> Unit,
     onClose: () -> Unit
 ) {
@@ -673,6 +677,11 @@ private fun StickerPanel(
                     StickerPanelTab.Emoji -> EmojiPanel(
                         recents = recentEmoji,
                         onEmoji = ::insertEmoji,
+                        customEmoji = rememberDockCustomEmoji(conversation, observeFile, downloadFile) { emoji ->
+                            if (premium == true) onInsertCustomEmoji(emoji)
+                            else notice = premiumNotice
+                            premium == true
+                        },
                         onBackspace = onDeleteBackward,
                         modifier = Modifier.fillMaxWidth().weight(1f)
                     )

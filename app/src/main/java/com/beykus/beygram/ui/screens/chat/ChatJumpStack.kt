@@ -9,21 +9,27 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.defaultMinSize
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.AlternateEmail
+import androidx.compose.material.icons.rounded.ArrowDownward
 import androidx.compose.material.icons.rounded.Favorite
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.State
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.getValue
@@ -36,6 +42,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.clearAndSetSemantics
@@ -55,6 +62,9 @@ import com.beykus.beygram.ui.motion.MotionToken
 import com.beykus.beygram.ui.motion.fadeEnter
 import com.beykus.beygram.ui.motion.fadeExit
 import com.beykus.beygram.ui.motion.rememberMotionSpec
+import com.beykus.beygram.ui.motion.scrollToItemRespectingMotion
+import com.beykus.beygram.ui.text.userMessage
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.launch
@@ -255,6 +265,90 @@ private fun ChatFloatingBadgeButton(
                 fontWeight = FontWeight.SemiBold,
                 maxLines = 1
             )
+        }
+    }
+}
+
+@Composable
+internal fun BoxScope.ChatTimelineJumpOverlays(
+    listState: LazyListState,
+    items: List<ChatMessageListItem>,
+    searching: Boolean,
+    chatId: Long,
+    forumTopicId: Long,
+    unread: Int,
+    unreadMentions: Int,
+    unreadReactions: Int,
+    hasNewerMessages: Boolean,
+    conversation: ConversationRepository,
+    scope: CoroutineScope,
+    listScrollInstant: State<Boolean>,
+    onJumpToMessage: (Long) -> Unit,
+    onError: (String) -> Unit
+) {
+    val context = LocalContext.current
+    if (!searching) FloatingMessageDate(listState, items, Modifier.align(Alignment.TopCenter).padding(top = 8.dp))
+    val away by remember(listState) { derivedStateOf { listState.firstVisibleItemIndex > 3 } }
+    ChatJumpControls(
+        chatId = chatId,
+        forumTopicId = forumTopicId,
+        unreadMentions = unreadMentions,
+        unreadReactions = unreadReactions,
+        showJumpLatest = away || hasNewerMessages,
+        conversation = conversation,
+        onJumpToMessage = onJumpToMessage,
+        onReadAllFailed = { onError(context.getString(R.string.chat_read_all_failed)) },
+        onJumpEmpty = { onError(context.getString(R.string.global_search_empty)) },
+        onJumpFailed = { failure ->
+            onError(failure?.userMessage(context, R.string.chat_search_failed)
+                ?: context.getString(R.string.err_tdlib_request_timeout))
+        },
+        modifier = Modifier.align(Alignment.BottomEnd).padding(end = 12.dp, bottom = 12.dp)
+    ) {
+        JumpToLatestButton(unread = unread, onClick = {
+            if (hasNewerMessages) {
+                if (forumTopicId > 0L) conversation.loadForumTopicHistory(chatId, forumTopicId)
+                else conversation.loadLatestMessages(chatId)
+            }
+            scope.launch {
+                if (shouldAnimateJumpToLatest(listScrollInstant.value, hasNewerMessages)) {
+                    listState.scrollToItemRespectingMotion(0, motionInstant = listScrollInstant)
+                } else {
+                    listState.scrollToItem(0)
+                }
+            }
+        })
+    }
+}
+
+@Composable
+private fun JumpToLatestButton(unread: Int, onClick: () -> Unit) {
+    val palette = beyGramPalette()
+    val label = stringResource(R.string.chat_jump_to_latest)
+    Box(
+        Modifier.size(48.dp).semantics(mergeDescendants = true) { contentDescription = label },
+        contentAlignment = Alignment.Center
+    ) {
+        Box(
+            Modifier.fillMaxSize().let { m ->
+                // Liquid Glass: a translucent disc with a hairline rim instead of a solid disc with a shadow.
+                if (LocalDesignSystem.current.usesGlassPanels) m.clip(CircleShape).background(palette.surface.copy(alpha = 0.72f))
+                    .border(0.5.dp, palette.textSecondary.copy(alpha = 0.35f), CircleShape)
+                else m.shadow(elevation = 4.dp, shape = CircleShape).clip(CircleShape).background(palette.surface)
+            }.clickable(role = Role.Button, onClick = onClick),
+            contentAlignment = Alignment.Center
+        ) {
+            Icon(Icons.Rounded.ArrowDownward, contentDescription = null, tint = palette.accent, modifier = Modifier.size(22.dp))
+        }
+        // The badge sits outside the clipped circle so the corner offset does not crop it.
+        if (unread > 0) Box(
+            Modifier.align(Alignment.TopEnd).offset(x = 4.dp, y = (-4).dp)
+                .defaultMinSize(minWidth = 18.dp, minHeight = 18.dp)
+                .clip(CircleShape).background(palette.accent).padding(horizontal = 4.dp)
+                .clearAndSetSemantics {},
+            contentAlignment = Alignment.Center
+        ) {
+            Text(if (unread > 99) "99+" else unread.toString(), color = palette.onAccent, fontSize = 11.sp, fontWeight = FontWeight.SemiBold, maxLines = 1)
         }
     }
 }
