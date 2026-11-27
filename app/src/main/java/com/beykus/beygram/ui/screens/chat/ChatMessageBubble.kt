@@ -238,7 +238,7 @@ internal fun MessageBubble(message: ChatMessage, observeFile: (Int) -> StateFlow
                                 onTranscribe = onTranscribe,
                                 onRateTranscription = onRateTranscription,
                                 speechRecognitionUi = speechRecognitionUi,
-                                autoDownloadFile = onAutoDownloadFile)
+                                autoDownloadFile = onAutoDownloadFile, outgoing = message.isOutgoing)
                             else MediaPreview(media, observeFile, onDownloadFile,
                                 onOpen = if (selectionMode) onToggleSelection else onOpen,
                                 onLongPress = if (selectionMode) onToggleSelection else onActions,

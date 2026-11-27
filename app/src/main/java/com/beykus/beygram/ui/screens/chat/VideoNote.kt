@@ -15,12 +15,15 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Pause
 import androidx.compose.material.icons.rounded.PlayArrow
+import androidx.compose.material.icons.rounded.Subtitles
 import androidx.compose.material.icons.rounded.Schedule
 import androidx.compose.material.icons.rounded.VolumeOff
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -30,7 +33,6 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.vector.ImageVector
-import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.ProgressBarRangeInfo
@@ -51,6 +53,7 @@ import com.beykus.beygram.domain.model.AutoDownloadRequest
 import com.beykus.beygram.domain.model.MediaFileState
 import com.beykus.beygram.domain.model.MediaKind
 import com.beykus.beygram.domain.model.MessageMedia
+import com.beykus.beygram.domain.model.TranslationPolicy
 import com.beykus.beygram.domain.model.SpeechRecognitionFailure
 import com.beykus.beygram.playback.PlaybackEngine
 import com.beykus.beygram.playback.LocalPlaybackAccountId
@@ -149,7 +152,8 @@ internal fun VideoNoteBubble(
     onRateTranscription: ((Boolean) -> Unit)? = null,
     speechRecognitionUi: SpeechRecognitionUi = SpeechRecognitionUi(),
     /** Repository-backed automatic thumbnail download; explicit playback still uses [downloadFile]. */
-    autoDownloadFile: ((AutoDownloadRequest) -> Unit)? = null
+    autoDownloadFile: ((AutoDownloadRequest) -> Unit)? = null,
+    outgoing: Boolean = false
 ) {
     // The bubble reads [file] without byte counters; the upload ring reads progress through the handle.
     val fileHandle = rememberMediaFile(media.fileId, observeFile)
@@ -194,19 +198,12 @@ internal fun VideoNoteBubble(
     val currentSeek by rememberUpdatedState(seek)
     val currentOnPlayed by rememberUpdatedState(onPlayed)
     val markPlayed: () -> Unit = { if (!played) { played = true; currentOnPlayed() } }
-    val playingSize = LocalConfiguration.current.screenWidthDp.dp
     var showControls by remember(media.fileId) { mutableStateOf(false) }
     LaunchedEffect(showing, playing) {
         showControls = showing
         delay(500)
         showControls = false
     }
-    val expandMotion = rememberMotionSpec(MotionToken.MediaExpand)
-    val size by animateDpAsState(
-        targetValue = if (showing) playingSize else IDLE_SIZE,
-        animationSpec = expandMotion.animationSpec(),
-        label = "video note size"
-    )
     // Секретный кружок во время проигрывания не должен попасть на скриншот или запись экрана.
     val secureWhilePlaying = media.isSecret && showing
     SecureWindowWhileVisible(secureWhilePlaying)
@@ -258,93 +255,123 @@ internal fun VideoNoteBubble(
         path == null && (waitingForCircle || file.isDownloading) -> stringResource(R.string.a11y_state_loading)
         else -> null
     }
+    var transcriptOpen by rememberSaveable(key) { mutableStateOf(false) }
+    val transcriptFailure = transcriptionRequestError ?: media.transcriptionError
+    val transcriptEligible = onTranscribe != null || media.transcriptionText.isNotBlank() ||
+        media.transcriptionPending != null || transcriptionRequestPending || transcriptFailure != null
+    val transcriptCanStart = media.transcriptionText.isBlank() && media.transcriptionPending == null &&
+        !transcriptionRequestPending && (transcriptFailure == null ||
+        TranslationPolicy.isTranscriptionRefusalLifted(transcriptFailure, speechRecognitionUi.trial, speechRecognitionUi.isPremiumAccount))
     val circleDescription = stringResource(R.string.a11y_video_note_message, duration(shownSeconds))
-    Column(horizontalAlignment = Alignment.End) {
-        Box(Modifier.size(size).then(if (highlighted) Modifier.border(2.dp, palette.accent, CircleShape) else Modifier)) {
-            Box(
-                Modifier.fillMaxSize().clip(CircleShape).background(VideoNoteBackground)
-                    .then(
-                        if (seekEnabled) Modifier.videoNoteSeekGesture(
-                            key, onPreview = { scrubFraction = it }, onSeek = { currentSeek(it) }
-                        ) else Modifier
-                    )
-                    .combinedClickable(onClick = ::togglePlay, onLongClick = onLongPress)
-                    .semantics {
-                        contentDescription = circleDescription
-                        playbackStateLabel?.let { stateDescription = it }
-                        if (seekEnabled) {
-                            progressBarRangeInfo = ProgressBarRangeInfo(scrubFraction ?: fraction, 0f..1f)
-                            setProgress { currentSeek(it) }
-                        }
-                    },
-                contentAlignment = Alignment.Center
-            ) {
-                val thumbnailPath = thumbnail.localPath
-                // Миниатюра ещё не скачана: вместо чёрного круга показываем размытое минипревью из TDLib, кроме секретных кружков.
-                if (thumbnailPath != null) LocalMediaImage(thumbnailPath, Modifier.fillMaxSize())
-                else if (!media.isSecret) media.minithumbnail?.let { MinithumbnailImage(it, Modifier.fillMaxSize()) }
-                // Кадры выводятся в общий плеер, пока кружок показан. Звук от них не зависит: без экрана он продолжает играть.
-                if (showing) AndroidView(
-                    factory = { TextureView(it).apply { setOpaque(false) } },
-                    update = {
-                        VideoNoteInlineSurfaceRegistry.register(row)
-                        PlaybackEngine.attachVideo(row, it)
-                    },
-                    onRelease = {
-                        VideoNoteInlineSurfaceRegistry.unregister(row)
-                        PlaybackEngine.detachVideo(row)
-                    },
-                    modifier = Modifier.fillMaxSize()
-                )
-                // Свой кружок во время загрузки на сервер: кольцо показывает прогресс, после приёма кружок принимает обычный вид.
-                if (showing) ProgressRing({ scrubFraction ?: fraction }, { scrubFraction != null })
-                else if (file.isUploading) ProgressRing({ fileHandle.raw.value.uploadProgress })
-                val scrubbing = scrubFraction
-                if (scrubbing != null && circle != null) {
-                    val seconds = (scrubbing * circle.durationMs / 1_000).toInt()
-                    Text(
-                        duration(seconds), color = Color.White, fontSize = 13.sp,
-                        modifier = Modifier.clip(styledShape(10.dp)).background(Color.Black.copy(alpha = 0.65f))
-                            .padding(horizontal = 8.dp, vertical = 4.dp)
-                    )
-                }
-                if (showing && showControls && scrubbing == null) Box(Modifier.size(56.dp).clip(CircleShape).background(Color.Black.copy(alpha = 0.4f)), contentAlignment = Alignment.Center) {
-                    Icon(if (playing) Icons.Rounded.Pause else Icons.Rounded.PlayArrow, contentDescription = null, tint = Color.White, modifier = Modifier.size(32.dp))
-                }
-                if (path == null && (waitingForCircle || file.isDownloading)) CircularProgressIndicator(modifier = Modifier.size(40.dp), color = Color.White, strokeWidth = 3.dp)
-                if (path == null && file.error != null && !waitingForCircle) Text(stringResource(R.string.video_note_download_failed), color = Color.White, fontSize = 12.sp,
-                    textAlign = TextAlign.Center, modifier = Modifier.padding(horizontal = 24.dp))
-                if (!showing) Icon(Icons.Rounded.VolumeOff, contentDescription = null, tint = Color.White,
-                    modifier = Modifier.align(Alignment.TopStart).padding(10.dp).size(28.dp).background(Color.Black.copy(alpha = 0.5f), CircleShape).padding(6.dp))
-            }
-            if (unseen && !played) Box(Modifier.align(Alignment.CenterEnd).size(10.dp).background(palette.accent, CircleShape))
-        }
-        Row(
-            Modifier.padding(top = 4.dp).background(palette.surface, styledShape(10.dp)).padding(horizontal = 8.dp, vertical = 2.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Text(duration(shownSeconds), color = palette.textSecondary, fontSize = 12.sp)
-            PlaybackSpeedMenu(Modifier.padding(start = 8.dp))
-            if (time.isNotBlank()) {
-                Spacer(Modifier.width(12.dp))
-                Text(time, color = palette.messageTime, fontSize = 12.sp)
-            }
-            if (statusIcon != null) {
-                Spacer(Modifier.width(3.dp))
-                // The sending clock takes the time colour and the read ticks keep the accent, as in BubbleMeta.
-                Icon(statusIcon, contentDescription = statusDescription, tint = if (statusIcon == Icons.Rounded.Schedule) palette.messageTime else palette.accent, modifier = Modifier.size(14.dp))
-            }
-        }
-        TranscriptionSection(
-            media = media,
-            requestPending = transcriptionRequestPending,
-            requestError = transcriptionRequestError,
-            rated = transcriptionRated,
-            onRequest = onTranscribe,
-            onRate = onRateTranscription,
-            ui = speechRecognitionUi,
-            // Keep the note's circle alignment: a full-width section would push an incoming note to the right.
-            modifier = Modifier.width(size)
+    BoxWithConstraints {
+        val availableWidth = maxWidth
+        val expandMotion = rememberMotionSpec(MotionToken.MediaExpand)
+        val size by animateDpAsState(
+            targetValue = if (showing) availableWidth else minOf(availableWidth, IDLE_SIZE),
+            animationSpec = expandMotion.animationSpec(),
+            label = "video note size"
         )
+        Column(horizontalAlignment = Alignment.End) {
+            Box(Modifier.size(minOf(size, availableWidth)).then(if (highlighted) Modifier.border(2.dp, palette.accent, CircleShape) else Modifier)) {
+                Box(
+                    Modifier.fillMaxSize().clip(CircleShape).background(VideoNoteBackground)
+                        .then(
+                            if (seekEnabled) Modifier.videoNoteSeekGesture(
+                                key, onPreview = { scrubFraction = it }, onSeek = { currentSeek(it) }
+                            ) else Modifier
+                        )
+                        .combinedClickable(onClick = ::togglePlay, onLongClick = onLongPress)
+                        .semantics {
+                            contentDescription = circleDescription
+                            playbackStateLabel?.let { stateDescription = it }
+                            if (seekEnabled) {
+                                progressBarRangeInfo = ProgressBarRangeInfo(scrubFraction ?: fraction, 0f..1f)
+                                setProgress { currentSeek(it) }
+                            }
+                        },
+                    contentAlignment = Alignment.Center
+                ) {
+                    val thumbnailPath = thumbnail.localPath
+                    // Миниатюра ещё не скачана: вместо чёрного круга показываем размытое минипревью из TDLib, кроме секретных кружков.
+                    if (thumbnailPath != null) LocalMediaImage(thumbnailPath, Modifier.fillMaxSize())
+                    else if (!media.isSecret) media.minithumbnail?.let { MinithumbnailImage(it, Modifier.fillMaxSize()) }
+                    // Кадры выводятся в общий плеер, пока кружок показан. Звук от них не зависит: без экрана он продолжает играть.
+                    if (showing) AndroidView(
+                        factory = { TextureView(it).apply { setOpaque(false) } },
+                        update = {
+                            VideoNoteInlineSurfaceRegistry.register(row)
+                            PlaybackEngine.attachVideo(row, it)
+                        },
+                        onRelease = {
+                            VideoNoteInlineSurfaceRegistry.unregister(row)
+                            PlaybackEngine.detachVideo(row)
+                        },
+                        modifier = Modifier.fillMaxSize()
+                    )
+                    // Свой кружок во время загрузки на сервер: кольцо показывает прогресс, после приёма кружок принимает обычный вид.
+                    if (showing) ProgressRing({ scrubFraction ?: fraction }, { scrubFraction != null })
+                    else if (file.isUploading) ProgressRing({ fileHandle.raw.value.uploadProgress })
+                    val scrubbing = scrubFraction
+                    if (scrubbing != null && circle != null) {
+                        val seconds = (scrubbing * circle.durationMs / 1_000).toInt()
+                        Text(
+                            duration(seconds), color = Color.White, fontSize = 13.sp,
+                            modifier = Modifier.clip(styledShape(10.dp)).background(Color.Black.copy(alpha = 0.65f))
+                                .padding(horizontal = 8.dp, vertical = 4.dp)
+                        )
+                    }
+                    if (showing && showControls && scrubbing == null) Box(Modifier.size(56.dp).clip(CircleShape).background(Color.Black.copy(alpha = 0.4f)), contentAlignment = Alignment.Center) {
+                        Icon(if (playing) Icons.Rounded.Pause else Icons.Rounded.PlayArrow, contentDescription = null, tint = Color.White, modifier = Modifier.size(32.dp))
+                    }
+                    if (path == null && (waitingForCircle || file.isDownloading)) CircularProgressIndicator(modifier = Modifier.size(40.dp), color = Color.White, strokeWidth = 3.dp)
+                    if (path == null && file.error != null && !waitingForCircle) Text(stringResource(R.string.video_note_download_failed), color = Color.White, fontSize = 12.sp,
+                        textAlign = TextAlign.Center, modifier = Modifier.padding(horizontal = 24.dp))
+                    if (!showing) Icon(Icons.Rounded.VolumeOff, contentDescription = null, tint = Color.White,
+                        modifier = Modifier.align(if (outgoing) Alignment.TopStart else Alignment.TopEnd).padding(10.dp).size(28.dp).background(Color.Black.copy(alpha = 0.5f), CircleShape).padding(6.dp))
+                }
+                VideoNoteMetadata(
+                    durationText = duration(shownSeconds), time = time, statusIcon = statusIcon,
+                    statusDescription = statusDescription, outgoing = outgoing, modifier = Modifier.matchParentSize()
+                )
+                if (transcriptEligible) {
+                    IconButton(
+                        onClick = {
+                            transcriptOpen = !transcriptOpen
+                            if (transcriptOpen && transcriptCanStart) onTranscribe?.invoke()
+                        },
+                        modifier = Modifier.align(if (outgoing) Alignment.TopEnd else Alignment.TopStart)
+                    ) {
+                        Icon(
+                            Icons.Rounded.Subtitles,
+                            contentDescription = stringResource(
+                                when {
+                                    transcriptOpen -> R.string.video_note_hide_transcription
+                                    transcriptCanStart -> R.string.transcription_action
+                                    else -> R.string.video_note_show_transcription
+                                }
+                            ),
+                            tint = Color.White,
+                            modifier = Modifier.size(30.dp).background(Color.Black.copy(alpha = 0.68f), CircleShape).padding(6.dp)
+                        )
+                    }
+                }
+                if (unseen && !played) Box(Modifier.align(Alignment.CenterEnd).size(10.dp).background(palette.accent, CircleShape))
+            }
+            if (playing && showing) Box(Modifier.width(size), contentAlignment = Alignment.Center) {
+                PlaybackSpeedMenu()
+            }
+            if (transcriptOpen && transcriptEligible) TranscriptionSection(
+                media = media,
+                requestPending = transcriptionRequestPending,
+                requestError = transcriptionRequestError,
+                rated = transcriptionRated,
+                onRequest = onTranscribe,
+                onRate = onRateTranscription,
+                ui = speechRecognitionUi,
+                // Keep the note's circle alignment: a full-width section would push an incoming note to the right.
+                modifier = Modifier.width(size),
+                showRequestButton = false
+            )
+        }
     }
 }
