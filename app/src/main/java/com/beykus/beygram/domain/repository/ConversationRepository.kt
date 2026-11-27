@@ -242,6 +242,9 @@ interface ConversationRepository {
     suspend fun searchStickers(query: String, offset: Int = 0): Result<StickerSearchPage>
     /** GIFs explicitly saved by the user in this Telegram account. */
     suspend fun savedAnimations(): Result<List<AnimationItem>>
+    suspend fun setAnimationSaved(animation: AnimationItem, saved: Boolean): Result<Unit> =
+        Result.failure(UnsupportedOperationException())
+    suspend fun clearRecentStickers(): Result<Unit> = Result.failure(UnsupportedOperationException())
     /** GIFs recently seen in this account's chats, newest first. An empty [offset] starts the list. */
     suspend fun recentAnimations(offset: String = ""): Result<AnimationPage>
     /** GIFs found in this account's message history. [offset] comes from the previous page's nextOffset. */

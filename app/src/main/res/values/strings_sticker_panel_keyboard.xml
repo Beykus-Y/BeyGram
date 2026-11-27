@@ -2,4 +2,9 @@
     <string name="sticker_panel_open_keyboard">Открыть клавиатуру</string>
     <string name="emoji_custom_recent">Недавние кастомные эмодзи</string>
     <string name="emoji_recommended_sets">Рекомендованные наборы</string>
+    <string name="gif_panel_save">Сохранить GIF</string>
+    <string name="gif_panel_remove_saved">Удалить из сохранённых GIF</string>
+    <string name="gif_panel_save_failed">Не удалось обновить сохранённые GIF</string>
+    <string name="sticker_panel_clear_recent">Очистить недавние стикеры</string>
+    <string name="sticker_panel_clear_recent_confirm">Удалить историю недавних стикеров этого аккаунта?</string>
 </resources>

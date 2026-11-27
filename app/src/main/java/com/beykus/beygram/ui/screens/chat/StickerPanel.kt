@@ -54,6 +54,7 @@ import androidx.compose.material.icons.rounded.Star
 import androidx.compose.material.icons.rounded.StarBorder
 import androidx.compose.material.icons.rounded.Tune
 import com.beykus.beygram.playback.LocalPlaybackAccountId
+import com.beykus.beygram.ui.components.BeyGramDialog
 import com.beykus.beygram.ui.components.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
@@ -333,6 +334,8 @@ private fun StickerPanel(
     var gifSearchMoreError by remember { mutableStateOf<String?>(null) }
     var premium by remember { mutableStateOf<Boolean?>(null) }
     var notice by remember { mutableStateOf<String?>(null) }
+    var savingGifKeys by remember { mutableStateOf<Set<String>>(emptySet()) }
+    var confirmClearRecent by remember { mutableStateOf(false) }
     var favoriteBusyKeys by remember { mutableStateOf<Set<String>>(emptySet()) }
     var searchGeneration by remember { mutableIntStateOf(0) }
     var overlay by remember { mutableStateOf<StickerPanelOverlay?>(null) }
@@ -536,6 +539,20 @@ private fun StickerPanel(
         }
     }
 
+    fun updateSavedGif(item: AnimationItem, saved: Boolean) {
+        if (item.key in savingGifKeys) return
+        savingGifKeys = savingGifKeys + item.key
+        scope.launch {
+            try {
+                conversation.setAnimationSaved(item, saved)
+                    .onSuccess { gifSavedRetry++ }
+                    .onFailure { notice = it.userMessage(context, R.string.gif_panel_save_failed) }
+            } finally {
+                savingGifKeys = savingGifKeys - item.key
+            }
+        }
+    }
+
     fun loadMoreStickerSearch() {
         val needle = view.query.trim()
         val page = stickerSearchState.readyValue() ?: return
@@ -716,6 +733,13 @@ private fun StickerPanel(
                             )
                         }
                         Box(Modifier.fillMaxWidth().weight(1f)) {
+                            if (!view.searchActive && view.section == StickerPanelSection.Recent &&
+                                recentState.readyValue()?.isNotEmpty() == true
+                            ) {
+                                TextButton(onClick = { confirmClearRecent = true }) {
+                                    Text(stringResource(R.string.sticker_panel_clear_recent))
+                                }
+                            }
                             StickerContent(
                                 view = view,
                                 recentState = recentState,
@@ -771,6 +795,24 @@ private fun StickerPanel(
         }
     }
 
+    if (confirmClearRecent) {
+        BeyGramDialog(
+            onDismissRequest = { confirmClearRecent = false },
+            title = stringResource(R.string.sticker_panel_clear_recent),
+            message = stringResource(R.string.sticker_panel_clear_recent_confirm),
+            confirmText = stringResource(R.string.sticker_panel_clear_recent),
+            dismissText = stringResource(R.string.common_cancel),
+            onDismiss = { confirmClearRecent = false },
+            onConfirm = {
+                confirmClearRecent = false
+                scope.launch {
+                    conversation.clearRecentStickers()
+                        .onSuccess { recentRetry++ }
+                        .onFailure { notice = it.userMessage(context, R.string.sticker_panel_load_failed) }
+                }
+            }
+        )
+    }
     val currentOverlay = overlay
     if (currentOverlay != null) {
         val overlayPackTitle = (currentOverlay as? StickerPanelOverlay.Sticker)?.item?.let { item ->
@@ -785,6 +827,9 @@ private fun StickerPanel(
             downloadFile = downloadFile,
             favoriteKeys = favoriteKeys,
             favoriteBusyKeys = favoriteBusyKeys,
+            savedGifs = gifSavedState.readyValue()?.mapTo(HashSet()) { it.key },
+            savingGifKeys = savingGifKeys,
+            onSetSavedGif = ::updateSavedGif,
             premium = premium,
             onDismiss = { overlay = null },
             onSendSticker = { item ->
@@ -1616,6 +1661,9 @@ private fun StickerPanelOverlayContent(
     downloadFile: (Int) -> Unit,
     favoriteKeys: Set<String>,
     favoriteBusyKeys: Set<String>,
+    savedGifs: Set<String>?,
+    savingGifKeys: Set<String>,
+    onSetSavedGif: (AnimationItem, Boolean) -> Unit,
     premium: Boolean?,
     onDismiss: () -> Unit,
     onSendSticker: (StickerItem) -> Unit,
@@ -1649,7 +1697,10 @@ private fun StickerPanelOverlayContent(
                 observeFile = observeFile,
                 downloadFile = downloadFile,
                 onSend = { onSendAnimation(overlay.item) },
-                onAttach = { onAttachAnimation(overlay.item) }
+                onAttach = { onAttachAnimation(overlay.item) },
+                saved = savedGifs?.contains(overlay.item.key),
+                saving = overlay.item.key in savingGifKeys,
+                onSetSaved = { onSetSavedGif(overlay.item, it) }
             )
             is StickerPanelOverlay.Pack -> PackPreviewContent(
                 summary = overlay.summary,
@@ -1790,7 +1841,10 @@ private fun GifPreviewContent(
     observeFile: (Int) -> StateFlow<MediaFileState>,
     downloadFile: (Int) -> Unit,
     onSend: () -> Unit,
-    onAttach: () -> Unit
+    onAttach: () -> Unit,
+    saved: Boolean?,
+    saving: Boolean,
+    onSetSaved: (Boolean) -> Unit
 ) {
     val palette = beyGramPalette()
     Column(
@@ -1841,6 +1895,15 @@ private fun GifPreviewContent(
             enabled = !sending,
             modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)
         ) { Text(stringResource(R.string.gif_panel_add_caption)) }
+        if (saved != null) {
+            TextButton(
+                onClick = { onSetSaved(!saved) },
+                enabled = !saving,
+                modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)
+            ) {
+                Text(stringResource(if (saved) R.string.gif_panel_remove_saved else R.string.gif_panel_save))
+            }
+        }
     }
 }
 

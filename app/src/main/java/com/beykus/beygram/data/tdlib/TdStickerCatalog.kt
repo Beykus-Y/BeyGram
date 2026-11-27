@@ -80,6 +80,18 @@ internal class TdStickerCatalog(
         )
     }
 
+    suspend fun clearRecentStickers(): Result<Unit> = requestResult {
+        request(TdApi.ClearRecentStickers(false))
+        Unit
+    }
+
+    suspend fun setAnimationSaved(animation: AnimationItem, saved: Boolean): Result<Unit> = requestResult {
+        val file = TdApi.InputFileId(animation.fileId)
+        if (saved) request(TdApi.AddSavedAnimation(file))
+        else request(TdApi.RemoveSavedAnimation(file))
+        Unit
+    }
+
     suspend fun savedAnimations(): Result<List<AnimationItem>> = requestResult {
         request(TdApi.GetSavedAnimations()).animations.orEmpty().mapNotNull { it?.toAnimationItem(::register) }
     }
