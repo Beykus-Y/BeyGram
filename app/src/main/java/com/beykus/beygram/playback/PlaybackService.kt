@@ -3,6 +3,8 @@ package com.beykus.beygram.playback
 import android.app.PendingIntent
 import android.content.Intent
 import android.os.Bundle
+import android.util.Log
+import java.util.concurrent.atomic.AtomicInteger
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.session.CommandButton
 import androidx.media3.session.DefaultMediaNotificationProvider
@@ -30,6 +32,8 @@ import kotlinx.coroutines.launch
 @UnstableApi
 class PlaybackService : MediaSessionService() {
     private var session: MediaSession? = null
+    private val generation = nextGeneration.incrementAndGet()
+    private var lastForegroundRequest: Boolean? = null
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
 
     private val shuffleCommand = SessionCommand(COMMAND_SHUFFLE, Bundle.EMPTY)
@@ -75,6 +79,10 @@ class PlaybackService : MediaSessionService() {
 
     override fun onCreate() {
         super.onCreate()
+        if (PlaybackEngine.state.value.item?.systemPrivate == true) {
+            stopSelf()
+            return
+        }
         setMediaNotificationProvider(
             DefaultMediaNotificationProvider.Builder(this)
                 .setChannelId(CHANNEL_ID)
@@ -94,6 +102,10 @@ class PlaybackService : MediaSessionService() {
             .setMediaButtonPreferences(buttons(PlaybackEngine.state.value.shuffleEnabled))
             .build()
         session = created
+        // The app starts this service directly, not through a MediaController. Register now so
+        // Media3 attaches its notification controller even if no external controller binds.
+        addSession(created)
+        Log.i(TAG, "session_registered generation=$generation count=${sessions.size}")
         scope.launch {
             PlaybackEngine.state.map { it.shuffleEnabled }.distinctUntilChanged().collect { shuffleOn ->
                 created.setMediaButtonPreferences(buttons(shuffleOn))
@@ -103,17 +115,34 @@ class PlaybackService : MediaSessionService() {
         runCatching { EqualizerRuntime.start(this) }
     }
 
-    override fun onGetSession(controllerInfo: MediaSession.ControllerInfo): MediaSession? = session
+    override fun onGetSession(controllerInfo: MediaSession.ControllerInfo): MediaSession? =
+        session?.takeUnless { PlaybackEngine.state.value.item?.systemPrivate == true }
+
+    override fun onUpdateNotification(session: MediaSession, startInForegroundRequired: Boolean) {
+        if (lastForegroundRequest != startInForegroundRequired) {
+            lastForegroundRequest = startInForegroundRequired
+            Log.i(TAG, "notification_update generation=$generation foregroundRequested=$startInForegroundRequired")
+        }
+        // Keep Media3 in charge of the actual notification and foreground-service lifecycle.
+        super.onUpdateNotification(session, startInForegroundRequired)
+    }
 
     override fun onDestroy() {
         scope.cancel()
         runCatching { EqualizerRuntime.stop() }
-        session?.release()
+        val created = session
         session = null
+        if (created != null) {
+            if (isSessionAdded(created)) removeSession(created)
+            created.release()
+            Log.i(TAG, "session_released generation=$generation count=${sessions.size}")
+        }
         super.onDestroy()
     }
 
     companion object {
+        private const val TAG = "PlaybackService"
+        private val nextGeneration = AtomicInteger()
         private const val CHANNEL_ID = "playback"
 
         /** Set on the notification's tap intent; [MainActivity] then opens the full player. */
