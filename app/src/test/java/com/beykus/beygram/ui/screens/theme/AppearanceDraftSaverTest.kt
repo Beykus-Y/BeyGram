@@ -218,6 +218,6 @@ class AppearanceDraftSaverTest {
 
     @Test fun tooShortOrAbsurdlyLongListsAreIgnored() {
         assertNull(decodeAppearanceDraft(listOf("Warm", "Dark")))
-        assertNull(decodeAppearanceDraft(List(20) { "Warm" }))
+        assertNull(decodeAppearanceDraft(List(21) { "Warm" }))
     }
 }
