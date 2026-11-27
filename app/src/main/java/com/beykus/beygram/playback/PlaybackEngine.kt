@@ -21,6 +21,7 @@ import androidx.media3.common.MediaMetadata
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
 import androidx.media3.common.util.UnstableApi
+import androidx.media3.common.FlagSet
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import com.beykus.beygram.diagnostics.recordAppEvent
@@ -143,6 +144,7 @@ private data class DeferredGrowingSeek(val key: String, val positionMs: Long, va
  * Passes ExoPlayer events to a session listener, except while BG Mix owns playback. The BG Mix values
  * reach the session through the callbacks the engine calls directly.
  */
+@OptIn(UnstableApi::class)
 private class BgMixAwareListener(
     private val target: Player.Listener,
     private val bgMixOwnsPlayback: () -> Boolean
@@ -175,8 +177,29 @@ private class BgMixAwareListener(
         if (!bgMixOwnsPlayback()) target.onPlayerError(error)
     }
 
+    override fun onMediaMetadataChanged(mediaMetadata: MediaMetadata) {
+        if (!bgMixOwnsPlayback()) target.onMediaMetadataChanged(mediaMetadata)
+    }
+
+    override fun onAvailableCommandsChanged(availableCommands: Player.Commands) {
+        if (!bgMixOwnsPlayback()) target.onAvailableCommandsChanged(availableCommands)
+    }
+
+    override fun onPlaybackSuppressionReasonChanged(playbackSuppressionReason: Int) {
+        if (!bgMixOwnsPlayback()) target.onPlaybackSuppressionReasonChanged(playbackSuppressionReason)
+    }
+
+    override fun onIsLoadingChanged(isLoading: Boolean) {
+        if (!bgMixOwnsPlayback()) target.onIsLoadingChanged(isLoading)
+    }
+
     override fun onEvents(player: Player, events: Player.Events) {
-        if (!bgMixOwnsPlayback()) target.onEvents(player, events)
+        if (!bgMixOwnsPlayback()) {
+            target.onEvents(player, events)
+        } else if (events.contains(Player.EVENT_TIMELINE_CHANGED)) {
+            // The placeholder still supplies the Media3 timeline. Do not forward its paused/idle state.
+            target.onEvents(player, Player.Events(FlagSet.Builder().add(Player.EVENT_TIMELINE_CHANGED).build()))
+        }
     }
 }
 
@@ -502,6 +525,7 @@ object PlaybackEngine {
         val updatedItem = item?.takeIf { it.key == key }?.copy(artworkPath = path)
         if (updatedItem == item && updatedQueue == queue) return
         _state.update { it.copy(item = updatedItem ?: it.item, queue = updatedQueue) }
+        if (bgMixActive()) notifyChanges(snapshot, _state.value)
 
         val current = updatedItem ?: updatedQueue.firstOrNull { it.key == key } ?: return
         if (current.systemPrivate) return
@@ -600,21 +624,17 @@ object PlaybackEngine {
                 super.pause()
             }
 
+            override fun setPlayWhenReady(playWhenReady: Boolean) {
+                if (playWhenReady) play() else pause()
+            }
+
             override fun getAvailableCommands(): Player.Commands {
                 val base = super.getAvailableCommands()
                 if (!bgMixActive()) return base
-                return Player.Commands.Builder().addAll(base)
-                    .add(Player.COMMAND_PLAY_PAUSE)
-                    .add(Player.COMMAND_SEEK_TO_NEXT)
-                    .build()
+                return nativeSessionCommands(base, _state.value)
             }
 
-            override fun isCommandAvailable(command: Int): Boolean {
-                if (bgMixActive() && (command == Player.COMMAND_PLAY_PAUSE || command == Player.COMMAND_SEEK_TO_NEXT)) {
-                    return true
-                }
-                return super.isCommandAvailable(command)
-            }
+            override fun isCommandAvailable(command: Int): Boolean = availableCommands.contains(command)
 
             // The headset and the notification use the app's own Next and Previous, so Repeat One, shuffle and BG Mix
             // behave the same as with the buttons on the screen.
@@ -638,6 +658,31 @@ object PlaybackEngine {
                 if (bgMixActive()) seekToPosition(positionMs) else super.seekTo(positionMs)
             }
 
+            override fun seekTo(mediaItemIndex: Int, positionMs: Long) {
+                if (bgMixActive()) {
+                    // The native renderer exposes only the current placeholder in the Media3 timeline.
+                    if (mediaItemIndex == 0) seekToPosition(if (positionMs == C.TIME_UNSET) 0L else positionMs)
+                } else super.seekTo(mediaItemIndex, positionMs)
+            }
+
+            override fun seekToDefaultPosition() {
+                if (bgMixActive()) seekToPosition(0L) else super.seekToDefaultPosition()
+            }
+
+            override fun seekToDefaultPosition(mediaItemIndex: Int) {
+                if (bgMixActive()) {
+                    if (mediaItemIndex == 0) seekToPosition(0L)
+                } else super.seekToDefaultPosition(mediaItemIndex)
+            }
+
+            override fun seekBack() {
+                if (bgMixActive()) seekToPosition((currentPosition - seekBackIncrement).coerceAtLeast(0L)) else super.seekBack()
+            }
+
+            override fun seekForward() {
+                if (bgMixActive()) seekToPosition((currentPosition + seekForwardIncrement).coerceAtMost(duration.takeIf { it > 0 } ?: Long.MAX_VALUE)) else super.seekForward()
+            }
+
             override fun addListener(listener: Player.Listener) {
                 bgMixListeners.add(listener)
                 bgMixFiltered.remove(listener)?.let { super.removeListener(it) }
@@ -658,9 +703,32 @@ object PlaybackEngine {
 
             override fun getPlaybackState(): Int = when {
                 !bgMixActive() -> super.getPlaybackState()
-                _state.value.ended -> Player.STATE_ENDED
-                else -> Player.STATE_READY
+                else -> nativeSessionPlaybackState(_state.value)
             }
+
+            override fun getPlaybackSuppressionReason(): Int =
+                if (bgMixActive()) Player.PLAYBACK_SUPPRESSION_REASON_NONE else super.getPlaybackSuppressionReason()
+
+            override fun getMediaMetadata(): MediaMetadata =
+                if (bgMixActive()) {
+                    val snapshot = _state.value
+                    val metadata = snapshot.item?.let { placeholderItem(it).mediaMetadata } ?: MediaMetadata.EMPTY
+                    if (snapshot.durationMs > 0L && snapshot.item?.systemPrivate == false) {
+                        metadata.buildUpon().setDurationMs(snapshot.durationMs).build()
+                    } else metadata
+                } else super.getMediaMetadata()
+
+            override fun isLoading(): Boolean = if (bgMixActive()) _state.value.isBuffering else super.isLoading()
+
+            override fun getBufferedPosition(): Long =
+                if (bgMixActive()) _state.value.let { if (it.isBuffering) it.positionMs else maxOf(it.positionMs, it.durationMs) }
+                else super.getBufferedPosition()
+
+            override fun getContentBufferedPosition(): Long =
+                if (bgMixActive()) bufferedPosition else super.getContentBufferedPosition()
+
+            override fun getTotalBufferedDuration(): Long =
+                if (bgMixActive()) (bufferedPosition - currentPosition).coerceAtLeast(0L) else super.getTotalBufferedDuration()
 
             override fun getCurrentPosition(): Long =
                 if (bgMixActive()) _state.value.positionMs else super.getCurrentPosition()
@@ -1356,8 +1424,11 @@ object PlaybackEngine {
             val driver = bgMix ?: return
             bgMixSeekJob?.cancel()
             val session = driver.status
+            val before = _state.value
             bgMixSeekJob = scope.launch {
-                if (bgMix?.status === session) driver.seek(positionMs.coerceAtLeast(0L) / 1000.0)
+                if (bgMix?.status === session && driver.seek(positionMs.coerceAtLeast(0L) / 1000.0)) {
+                    publishConfirmedNativeSeek(session, before, positionMs)
+                }
             }
             return
         }
@@ -1812,8 +1883,13 @@ object PlaybackEngine {
         .setMediaId(item.key)
         .setUri(Uri.fromFile(File(item.path)))
         .setMediaMetadata(
-            MediaMetadata.Builder().setTitle(item.title).setArtist(item.performer).apply {
-                item.systemMetadata().artworkPath?.let { artworkUri(it) }?.let { setArtworkUri(it) }
+            MediaMetadata.Builder().apply {
+                val metadata = item.systemMetadata()
+                if (metadata.title.isNotBlank()) setTitle(metadata.title)
+                if (metadata.artist.isNotBlank()) setArtist(metadata.artist)
+                if (metadata.album.isNotBlank()) setAlbumTitle(metadata.album)
+                if (metadata.durationMs > 0L) setDurationMs(metadata.durationMs)
+                metadata.artworkPath?.let { artworkUri(it) }?.let { setArtworkUri(it) }
             }.build()
         )
         .build()
@@ -1821,22 +1897,66 @@ object PlaybackEngine {
     /** Tells the media session which of its player values changed. ExoPlayer events are ignored during BG Mix. */
     @OptIn(UnstableApi::class)
     private fun notifyChanges(before: PlaybackState, after: PlaybackState) {
-        if (bgMixListeners.isEmpty()) return
-        val itemChanged = before.item?.key != after.item?.key
-        val playbackState = if (after.ended) Player.STATE_ENDED else Player.STATE_READY
-        val wasEnded = before.ended
+        val player = controls ?: return
+        // Once native ownership is gone, Exo's real callbacks resume. Do not publish a fake
+        // native pause whose getters already refer to the other renderer.
+        if (bgMixListeners.isEmpty() || !bgMixActive()) return
+        val flags = nativeSessionEventFlags(before, after)
+        if (flags.isEmpty()) return
+        val builder = FlagSet.Builder()
+        flags.forEach { builder.add(it) }
+        val events = Player.Events(builder.build())
         bgMixListeners.toList().forEach { listener ->
-            if (before.playing != after.playing) listener.onIsPlayingChanged(after.playing)
-            if (before.intentPlaying != after.intentPlaying) {
-                listener.onPlayWhenReadyChanged(after.intentPlaying, Player.PLAY_WHEN_READY_CHANGE_REASON_USER_REQUEST)
+            if (events.contains(Player.EVENT_PLAYBACK_STATE_CHANGED)) listener.onPlaybackStateChanged(player.playbackState)
+            if (events.contains(Player.EVENT_PLAY_WHEN_READY_CHANGED)) {
+                listener.onPlayWhenReadyChanged(player.playWhenReady, Player.PLAY_WHEN_READY_CHANGE_REASON_USER_REQUEST)
             }
-            if (wasEnded != after.ended) listener.onPlaybackStateChanged(playbackState)
-            if (itemChanged) {
-                listener.onMediaItemTransition(
-                    after.item?.let { placeholderItem(it) },
-                    Player.MEDIA_ITEM_TRANSITION_REASON_AUTO
-                )
+            if (events.contains(Player.EVENT_IS_PLAYING_CHANGED)) listener.onIsPlayingChanged(player.isPlaying)
+            if (events.contains(Player.EVENT_IS_LOADING_CHANGED)) listener.onIsLoadingChanged(player.isLoading)
+            if (events.contains(Player.EVENT_POSITION_DISCONTINUITY)) {
+                listener.onPositionDiscontinuity(nativePositionInfo(before), nativePositionInfo(after), Player.DISCONTINUITY_REASON_AUTO_TRANSITION)
             }
+            if (events.contains(Player.EVENT_MEDIA_ITEM_TRANSITION)) {
+                listener.onMediaItemTransition(after.item?.let { placeholderItem(it) }, Player.MEDIA_ITEM_TRANSITION_REASON_AUTO)
+            }
+            if (events.contains(Player.EVENT_MEDIA_METADATA_CHANGED)) listener.onMediaMetadataChanged(player.mediaMetadata)
+            if (events.contains(Player.EVENT_AVAILABLE_COMMANDS_CHANGED)) listener.onAvailableCommandsChanged(player.availableCommands)
+            if (events.contains(Player.EVENT_PLAYBACK_SUPPRESSION_REASON_CHANGED)) {
+                listener.onPlaybackSuppressionReasonChanged(player.playbackSuppressionReason)
+            }
+            listener.onEvents(player, events)
+        }
+    }
+
+    @OptIn(UnstableApi::class)
+    private fun nativePositionInfo(snapshot: PlaybackState): Player.PositionInfo = Player.PositionInfo(
+        null, 0, snapshot.item?.let { placeholderItem(it) }, null, 0,
+        snapshot.positionMs, snapshot.positionMs, C.INDEX_UNSET, C.INDEX_UNSET
+    )
+
+    /** Only report a seek after native acceptance and a matching current-session position snapshot. */
+    @OptIn(UnstableApi::class)
+    private suspend fun publishConfirmedNativeSeek(
+        session: StateFlow<BgMixStatus?>?,
+        before: PlaybackState,
+        requestedMs: Long
+    ) {
+        if (session == null || bgMix?.status !== session || !bgMixActive()) return
+        val target = requestedMs.coerceIn(0L, before.durationMs.takeIf { it > 0L } ?: Long.MAX_VALUE)
+        val after = withTimeoutOrNull(1_500L) {
+            _state.first { current ->
+                !current.bgMixActive || !sameNativeSessionOccurrence(before, current) ||
+                    kotlin.math.abs(current.positionMs - target) <= 500L
+            }
+        } ?: return
+        if (bgMix?.status !== session || !bgMixActive() || !after.bgMixActive ||
+            !sameNativeSessionOccurrence(before, after)
+        ) return
+        val player = controls ?: return
+        val events = Player.Events(FlagSet.Builder().add(Player.EVENT_POSITION_DISCONTINUITY).build())
+        bgMixListeners.toList().forEach { listener ->
+            listener.onPositionDiscontinuity(nativePositionInfo(before), nativePositionInfo(after), Player.DISCONTINUITY_REASON_SEEK)
+            listener.onEvents(player, events)
         }
     }
 
@@ -2012,7 +2132,9 @@ object PlaybackEngine {
             queue = queue,
             index = index,
             positionMs = positionMs,
-            playing = false,
+            // The native deck was confirmed playing before the fade; publishing a pause here would make the system
+            // card blink pause/play at every handover. A later status tick corrects this if the deck stopped.
+            playing = autoPlay,
             intentPlaying = true,
             speed = 1f
         )
@@ -2579,6 +2701,7 @@ object PlaybackEngine {
         holdBgWakeLock()
         _state.update { it.copy(intentPlaying = true, ended = false) }
         notifyChanges(before, _state.value)
+        startPlaybackService()
     }
 
     private fun pauseBgMix() {
@@ -2814,7 +2937,9 @@ object PlaybackEngine {
                     val session = driver.status
                     bgMixSeekJob?.cancel()
                     bgMixSeekJob = scope.launch {
-                        if (!driver.seek(0.0) && bgMix?.status === session && _state.value.item?.key == state.item?.key) {
+                        if (driver.seek(0.0)) {
+                            publishConfirmedNativeSeek(session, state, 0L)
+                        } else if (bgMix?.status === session && _state.value.item?.key == state.item?.key) {
                             restartBgMix(state.queue, state.queueIndex, 0L, _state.value.intentPlaying)
                         }
                     }
@@ -3334,14 +3459,20 @@ object PlaybackEngine {
     /** Сервис нужен для уведомления и экрана блокировки. Фоновый запуск может не пройти, тогда звук всё равно играет. */
     private fun startPlaybackService() {
         val context = appContext ?: return
+        val snapshot = _state.value
+        if (snapshot.item == null || snapshot.item.systemPrivate) return
         val intent = Intent(context, PlaybackService::class.java)
         try {
             context.startService(intent)
         } catch (error: Exception) {
             // Android 8+ refuses a plain start from the background. While audio plays the service may still be
             // started as a foreground one, and a failure is written to the diagnostics instead of being swallowed.
-            val recovered = exo?.isPlaying == true &&
-                runCatching { ContextCompat.startForegroundService(context, intent) }.isSuccess
+            val native = bgMixActive()
+            val eligible = canRecoverPlaybackService(snapshot, native, exo?.isPlaying == true)
+            val recovery = if (eligible) runCatching { ContextCompat.startForegroundService(context, intent) } else null
+            val recovered = recovery?.isSuccess == true
+            Log.w("PlaybackService", "start_failed renderer=${if (native) "bgmix" else "exo"} " +
+                "error=${error.javaClass.simpleName} recovery=${recovery?.exceptionOrNull()?.javaClass?.simpleName ?: if (recovered) "accepted" else "not_attempted"}")
             recordAppEvent(
                 kind = EventKind.ERROR,
                 code = "playback_service_start_failed",
