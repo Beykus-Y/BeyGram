@@ -26,8 +26,9 @@ data class MessageSendOptions(
     val shareDelivery: Boolean = false,
     /** Optional quoted fragment of the replied-to message (TDLib InputTextQuote). */
     val replyQuote: String? = null,
-    /** Character offset of [replyQuote] inside the replied-to message text. */
-    val replyQuotePosition: Int = 0
+    /** UTF-16 offset of [replyQuote] inside the replied-to message text. */
+    val replyQuotePosition: Int = 0,
+    val replyQuoteEntities: List<MessageTextEntity> = emptyList()
 ) {
     companion object {
         /**

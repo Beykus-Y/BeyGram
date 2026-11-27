@@ -612,12 +612,10 @@ internal class TdConversationActions(
                 if (replyTarget != null) {
                     topicId = replySendTopic(replyTarget.topicId)
                     replyTo = TdApi.InputMessageReplyToMessage().apply {
-                    messageId = replyTarget.id
-                    pollOptionId = ""
-                    options.replyQuote?.takeIf { it.isNotBlank() }?.let { q ->
-                        quote = TdApi.InputTextQuote(TdApi.FormattedText(q, emptyArray()), options.replyQuotePosition.coerceAtLeast(0))
+                        messageId = replyTarget.id
+                        pollOptionId = ""
+                        quote = options.toInputTextQuote()
                     }
-                }
                 } else if (forumTopicId > 0L) {
                     topicId = TdApi.MessageTopicForum(forumTopicId.toInt())
                 }
@@ -695,9 +693,7 @@ internal class TdConversationActions(
                 replyTo = TdApi.InputMessageReplyToMessage().apply {
                     messageId = replyTarget.id
                     pollOptionId = ""
-                    options.replyQuote?.takeIf { it.isNotBlank() }?.let { q ->
-                        quote = TdApi.InputTextQuote(TdApi.FormattedText(q, emptyArray()), options.replyQuotePosition.coerceAtLeast(0))
-                    }
+                    quote = options.toInputTextQuote()
                 }
             } else if (forumTopicId > 0L) {
                 topicId = TdApi.MessageTopicForum(forumTopicId.toInt())
