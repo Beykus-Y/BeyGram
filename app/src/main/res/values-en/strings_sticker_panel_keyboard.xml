@@ -7,4 +7,7 @@
     <string name="gif_panel_save_failed">Could not update saved GIFs</string>
     <string name="sticker_panel_clear_recent">Clear recent stickers</string>
     <string name="sticker_panel_clear_recent_confirm">Clear this account’s recent sticker history?</string>
+    <string name="emoji_clear_recent">Clear recent emoji</string>
+    <string name="emoji_clear_recent_confirm">Clear this account\'s recent emoji? They will not be recovered from message history afterwards.</string>
+    <string name="emoji_clear_recent_short">Clear</string>
 </resources>

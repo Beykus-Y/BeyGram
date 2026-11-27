@@ -39,7 +39,6 @@ import com.beykus.beygram.domain.model.CustomEmoji
 import com.beykus.beygram.domain.model.EmojiPickerSearchResults
 import com.beykus.beygram.domain.model.CustomEmojiSetBrief
 import com.beykus.beygram.domain.repository.ConversationRepository
-import com.beykus.beygram.playback.LocalPlaybackAccountId
 import com.beykus.beygram.ui.components.SystemEmojiFont
 import com.beykus.beygram.ui.components.beyGramPalette
 import com.beykus.beygram.ui.components.emojiPresentation
@@ -81,18 +80,11 @@ internal fun rememberDockCustomEmoji(
     downloadFile: DownloadMediaFile,
     packsVersion: Long,
     locked: Boolean,
-    onPick: (CustomEmoji) -> Boolean
+    /** Recent custom emoji are owned by the panel, so recovery and explicit clearing update one list. */
+    recentIds: List<Long>,
+    onPick: (CustomEmoji) -> Boolean,
+    onPicked: (Long) -> Unit,
 ): DockCustomEmoji {
-    val context = LocalContext.current
-    val accountId = LocalPlaybackAccountId.current
-    val prefs = remember(context, accountId) {
-        context.applicationContext.getSharedPreferences("emoji_panel", android.content.Context.MODE_PRIVATE)
-    }
-    val recentKey = "custom_recent_$accountId"
-    var recents by remember(prefs, recentKey) {
-        mutableStateOf(prefs.getString(recentKey, "").orEmpty().split(',')
-            .mapNotNull { it.toLongOrNull()?.takeIf { id -> id > 0L } }.distinct().take(36))
-    }
     var installed by remember(conversation) { mutableStateOf<List<CustomEmojiSetBrief>>(emptyList()) }
     var recommended by remember(conversation) { mutableStateOf<List<CustomEmojiSetBrief>>(emptyList()) }
     var busyPacks by remember(conversation) { mutableStateOf<Set<Long>>(emptySet()) }
@@ -146,13 +138,10 @@ internal fun rememberDockCustomEmoji(
                 }
             }
         },
-        rows, recents, loader::request, failed, { attempt++ },
+        rows, recentIds, loader::request, failed, { attempt++ },
         conversation::observeCustomEmoji, observeFile, downloadFile
     ) { emoji ->
-        if (onPick(emoji)) {
-            recents = (listOf(emoji.customEmojiId) + recents.filterNot { it == emoji.customEmojiId }).take(36)
-            prefs.edit().putString(recentKey, recents.joinToString(",")).apply()
-        }
+        if (onPick(emoji)) onPicked(emoji.customEmojiId)
     }
 }
 
