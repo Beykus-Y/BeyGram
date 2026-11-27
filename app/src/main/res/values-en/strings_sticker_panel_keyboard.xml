@@ -7,4 +7,8 @@
     <string name="gif_panel_save_failed">Could not update saved GIFs</string>
     <string name="sticker_panel_clear_recent">Clear recent stickers</string>
     <string name="sticker_panel_clear_recent_confirm">Clear this account’s recent sticker history?</string>
+    <string name="pack_order_title">Pack order</string>
+    <string name="pack_order_dynamic">Sort by usage</string>
+    <string name="pack_order_dynamic_hint">Frequently used packs move first. With this off, your manual order is kept.</string>
+    <string name="pack_order_settings">Pack order settings</string>
 </resources>

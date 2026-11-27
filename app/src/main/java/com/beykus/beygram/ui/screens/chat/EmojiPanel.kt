@@ -26,6 +26,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.Backspace
+import androidx.compose.material.icons.rounded.Tune
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.Text
@@ -238,6 +239,11 @@ private fun EmojiGroupStrip(
                         else Text(pack.title.take(1), fontSize = 16.sp)
                     }
                 }
+            }
+        }
+        if (customEmoji != null) {
+            IconButton(onClick = customEmoji.onPackOrder, modifier = Modifier.size(48.dp)) {
+                Icon(Icons.Rounded.Tune, stringResource(R.string.pack_order_settings), tint = palette.textSecondary)
             }
         }
         IconButton(onClick = onBackspace, modifier = Modifier.size(48.dp)) {

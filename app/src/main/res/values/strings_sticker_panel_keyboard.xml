@@ -7,4 +7,8 @@
     <string name="gif_panel_save_failed">Не удалось обновить сохранённые GIF</string>
     <string name="sticker_panel_clear_recent">Очистить недавние стикеры</string>
     <string name="sticker_panel_clear_recent_confirm">Удалить историю недавних стикеров этого аккаунта?</string>
+    <string name="pack_order_title">Порядок паков</string>
+    <string name="pack_order_dynamic">Сортировать по использованию</string>
+    <string name="pack_order_dynamic_hint">Часто используемые паки поднимаются выше. При выключении сохраняется ручной порядок.</string>
+    <string name="pack_order_settings">Настройки порядка паков</string>
 </resources>

@@ -7,4 +7,8 @@
     <string name="gif_panel_save_failed">No se pudieron actualizar los GIF guardados</string>
     <string name="sticker_panel_clear_recent">Borrar stickers recientes</string>
     <string name="sticker_panel_clear_recent_confirm">¿Borrar el historial de stickers recientes de esta cuenta?</string>
+    <string name="pack_order_title">Orden de los paquetes</string>
+    <string name="pack_order_dynamic">Ordenar por uso</string>
+    <string name="pack_order_dynamic_hint">Los paquetes más usados suben. Si está desactivado, se mantiene el orden manual.</string>
+    <string name="pack_order_settings">Ajustes del orden de paquetes</string>
 </resources>
