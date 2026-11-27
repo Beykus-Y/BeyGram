@@ -97,7 +97,8 @@ internal fun MessageBubble(message: ChatMessage, observeFile: (Int) -> StateFlow
     onComposerMediaLaunchFinished: (ComposerMediaLaunch) -> Unit = {},
     paneInset: Boolean = true,
     hideForContextScene: Boolean = false,
-    contextTextSelection: MessageContextTextSelection? = null
+    contextTextSelection: MessageContextTextSelection? = null,
+    contextScenePassive: Boolean = false
 ) {
     val palette = beyGramPalette()
     val metrics = LocalBubbleMetrics.current
@@ -121,7 +122,7 @@ internal fun MessageBubble(message: ChatMessage, observeFile: (Int) -> StateFlow
     // Время и статус кружка находятся под кругом, вне обрезки видео.
     val inCircle = circle && message.sendState != MessageSendState.Failed
     // Пока сообщение отправляется или не ушло, его id временный и потом меняется: место для общего плеера не ставим.
-    val playbackOrigin = if (message.sendState == MessageSendState.Sent) PlaybackOrigin(message.chatId, message.id, LocalPlaybackAccountId.current) else null
+    val playbackOrigin = if (!contextScenePassive && message.sendState == MessageSendState.Sent) PlaybackOrigin(message.chatId, message.id, LocalPlaybackAccountId.current) else null
     val statusIcon = when {
         !message.isOutgoing -> null
         message.sendState == MessageSendState.Sending -> Icons.Rounded.Schedule
@@ -202,18 +203,20 @@ internal fun MessageBubble(message: ChatMessage, observeFile: (Int) -> StateFlow
                             },
                             onLongClickLabel = if (selectionMode) selectionLabel else longPressLabel,
                             onClick = {
-                                when {
-                                    selectionMode -> onToggleSelection()
-                                    sticker -> stickerMedia?.let { onStickerOpen?.invoke(it) }
-                                    // A tap on the caption of a track, such as a shared timecode, plays it in the music player.
-                                    message.media?.kind == MediaKind.Audio ->
-                                        captionPlay = AudioPlayRequest(parseShareTimecodeMs(message.text, message.media.durationSeconds))
-                                    message.media != null && !message.media.kind.playsInline() -> onOpen()
+                                if (!contextScenePassive) {
+                                    when {
+                                        selectionMode -> onToggleSelection()
+                                        sticker -> stickerMedia?.let { onStickerOpen?.invoke(it) }
+                                        // A tap on the caption of a track, such as a shared timecode, plays it in the music player.
+                                        message.media?.kind == MediaKind.Audio ->
+                                            captionPlay = AudioPlayRequest(parseShareTimecodeMs(message.text, message.media.durationSeconds))
+                                        message.media != null && !message.media.kind.playsInline() -> onOpen()
+                                    }
                                 }
                             },
                             // Media and other interactive content need an immediate single tap.
-                            onDoubleClick = quickReaction.takeIf { message.media == null && message.special == null },
-                            onLongClick = if (selectionMode) onToggleSelection else onActions
+                            onDoubleClick = quickReaction.takeIf { !contextScenePassive && message.media == null && message.special == null },
+                            onLongClick = if (contextScenePassive) ({}) else if (selectionMode) onToggleSelection else onActions
                         ),
                     overlayMeta = overlayMeta,
                     body = {

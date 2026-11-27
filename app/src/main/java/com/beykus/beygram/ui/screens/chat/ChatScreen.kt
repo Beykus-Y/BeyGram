@@ -2100,18 +2100,17 @@ fun ChatScreen(
                             observeFile = observeFile,
                             onDownloadFile = onDownloadFile,
                             isRead = actionMessage.isOutgoing && actionMessage.id <= history.lastReadOutboxMessageId,
-                            onOpen = {
-                                if (actionMessage.media != null) {
-                                    closeActions()
-                                    selectedMediaId = actionMessage.id
-                                }
-                            },
+                            onOpen = {},
+                            onPlayed = {},
                             onAutoDownloadFile = {},
                             onReaction = { _, _ -> },
+                            onMusicPlay = { _, _ -> },
+                            animateSpecial = false,
                             observeCustomEmoji = conversation::observeCustomEmoji,
                             showSenderHeader = senderHeaderByKey["message:${actionMessage.id}"] == true,
                             paneInset = false,
-                            contextTextSelection = selection
+                            contextTextSelection = selection,
+                            contextScenePassive = true
                         )
                     }
                 } else null,
