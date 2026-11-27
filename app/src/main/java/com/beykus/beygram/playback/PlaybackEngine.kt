@@ -16,6 +16,7 @@ import androidx.core.content.FileProvider
 import androidx.media3.common.AudioAttributes
 import androidx.media3.common.C
 import androidx.media3.common.ForwardingPlayer
+import androidx.media3.common.Timeline
 import androidx.media3.common.MediaItem
 import androidx.media3.common.MediaMetadata
 import androidx.media3.common.PlaybackException
@@ -2187,10 +2188,15 @@ object PlaybackEngine {
      * when the queue was edited meanwhile and the session has to be prepared again.
      */
     private suspend fun handOverToBgMix(context: Context, state: PlaybackState, file: PlaybackItem, onRejected: () -> Unit): Boolean? {
+        val target = exo ?: return false
+        val occurrence = target.handoverOccurrence() ?: return false
+        if (occurrence.mediaId != file.key) return false
         val generation = bgMixHandoverGeneration
+        fun sameOccurrence() = exo === target && occurrence == target.handoverOccurrence()
+        fun stillPreparing() = generation == bgMixHandoverGeneration && sameOccurrence() && stillHandingOver(file)
         val driver = bgMixDriver(context)
         val single = state.repeatMode == PlaybackRepeatMode.One
-        val items = state.queue.map { if (it.key == file.key) file else it }
+        val items = state.queue.toMutableList().also { it[state.queueIndex] = file }
         val shuffled = state.shuffleEnabled && !single
         // The native session has no shuffle order. It takes the rest of ExoPlayer's own shuffle order from the current
         // track on, so tracks that already played do not come back; Repeat All keeps the played ones after them.
@@ -2202,7 +2208,7 @@ object PlaybackEngine {
             Log.w("BgMixHandover", "handover_failed stage=stage")
             return false
         }
-        if (generation != bgMixHandoverGeneration || !stillHandingOver(file)) {
+        if (!stillPreparing()) {
             driver.discardStaged()
             return null
         }
@@ -2225,7 +2231,7 @@ object PlaybackEngine {
             driver.discardStaged()
             return false
         }
-        if (!stillHandingOver(file) || generation != bgMixHandoverGeneration) {
+        if (!stillPreparing()) {
             driver.discardStaged()
             return null
         }
@@ -2234,7 +2240,6 @@ object PlaybackEngine {
             driver.discardStaged()
             return false
         }
-        val target = exo ?: run { driver.discardStaged(); return null }
         // A starting guess: the alignment below measures where the native output is really heard.
         val positionMs = target.currentPosition + BG_HANDOVER_LEAD_MS
         if (!driver.seekStaged(positionMs / 1000.0)) {
@@ -2249,7 +2254,7 @@ object PlaybackEngine {
         val started = withTimeoutOrNull(BG_HANDOVER_START_TIMEOUT_MS) {
             driver.stagedStatus?.first { snapshot -> snapshot?.decks?.getOrNull(snapshot.master)?.playing == true }
         }
-        if (!stillHandingOver(file) || generation != bgMixHandoverGeneration) {
+        if (!stillPreparing()) {
             driver.discardStaged()
             return null
         }
@@ -2261,13 +2266,14 @@ object PlaybackEngine {
         delay(BG_HANDOVER_OVERLAP_MS)
         // Still silent: the output is lined up with ExoPlayer by measurement before anything of it is heard.
         alignStagedSilently(target, driver)
-        if (queueChanged()) {
+        if (!stillPreparing() || queueChanged()) {
+            Log.i("BgMixHandover", "handover_superseded stage=before_commit")
             driver.discardStaged()
             return null
         }
         // ExoPlayer must not pause for the focus change that BG Mix causes: the crossfade takes its level down instead.
         setExoFocusHandling(target, handle = false)
-        if (!stillHandingOver(file) || !requestBgFocus(context)) {
+        if (!stillPreparing() || !requestBgFocus(context)) {
             setExoFocusHandling(target, handle = true)
             driver.discardStaged()
             return false
@@ -2282,42 +2288,62 @@ object PlaybackEngine {
         BgWaveHostTap.exoSuppressedForBgMix = true
         updateWaveCaptureEligibility(order[index])
         syncBgMixWaveTap(driver)
-        // From here the handover is committed. The crossfade runs to its end unless a stop or a new track supersedes it.
-        withContext(NonCancellable) {
-            // The equalizer moves to the BG Mix output while that output is still silent, so the re-attach is not heard.
+        val committedSession = driver.status
+        // Once committed, native playback suppresses Exo callbacks. Check the live Exo occurrence throughout the fade.
+        return withContext(NonCancellable) {
             _audioSessionId.value = driver.audioSessionId
-            if (!crossfadeIntoBgMix(target, driver, generation)) {
-                // A stop or a new track came meanwhile: BG Mix is not adopted, and ExoPlayer plays on at full level.
-                if (driver.isActive) stopBgMix() else BgWaveHostTap.exoSuppressedForBgMix = false
-                target.volume = 1f
-                setExoFocusHandling(target, handle = true)
-                updateAudioSessionId()
-                return@withContext
+            val completed = crossfadeIntoBgMix(target, driver) {
+                generation == bgMixHandoverGeneration && driver.status === committedSession &&
+                    driver.isActive && exo === target &&
+                    occurrence.canFinishOn(target.handoverOccurrence(), ended = target.playbackState == Player.STATE_ENDED)
+            }
+            if (!completed) {
+                Log.i("BgMixHandover", "handover_superseded stage=fade")
+                if (driver.status === committedSession && driver.isActive) {
+                    val occurrenceChanged = !sameOccurrence()
+                    stopBgMix()
+                    if (exo === target) {
+                        target.volume = 1f
+                        setExoFocusHandling(target, handle = true)
+                        if (occurrenceChanged) {
+                            listener.onMediaItemTransition(target.currentMediaItem, Player.MEDIA_ITEM_TRANSITION_REASON_AUTO)
+                        }
+                        if (target.playbackState == Player.STATE_ENDED) listener.onPlaybackStateChanged(Player.STATE_ENDED)
+                        syncPosition()
+                    }
+                }
+                return@withContext false
             }
             bgMixHandoverJob = null
             bgMixOriginalQueue = if (shuffled) items else null
             adoptBgMixSession(driver, index, positionMs = positionMs, autoPlay = true)
+            true
         }
-        return true
+    }
+
+    private fun ExoPlayer.handoverOccurrence(): BgMixExoOccurrence? {
+        val mediaId = currentMediaItem?.mediaId ?: return null
+        val timeline = currentTimeline
+        val index = currentMediaItemIndex
+        if (index !in 0 until timeline.windowCount) return null
+        return BgMixExoOccurrence(mediaId, timeline.getWindow(index, Timeline.Window()).uid)
     }
 
     /**
-     * Hands the sound from ExoPlayer to the BG Mix output over [BG_HANDOVER_FADE_MS]. ExoPlayer falls and BG Mix rises along
-     * a quarter-sine pair, so the level holds while both play the same track. Returns false as soon as the handover is
-     * superseded; the levels are not written after that.
+     * Hands the sound from ExoPlayer to BG Mix over [BG_HANDOVER_FADE_MS], while both play the same occurrence.
      */
-    private suspend fun crossfadeIntoBgMix(target: ExoPlayer, driver: BgMixQueueDriver, generation: Int): Boolean {
+    private suspend fun crossfadeIntoBgMix(target: ExoPlayer, driver: BgMixQueueDriver, stillOwnsFade: () -> Boolean): Boolean {
         val from = target.volume
         val quarterTurn = (kotlin.math.PI / 2).toFloat()
         val step = BG_HANDOVER_FADE_MS / BG_HANDOVER_FADE_STEPS
         for (n in 1..BG_HANDOVER_FADE_STEPS) {
-            if (!stillHandedOver(generation, driver)) return false
+            if (!stillOwnsFade()) return false
             val t = n.toFloat() / BG_HANDOVER_FADE_STEPS
             target.volume = from * kotlin.math.cos(t * quarterTurn).toFloat()
             driver.setVolume(kotlin.math.sin(t * quarterTurn).toFloat())
             delay(step)
         }
-        if (!stillHandedOver(generation, driver)) return false
+        if (!stillOwnsFade()) return false
         target.volume = 0f
         driver.setVolume(1f)
         return true
@@ -2365,10 +2391,6 @@ object PlaybackEngine {
             }
             audible
         }
-
-    /** Whether the handover that started as [generation] still owns [driver]: no stop and no new track has taken it. */
-    private fun stillHandedOver(generation: Int, driver: BgMixQueueDriver): Boolean =
-        generation == bgMixHandoverGeneration && driver.isActive
 
     /** Switches ExoPlayer's own audio-focus handling; the audio kind it plays with is kept. */
     private fun setExoFocusHandling(target: ExoPlayer, handle: Boolean) {
