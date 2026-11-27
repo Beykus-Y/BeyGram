@@ -1141,6 +1141,8 @@ object PlaybackEngine {
             speed = speed
         )
         updateAudioSessionId()
+        // A new queue replaces the playback window at once: abandoned fetches must not hold the slots of its rows.
+        reprioritizeLazyRows()
         if (offerBgMix) scheduleBgMixHandover()
         if (!autoPlay) return // Restore remains silent, idle and does not trigger any TDLib download.
         refreshPrefetchPolicyObserver()
@@ -1199,6 +1201,8 @@ object PlaybackEngine {
             speed = effectiveSpeed(resolved)
         )
         updateAudioSessionId()
+        // A single file has no queue: only its own fetch is wanted, abandoned requests free their slots.
+        LazyTrackRegistry.prioritize(resolved.key, setOf(resolved.key))
         refreshPrefetchPolicyObserver()
         if (resolved.systemPrivate) stopPlaybackService()
         if (defer) {
@@ -2191,6 +2195,8 @@ object PlaybackEngine {
                     if (YandexTrackResolver.evictOutside(keep)) {
                         appContext?.let { YandexTrackResolver.pruneUnused(it) }
                     }
+                    // The native queue needs its next files at once: keep their fetches ahead of stale ones.
+                    reprioritizeLazyRows()
                 }
                 driver.appendReady(currentIndex, ::bgMixFileFor)
                 val first = driver.pendingIndex ?: return@launch
@@ -2699,6 +2705,8 @@ object PlaybackEngine {
             queuePageNetworkJob = null
             endlessWaitingForRecovery = false
             loadNextQueuePage()
+            // The native queue moved: the files of the new window (staging next, download ahead) go first.
+            reprioritizeLazyRows()
         }
         if (before.item?.key != _state.value.item?.key) {
             exo?.let { target ->
@@ -3129,6 +3137,8 @@ object PlaybackEngine {
         _state.update { it.copy(shuffleEnabled = enabled).withTimelineNavigation(target) }
         if (enabled && target != null) installShuffleOrder(target, target.mediaItemCount, currentIndex = target.currentMediaItemIndex)
         prefetchedKeys.clear()
+        // A new shuffle order moves the next rows; fetches of the old order are no longer wanted.
+        reprioritizeLazyRows()
         prefetchNext()
     }
 
@@ -3670,6 +3680,8 @@ object PlaybackEngine {
                     if (reason == Player.MEDIA_ITEM_TRANSITION_REASON_AUTO) exo?.let { skipLeadingSilence(it, item) }
                     startedCallback = startedCallback?.takeIf { it.first == item.key }
                     if (exo?.isPlaying == true) fireStartedCallback()
+                    // The occurrence is published now, so the new window can free the slots of abandoned rows.
+                    reprioritizeLazyRows()
                 }
             }
             updateAudioSessionId()
@@ -4235,6 +4247,37 @@ object PlaybackEngine {
         }
     }
 
+    /** Queue indices in the order playback visits them: BG Mix's own order, or ExoPlayer's shuffle order. */
+    private fun playbackOrderIndices(state: PlaybackState): List<Int> {
+        if (state.queue.isEmpty()) return emptyList()
+        if (!state.shuffleEnabled || bgMixActive()) return state.queue.indices.toList()
+        val order = exo?.let { runCatching { it.shuffleOrder.toIndexOrder() }.getOrNull() }
+        return order?.takeIf { it.size == state.queue.size } ?: state.queue.indices.toList()
+    }
+
+    /**
+     * Tells the lazy resolver which rows playback needs now: the row that is opening, its neighbours and the next rows
+     * in the real play order. Unfinished fetches that no reader owns free their download slot for the selected track;
+     * completed copies stay for the existing ownership/eviction policy.
+     */
+    private fun reprioritizeLazyRows() {
+        val state = _state.value
+        val current = state.item ?: return
+        val keep = LinkedHashSet<String>()
+        keep.add(current.key)
+        if (state.queue.isNotEmpty()) {
+            state.queue.getOrNull(state.queueIndex - 1)?.key?.let(keep::add)
+            val ahead = if (bgMixActive()) BG_MIX_DOWNLOAD_AHEAD else 2
+            prefetchCandidates(state, playbackOrderIndices(state), max = ahead).mapTo(keep) { it.key }
+            if (bgMixActive()) {
+                for (index in state.queueIndex + 1..state.queueIndex + ahead) {
+                    state.queue.getOrNull(index)?.key?.let(keep::add)
+                }
+            }
+        }
+        LazyTrackRegistry.prioritize(current.key, keep)
+    }
+
     /** A provider row (bot result or service track) whose file is not complete yet. */
     private fun lazyRowPending(item: PlaybackItem): Boolean {
         // The row names a growing copy while it downloads, so the provider decides, not the path.
@@ -4269,7 +4312,10 @@ object PlaybackEngine {
                         AutoDownloadRuntime.decision(context, request, prefetchAccountFor(item)) == AutoDownloadDecision.Allowed
                     }
                 }.getOrDefault(false)
-                if (allowed) lazySource.prefetch(item.key)
+                // The row right after the playing one is part of playback: it must start before ordinary speculation.
+                if (allowed) {
+                    if (playbackNext) lazySource.prefetchSoon(item.key) else lazySource.prefetch(item.key)
+                }
                 return@run
             }
             val fileId = item.fileId ?: return@run
