@@ -63,10 +63,7 @@ internal fun androidx.compose.foundation.layout.BoxScope.ComposerMaterial(
 ) {
     val design = com.beykus.beygram.ui.design.LocalDesignSystem.current
     val palette = beyGramPalette()
-    val glass = design.surfaces.glass
-    val lightweightControl = compactControl && glass?.lensRefraction == true && glass.samplesBackdrop &&
-        LocalGlassBackdrop.current != null && Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU
-    if (!embedded && (LocalComposerOnGlassPlane.current || lightweightControl)) {
+    if (!embedded && LocalComposerOnGlassPlane.current) {
         Box(Modifier.matchParentSize().glassCard(design, fill, palette.textSecondary, shape))
     } else if (design.usesGlassPanels && !embedded) {
         com.beykus.beygram.ui.design.GlassPanel(

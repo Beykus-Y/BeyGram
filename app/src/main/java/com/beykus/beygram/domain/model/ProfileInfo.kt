@@ -36,7 +36,8 @@ data class ProfileMember(
     val isBot: Boolean,
     val tag: String,
     val photo: AvatarPhoto?,
-    val avatarColorArgb: Long
+    val avatarColorArgb: Long,
+    val accentColor: PeerAccentColor? = null
 ) {
     val initials: String get() = initialsOf(name)
 }

@@ -56,6 +56,7 @@ import com.beykus.beygram.domain.model.UnreadMarkCounts
 import com.beykus.beygram.domain.repository.ConversationRepository
 import com.beykus.beygram.ui.components.BeyGramDialog
 import com.beykus.beygram.ui.components.beyGramPalette
+import com.beykus.beygram.ui.design.GlassPanel
 import com.beykus.beygram.ui.design.LocalDesignSystem
 import com.beykus.beygram.ui.design.usesGlassPanels
 import com.beykus.beygram.ui.motion.MotionToken
@@ -228,7 +229,7 @@ internal fun ChatUnreadBadgesColumn(
 }
 
 @Composable
-private fun ChatFloatingBadgeButton(
+internal fun ChatFloatingBadgeButton(
     icon: ImageVector,
     count: Int,
     label: String,
@@ -237,19 +238,31 @@ private fun ChatFloatingBadgeButton(
     enabled: Boolean = true
 ) {
     val palette = beyGramPalette()
+    val design = LocalDesignSystem.current
     Box(
         Modifier.size(44.dp).semantics(mergeDescendants = true) { contentDescription = label },
         contentAlignment = Alignment.Center
     ) {
-        Box(
-            Modifier.fillMaxSize().let { m ->
-                if (LocalDesignSystem.current.usesGlassPanels) m.clip(CircleShape).background(palette.surface.copy(alpha = 0.72f))
-                    .border(0.5.dp, palette.textSecondary.copy(alpha = 0.35f), CircleShape)
-                else m.shadow(elevation = 4.dp, shape = CircleShape).clip(CircleShape).background(palette.surface)
-            }.combinedClickable(enabled = enabled, role = Role.Button, onClick = onClick, onLongClick = onLongClick),
-            contentAlignment = Alignment.Center
-        ) {
-            Icon(icon, contentDescription = null, tint = palette.accent, modifier = Modifier.size(20.dp))
+        if (design.usesGlassPanels) {
+            GlassPanel(
+                design = design,
+                tint = palette.surface,
+                rim = palette.textSecondary,
+                backdropBase = palette.screen,
+                shape = CircleShape,
+                modifier = Modifier.fillMaxSize()
+                    .combinedClickable(enabled = enabled, role = Role.Button, onClick = onClick, onLongClick = onLongClick)
+            ) {
+                Icon(icon, contentDescription = null, tint = palette.accent, modifier = Modifier.align(Alignment.Center).size(20.dp))
+            }
+        } else {
+            Box(
+                Modifier.fillMaxSize().shadow(elevation = 4.dp, shape = CircleShape).clip(CircleShape).background(palette.surface)
+                    .combinedClickable(enabled = enabled, role = Role.Button, onClick = onClick, onLongClick = onLongClick),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(icon, contentDescription = null, tint = palette.accent, modifier = Modifier.size(20.dp))
+            }
         }
         if (count > 0) Box(
             Modifier.align(Alignment.TopEnd).offset(x = 4.dp, y = (-4).dp)
@@ -322,23 +335,34 @@ internal fun BoxScope.ChatTimelineJumpOverlays(
 }
 
 @Composable
-private fun JumpToLatestButton(unread: Int, onClick: () -> Unit) {
+internal fun JumpToLatestButton(unread: Int, onClick: () -> Unit) {
     val palette = beyGramPalette()
+    val design = LocalDesignSystem.current
     val label = stringResource(R.string.chat_jump_to_latest)
     Box(
         Modifier.size(48.dp).semantics(mergeDescendants = true) { contentDescription = label },
         contentAlignment = Alignment.Center
     ) {
-        Box(
-            Modifier.fillMaxSize().let { m ->
-                // Liquid Glass: a translucent disc with a hairline rim instead of a solid disc with a shadow.
-                if (LocalDesignSystem.current.usesGlassPanels) m.clip(CircleShape).background(palette.surface.copy(alpha = 0.72f))
-                    .border(0.5.dp, palette.textSecondary.copy(alpha = 0.35f), CircleShape)
-                else m.shadow(elevation = 4.dp, shape = CircleShape).clip(CircleShape).background(palette.surface)
-            }.clickable(role = Role.Button, onClick = onClick),
-            contentAlignment = Alignment.Center
-        ) {
-            Icon(Icons.Rounded.ArrowDownward, contentDescription = null, tint = palette.accent, modifier = Modifier.size(22.dp))
+        if (design.usesGlassPanels) {
+            GlassPanel(
+                design = design,
+                tint = palette.surface,
+                rim = palette.textSecondary,
+                backdropBase = palette.screen,
+                shape = CircleShape,
+                modifier = Modifier.fillMaxSize().clickable(role = Role.Button, onClick = onClick)
+            ) {
+                Icon(Icons.Rounded.ArrowDownward, contentDescription = null, tint = palette.accent, modifier = Modifier.align(Alignment.Center).size(22.dp))
+            }
+        } else {
+            Box(
+                Modifier.fillMaxSize()
+                    .shadow(elevation = 4.dp, shape = CircleShape).clip(CircleShape).background(palette.surface)
+                    .clickable(role = Role.Button, onClick = onClick),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(Icons.Rounded.ArrowDownward, contentDescription = null, tint = palette.accent, modifier = Modifier.size(22.dp))
+            }
         }
         // The badge sits outside the clipped circle so the corner offset does not crop it.
         if (unread > 0) Box(
