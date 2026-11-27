@@ -144,7 +144,17 @@ internal fun MessageBubble(message: ChatMessage, observeFile: (Int) -> StateFlow
     val selectionState = if (selectionMode) stringResource(if (selected) R.string.message_selection_selected else R.string.message_selection_not_selected) else null
     var captionPlay by remember(message.id) { mutableStateOf<AudioPlayRequest?>(null) }
     // On a tablet the pane is wide: a bubble grows with it (70 % of the pane, 292 to 480 dp) instead of hugging the edge.
-    val bubbleMax = chatBubbleMaxWidthDp(com.beykus.beygram.ui.screens.chats.LocalChatPaneWidthDp.current ?: chatPaneWidthDp(LocalWindowLayout.current)).dp
+    val paneWidth = com.beykus.beygram.ui.screens.chats.LocalChatPaneWidthDp.current
+        ?: chatPaneWidthDp(LocalWindowLayout.current)
+    val bubbleMax = chatBubbleMaxWidthDp(paneWidth).dp
+    val mediaSize = message.media?.let { media ->
+        val availableWidth = minOf(bubbleMax.value, paneWidth - metrics.sideInset.value * 2)
+        when {
+            media.kind.isSingleVisualMedia() -> singleMediaSize(paneWidth, availableWidth, media.width, media.height)
+            sticker -> sentStickerSize(paneWidth, availableWidth, media.width, media.height)
+            else -> null
+        }
+    }
     val mediaFlightModifier = composerMediaLaunchModifier(composerMediaLaunch, onComposerMediaLaunchFinished)
     val quickReaction = if (loadQuickReactions != null && !selectionMode && message.sendState == MessageSendState.Sent) {
         rememberBubbleQuickReaction(message, loadQuickReactions, onReaction)
@@ -166,7 +176,7 @@ internal fun MessageBubble(message: ChatMessage, observeFile: (Int) -> StateFlow
                     Modifier.testTag("message-bubble:${message.id}")
                         .widthIn(max = if (circle) androidx.compose.ui.unit.Dp.Infinity else bubbleMax)
                         .then(if (message.media != null && !circle && !sticker)
-                             Modifier.width(if (message.media.kind == MediaKind.Audio) 280.dp else 244.dp) else Modifier)
+                             Modifier.width(mediaSize?.width ?: if (message.media.kind == MediaKind.Audio) 280.dp else 244.dp) else Modifier)
                         .then(mediaFlightModifier).clip(shape)
                         .background(if (circle || sticker) Color.Transparent else if (message.isOutgoing) palette.outgoingBubble else palette.incomingBubble)
                         .then(if (message.memory?.deletedAtMillis != null) Modifier.alpha(0.6f) else Modifier)
@@ -247,7 +257,7 @@ internal fun MessageBubble(message: ChatMessage, observeFile: (Int) -> StateFlow
                                     stickerMedia?.let { stickerMedia ->
                                         { if (selectionMode) onToggleSelection() else callback(stickerMedia) }
                                     }
-                                }, selectionActive = selectionMode)
+                                }, selectionActive = selectionMode, mediaSize = mediaSize)
                         }
                         message.expiredMediaKind?.let { kind -> ExpiredMediaCard(kind) }
                         // Без текста и ответа под фото нет строки: время уже стоит поверх него.
