@@ -41,4 +41,8 @@
     <string name="appearance_style_lens_clear">Claire</string>
     <string name="appearance_style_lens_bold">Marquée</string>
     <string name="appearance_style_lens_detail">Standard est équilibrée. Claire a moins de flou et de teinte. Marquée a une bande plus large et une réfraction plus forte.</string>
+    <string name="appearance_chat_top_panels">Panneaux supérieurs du chat</string>
+    <string name="appearance_chat_top_panels_current">Disposition actuelle</string>
+    <string name="appearance_chat_top_panels_separate">Deux capsules séparées</string>
+    <string name="appearance_chat_top_panels_combined">Une capsule commune</string>
 </resources>

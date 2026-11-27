@@ -41,4 +41,8 @@
     <string name="appearance_style_lens_clear">Прозрачная</string>
     <string name="appearance_style_lens_bold">Сильная</string>
     <string name="appearance_style_lens_detail">Обычная — баланс. Прозрачная — меньше размытия и тона. Сильная — шире полоса и сильнее преломление.</string>
+    <string name="appearance_chat_top_panels">Верхние панели чата</string>
+    <string name="appearance_chat_top_panels_current">Текущее расположение</string>
+    <string name="appearance_chat_top_panels_separate">Две отдельные капсулы</string>
+    <string name="appearance_chat_top_panels_combined">Одна общая капсула</string>
 </resources>

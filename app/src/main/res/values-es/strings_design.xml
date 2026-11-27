@@ -41,4 +41,8 @@
     <string name="appearance_style_lens_clear">Clara</string>
     <string name="appearance_style_lens_bold">Intensa</string>
     <string name="appearance_style_lens_detail">Estándar es equilibrada. Clara tiene menos desenfoque y tinte. Intensa tiene una banda más ancha y una refracción más fuerte.</string>
+    <string name="appearance_chat_top_panels">Paneles superiores del chat</string>
+    <string name="appearance_chat_top_panels_current">Disposición actual</string>
+    <string name="appearance_chat_top_panels_separate">Dos cápsulas separadas</string>
+    <string name="appearance_chat_top_panels_combined">Una cápsula compartida</string>
 </resources>

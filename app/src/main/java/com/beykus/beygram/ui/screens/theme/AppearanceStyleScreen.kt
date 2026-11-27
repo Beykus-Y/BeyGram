@@ -53,6 +53,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.beykus.beygram.R
+import com.beykus.beygram.data.appearance.ChatTopPanelLayout
 import com.beykus.beygram.data.appearance.AppearanceConfig
 import com.beykus.beygram.data.appearance.DesignStyle
 import com.beykus.beygram.data.appearance.GlassQuality
@@ -176,6 +177,39 @@ internal fun AppearanceStylePage(
                         selected = draft.navigationPlacement == placement,
                         onSelect = { onDraftChange(draft.copy(navigationPlacement = placement)) }
                     )
+                }
+            }
+        }
+
+        AppearanceSectionLabel(stringResource(R.string.appearance_chat_top_panels))
+        AppearanceCard {
+            Column(Modifier.selectableGroup()) {
+                ChatTopPanelLayout.entries.forEach { mode ->
+                    val selected = mode == draft.chatTopPanelLayout
+                    val label = when (mode) {
+                        ChatTopPanelLayout.Current -> R.string.appearance_chat_top_panels_current
+                        ChatTopPanelLayout.Separate -> R.string.appearance_chat_top_panels_separate
+                        ChatTopPanelLayout.Combined -> R.string.appearance_chat_top_panels_combined
+                    }
+                    Row(
+                        Modifier.fillMaxWidth()
+                            .clip(AppearanceDimens.innerShape)
+                            .selectable(selected, role = Role.RadioButton) {
+                                onDraftChange(draft.copy(chatTopPanelLayout = mode))
+                            }
+                            .padding(vertical = 12.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        Box(
+                            Modifier.size(18.dp)
+                                .border(2.dp, if (selected) palette.accent else palette.divider, CircleShape),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            if (selected) Box(Modifier.size(9.dp).clip(CircleShape).background(palette.accent))
+                        }
+                        Text(stringResource(label), color = palette.textPrimary, fontSize = 14.sp)
+                    }
                 }
             }
         }

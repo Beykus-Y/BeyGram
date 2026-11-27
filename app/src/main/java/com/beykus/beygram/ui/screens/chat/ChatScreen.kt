@@ -91,6 +91,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.repeatOnLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.beykus.beygram.R
+import com.beykus.beygram.data.appearance.ChatTopPanelLayout
 import com.beykus.beygram.data.appearance.MessageAnimationConfig
 import com.beykus.beygram.data.appearance.MessageAnimationPreset
 import com.beykus.beygram.deeplink.MessageEntityLink
@@ -1892,21 +1893,13 @@ fun ChatScreen(
         }
     }
 
-    // Reported by PinnedMessagesBar: while the preview sits under the header, the group ends with this row's hairline.
-    var pinnedPreviewShown by remember(chat.id, forumTopicId) { mutableStateOf(false) }
-    // The pinned data outlives the bar: the keyboard, the search and the selection mode hide the row for a while, and
-    // a hidden bar must not lose its loaded pages or re-request them when it comes back.
-    val pinnedVersion by remember(conversation, chat.id) { conversation.observePinnedMessagesVersion(chat.id) }.collectAsStateWithLifecycle()
-    val pinnedState = remember(conversation, chat.id, forumTopicId) {
-        PinnedMessagesState(chat.id, forumTopicId) { from -> conversation.pinnedMessages(chat.id, from, forumTopicId) }
-    }
-    val pinsConnected = connectionState == TelegramConnectionState.Connected
-    LaunchedEffect(pinnedState, pinnedVersion, pinsConnected, pinnedState.retryTick) { pinnedState.refresh(pinnedVersion, pinsConnected) }
-    var pinnedListOpen by rememberSaveable(chat.id, forumTopicId) { mutableStateOf(false) }
-    var pinnedPreviewSource by remember(chat.id, forumTopicId) { mutableStateOf<PinnedPreviewSource?>(null) }
-    var livePinnedPreview by remember(chat.id, forumTopicId) { mutableStateOf<PinnedPreviewSource?>(null) }
-    var livePinnedHeader by remember(chat.id, forumTopicId) { mutableStateOf<Rect?>(null) }
-    var pinnedHeaderSource by remember(chat.id, forumTopicId) { mutableStateOf<Rect?>(null) }
+    val pinnedChrome = rememberChatPinnedChromeState(
+        conversation = conversation,
+        chatId = chat.id,
+        forumTopicId = forumTopicId,
+        connected = connectionState == TelegramConnectionState.Connected,
+        listOpen = rememberSaveable(chat.id, forumTopicId) { mutableStateOf(false) }
+    )
     // Hiding the pinned bar is local to this chat and this account; the pins themselves stay on the server.
     val pinnedBarHidden = chatOverrideState[chat.id]?.pinnedBarHidden == true
     val windowLayout = LocalWindowLayout.current
@@ -1961,20 +1954,26 @@ fun ChatScreen(
         // is its own surface under it. The search, the selection mode, a hidden bar and a keyboard in a short window
         // skip the row, never the data.
         val showPinnedBar = !(compactChrome && keyboardOpen) && !searching && !selectionMode && !pinnedBarHidden
-        val pinnedBarSlot: @Composable ColumnScope.() -> Unit = {
+        val topPanels = design.chatTopPanelLayout
+        val pinInHeader = topPanels == ChatTopPanelLayout.Current && !design.navigationFloating
+        val showChatPlayer = !windowLayout.twoPane
+        val pinnedBarSlot: @Composable () -> Unit = {
             if (showPinnedBar) PinnedMessagesBar(
-                state = pinnedState,
+                state = pinnedChrome.messages,
                 conversation = conversation,
                 observeFile = observeFile,
                 visibleOldestMessageId = visibleOldestPinnedBoundary,
                 onOpen = ::jumpToPinned,
-                onOpenList = { pinnedPreviewSource = null; pinnedHeaderSource = null; pinnedListOpen = true },
-                onOpenListFromPreview = { source -> pinnedPreviewSource = source; pinnedHeaderSource = livePinnedHeader; pinnedListOpen = true },
-                hiddenPreviewId = pinnedPreviewSource?.id?.takeIf { pinnedListOpen },
-                onPreviewMeasured = { livePinnedPreview = it },
+                onOpenList = pinnedChrome::openList,
+                onOpenListFromPreview = pinnedChrome::openListFromPreview,
+                hiddenPreviewId = pinnedChrome.previewSource?.id?.takeIf { pinnedChrome.isListOpen },
+                onPreviewMeasured = { pinnedChrome.livePreview = it },
                 onHideBar = { chatOverrides.setPinnedBarHidden(chat.id, true) },
                 onUnpin = { message -> setPinned(message, false) },
-                onRowShownChange = { pinnedPreviewShown = it }
+                onRowShownChange = { pinnedChrome.previewShown = it },
+                floating = topPanels == ChatTopPanelLayout.Separate ||
+                    (topPanels == ChatTopPanelLayout.Current && design.navigationFloating),
+                sharedSurface = topPanels == ChatTopPanelLayout.Combined
             )
         }
         ChatChromeHost(chatGlass, GlassEdge.BottomHairline, chatBackdrop, { topChromePx = it },
@@ -2025,12 +2024,12 @@ fun ChatScreen(
             onStatistics = onStatistics,
             onExport = { exportOpen = true },
             secretChat = secretChat,
-            pinnedBelow = pinnedPreviewShown && !design.navigationFloating,
+            pinnedBelow = pinInHeader && pinnedChrome.previewShown,
             showBack = !windowLayout.twoPane || forumTopicId > 0L || forumAllMessages,
             compact = compactChrome,
-            pinnedCount = pinnedState.count,
-            onPinnedHeaderMeasured = { livePinnedHeader = it },
-            onOpenPinned = { pinnedPreviewSource = null; pinnedHeaderSource = null; pinnedListOpen = true },
+            pinnedCount = pinnedChrome.messages.count,
+            onPinnedHeaderMeasured = { pinnedChrome.liveHeader = it },
+            onOpenPinned = pinnedChrome::openList,
             forumNavigationMode = forumNavigationMode,
             onForumNavigationMode = onForumNavigationMode,
             forumAllMessages = forumAllMessages
@@ -2040,7 +2039,7 @@ fun ChatScreen(
         // Keep playback accessible below the chat header, not between messages and the composer.
         // The input/IME and reply controls should remain adjacent to the message list.
         // In the split layout the player already lives under the list on the left, so the chat has no strip of its own.
-        if (!windowLayout.twoPane) NowPlayingBar(compact = true)
+        if (topPanels == ChatTopPanelLayout.Current && showChatPlayer) NowPlayingBar(compact = true)
         // The target picker lives above the message list so the action bar can close before selection.
         val translationTargetMessage = translationPickerId?.let { id -> messages.firstOrNull { it.id == id } }
         if (translationTargetMessage != null && TranslationPolicy.canTranslate(chat.isSecret, translationTargetMessage.text.isNotBlank())) {
@@ -2144,11 +2143,22 @@ fun ChatScreen(
             }
         }
         // Sync the pinned preview with what the reader is currently seeing, as in official Telegram.
-        if (!design.navigationFloating) pinnedBarSlot()
+        if (pinInHeader) pinnedBarSlot()
         ChatConnectionBanner(accountId, connectionState)
         // Non-inline wrappers keep these large blocks out of ChatScreen's own bytecode (JVM 64 KB method limit).
             },
-            floatingContent = { if (design.navigationFloating) pinnedBarSlot() }
+            floatingContent = {
+                when (topPanels) {
+                    ChatTopPanelLayout.Current -> if (!pinInHeader) pinnedBarSlot()
+                    ChatTopPanelLayout.Separate -> {
+                        if (showChatPlayer) Box(Modifier.fillMaxWidth().chatTopPanelSpacing()) {
+                            NowPlayingBar(floatingDock = true, compact = true)
+                        }
+                        pinnedBarSlot()
+                    }
+                    ChatTopPanelLayout.Combined -> ChatTopPanelCapsule(showChatPlayer, pinnedBarSlot)
+                }
+            }
         )
         ChatScreenBox(Modifier.fillMaxWidth().weight(1f)) {
         ChatScreenBox(Modifier.underChatChrome({ if (chatBackdrop != null) topChromePx else 0 }, { if (chatBackdrop != null || floatingComposer) bottomChromePx else 0 }).let { m -> if (chatBackdrop != null) m.glassBackdropSource(chatBackdrop) else m }) {
@@ -3156,8 +3166,8 @@ fun ChatScreen(
             replyFocusRequest++
         }) else null
     )
-    if (pinnedListOpen) PinnedMessagesScreen(
-        state = pinnedState,
+    if (pinnedChrome.isListOpen) PinnedMessagesScreen(
+        state = pinnedChrome.messages,
         conversation = conversation,
         chat = chat,
         chatTitle = forumTopicTitle?.takeIf { it.isNotBlank() }?.let { "${chat.title} · $it" } ?: chat.title,
@@ -3166,13 +3176,16 @@ fun ChatScreen(
         observeFile = observeFile,
         downloadFile = onDownloadFile,
         barHidden = pinnedBarHidden,
-        previewSource = pinnedPreviewSource,
-        livePreviewSource = { livePinnedPreview },
-        headerSource = pinnedHeaderSource,
-        liveHeaderSource = { livePinnedHeader },
+        previewSource = pinnedChrome.previewSource,
+        livePreviewSource = { pinnedChrome.livePreview },
+        headerSource = pinnedChrome.headerSource,
+        liveHeaderSource = { pinnedChrome.liveHeader },
         onRestoreBar = { chatOverrides.setPinnedBarHidden(chat.id, false) },
-        onOpenMessage = { message -> pinnedListOpen = false; pinnedPreviewSource = null; pinnedHeaderSource = null; jumpToPinned(message) },
-        onClose = { pinnedListOpen = false; pinnedPreviewSource = null; pinnedHeaderSource = null }
+        onOpenMessage = { message ->
+            pinnedChrome.closeList()
+            jumpToPinned(message)
+        },
+        onClose = pinnedChrome::closeList
     )
     if (chatSettingsOpen) ChatSettingsSheet(
         chatId = chat.id,

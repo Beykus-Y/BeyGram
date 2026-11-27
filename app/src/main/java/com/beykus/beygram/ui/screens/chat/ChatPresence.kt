@@ -61,7 +61,16 @@ internal fun chatPresenceLine(chat: ChatPreview, info: ProfileInfo?, lastSeenSty
     // Saved Messages is the user's own storage chat, not another Telegram user.
     // Never display self-presence ("online"/last seen) below its title.
     chat.isSavedMessages -> UiText.Res(R.string.presence_saved_messages)
-    chat.isGroup -> info?.onlineMemberCount?.takeIf { it > 0 }?.let { UiText.Res(R.string.presence_online_count, listOf(it)) } ?: UiText.Res(R.string.presence_group)
+    chat.isGroup -> {
+        val members = info?.memberCount?.takeIf { !chat.isChannel && it > 0 }
+        val online = info?.onlineMemberCount?.takeIf { it > 0 && (members == null || it <= members) }
+        when {
+            members != null && online != null -> UiText.Res(R.string.profile_group_members_online_count, listOf(members, online))
+            members != null -> UiText.Res(R.string.profile_group_members_count, listOf(members))
+            online != null -> UiText.Res(R.string.presence_online_count, listOf(online))
+            else -> UiText.Res(R.string.presence_group)
+        }
+    }
     else -> info?.status?.let { presenceText(it, lastSeenStyle, nowMillis) } ?: UiText.Res(R.string.presence_private_chat)
 }
 
