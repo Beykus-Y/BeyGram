@@ -56,6 +56,7 @@ internal fun MessageBubble(message: ChatMessage, observeFile: (Int) -> StateFlow
     quickReactionAcrossRow: Boolean = false,
     /** Callers pass the chat/grouping decision; the sender name itself stays available for replies, search and profiles. */
     showSenderHeader: Boolean = true,
+    senderMember: ProfileMember? = null,
     /** Music link cards (Yandex Music) are drawn only where the caller turns them on: the chat list, not secret chats. */
     musicLinkCards: Boolean = false,
     waveAccountId: String? = null,
@@ -205,7 +206,7 @@ internal fun MessageBubble(message: ChatMessage, observeFile: (Int) -> StateFlow
                     overlayMeta = overlayMeta,
                     body = {
                     Column {
-                        if (showAuthor) Text(message.senderName, color = palette.accentInk, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis,
+                        if (showAuthor) ChatGroupAuthorName(message.senderName, senderMember,
                             modifier = (if (lastLineMeta) Modifier.padding(horizontal = metrics.textInset).padding(top = 6.dp)
                             else Modifier.padding(horizontal = 12.dp, vertical = 4.dp))
                                 .then(if (onSenderClick != null) Modifier.clickable { onSenderClick() } else Modifier))

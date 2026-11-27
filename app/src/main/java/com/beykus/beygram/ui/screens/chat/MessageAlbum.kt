@@ -65,6 +65,7 @@ import com.beykus.beygram.data.settings.AutoDownloadSettingsStore
 import com.beykus.beygram.deeplink.MessageEntityLink
 import com.beykus.beygram.domain.model.AutoDownloadRequest
 import com.beykus.beygram.domain.model.ChatMemoryVersion
+import com.beykus.beygram.domain.model.ProfileMember
 import com.beykus.beygram.domain.model.ChatMessage
 import com.beykus.beygram.domain.model.ChatPreview
 import com.beykus.beygram.domain.model.CustomEmoji
@@ -178,6 +179,7 @@ internal fun MessageAlbumBubble(
     onAutoDownloadFile: ((AutoDownloadRequest) -> Unit)? = null,
     /** Whether this album shows its author above the media; callers decide it from the chat type and the previous row. */
     showSenderHeader: Boolean = true,
+    senderMember: ProfileMember? = null,
     selectionMode: Boolean = false,
     selected: Boolean = false,
     onToggleSelection: () -> Unit = {},
@@ -257,8 +259,10 @@ internal fun MessageAlbumBubble(
                     body = {
                         Column {
                             if (showSenderHeader && !latest.isOutgoing && latest.senderName.isNotBlank()) {
-                                Text(latest.senderName, color = palette.accentInk, fontSize = 13.sp, fontWeight = FontWeight.SemiBold,
-                                    maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(start = 12.dp, end = 12.dp, top = 8.dp, bottom = 4.dp))
+                                ChatGroupAuthorName(
+                                    latest.senderName, senderMember,
+                                    Modifier.padding(start = 12.dp, end = 12.dp, top = 8.dp, bottom = 4.dp)
+                                )
                             }
                             chronological.firstOrNull { it.isForwarded }?.let { ForwardedMessageHeader(it) }
                             if (visualMosaic) {
