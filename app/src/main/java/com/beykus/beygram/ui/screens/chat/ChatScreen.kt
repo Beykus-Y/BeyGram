@@ -2489,6 +2489,11 @@ fun ChatScreen(
             conversation = conversation,
             onJumpToMessage = { id -> jumpToMessage(id, R.string.chat_message_unavailable) },
             onReadAllFailed = { error = context.getString(R.string.chat_read_all_failed) },
+            onJumpEmpty = { error = context.getString(R.string.global_search_empty) },
+            onJumpFailed = { failure ->
+                error = failure?.userMessage(context, R.string.chat_search_failed)
+                    ?: context.getString(R.string.err_tdlib_request_timeout)
+            },
             modifier = Modifier.align(Alignment.BottomEnd).padding(end = 12.dp, bottom = 12.dp)
         ) {
             JumpToLatestButton(unread = if (forumTopicId > 0L) topicUnreadCount else chat.unreadCount, onClick = {

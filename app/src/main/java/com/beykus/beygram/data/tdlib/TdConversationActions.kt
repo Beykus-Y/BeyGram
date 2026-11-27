@@ -107,14 +107,9 @@ internal class TdConversationActions(
         Unit
     }
 
-    /**
-     * TDLib pages search results from the newest match backwards, so the oldest one is only on the last page.
-     * Every page is read until TDLib reports no next page; a chat with more than [MAX_MATCH_PAGES] pages is cut there.
-     */
-    private suspend fun oldestMatch(chatId: Long, forumTopicId: Long, searchFilter: TdApi.SearchMessagesFilter): Long? {
-        var from = 0L
-        var oldest: Long? = null
-        repeat(MAX_MATCH_PAGES) {
+    /** TDLib returns matches from newest to oldest, using a cursor for the next older page. */
+    private suspend fun oldestMatch(chatId: Long, forumTopicId: Long, searchFilter: TdApi.SearchMessagesFilter): Long? =
+        oldestUnreadMark { from ->
             val page = request(TdApi.SearchChatMessages().apply {
                 this.chatId = chatId
                 topicId = if (forumTopicId > 0L) TdApi.MessageTopicForum(forumTopicId.toInt()) else null
@@ -124,12 +119,8 @@ internal class TdConversationActions(
                 limit = 100
                 filter = searchFilter
             })
-            page.messages.minOfOrNull { it.id }?.let { id -> oldest = minOf(oldest ?: id, id) }
-            if (page.nextFromMessageId == 0L || page.messages.isEmpty()) return oldest
-            from = page.nextFromMessageId
+            UnreadMarkPage(page.messages.minOfOrNull { it.id }, page.nextFromMessageId)
         }
-        return oldest
-    }
 
     /**
      * Resolves a channel post to its discussion thread with GetMessageThread. A channel post whose comments were
@@ -1091,7 +1082,23 @@ internal fun peekHistoryRequest(chatId: Long, limit: Int): TdApi.GetChatHistory 
     TdApi.GetChatHistory(chatId, 0L, 0, limit.coerceIn(1, PEEK_MESSAGE_LIMIT), false)
 private const val MAX_FORUM_TOPIC_PAGES = 20
 /** 100 matches a page; this bounds the walk to the oldest match of a chat. */
-private const val MAX_MATCH_PAGES = 1000
+internal const val MAX_UNREAD_MARK_PAGES = 24
+
+internal data class UnreadMarkPage(val oldestId: Long?, val nextCursor: Long)
+
+internal suspend fun oldestUnreadMark(loadPage: suspend (Long) -> UnreadMarkPage): Long? {
+    var cursor = 0L
+    var oldest: Long? = null
+    val visited = mutableSetOf(cursor)
+    repeat(MAX_UNREAD_MARK_PAGES) {
+        val page = loadPage(cursor)
+        val pageOldest = page.oldestId ?: return oldest
+        oldest = minOf(oldest ?: pageOldest, pageOldest)
+        if (page.nextCursor == 0L || !visited.add(page.nextCursor)) return oldest
+        cursor = page.nextCursor
+    }
+    return oldest
+}
 /** Telegram's shortest live-location window offered by the composer. */
 private const val LIVE_LOCATION_PERIOD_SECONDS = 15 * 60
 
