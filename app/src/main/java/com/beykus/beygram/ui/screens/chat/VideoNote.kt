@@ -15,12 +15,15 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Pause
 import androidx.compose.material.icons.rounded.PlayArrow
+import androidx.compose.material.icons.rounded.Subtitles
 import androidx.compose.material.icons.rounded.Schedule
 import androidx.compose.material.icons.rounded.VolumeOff
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -50,6 +53,7 @@ import com.beykus.beygram.domain.model.AutoDownloadRequest
 import com.beykus.beygram.domain.model.MediaFileState
 import com.beykus.beygram.domain.model.MediaKind
 import com.beykus.beygram.domain.model.MessageMedia
+import com.beykus.beygram.domain.model.TranslationPolicy
 import com.beykus.beygram.domain.model.SpeechRecognitionFailure
 import com.beykus.beygram.playback.PlaybackEngine
 import com.beykus.beygram.playback.LocalPlaybackAccountId
@@ -251,6 +255,13 @@ internal fun VideoNoteBubble(
         path == null && (waitingForCircle || file.isDownloading) -> stringResource(R.string.a11y_state_loading)
         else -> null
     }
+    var transcriptOpen by rememberSaveable(key) { mutableStateOf(false) }
+    val transcriptFailure = transcriptionRequestError ?: media.transcriptionError
+    val transcriptEligible = onTranscribe != null || media.transcriptionText.isNotBlank() ||
+        media.transcriptionPending != null || transcriptionRequestPending || transcriptFailure != null
+    val transcriptCanStart = media.transcriptionText.isBlank() && media.transcriptionPending == null &&
+        !transcriptionRequestPending && (transcriptFailure == null ||
+        TranslationPolicy.isTranscriptionRefusalLifted(transcriptFailure, speechRecognitionUi.trial, speechRecognitionUi.isPremiumAccount))
     val circleDescription = stringResource(R.string.a11y_video_note_message, duration(shownSeconds))
     BoxWithConstraints {
         val expandMotion = rememberMotionSpec(MotionToken.MediaExpand)
@@ -315,18 +326,40 @@ internal fun VideoNoteBubble(
                     if (path == null && file.error != null && !waitingForCircle) Text(stringResource(R.string.video_note_download_failed), color = Color.White, fontSize = 12.sp,
                         textAlign = TextAlign.Center, modifier = Modifier.padding(horizontal = 24.dp))
                     if (!showing) Icon(Icons.Rounded.VolumeOff, contentDescription = null, tint = Color.White,
-                        modifier = Modifier.align(Alignment.TopStart).padding(10.dp).size(28.dp).background(Color.Black.copy(alpha = 0.5f), CircleShape).padding(6.dp))
+                        modifier = Modifier.align(if (outgoing) Alignment.TopStart else Alignment.TopEnd).padding(10.dp).size(28.dp).background(Color.Black.copy(alpha = 0.5f), CircleShape).padding(6.dp))
                 }
                 VideoNoteMetadata(
                     durationText = duration(shownSeconds), time = time, statusIcon = statusIcon,
                     statusDescription = statusDescription, outgoing = outgoing, modifier = Modifier.matchParentSize()
                 )
+                if (transcriptEligible) {
+                    IconButton(
+                        onClick = {
+                            transcriptOpen = !transcriptOpen
+                            if (transcriptOpen && transcriptCanStart) onTranscribe?.invoke()
+                        },
+                        modifier = Modifier.align(if (outgoing) Alignment.TopEnd else Alignment.TopStart)
+                    ) {
+                        Icon(
+                            Icons.Rounded.Subtitles,
+                            contentDescription = stringResource(
+                                when {
+                                    transcriptOpen -> R.string.video_note_hide_transcription
+                                    transcriptCanStart -> R.string.transcription_action
+                                    else -> R.string.video_note_show_transcription
+                                }
+                            ),
+                            tint = Color.White,
+                            modifier = Modifier.size(30.dp).background(Color.Black.copy(alpha = 0.68f), CircleShape).padding(6.dp)
+                        )
+                    }
+                }
                 if (unseen && !played) Box(Modifier.align(Alignment.CenterEnd).size(10.dp).background(palette.accent, CircleShape))
             }
             if (playing && showing) Box(Modifier.width(size), contentAlignment = Alignment.Center) {
                 PlaybackSpeedMenu()
             }
-            TranscriptionSection(
+            if (transcriptOpen && transcriptEligible) TranscriptionSection(
                 media = media,
                 requestPending = transcriptionRequestPending,
                 requestError = transcriptionRequestError,
@@ -335,7 +368,8 @@ internal fun VideoNoteBubble(
                 onRate = onRateTranscription,
                 ui = speechRecognitionUi,
                 // Keep the note's circle alignment: a full-width section would push an incoming note to the right.
-                modifier = Modifier.width(size)
+                modifier = Modifier.width(size),
+                showRequestButton = false
             )
         }
     }
