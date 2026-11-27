@@ -4,9 +4,11 @@ import androidx.compose.runtime.compositionLocalOf
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.graphics.luminance
+import com.beykus.beygram.domain.model.GroupAuthorEmojiStatus
 import com.beykus.beygram.domain.model.PeerAccentColor
 
 internal val LocalChatAuthorColor = compositionLocalOf { Color.Unspecified }
+internal val LocalChatAuthorStatus = compositionLocalOf<GroupAuthorEmojiStatus?> { null }
 
 // TDLib reserves these seven IDs and leaves their exact shades to the app theme.
 private val lightBuiltIns = listOf(0xB43F39, 0x9F561B, 0x7556B6, 0x37763F, 0x267181, 0x3569A6, 0xA64973)

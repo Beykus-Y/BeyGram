@@ -7,8 +7,8 @@ import kotlinx.coroutines.flow.flowOf
 
 /** Conversation operations; UI never sends native TDLib requests or chooses protocol flags. */
 interface ConversationRepository {
-    /** Cache-only observation of the user name accent for this account. */
-    fun observeUserAccent(userId: Long): Flow<PeerAccentColor?> = flowOf(null)
+    /** Cache-only observation of the user appearance for this account. */
+    fun observeGroupAuthor(userId: Long): Flow<GroupAuthorAppearance?> = flowOf(null)
 
     fun observePinnedMessagesVersion(chatId: Long): StateFlow<Long>
     /** Resolve avatars from user IDs without creating private chats or opening profiles. */
@@ -96,6 +96,8 @@ interface ConversationRepository {
     suspend fun nextUnreadMention(chatId: Long, forumTopicId: Long = 0L): Result<Long?> = Result.success(null)
     /** Returns the message id of the next unread reaction in [chatId], or null when none remain. */
     suspend fun nextUnreadReaction(chatId: Long, forumTopicId: Long = 0L): Result<Long?> = Result.success(null)
+    /** Snapshot after an empty unread-mark lookup, scoped to the same chat or forum topic. */
+    suspend fun unreadMarkCounts(chatId: Long, forumTopicId: Long): Result<UnreadMarkCounts?> = Result.success(null)
     /**
      * Opens a channel post's comment thread. TDLib resolves the linked discussion chat and thread id; a post with
      * comments disabled or hidden fails with a user-facing explanation instead of an empty thread.

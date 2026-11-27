@@ -212,4 +212,6 @@ data class MessageLimits(
     val quote: Int = 1024
 )
 
+data class UnreadMarkCounts(val mentions: Int, val reactions: Int)
+
 data class PinnedMessagePage(val messages: List<ChatMessage>, val totalCount: Int, val nextFromMessageId: Long)

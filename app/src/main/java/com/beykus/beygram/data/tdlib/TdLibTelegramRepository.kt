@@ -446,7 +446,7 @@ class TdLibTelegramRepository private constructor(
     private val pinnedVersions = ConcurrentHashMap<Long, MutableStateFlow<Long>>()
     override fun observePinnedMessagesVersion(chatId: Long): StateFlow<Long> = pinnedVersions.getOrPut(chatId) { MutableStateFlow(0L) }.asStateFlow()
     override suspend fun pinnedMessages(chatId: Long, fromMessageId: Long, forumTopicId: Long, query: String) = conversationActions.pinnedMessages(chatId, fromMessageId, forumTopicId, query)
-    override fun observeUserAccent(userId: Long) = profiles.observeUserAccent(userId)
+    override fun observeGroupAuthor(userId: Long) = profiles.observeGroupAuthor(userId)
 
     override suspend fun loadPinnedSenderAvatars(userIds: Collection<Long>): Map<Long, com.beykus.beygram.domain.model.AvatarPhoto?> =
         profiles.resolveUsers(userIds).mapValues { (_, user) ->
@@ -1741,6 +1741,8 @@ class TdLibTelegramRepository private constructor(
     override suspend fun messageContext(chatId: Long, messageId: Long) = conversationActions.context(chatId, messageId)
     override suspend fun singleMessage(chatId: Long, messageId: Long) = conversationActions.single(chatId, messageId)
     override suspend fun linkedDiscussionChatId(chatId: Long) = conversationActions.linkedDiscussionChatId(chatId)
+    override suspend fun unreadMarkCounts(chatId: Long, forumTopicId: Long) =
+        conversationActions.unreadMarkCounts(chatId, forumTopicId)
     override suspend fun nextUnreadMention(chatId: Long, forumTopicId: Long) = conversationActions.nextUnreadMention(chatId, forumTopicId)
     override suspend fun nextUnreadReaction(chatId: Long, forumTopicId: Long) = conversationActions.nextUnreadReaction(chatId, forumTopicId)
     override suspend fun loadMessageThread(chatId: Long, messageId: Long) = conversationActions.messageThread(chatId, messageId)

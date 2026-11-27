@@ -70,6 +70,8 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.repeatOnLifecycle
 import com.beykus.beygram.R
 import com.beykus.beygram.deeplink.MessageEntityLink
+import com.beykus.beygram.data.settings.ChatOverridesStore
+import com.beykus.beygram.domain.model.AvatarPhoto
 import com.beykus.beygram.domain.model.ChatHistory
 import com.beykus.beygram.domain.model.ChatMessage
 import com.beykus.beygram.domain.model.AutoDownloadRequest
@@ -122,7 +124,8 @@ internal fun MessageThreadScreen(
     onOpenProfile: (Long) -> Unit,
     /** Repository-backed automatic download for the shared media viewer. */
     autoDownloadFile: ((AutoDownloadRequest) -> Unit)? = null,
-    onOpenMessageEntity: ((MessageEntityLink) -> Unit)? = null
+    onOpenMessageEntity: ((MessageEntityLink) -> Unit)? = null,
+    chatOverrides: ChatOverridesStore? = null
 ) {
     val palette = beyGramPalette()
     val context = LocalContext.current
@@ -131,6 +134,15 @@ internal fun MessageThreadScreen(
     var post by remember(accountId, channelChatId, postId) { mutableStateOf(initialPost) }
     var thread by remember(accountId, channelChatId, postId) { mutableStateOf<MessageThread?>(null) }
     var messages by remember(accountId, channelChatId, postId) { mutableStateOf<List<ChatMessage>>(emptyList()) }
+    val overrides = chatOverrides?.state?.collectAsStateWithLifecycle()?.value
+    val showGroupAvatars = thread?.discussionChatId?.let { overrides?.get(it)?.groupAvatarsHidden } != true
+    val commentGroups = remember(messages) {
+        groupAvatarRows(messages.asReversed().map { ChatMessageListItem(it.id.toString(), listOf(it)) }, emptySet())
+    }
+    val commentPhotos = rememberGroupAvatarPhotos(
+        conversation, thread?.discussionChatId ?: 0L, thread?.threadId ?: 0L, listState,
+        if (showGroupAvatars) commentGroups else emptyMap(), emptyMap()
+    )
     var loading by remember(accountId, channelChatId, postId) { mutableStateOf(true) }
     var errorText by remember(accountId, channelChatId, postId) { mutableStateOf<String?>(null) }
     var pagingError by remember(accountId, channelChatId, postId) { mutableStateOf<String?>(null) }
@@ -522,6 +534,10 @@ internal fun MessageThreadScreen(
                     val failedLocal = localAttempt?.takeIf { it.phase == TextSendAttemptPhase.Failed }
                     ThreadCommentRow(
                         message = message,
+                        showGroupAvatars = showGroupAvatars,
+                        groupAvatar = commentGroups[message.id.toString()],
+                        avatarPhotos = commentPhotos,
+                        conversation = conversation,
                         observeFile = observeFile,
                         onDownloadFile = downloadFile,
                         onOpenProfile = onOpenProfile,
@@ -864,6 +880,10 @@ internal fun MessageThreadScreen(
 @Composable
 private fun ThreadCommentRow(
     message: ChatMessage,
+    showGroupAvatars: Boolean,
+    groupAvatar: ChatMessage?,
+    avatarPhotos: Map<Long, AvatarPhoto?>,
+    conversation: ConversationRepository,
     observeFile: (Int) -> StateFlow<MediaFileState>,
     onDownloadFile: (Int) -> Unit,
     onOpenProfile: (Long) -> Unit,
@@ -885,54 +905,46 @@ private fun ThreadCommentRow(
     onOpenMessageEntity: ((MessageEntityLink) -> Unit)? = null,
     paidContent: PaidContentActions? = null
 ) {
-    val palette = beyGramPalette()
-    Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 1.dp), verticalAlignment = Alignment.Top) {
-        if (message.senderId > 0L) {
-            Box(
-                Modifier.padding(top = 10.dp).size(28.dp).clip(CircleShape)
-                    .background(palette.surface2)
-                    .clickable { onOpenProfile(message.senderId) },
-                contentAlignment = Alignment.Center
-            ) {
-                Text(
-                    message.senderName.trim().firstOrNull()?.uppercaseChar()?.toString().orEmpty(),
-                    color = palette.textSecondary,
-                    fontSize = 12.sp,
-                    fontWeight = FontWeight.SemiBold
-                )
-            }
-            Spacer(Modifier.width(6.dp))
-        }
-        Box(Modifier.weight(1f)) {
-            val openSender: (() -> Unit)? = if (message.senderId > 0L) {
-                { onOpenProfile(message.senderId) }
-            } else null
-            MessageBubble(
-                message = message,
-                observeFile = observeFile,
-                onDownloadFile = onDownloadFile,
-                onOpen = { onOpenMedia() },
-                onStickerOpen = { media -> onStickerOpen(media.stickerSetId) },
-                onPlayed = onPlayed,
-                onActions = onActions,
-                onReplyClick = onReplyClick,
-                onReply = onReply,
-                onReaction = { _, option -> onReaction(option) },
-                loadQuickReactions = loadQuickReactions,
-                observeCustomEmoji = observeCustomEmoji,
-                onRetry = onRetry,
-                onShowFailureDetails = onShowFailureDetails,
-                onSenderClick = openSender,
-                onPollVote = { messageId, choices -> onPollVote(message.chatId, messageId, choices) },
-                onPollStop = { messageId -> onPollStop(message.chatId, messageId) },
-                onLoadPollVoters = { messageId, optionIndex, offset ->
-                    onLoadPollVoters(message.chatId, messageId, optionIndex, offset)
-                },
-                onAddPollOption = { messageId, text -> onAddPollOption(message.chatId, messageId, text) },
-                paidContent = paidContent,
-                onOpenMessageEntity = onOpenMessageEntity
-            )
-        }
+    ChatGroupAvatarRow(
+        enabled = showGroupAvatars,
+        message = message,
+        avatar = groupAvatar,
+        members = emptyMap(),
+        photos = avatarPhotos,
+        observeFile = observeFile,
+        downloadFile = onDownloadFile,
+        onOpenProfile = onOpenProfile,
+        peerColors = conversation
+    ) {
+        val openSender: (() -> Unit)? = if (message.senderId > 0L) {
+            { onOpenProfile(message.senderId) }
+        } else null
+        MessageBubble(
+            message = message,
+            observeFile = observeFile,
+            onDownloadFile = onDownloadFile,
+            onOpen = { onOpenMedia() },
+            onStickerOpen = { media -> onStickerOpen(media.stickerSetId) },
+            onPlayed = onPlayed,
+            onActions = onActions,
+            onReplyClick = onReplyClick,
+            onReply = onReply,
+            onReaction = { _, option -> onReaction(option) },
+            loadQuickReactions = loadQuickReactions,
+            observeCustomEmoji = observeCustomEmoji,
+            onRetry = onRetry,
+            onShowFailureDetails = onShowFailureDetails,
+            onSenderClick = openSender,
+            showSenderHeader = groupAvatar != null,
+            onPollVote = { messageId, choices -> onPollVote(message.chatId, messageId, choices) },
+            onPollStop = { messageId -> onPollStop(message.chatId, messageId) },
+            onLoadPollVoters = { messageId, optionIndex, offset ->
+                onLoadPollVoters(message.chatId, messageId, optionIndex, offset)
+            },
+            onAddPollOption = { messageId, text -> onAddPollOption(message.chatId, messageId, text) },
+            paidContent = paidContent,
+            onOpenMessageEntity = onOpenMessageEntity
+        )
     }
 }
 

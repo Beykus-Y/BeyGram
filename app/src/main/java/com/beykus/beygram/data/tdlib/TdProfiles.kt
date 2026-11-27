@@ -19,13 +19,21 @@ internal class TdProfiles(private val client: () -> Client, private val files: M
     private val users = mutableMapOf<Long, TdApi.User>()
     private val peerColors = TdPeerColors()
 
-    fun observeUserAccent(userId: Long): Flow<PeerAccentColor?> = peerColors.revision
-        .map { synchronized(lock) { peerColors.accent(users[userId]?.accentColorId) } }
+    fun observeGroupAuthor(userId: Long): Flow<GroupAuthorAppearance?> = peerColors.revision
+        .map {
+            synchronized(lock) {
+                users[userId]?.let { user ->
+                    GroupAuthorAppearance(peerColors.accent(user.accentColorId), groupAuthorEmojiStatus(user.emojiStatus))
+                }
+            }
+        }
         .distinctUntilChanged()
 
     private fun putUser(user: TdApi.User) {
         val previous = users.put(user.id, user)
-        if (previous?.accentColorId != user.accentColorId) peerColors.userAccentChanged()
+        if (previous?.accentColorId != user.accentColorId ||
+            groupAuthorEmojiStatus(previous?.emojiStatus) != groupAuthorEmojiStatus(user.emojiStatus)
+        ) peerColors.userAppearanceChanged()
     }
 
     private val userFull = mutableMapOf<Long, TdApi.UserFullInfo>()
