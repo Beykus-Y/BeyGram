@@ -10,6 +10,7 @@ import org.drinkless.tdlib.TdApi
 /** Lives with the owning TDLib client. TDLib sends the current palettes when the client starts. */
 internal class TdPeerColors {
     private var accents = emptyMap<Int, PeerAccentColor>()
+    private var profiles = emptyMap<Int, ProfileColorThemes>()
     private val _revision = MutableStateFlow(0L)
     val revision = _revision.asStateFlow()
 
@@ -29,6 +30,20 @@ internal class TdPeerColors {
         }
     }
 
+    fun updateProfiles(update: TdApi.UpdateProfileAccentColors) {
+        profiles = update.colors.orEmpty().associate { color ->
+            color.id to ProfileColorThemes(color.lightThemeColors.toPalette(), color.darkThemeColors.toPalette())
+        }
+    }
+
+    fun profilePalette(id: Int): ProfileColorThemes? = profiles[id]
+
+    private fun TdApi.ProfileAccentColors?.toPalette(): ProfileColorPalette = ProfileColorPalette(
+        this?.paletteColors?.validRgb().orEmpty(),
+        this?.backgroundColors?.validRgb().orEmpty(),
+        this?.storyColors?.validRgb().orEmpty()
+    )
+
     fun userAppearanceChanged() {
         _revision.update { it + 1 }
     }
@@ -42,6 +57,9 @@ internal class TdPeerColors {
     private fun IntArray.validRgb(): List<Int> =
         take(3).takeIf { values -> values.all { it in 0..0xFFFFFF } }.orEmpty()
 }
+
+internal data class ProfileColorThemes(val light: ProfileColorPalette, val dark: ProfileColorPalette)
+internal data class ProfileColorPalette(val palette: List<Int>, val background: List<Int>, val story: List<Int>)
 
 internal fun groupAuthorEmojiStatus(status: TdApi.EmojiStatus?): GroupAuthorEmojiStatus? {
     status ?: return null

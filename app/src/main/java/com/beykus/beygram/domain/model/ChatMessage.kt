@@ -65,7 +65,9 @@ data class ChatMessage(
     /** TDLib forwardInfo must survive mapping so a forwarded service link stays ordinary text. */
     val isForwarded: Boolean = false,
     /** Original sender's display name, never the sender of this forwarded copy. Empty when TDLib has no accessible label. */
-    val forwardedFromName: String = ""
+    val forwardedFromName: String = "",
+    /** The public chat identity TDLib reports for a message sent as a chat, including anonymous admins. */
+    val senderChatId: Long = 0L
 ) {
     /** View-once media is the per-message "open once" type, not every attachment in a secret chat. */
     val isViewOnce: Boolean get() = selfDestruct is MessageSelfDestruct.Immediately
