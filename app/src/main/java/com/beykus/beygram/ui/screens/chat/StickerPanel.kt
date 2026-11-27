@@ -36,7 +36,8 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
-import androidx.compose.material.icons.rounded.Animation
+import androidx.compose.material.icons.rounded.EmojiEmotions
+import androidx.compose.material.icons.rounded.Keyboard
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.History
 import androidx.compose.material.icons.rounded.Refresh
@@ -133,12 +134,14 @@ internal fun StickerPanelEntryButton(open: Boolean, enabled: Boolean, onClick: (
     val palette = beyGramPalette()
     val focus = LocalFocusManager.current
     val keyboard = LocalSoftwareKeyboardController.current
-    val label = stringResource(R.string.sticker_panel_entry)
+    val label = stringResource(if (open) R.string.sticker_panel_open_keyboard else R.string.sticker_panel_entry)
     IconButton(
         onClick = {
-            focus.clearFocus()
-            keyboard?.hide()
             onClick()
+            if (!open) {
+                focus.clearFocus()
+                keyboard?.hide()
+            }
         },
         enabled = enabled,
         modifier = Modifier.size(48.dp)
@@ -150,7 +153,7 @@ internal fun StickerPanelEntryButton(open: Boolean, enabled: Boolean, onClick: (
             }
     ) {
         Icon(
-            Icons.Rounded.Animation,
+            if (open) Icons.Rounded.Keyboard else Icons.Rounded.EmojiEmotions,
             contentDescription = null,
             tint = when {
                 !enabled -> palette.disabled
@@ -177,6 +180,7 @@ internal fun StickerPanelHost(
     downloadFile: (Int) -> Unit,
     scope: CoroutineScope,
     composerReserve: androidx.compose.ui.unit.Dp,
+    keyboardHeightHint: androidx.compose.ui.unit.Dp,
     onReplyConsumed: (Long?) -> Unit,
     onAnimationAttach: (AnimationItem) -> Unit,
     onStickerOptions: (StickerItem) -> Unit,
@@ -197,6 +201,7 @@ internal fun StickerPanelHost(
             error = error,
             scope = scope,
             composerReserve = composerReserve,
+            keyboardHeightHint = keyboardHeightHint,
             onSendSticker = { item ->
                 if (!sending) {
                     val targetReplyId = replyId
@@ -266,6 +271,7 @@ private fun StickerPanel(
     error: String?,
     scope: CoroutineScope,
     composerReserve: androidx.compose.ui.unit.Dp,
+    keyboardHeightHint: androidx.compose.ui.unit.Dp,
     onSendSticker: (StickerItem) -> Unit,
     onStickerOptions: (StickerItem) -> Unit,
     onSendAnimation: (AnimationItem) -> Unit,
@@ -343,8 +349,9 @@ private fun StickerPanel(
     val imeHeight = with(density) { WindowInsets.ime.getBottom(density).toDp() }
     val belowPanel = if (belowPanelPx > 0) with(density) { belowPanelPx.toDp() } else imeHeight + composerReserve
     val availableHeight = (windowHeight - belowPanel).coerceAtLeast(MIN_PANEL_WITH_KEYBOARD)
-    val panelHeight = (windowHeight * 0.62f)
-        .coerceIn(PANEL_MIN_HEIGHT, PANEL_MAX_HEIGHT)
+    val preferredHeight = keyboardHeightHint.takeIf { it > 0.dp }?.let { minOf(it, windowHeight * 0.62f) }
+        ?: (windowHeight * 0.62f)
+    val panelHeight = preferredHeight.coerceIn(PANEL_MIN_HEIGHT, PANEL_MAX_HEIGHT)
         .coerceAtMost(availableHeight)
     val displayError = notice ?: error
 

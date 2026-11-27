@@ -390,7 +390,8 @@ fun ChatScreen(
     // A sticker long-pressed in the picker waits for the explicit send-options choice (silent/scheduled).
     var pendingSticker by remember(chat.id) { mutableStateOf<OutgoingMedia?>(null) }
     // The unified sticker/GIF panel replaces the attachment strip above the composer, not the attach menu.
-    var stickerPanelOpen by rememberSaveable(chat.id) { mutableStateOf(false) }
+    var stickerPanelOpen by rememberSaveable(accountId, chat.id, forumTopicId) { mutableStateOf(false) }
+    var stickerPanelKeyboardHeight by rememberSaveable(accountId, chat.id, forumTopicId) { mutableFloatStateOf(0f) }
     var scheduledMessagesOpen by remember(chat.id) { mutableStateOf(false) }
     var chatSettingsOpen by remember(chat.id) { mutableStateOf(false) }
     val chatOverrideState by chatOverrides.state.collectAsStateWithLifecycle()
@@ -2671,34 +2672,13 @@ fun ChatScreen(
         delayed.Strip(composerEmpty = draft.isEmpty() && replyId == null, onRestoreDraft = { restored -> updateDraft { restored } })
         val embeddedAttachments = !editing && attachments.active && !attachments.menuOpen && !stickerPanelOpen
         AttachmentComposerContainer(embeddedAttachments) {
-        if (!editing) {
-            ChatComposerPanel(
-                stickerPanelOpen = stickerPanelOpen,
-                embedded = embeddedAttachments,
-                attachments = attachments,
-                conversation = conversation,
+        if (!editing && !stickerPanelOpen) {
+            AttachmentPanel(
+                state = attachments,
                 observeFile = observeFile,
                 onDownloadFile = onDownloadFile,
                 allowViewOnce = allowViewOnce,
-                chatId = chat.id,
-                replyId = replyId,
-                forumTopicId = sendForumTopicId,
-                scope = scope,
-                onReplyConsumed = { sentReplyId ->
-                    if (sentReplyId != null) {
-                        updateDraft { current ->
-                            if (current.replyToMessageId == sentReplyId) current.copy(replyToMessageId = null) else current
-                        }
-                    }
-                },
-                onStickerOptions = { sticker ->
-                    pendingSticker = sticker
-                    sendOptionsOpen = true
-                },
-                onSendError = { message -> error = message },
-                onInsertEmoji = { emoji -> editComposerText { text, selection -> insertAtSelection(text, selection, emoji) } },
-                onDeleteBackward = { editComposerText(::deleteBeforeSelection) },
-                onCloseStickerPanel = { stickerPanelOpen = false }
+                embedded = embeddedAttachments
             )
         }
         Row(Modifier.fillMaxWidth().padding(horizontal = if (embeddedAttachments) 2.dp else 10.dp, vertical = if (compactChrome || embeddedAttachments) 4.dp else 8.dp), verticalAlignment = Alignment.Bottom) {
@@ -2732,8 +2712,13 @@ fun ChatScreen(
                             onClick = {
                                 if (stickerPanelOpen) {
                                     stickerPanelOpen = false
+                                    replyFocusRequest++
                                 } else if (!busy && !attachments.active) {
                                     attachments.menuOpen = false
+                                    val keyboardHeight = imeInsets.getBottom(imeDensity)
+                                    if (keyboardHeight > 0) {
+                                        stickerPanelKeyboardHeight = with(imeDensity) { keyboardHeight.toDp().value }
+                                    }
                                     stickerPanelOpen = true
                                 }
                             }
@@ -2816,7 +2801,36 @@ fun ChatScreen(
             modifier = Modifier.padding(horizontal = 18.dp, vertical = 2.dp)
         )
         }
-        if (!recordingActive && !editing && !attachments.active) BotReplyKeyboard(chat.id, botKeyboard, conversation, sendGuard, ::requestBotWebApp)
+        if (!recordingActive && !editing && !attachments.active && !stickerPanelOpen) BotReplyKeyboard(chat.id, botKeyboard, conversation, sendGuard, ::requestBotWebApp)
+            ChatComposerStickerPanel(
+                open = !recordingActive && !editing && !attachments.active && stickerPanelOpen,
+                accountId = accountId,
+                panelTopicId = forumTopicId,
+                keyboardHeightHint = stickerPanelKeyboardHeight.dp,
+                attachments = attachments,
+                conversation = conversation,
+                observeFile = observeFile,
+                onDownloadFile = onDownloadFile,
+                chatId = chat.id,
+                replyId = replyId,
+                forumTopicId = sendForumTopicId,
+                scope = scope,
+                onReplyConsumed = { sentReplyId ->
+                    if (sentReplyId != null) {
+                        updateDraft { current ->
+                            if (current.replyToMessageId == sentReplyId) current.copy(replyToMessageId = null) else current
+                        }
+                    }
+                },
+                onStickerOptions = { sticker ->
+                    pendingSticker = sticker
+                    sendOptionsOpen = true
+                },
+                onSendError = { message -> error = message },
+                onInsertEmoji = { emoji -> editComposerText { text, selection -> insertAtSelection(text, selection, emoji) } },
+                onDeleteBackward = { editComposerText(::deleteBeforeSelection) },
+                onCloseStickerPanel = { stickerPanelOpen = false }
+            )
         }
         })
     }
@@ -3282,62 +3296,6 @@ private fun ChatScreenColumn(modifier: Modifier, content: @Composable ColumnScop
 @Composable
 private fun ChatScreenOverlays(content: @Composable () -> Unit) {
     content()
-}
-
-/** Keeps the attachment strip and the unified sticker panel out of ChatScreen's own bytecode-heavy composer lambda. */
-@Composable
-private fun ChatComposerPanel(
-    stickerPanelOpen: Boolean,
-    embedded: Boolean,
-    attachments: AttachmentState,
-    conversation: ConversationRepository,
-    observeFile: (Int) -> StateFlow<MediaFileState>,
-    onDownloadFile: (Int) -> Unit,
-    allowViewOnce: Boolean,
-    chatId: Long,
-    replyId: Long?,
-    forumTopicId: Long,
-    scope: CoroutineScope,
-    onReplyConsumed: (Long?) -> Unit,
-    onStickerOptions: (OutgoingMedia) -> Unit,
-    onSendError: (String) -> Unit,
-    onInsertEmoji: (String) -> Unit,
-    onDeleteBackward: () -> Unit,
-    onCloseStickerPanel: () -> Unit
-) {
-    if (stickerPanelOpen) {
-        StickerPanelHost(
-            conversation = conversation,
-            chatId = chatId,
-            replyId = replyId,
-            forumTopicId = forumTopicId,
-            observeFile = observeFile,
-            downloadFile = onDownloadFile,
-            scope = scope,
-            composerReserve = if (replyId != null) 144.dp else 80.dp,
-            onReplyConsumed = onReplyConsumed,
-            onAnimationAttach = { animation ->
-                attachments.addAnimation(animation.toOutgoingMedia())
-                onCloseStickerPanel()
-            },
-            onStickerOptions = { sticker ->
-                onStickerOptions(sticker.toOutgoingMedia())
-                onCloseStickerPanel()
-            },
-            onSendError = onSendError,
-            onInsertEmoji = onInsertEmoji,
-            onDeleteBackward = onDeleteBackward,
-            onClose = onCloseStickerPanel
-        )
-    } else {
-        AttachmentPanel(
-            state = attachments,
-            observeFile = observeFile,
-            onDownloadFile = onDownloadFile,
-            allowViewOnce = allowViewOnce,
-            embedded = embedded
-        )
-    }
 }
 
 @Composable
