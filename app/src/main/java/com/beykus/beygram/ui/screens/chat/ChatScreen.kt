@@ -2871,6 +2871,7 @@ fun ChatScreen(
                 onInsertCustomEmoji = { emoji ->
                     editComposerText { text, selection -> insertCustomEmojiAtSelection(text, selection, emoji) }
                 },
+                savedMessages = chat.isSavedMessages,
                 onDeleteBackward = { editComposerText(::deleteBeforeSelection) },
                 onCloseStickerPanel = { stickerPanelOpen = false }
             )

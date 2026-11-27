@@ -39,6 +39,7 @@ internal fun ChatComposerStickerPanel(
     onSendError: (String) -> Unit,
     onInsertEmoji: (String) -> Unit,
     onInsertCustomEmoji: (CustomEmoji) -> Unit,
+    savedMessages: Boolean,
     onDeleteBackward: () -> Unit,
     onCloseStickerPanel: () -> Unit
 ) {
@@ -73,6 +74,7 @@ internal fun ChatComposerStickerPanel(
                     onSendError = onSendError,
                     onInsertEmoji = onInsertEmoji,
                     onInsertCustomEmoji = onInsertCustomEmoji,
+                    savedMessages = savedMessages,
                     onDeleteBackward = onDeleteBackward,
                     onClose = onCloseStickerPanel
                 )

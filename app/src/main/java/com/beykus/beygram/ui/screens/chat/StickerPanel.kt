@@ -200,6 +200,7 @@ internal fun StickerPanelHost(
     onSendError: (String) -> Unit,
     onInsertEmoji: (String) -> Unit,
     onInsertCustomEmoji: (CustomEmoji) -> Unit,
+    savedMessages: Boolean,
     onDeleteBackward: () -> Unit,
     onClose: () -> Unit
 ) {
@@ -271,6 +272,7 @@ internal fun StickerPanelHost(
             onAttachAnimation = onAnimationAttach,
             onInsertEmoji = onInsertEmoji,
             onInsertCustomEmoji = onInsertCustomEmoji,
+            savedMessages = savedMessages,
             onDeleteBackward = onDeleteBackward,
             onClose = onClose
         )
@@ -293,6 +295,7 @@ private fun StickerPanel(
     onAttachAnimation: (AnimationItem) -> Unit,
     onInsertEmoji: (String) -> Unit,
     onInsertCustomEmoji: (CustomEmoji) -> Unit,
+    savedMessages: Boolean,
     onDeleteBackward: () -> Unit,
     onClose: () -> Unit
 ) {
@@ -703,9 +706,10 @@ private fun StickerPanel(
                 when (view.tab) {
                     StickerPanelTab.Emoji -> {
                         val dock = rememberDockCustomEmoji(conversation, observeFile, downloadFile, shelfVersions.emojiPacks) { emoji ->
-                            if (premium == true) onInsertCustomEmoji(emoji)
+                            val allowed = premium == true || savedMessages
+                            if (allowed) onInsertCustomEmoji(emoji)
                             else notice = premiumNotice
-                            premium == true
+                            allowed
                         }
                         if (view.searchActive && view.query.isNotBlank()) {
                             DockEmojiSearch(conversation, view.query, dock, ::insertEmoji, Modifier.fillMaxWidth().weight(1f))
