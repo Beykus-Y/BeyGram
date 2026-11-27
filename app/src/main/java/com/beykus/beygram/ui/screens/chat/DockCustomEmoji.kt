@@ -60,6 +60,8 @@ internal data class DockCustomEmoji(
     val busyPacks: Set<Long>,
     val failedPacks: Set<Long>,
     val changeInstallation: (Long, Boolean) -> Unit,
+    val dynamicOrder: Boolean,
+    val onPackOrder: () -> Unit,
     val reorderBusy: Boolean,
     val reorder: (List<Long>) -> Unit,
     val rows: List<PremiumEmojiRow>,
@@ -82,6 +84,9 @@ internal fun rememberDockCustomEmoji(
     locked: Boolean,
     /** Recent custom emoji are owned by the panel, so recovery and explicit clearing update one list. */
     recentIds: List<Long>,
+    packUsage: PackUsageStore,
+    dynamicOrder: Boolean,
+    onPackOrder: () -> Unit,
     onPick: (CustomEmoji) -> Boolean,
     onPicked: (Long) -> Unit,
 ): DockCustomEmoji {
@@ -103,7 +108,11 @@ internal fun rememberDockCustomEmoji(
     }
     var reorderBusy by remember(conversation) { mutableStateOf(false) }
     val installedIds = remember(installed) { installed.mapTo(HashSet()) { it.id } }
-    val packs = remember(installed, recommended, installedIds) { installed + recommended.filterNot { it.id in installedIds } }
+    val basePacks = remember(installed, recommended, installedIds) { installed + recommended.filterNot { it.id in installedIds } }
+    // Usage order is applied when the list is available, not on a send; with the mode off the server/manual order stays.
+    val packs = remember(basePacks, dynamicOrder) {
+        if (dynamicOrder) packUsage.ordered(basePacks) { it.id } else basePacks
+    }
     val scope = rememberCoroutineScope()
     fun changeInstallation(setId: Long, install: Boolean) {
         if (setId in busyPacks) return
@@ -122,8 +131,20 @@ internal fun rememberDockCustomEmoji(
     val loader = remember(scope, conversation) { CustomEmojiSetLoader(scope, load = conversation::customEmojiSetIds) }
     val states by loader.states.collectAsStateWithLifecycle()
     val rows = remember(packs, states) { premiumEmojiRows(packs, states) }
+    // Which loaded pack each visible custom emoji belongs to: only these picks can credit pack usage.
+    val packByEmoji = remember(rows) {
+        val map = HashMap<Long, Long>()
+        var setId = 0L
+        rows.forEach { row ->
+            when (row) {
+                is PremiumEmojiRow.Header -> setId = row.setId
+                is PremiumEmojiRow.Emoji -> if (setId != 0L) map[row.customEmojiId] = setId
+            }
+        }
+        map
+    }
     return DockCustomEmoji(
-        packs, installedIds, locked, busyPacks, failedPacks, ::changeInstallation, reorderBusy,
+        packs, installedIds, locked, busyPacks, failedPacks, ::changeInstallation, dynamicOrder, onPackOrder, reorderBusy,
         { order ->
             if (!reorderBusy) {
                 reorderBusy = true
@@ -141,7 +162,10 @@ internal fun rememberDockCustomEmoji(
         rows, recentIds, loader::request, failed, { attempt++ },
         conversation::observeCustomEmoji, observeFile, downloadFile
     ) { emoji ->
-        if (onPick(emoji)) onPicked(emoji.customEmojiId)
+        if (onPick(emoji)) {
+            onPicked(emoji.customEmojiId)
+            packByEmoji[emoji.customEmojiId]?.let { packUsage.record(it) }
+        }
     }
 }
 
@@ -234,7 +258,7 @@ internal fun DockEmojiPackHeader(setId: Long, title: String, dock: DockCustomEmo
     val installed = setId in dock.installedIds
     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
         Box(Modifier.weight(1f)) { EmojiGroupHeader(title) }
-        if (installed) {
+        if (installed && !dock.dynamicOrder) {
             PickerPackOrderButtons(
                 dock.packs.filter { it.id in dock.installedIds }.map { it.id },
                 setId, dock.reorderBusy, dock.reorder

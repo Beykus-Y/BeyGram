@@ -215,6 +215,8 @@ internal fun StickerPanelHost(
     onClose: () -> Unit
 ) {
     val context = LocalContext.current
+    val accountId = LocalPlaybackAccountId.current
+    val packUsage = remember(context, accountId) { PackUsageStore(context, accountId, PackKind.Sticker) }
     key(conversation, chatId) {
         var sending by remember { mutableStateOf(false) }
         var error by remember { mutableStateOf<String?>(null) }
@@ -240,8 +242,10 @@ internal fun StickerPanelHost(
                                 replyToMessageId = targetReplyId,
                                 forumTopicId = forumTopicId
                             )
-                            if (result.isSuccess) onReplyConsumed(targetReplyId)
-                            else {
+                            if (result.isSuccess) {
+                                packUsage.record(item.setId)
+                                onReplyConsumed(targetReplyId)
+                            } else {
                                 val message = result.exceptionOrNull().userMessage(context, R.string.sticker_panel_send_failed)
                                 error = message
                                 onSendError(message)
@@ -355,6 +359,10 @@ private fun StickerPanel(
     var searchGeneration by remember { mutableIntStateOf(0) }
     var overlay by remember { mutableStateOf<StickerPanelOverlay?>(null) }
     val accountId = LocalPlaybackAccountId.current
+    val stickerUsage = remember(context, accountId) { PackUsageStore(context, accountId, PackKind.Sticker) }
+    val emojiUsage = remember(context, accountId) { PackUsageStore(context, accountId, PackKind.CustomEmoji) }
+    var dynamicPacks by remember { mutableStateOf(stickerUsage.isDynamic()) }
+    var packOrderDialog by remember { mutableStateOf(false) }
     val emojiStore = remember(context, accountId) { RecentEmojiStore(context, accountId) }
     val shelfVersions by remember(conversation) { conversation.observeStickerShelfVersions() }
         .collectAsStateWithLifecycle(StickerShelfVersions())
@@ -759,6 +767,9 @@ private fun StickerPanel(
                             packsVersion = shelfVersions.emojiPacks,
                             locked = !customEmojiAvailable,
                             recentIds = recentCustomEmoji,
+                            packUsage = emojiUsage,
+                            dynamicOrder = dynamicPacks,
+                            onPackOrder = { packOrderDialog = true },
                             onPick = { emoji ->
                                 if (customEmojiAvailable) onInsertCustomEmoji(emoji)
                                 else notice = premiumNotice
@@ -786,7 +797,14 @@ private fun StickerPanel(
                         val recList = remember(recentState, favList) {
                             deduplicateRecentStickers(recentState.readyValue().orEmpty(), favList)
                         }
-                        val setsList = setsState.readyValue().orEmpty()
+                        // Usage order is applied once when the list is available, never on a send or a tab switch: the pack under the
+                        // finger must not move. With the mode off the server/manual order is used unchanged.
+                        val orderedSetsState = remember(setsState, dynamicPacks) {
+                            val ready = setsState.readyValue()
+                            if (ready == null) setsState
+                            else PickerLoad.Ready(if (dynamicPacks) stickerUsage.ordered(ready) { it.id } else ready)
+                        }
+                        val setsList = orderedSetsState.readyValue().orEmpty()
                         val favIndex = if (favList.isNotEmpty()) 0 else null
                         val recIndex = if (recList.isNotEmpty()) (if (favList.isNotEmpty()) 1 + favList.size else 0) else null
                         val packStartIndexes = remember(favList, recList, setsList, packContents.toMap()) {
@@ -818,7 +836,7 @@ private fun StickerPanel(
                         if (!view.searchActive) {
                             StickerSectionStrip(
                                 view = stripView,
-                                setsState = setsState,
+                                setsState = orderedSetsState,
                                 observeFile = observeFile,
                                 downloadFile = downloadFile,
                                 onRecent = {
@@ -871,9 +889,10 @@ private fun StickerPanel(
                                     favorites = favList,
                                     recent = recList,
                                     sets = setsList,
-                                    setsState = setsState,
+                                    setsState = orderedSetsState,
                                     packContents = packContents,
                                     packOrder = setsList.map { it.id },
+                                    dynamicOrder = dynamicPacks,
                                     reordering = reorderingStickers,
                                     onReorder = { order ->
                                         if (!reorderingStickers) {
@@ -975,7 +994,7 @@ private fun StickerPanel(
             }
         )
     }
-    if (confirmClearEmoji) {
+if (confirmClearEmoji) {
         BeyGramDialog(
             onDismissRequest = { confirmClearEmoji = false },
             title = stringResource(R.string.emoji_clear_recent),
@@ -989,6 +1008,17 @@ private fun StickerPanel(
                 recentEmoji = unicode
                 recentCustomEmoji = custom
             }
+        )
+    }
+    if (packOrderDialog) {
+        PackOrderDialog(
+            dynamic = dynamicPacks,
+            onToggle = { enabled ->
+                dynamicPacks = enabled
+                stickerUsage.setDynamic(enabled)
+                emojiUsage.setDynamic(enabled)
+            },
+            onDismiss = { packOrderDialog = false }
         )
     }
     val currentOverlay = overlay
@@ -1009,6 +1039,8 @@ private fun StickerPanel(
             savingGifKeys = savingGifKeys,
             onSetSavedGif = ::updateSavedGif,
             regularPackOrder = setsState.readyValue().orEmpty().map { it.id },
+            dynamicOrder = dynamicPacks,
+            onPackOrder = { packOrderDialog = true },
             reorderingStickers = reorderingStickers,
             reorderStickers = { order ->
                 if (!reorderingStickers) {
@@ -1521,6 +1553,8 @@ private fun StickerUnifiedFeed(
     setsState: PickerLoad<List<StickerSetSummary>>,
     packContents: Map<Long, PickerLoad<StickerSetContent>>,
     packOrder: List<Long>,
+    /** Usage order is controlled by its own switch; the manual arrows would lie while it is on. */
+    dynamicOrder: Boolean,
     reordering: Boolean,
     onReorder: (List<Long>) -> Unit,
     onLoadPack: (Long) -> Unit,
@@ -1584,7 +1618,9 @@ private fun StickerUnifiedFeed(
                     ) {
                         EmojiGroupHeader(summary.title)
                     }
-                    PickerPackOrderButtons(packOrder, summary.id, reordering, onReorder)
+                    if (!dynamicOrder) {
+                            PickerPackOrderButtons(packOrder, summary.id, reordering, onReorder)
+                        }
                 }
             }
             when (val content = packContents[summary.id]) {
@@ -1965,6 +2001,8 @@ private fun StickerPanelOverlayContent(
     savingGifKeys: Set<String>,
     onSetSavedGif: (AnimationItem, Boolean) -> Unit,
     regularPackOrder: List<Long>,
+    dynamicOrder: Boolean,
+    onPackOrder: () -> Unit,
     reorderingStickers: Boolean,
     reorderStickers: (List<Long>) -> Unit,
     premium: Boolean?,
@@ -2010,8 +2048,12 @@ private fun StickerPanelOverlayContent(
                 observeFile = observeFile,
                 downloadFile = downloadFile,
                 onOpen = { onOpenPack(overlay.summary.id) },
+                dynamicOrder = dynamicOrder,
+                onPackOrder = onPackOrder,
                 orderButtons = {
-                    PickerPackOrderButtons(regularPackOrder, overlay.summary.id, reorderingStickers, reorderStickers)
+                    if (!dynamicOrder) {
+                        PickerPackOrderButtons(regularPackOrder, overlay.summary.id, reorderingStickers, reorderStickers)
+                    }
                 }
             )
         }
@@ -2219,6 +2261,8 @@ private fun PackPreviewContent(
     observeFile: (Int) -> StateFlow<MediaFileState>,
     downloadFile: (Int) -> Unit,
     onOpen: () -> Unit,
+    dynamicOrder: Boolean,
+    onPackOrder: () -> Unit,
     orderButtons: @Composable () -> Unit
 ) {
     val palette = beyGramPalette()
@@ -2235,7 +2279,15 @@ private fun PackPreviewContent(
             fontWeight = FontWeight.SemiBold,
             modifier = Modifier.fillMaxWidth()
         )
-        Row { orderButtons() }
+        if (!dynamicOrder) Row { orderButtons() }
+        TextButton(
+            onClick = onPackOrder,
+            modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)
+        ) {
+            Icon(Icons.Rounded.Tune, contentDescription = null, modifier = Modifier.size(18.dp))
+            Spacer(Modifier.width(8.dp))
+            Text(stringResource(R.string.pack_order_settings))
+        }
         Spacer(Modifier.height(12.dp))
         val cover = summary.cover
         if (cover != null) {

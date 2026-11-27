@@ -10,4 +10,8 @@
     <string name="emoji_clear_recent">Zuletzt verwendete Emojis löschen</string>
     <string name="emoji_clear_recent_confirm">Zuletzt verwendete Emojis dieses Kontos löschen? Sie werden danach nicht aus dem Nachrichtenverlauf wiederhergestellt.</string>
     <string name="emoji_clear_recent_short">Leeren</string>
+    <string name="pack_order_title">Paketreihenfolge</string>
+    <string name="pack_order_dynamic">Nach Nutzung sortieren</string>
+    <string name="pack_order_dynamic_hint">Häufig verwendete Pakete rücken nach vorn. Ausgeschaltet bleibt die manuelle Reihenfolge.</string>
+    <string name="pack_order_settings">Einstellungen der Paketreihenfolge</string>
 </resources>

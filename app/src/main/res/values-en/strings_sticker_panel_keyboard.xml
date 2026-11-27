@@ -10,4 +10,8 @@
     <string name="emoji_clear_recent">Clear recent emoji</string>
     <string name="emoji_clear_recent_confirm">Clear this account\'s recent emoji? They will not be recovered from message history afterwards.</string>
     <string name="emoji_clear_recent_short">Clear</string>
+    <string name="pack_order_title">Pack order</string>
+    <string name="pack_order_dynamic">Sort by usage</string>
+    <string name="pack_order_dynamic_hint">Frequently used packs move first. With this off, your manual order is kept.</string>
+    <string name="pack_order_settings">Pack order settings</string>
 </resources>
