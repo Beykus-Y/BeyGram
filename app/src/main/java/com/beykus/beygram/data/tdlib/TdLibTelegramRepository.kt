@@ -444,6 +444,9 @@ class TdLibTelegramRepository private constructor(
 
     /** Кэш сообщений по chatId. */
     private val pinnedVersions = ConcurrentHashMap<Long, MutableStateFlow<Long>>()
+    private val stickerShelfVersions = MutableStateFlow(com.beykus.beygram.domain.model.StickerShelfVersions())
+    override fun observeStickerShelfVersions() = stickerShelfVersions.asStateFlow()
+
     override fun observePinnedMessagesVersion(chatId: Long): StateFlow<Long> = pinnedVersions.getOrPut(chatId) { MutableStateFlow(0L) }.asStateFlow()
     override suspend fun pinnedMessages(chatId: Long, fromMessageId: Long, forumTopicId: Long, query: String) = conversationActions.pinnedMessages(chatId, fromMessageId, forumTopicId, query)
     override suspend fun loadPinnedSenderAvatars(userIds: Collection<Long>): Map<Long, com.beykus.beygram.domain.model.AvatarPhoto?> =
@@ -2829,6 +2832,16 @@ class TdLibTelegramRepository private constructor(
         stories.handle(update)
         notificationFeed.handle(update)
         when (update) {
+            is TdApi.UpdateInstalledStickerSets -> when (update.stickerType) {
+                is TdApi.StickerTypeRegular -> stickerShelfVersions.update { it.copy(stickerPacks = it.stickerPacks + 1) }
+                is TdApi.StickerTypeCustomEmoji -> stickerShelfVersions.update { it.copy(emojiPacks = it.emojiPacks + 1) }
+                else -> Unit
+            }
+            is TdApi.UpdateRecentStickers -> if (!update.isAttached) {
+                stickerShelfVersions.update { it.copy(recentStickers = it.recentStickers + 1) }
+            }
+            is TdApi.UpdateFavoriteStickers -> stickerShelfVersions.update { it.copy(favoriteStickers = it.favoriteStickers + 1) }
+            is TdApi.UpdateSavedAnimations -> stickerShelfVersions.update { it.copy(savedAnimations = it.savedAnimations + 1) }
             is TdApi.UpdateUser -> refreshLastSenders(update.user.id)
             is TdApi.UpdateAuthorizationState -> handleAuthorizationState(update.authorizationState)
             is TdApi.UpdateNewChat            -> handleNewChat(update.chat)

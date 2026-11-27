@@ -1,10 +1,13 @@
 package com.beykus.beygram.domain.repository
 
 import com.beykus.beygram.domain.model.*
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.flowOf
 
 /** Conversation operations; UI never sends native TDLib requests or chooses protocol flags. */
 interface ConversationRepository {
+    fun observeStickerShelfVersions(): Flow<StickerShelfVersions> = flowOf(StickerShelfVersions())
     fun observePinnedMessagesVersion(chatId: Long): StateFlow<Long>
     /** Resolve avatars from user IDs without creating private chats or opening profiles. */
     suspend fun loadPinnedSenderAvatars(userIds: Collection<Long>): Map<Long, AvatarPhoto?> = emptyMap()
