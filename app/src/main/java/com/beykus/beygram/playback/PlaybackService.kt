@@ -14,6 +14,9 @@ import androidx.media3.session.SessionCommand
 import androidx.media3.session.SessionResult
 import com.beykus.beygram.MainActivity
 import com.beykus.beygram.R
+import com.beykus.beygram.diagnostics.recordAppEvent
+import com.beykus.beygram.diagnostics.report.EventKind
+import com.beykus.beygram.diagnostics.report.Severity
 import com.google.common.collect.ImmutableList
 import com.google.common.util.concurrent.Futures
 import com.google.common.util.concurrent.ListenableFuture
@@ -86,6 +89,11 @@ class PlaybackService : MediaSessionService() {
         setListener(object : MediaSessionService.Listener {
             override fun onForegroundServiceStartNotAllowedException() {
                 Log.w(TAG, "foreground_start_denied generation=$generation")
+                recordSessionEvent(
+                    "media_session_foreground_denied",
+                    "Плеер: системе не разрешено поднять сервис воспроизведения",
+                    Severity.WARNING
+                )
             }
         })
         setMediaNotificationProvider(
@@ -111,6 +119,7 @@ class PlaybackService : MediaSessionService() {
         // Media3 attaches its notification controller even if no external controller binds.
         addSession(created)
         Log.i(TAG, "session_registered generation=$generation count=${sessions.size}")
+        recordSessionEvent("media_session_registered", "Плеер: медиасессия зарегистрирована", Severity.INFO)
         scope.launch {
             PlaybackEngine.state.map { it.shuffleEnabled }.distinctUntilChanged().collect { shuffleOn ->
                 created.setMediaButtonPreferences(buttons(shuffleOn))
@@ -127,6 +136,18 @@ class PlaybackService : MediaSessionService() {
         if (lastForegroundRequest != startInForegroundRequired) {
             lastForegroundRequest = startInForegroundRequired
             Log.i(TAG, "notification_update generation=$generation foregroundRequested=$startInForegroundRequired")
+            runCatching {
+                recordAppEvent(
+                    kind = EventKind.NOTIFICATION,
+                    code = "media_session_foreground_changed",
+                    text = "Плеер: передний план медиасессии изменён",
+                    attrs = mapOf(
+                        "generation" to generation.toString(),
+                        "foreground_required" to startInForegroundRequired.toString(),
+                        "renderer" to if (PlaybackEngine.state.value.bgMixActive) "bgmix" else "exo",
+                    )
+                )
+            }
         }
         // Keep Media3 in charge of the actual notification and foreground-service lifecycle.
         super.onUpdateNotification(session, startInForegroundRequired)
@@ -142,8 +163,27 @@ class PlaybackService : MediaSessionService() {
             if (isSessionAdded(created)) removeSession(created)
             created.release()
             Log.i(TAG, "session_released generation=$generation count=${sessions.size}")
+            recordSessionEvent("media_session_released", "Плеер: медиасессия освобождена", Severity.INFO)
         }
         super.onDestroy()
+    }
+
+    /** Privacy-safe lifecycle rows for the diagnostics export: generation, renderer and counts only. */
+    private fun recordSessionEvent(code: String, text: String, severity: Severity) {
+        runCatching {
+            recordAppEvent(
+                kind = EventKind.NOTIFICATION,
+                code = code,
+                text = text,
+                severity = severity,
+                attrs = mapOf(
+                    "generation" to generation.toString(),
+                    "sessions" to sessions.size.toString(),
+                    "renderer" to if (PlaybackEngine.state.value.bgMixActive) "bgmix" else "exo",
+                    "channel" to CHANNEL_ID,
+                )
+            )
+        }
     }
 
     companion object {

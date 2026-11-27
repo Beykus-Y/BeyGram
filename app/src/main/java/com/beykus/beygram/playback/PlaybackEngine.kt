@@ -2132,7 +2132,9 @@ object PlaybackEngine {
             queue = queue,
             index = index,
             positionMs = positionMs,
-            playing = false,
+            // The native deck was confirmed playing before the fade; publishing a pause here would make the system
+            // card blink pause/play at every handover. A later status tick corrects this if the deck stopped.
+            playing = autoPlay,
             intentPlaying = true,
             speed = 1f
         )
