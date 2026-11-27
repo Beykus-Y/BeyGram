@@ -22,7 +22,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.ime
-import androidx.compose.foundation.layout.offset
+import androidx.compose.foundation.layout.absoluteOffset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.size
@@ -50,7 +50,9 @@ import androidx.compose.material.icons.automirrored.rounded.PlaylistAdd
 import androidx.compose.material.icons.automirrored.rounded.Reply
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.geometry.Rect
+import kotlinx.coroutines.delay
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -93,6 +95,9 @@ import androidx.compose.material3.RadioButton
 import androidx.compose.material3.RadioButtonDefaults
 import androidx.compose.material3.Text
 import com.beykus.beygram.ui.components.TextButton
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.Composable
@@ -245,6 +250,9 @@ internal fun MessageActionsBar(
 @Composable
 internal fun MessageContextPopover(
     anchorBounds: Rect?,
+    paneBounds: Rect? = null,
+    foreground: (@Composable () -> Unit)? = null,
+    onForegroundVisible: (Boolean) -> Unit = {},
     isOutgoing: Boolean,
     capabilities: MessageCapabilities?,
     error: String?,
@@ -293,7 +301,18 @@ internal fun MessageContextPopover(
     var desiredMenuHeightPx by remember(capabilities, moreOpen, error, freeReactions.size) { androidx.compose.runtime.mutableIntStateOf(0) }
     if (menuSize.height > desiredMenuHeightPx) desiredMenuHeightPx = menuSize.height
     var visible by remember { mutableStateOf(motionSpec.isInstant) }
-    androidx.compose.runtime.LaunchedEffect(Unit) { visible = true }
+    var closing by remember { mutableStateOf(false) }
+    val close by rememberUpdatedState(onClose)
+    val reportForeground by rememberUpdatedState(onForegroundVisible)
+    LaunchedEffect(Unit) { visible = true }
+    LaunchedEffect(closing) {
+        if (closing) {
+            visible = false
+            delay(motionSpec.durationMillis.toLong())
+            close()
+        }
+    }
+    val dismiss = { if (foreground == null || motionSpec.isInstant) close() else closing = true }
 
     val progress by animateFloatAsState(
         targetValue = if (visible) 1f else 0f,
@@ -310,7 +329,7 @@ internal fun MessageContextPopover(
     val marginPx = with(density) { 12.dp.roundToPx() }
     val minPopoverHeightPx = with(density) { 140.dp.roundToPx() }
 
-    val viewportBounds = rootBounds?.let { root ->
+    val windowBounds = rootBounds?.let { root ->
         Rect(
             left = root.left + safeLeft,
             top = root.top + safeTop,
@@ -319,10 +338,25 @@ internal fun MessageContextPopover(
         )
     } ?: Rect.Zero
 
-    val placement = computeMessagePopoverPlacement(
+    val viewportBounds = paneBounds?.intersect(windowBounds) ?: windowBounds
+    val preferredSceneMenuHeight = with(density) { 280.dp.roundToPx() }
+    val menuWidth = menuSize.width.coerceAtLeast(with(density) { 248.dp.roundToPx() })
+    val scene = if (foreground != null && anchorBounds != null) {
+        computeMessageContextScene(
+            anchorBounds, viewportBounds.deflate(marginPx.toFloat()), preferredSceneMenuHeight,
+            minPopoverHeightPx, menuWidth, gapPx, isOutgoing
+        )
+    } else null
+    val showForeground = scene != null && foreground != null
+    DisposableEffect(showForeground) {
+        reportForeground(showForeground)
+        onDispose { if (showForeground) reportForeground(false) }
+    }
+
+    val placement = scene?.menu ?: computeMessagePopoverPlacement(
         anchorBounds = anchorBounds,
         viewportBounds = viewportBounds,
-        menuWidthPx = menuSize.width.coerceAtLeast(with(density) { 248.dp.roundToPx() }),
+        menuWidthPx = menuWidth,
         menuHeightPx = desiredMenuHeightPx.coerceAtLeast(with(density) { 200.dp.roundToPx() }),
         gapPx = gapPx,
         marginPx = marginPx,
@@ -343,20 +377,32 @@ internal fun MessageContextPopover(
     Popup(
         alignment = Alignment.TopStart,
         offset = IntOffset.Zero,
-        onDismissRequest = onClose,
+        onDismissRequest = dismiss,
         properties = PopupProperties(focusable = true, clippingEnabled = false)
     ) {
         Box(
             Modifier
                 .fillMaxSize()
                 .onGloballyPositioned { rootBounds = it.boundsInWindow() }
-                .background(Color.Black.copy(alpha = 0.28f * progress))
+                .background(Color.Black.copy(alpha = (if (showForeground) 0.62f else 0.28f) * progress))
                 .clickable(
                     interactionSource = remember { MutableInteractionSource() },
                     indication = null,
-                    onClick = onClose
+                    onClick = dismiss
                 )
         ) {
+            if (scene != null && foreground != null && anchorBounds != null) {
+                val root = rootBounds ?: Rect.Zero
+                val target = scene.messageBounds
+                Box(
+                    Modifier.absoluteOffset {
+                        IntOffset(
+                            (anchorBounds.left + (target.left - anchorBounds.left) * progress - root.left).roundToInt(),
+                            (anchorBounds.top + (target.top - anchorBounds.top) * progress - root.top).roundToInt()
+                        )
+                    }.size(with(density) { target.width.toDp() }, with(density) { target.height.toDp() }).clipToBounds()
+                ) { foreground() }
+            }
             val cardContent: @Composable () -> Unit = {
                 Column(Modifier.fillMaxWidth()) {
                     if (showReactionStrip && onQuickReaction != null) {
@@ -576,7 +622,13 @@ internal fun MessageContextPopover(
                 val rootLeft = rootBounds?.left ?: 0f
                 val rootTop = rootBounds?.top ?: 0f
                 Modifier
-                    .offset { IntOffset((placement.x - rootLeft).roundToInt(), (placement.y - rootTop).roundToInt()) }
+                    .absoluteOffset {
+                        val aboveScene = scene?.takeIf { it.menu.placedAbove }
+                        val y = if (aboveScene != null && menuSize.height > 0) {
+                            aboveScene.messageBounds.top - gapPx - menuSize.height
+                        } else placement.y.toFloat()
+                        IntOffset((placement.x - rootLeft).roundToInt(), (y - rootTop).roundToInt())
+                    }
                     .widthIn(min = 236.dp, max = 296.dp)
             }).heightIn(max = maxCardHeightDp)
                 .onSizeChanged { menuSize = it }

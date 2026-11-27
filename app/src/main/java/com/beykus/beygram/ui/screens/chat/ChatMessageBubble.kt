@@ -18,6 +18,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.LayoutCoordinates
 import androidx.compose.ui.layout.onGloballyPositioned
@@ -95,7 +96,9 @@ internal fun MessageBubble(message: ChatMessage, observeFile: (Int) -> StateFlow
     connectionState: TelegramConnectionState = TelegramConnectionState.Connected,
     onShowFailureDetails: (() -> Unit)? = null,
     composerMediaLaunch: ComposerMediaLaunch? = null,
-    onComposerMediaLaunchFinished: (ComposerMediaLaunch) -> Unit = {}
+    onComposerMediaLaunchFinished: (ComposerMediaLaunch) -> Unit = {},
+    paneInset: Boolean = true,
+    hideForContextScene: Boolean = false
 ) {
     val palette = beyGramPalette()
     val metrics = LocalBubbleMetrics.current
@@ -152,7 +155,7 @@ internal fun MessageBubble(message: ChatMessage, observeFile: (Int) -> StateFlow
     Column(
         Modifier.fillMaxWidth()
             .quickReactionOnFreeSpace(message.chatId, message.id, quickReaction.takeIf { quickReactionAcrossRow })
-            .then(if (circle) Modifier else Modifier.padding(horizontal = metrics.sideInset)),
+            .then(if (circle || !paneInset) Modifier else Modifier.padding(horizontal = metrics.sideInset)),
         horizontalAlignment = if (message.isOutgoing) Alignment.End else Alignment.Start
     ) {
         SwipeToReply(
@@ -168,6 +171,7 @@ internal fun MessageBubble(message: ChatMessage, observeFile: (Int) -> StateFlow
                         .then(if (message.media != null && !circle && !sticker)
                              Modifier.width(if (message.media.kind == MediaKind.Audio) 280.dp else 244.dp) else Modifier)
                         .then(mediaFlightModifier).clip(shape)
+                        .graphicsLayer { alpha = if (hideForContextScene) 0f else 1f }
                         .background(if (circle || sticker) Color.Transparent else if (message.isOutgoing) palette.outgoingBubble else palette.incomingBubble)
                         .then(if (message.memory?.deletedAtMillis != null) Modifier.alpha(0.6f) else Modifier)
                         .then(if ((selected || highlighted) && !circle) Modifier.border(2.dp, palette.accent, shape) else Modifier)

@@ -262,6 +262,7 @@ fun ChatScreen(
     var swipedReplyId by remember(chat.id) { mutableLongStateOf(0L) }
     val messageActions = rememberChatMessageActions(accountId, chat.id, forumTopicId)
     val actionsId by messageActions::targetId
+    var contextSceneMessageId by remember(accountId, chat.id, forumTopicId) { mutableStateOf<Long?>(null) }
     var exportOpen by rememberSaveable(chat.id) { mutableStateOf(false) }
     val exportModel: ChatExportViewModel = viewModel(key = "chat-export-$accountId-${chat.id}")
     val exportVisible by remember(exportModel) {
@@ -2072,8 +2073,30 @@ fun ChatScreen(
                 ?.filter { it.isChosen && !it.isPaid }
                 ?.mapTo(hashSetOf()) { it.option }
                 .orEmpty()
+            val sceneEligible = !chat.isSecret && !chat.hasProtectedContent && !waveChat &&
+                actionMessage.supportsContextScene()
             MessageContextPopover(
                 anchorBounds = actionAnchorBounds,
+                paneBounds = composerLaunch.overlayBounds,
+                foreground = if (sceneEligible) {
+                    {
+                        MessageBubble(
+                            message = actionMessage,
+                            observeFile = observeFile,
+                            onDownloadFile = onDownloadFile,
+                            isRead = actionMessage.isOutgoing && actionMessage.id <= history.lastReadOutboxMessageId,
+                            onOpen = {},
+                            onReaction = { _, _ -> },
+                            observeCustomEmoji = conversation::observeCustomEmoji,
+                            showSenderHeader = senderHeaderByKey["message:${actionMessage.id}"] == true,
+                            paneInset = false
+                        )
+                    }
+                } else null,
+                onForegroundVisible = { visible ->
+                    if (visible) contextSceneMessageId = actionMessage.id
+                    else if (contextSceneMessageId == actionMessage.id) contextSceneMessageId = null
+                },
                 isOutgoing = actionMessage.isOutgoing,
                 capabilities = capabilities?.let { caps ->
                     // TDLib already forbids this; keep a local guard so a stale capability response cannot expose view-once.
@@ -2443,7 +2466,8 @@ fun ChatScreen(
                                 } else null,
                                 showSenderHeader = senderHeaderByKey[listItem.key] == true,
                                 paidContent = rememberPaidContentActions(conversation),
-                                onOpenMessageEntity = onOpenMessageEntity)
+                                onOpenMessageEntity = onOpenMessageEntity,
+                                hideForContextScene = contextSceneMessageId == message.id)
                             }
                         }
                         }
