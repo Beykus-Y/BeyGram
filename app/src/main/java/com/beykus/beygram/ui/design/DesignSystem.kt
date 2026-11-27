@@ -12,6 +12,7 @@ import com.beykus.beygram.data.appearance.DesignStyle
 import com.beykus.beygram.data.appearance.GlassQuality
 import com.beykus.beygram.data.appearance.NavigationPlacement
 import com.beykus.beygram.data.appearance.ChatTopPanelLayout
+import com.beykus.beygram.data.appearance.DEFAULT_CHAT_TOP_PANEL_LAYOUT
 import com.beykus.beygram.data.appearance.LiquidGlassLensPreset
 
 /**
@@ -39,7 +40,7 @@ data class DesignSystem(
      * without changing [components] or anything else of the style.
      */
     val navigationFloating: Boolean = components.floatingNavigation,
-    val chatTopPanelLayout: ChatTopPanelLayout = ChatTopPanelLayout.Current
+    val chatTopPanelLayout: ChatTopPanelLayout = DEFAULT_CHAT_TOP_PANEL_LAYOUT
 )
 
 /**

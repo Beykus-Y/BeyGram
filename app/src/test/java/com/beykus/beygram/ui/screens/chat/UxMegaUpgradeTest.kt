@@ -1,6 +1,7 @@
 package com.beykus.beygram.ui.screens.chat
 
 import com.beykus.beygram.data.appearance.AppearanceConfig
+import com.beykus.beygram.data.appearance.ChatTopPanelLayout
 import com.beykus.beygram.data.appearance.DesignStyle
 import com.beykus.beygram.data.appearance.ThemeMode
 import com.beykus.beygram.data.appearance.ThemePreset
@@ -50,6 +51,22 @@ class UxMegaUpgradeTest {
         val encoded = AppearanceUserPresetStore.encode(original)
         val decoded = AppearanceUserPresetStore.decode(encoded)
         assertEquals(original, decoded)
+    }
+
+    @Test
+    fun legacyAppearancePresetPreservesTheActiveChatTopPanelLayout() {
+        for (layout in ChatTopPanelLayout.entries) {
+            assertEquals(layout, AppearanceUserPresetStore.decode("{}", layout)?.chatTopPanelLayout)
+        }
+    }
+
+    @Test
+    fun explicitAppearancePresetChatTopPanelLayoutOverridesTheActiveLayout() {
+        for (layout in ChatTopPanelLayout.entries) {
+            val saved = AppearanceConfig(chatTopPanelLayout = layout)
+            val active = ChatTopPanelLayout.entries.first { it != layout }
+            assertEquals(saved, AppearanceUserPresetStore.decode(AppearanceUserPresetStore.encode(saved), active))
+        }
     }
 
     @Test

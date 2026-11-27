@@ -61,3 +61,8 @@ internal fun BgMixHandoverBlockReason.showsPreparingIndicator(): Boolean =
     this == BgMixHandoverBlockReason.Ready ||
         this == BgMixHandoverBlockReason.FileNotReady ||
         this == BgMixHandoverBlockReason.Retiring
+
+/** A stable Media3 window UID distinguishes repeated occurrences of the same media ID. */
+internal data class BgMixExoOccurrence(val mediaId: String, val windowUid: Any) {
+    fun canFinishOn(current: BgMixExoOccurrence?, ended: Boolean): Boolean = !ended && this == current
+}

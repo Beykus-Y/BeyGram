@@ -8,13 +8,18 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyListState
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.getValue
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.luminance
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
@@ -29,6 +34,7 @@ import com.beykus.beygram.domain.model.MediaFileState
 import com.beykus.beygram.domain.model.ProfileMember
 import com.beykus.beygram.domain.model.initialsOf
 import com.beykus.beygram.domain.repository.ConversationRepository
+import com.beykus.beygram.ui.components.beyGramPalette
 import com.beykus.beygram.ui.components.TelegramAvatar
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.collectLatest
@@ -102,8 +108,21 @@ internal fun ChatGroupAvatarRow(
     observeFile: (Int) -> StateFlow<MediaFileState>,
     downloadFile: (Int) -> Unit,
     onOpenProfile: ((Long) -> Unit)?,
+    peerColors: ConversationRepository? = null,
     content: @Composable () -> Unit
 ) {
+    val userId = message?.senderId?.takeIf { it > 0 }
+    val accentFlow = remember(peerColors, userId) {
+        if (userId != null) peerColors?.observeUserAccent(userId) else null
+    }
+    val accent = if (accentFlow != null) {
+        val current by accentFlow.collectAsStateWithLifecycle(initialValue = null)
+        current
+    } else null
+    val palette = beyGramPalette()
+    val dark = MaterialTheme.colorScheme.surface.luminance() < 0.5f
+    val bubble = if (message?.isOutgoing == true) palette.outgoingBubble else palette.incomingBubble
+    val author = accent?.authorColor(dark, bubble, palette.messageText) ?: Color.Unspecified
     Row(Modifier.fillMaxWidth()) {
         if (enabled && message?.canShowGroupAvatar() == true) {
             if (avatar == null) {
@@ -118,7 +137,7 @@ internal fun ChatGroupAvatarRow(
                 Box(Modifier.width(44.dp).padding(start = 8.dp, top = 4.dp)) {
                     TelegramAvatar(
                         initials = initialsOf(avatar.senderName),
-                        color = Color(member?.avatarColorArgb ?: colorKey.stableColor()),
+                        color = accent?.avatarColor(dark) ?: Color(member?.avatarColorArgb ?: colorKey.stableColor()),
                         size = 36.dp,
                         photo = member?.photo ?: photos[avatar.senderId],
                         observeFile = observeFile,
@@ -128,6 +147,8 @@ internal fun ChatGroupAvatarRow(
                 }
             }
         }
-        Box(Modifier.weight(1f)) { content() }
+        Box(Modifier.weight(1f)) {
+            CompositionLocalProvider(LocalChatAuthorColor provides author, content = content)
+        }
     }
 }

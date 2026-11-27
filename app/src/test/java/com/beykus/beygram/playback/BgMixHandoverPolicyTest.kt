@@ -6,6 +6,15 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class BgMixHandoverPolicyTest {
+    @Test fun rejectsASupersededOccurrenceDuringHandover() {
+        val staged = BgMixExoOccurrence("track", "window-1")
+        assertTrue(staged.canFinishOn(staged.copy(), ended = false))
+        assertFalse(staged.canFinishOn(staged.copy(windowUid = "window-2"), ended = false))
+        assertFalse(staged.canFinishOn(staged.copy(mediaId = "next"), ended = false))
+        assertFalse(staged.canFinishOn(null, ended = false))
+        assertFalse(staged.canFinishOn(staged, ended = true))
+    }
+
 
     private fun reason(
         enabled: Boolean = true,
