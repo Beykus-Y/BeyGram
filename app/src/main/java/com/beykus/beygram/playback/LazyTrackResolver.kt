@@ -1,19 +1,22 @@
 package com.beykus.beygram.playback
 
 import android.os.SystemClock
+import com.beykus.beygram.diagnostics.recordAppEvent
+import com.beykus.beygram.diagnostics.report.EventKind
 import java.io.File
 import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.atomic.AtomicLong
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Job
-import kotlinx.coroutines.sync.Semaphore
-import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
 /**
@@ -38,6 +41,15 @@ internal interface LazyTrackSource {
 
     /** Speculative fetches may be cancelled when the lookahead window moves. */
     fun prefetch(key: String) = request(key)
+
+    /** A prefetch for the row that plays right after the current one: it starts before ordinary prefetch. */
+    fun prefetchSoon(key: String) = prefetch(key)
+
+    /**
+     * Ranks the rows the current playback order needs ([keep], with [urgent] as the row being opened now) and cancels
+     * unfinished fetches that no reader owns. Completed copies are left to the existing eviction policy.
+     */
+    fun prioritize(keep: Set<String>, urgent: String?) {}
 
     /** The queue row now names the copy, so the provider keeps it for as long as the row is there. */
     fun published(key: String)
@@ -67,6 +79,18 @@ internal object LazyTrackRegistry {
 
     fun isLazyKey(key: String): Boolean = sourceFor(key) != null
 
+    /**
+     * Keeps the fetchers focused on [keep], with [currentKey] as the row that is opening now. A provider is only asked
+     * about rows it owns, so another provider's active readers are never cancelled by a queue edit elsewhere.
+     */
+    fun prioritize(currentKey: String?, keep: Set<String>) {
+        val perSource = LinkedHashMap<LazyTrackSource, MutableSet<String>>()
+        for (key in keep) sourceFor(key)?.let { perSource.getOrPut(it) { HashSet() }.add(key) }
+        if (perSource.isEmpty()) return
+        val urgent = currentKey?.takeIf { key -> keep.contains(key) }
+        perSource.forEach { (source, keys) -> source.prioritize(keys, urgent) }
+    }
+
     /** Recomputes [progress] from every resolver; a resolver calls it after each change of its entries. */
     internal fun publishProgress() {
         val resolvers = sources.filterIsInstance<LazyTrackResolver<*>>()
@@ -85,12 +109,25 @@ internal object LazyTrackRegistry {
  * Subclasses say where a copy lives ([pathOf]), how it is removed or kept ([discardCopy], [handOverCopy]) and how the key
  * becomes a fetch ([setFetch]).
  */
-internal abstract class LazyTrackResolver<T : Any>(private val prefix: String, maxConcurrentFetches: Int = 4) : LazyTrackSource {
-    private class Entry<V : Any>(@Volatile var track: V?, @Volatile var failed: Boolean, @Volatile var handedOver: Boolean, var speculative: Boolean) {
+internal abstract class LazyTrackResolver<T : Any>(private val prefix: String, private val maxConcurrentFetches: Int = 4) : LazyTrackSource {
+    private class Entry<V : Any>(
+        @Volatile var track: V?,
+        @Volatile var failed: Boolean,
+        @Volatile var handedOver: Boolean,
+        var speculative: Boolean,
+        /** 2 = the row playback opens now, 1 = the row that plays next, 0 = ordinary speculation. */
+        @Volatile var priority: Int,
+        val sequence: Long,
+    ) {
         lateinit var job: Job
+        /** True while this fetch waits for a download slot, so the admission order can rank it. */
+        @Volatile var waiting: Boolean = false
     }
 
-    private val permits = Semaphore(maxConcurrentFetches)
+    /** Download slots. A waiting fetch is admitted by priority and then by arrival order, not by arrival alone. */
+    private val admissionLock = Any()
+    private var activeFetches = 0
+    private val admissionVersion = MutableStateFlow(0L)
 
     private val entries = ConcurrentHashMap<String, Entry<T>>()
     private val cooldownUntil = ConcurrentHashMap<String, Long>()
@@ -135,31 +172,56 @@ internal abstract class LazyTrackResolver<T : Any>(private val prefix: String, m
     /** Keys whose fetched copy is held, whether or not the player has taken it yet. */
     fun readyKeys(): Set<String> = entries.filterValues { it.track != null }.keys.toSet()
 
-    override fun request(key: String) = enqueue(key, speculative = false)
+    override fun request(key: String) = enqueue(key, speculative = false, priority = PRIORITY_PLAYING)
 
-    override fun prefetch(key: String) = enqueue(key, speculative = true)
+    override fun prefetch(key: String) = enqueue(key, speculative = true, priority = PRIORITY_SPECULATIVE)
 
-    private fun enqueue(key: String, speculative: Boolean) {
+    override fun prefetchSoon(key: String) = enqueue(key, speculative = true, priority = PRIORITY_NEXT)
+
+    private fun enqueue(key: String, speculative: Boolean, priority: Int) {
         val fetcher = fetch ?: return
         if (!owns(key)) return
         while (true) {
             val existing = entries[key]
             if (existing != null) {
-                synchronized(existing) {
-                    if (entries[key] === existing) {
+                var promoted = false
+                val alive = synchronized(existing) {
+                    if (entries[key] !== existing) {
+                        false
+                    } else {
                         if (!speculative) existing.speculative = false
-                        if (existing.failed || existing.track == null || resolvedTrack(key) != null) return
+                        // Raising a queued prefetch changes the real admission order, not just a flag.
+                        if (priority > existing.priority) {
+                            existing.priority = priority
+                            promoted = true
+                        }
+                        true
                     }
                 }
-                // A cache eviction removed the previous entry: look up again instead of replacing a missing key.
+                if (!alive) continue
+                if (promoted) wakeWaiters()
+                // A running or completed fetch is already the one this key will use.
+                if (existing.failed || existing.track == null) return
+                if (resolvedTrack(key) != null) return
+                // The copy disappeared from the cache; resolvedTrack removed the entry, so create it again.
                 continue
             }
             val until = cooldownUntil[key]
             if (until != null && SystemClock.elapsedRealtime() < until) return
-            val entry = Entry<T>(track = null, failed = false, handedOver = false, speculative = speculative)
+            val entry = Entry<T>(
+                track = null,
+                failed = false,
+                handedOver = false,
+                speculative = speculative,
+                priority = priority,
+                sequence = nextSequence.incrementAndGet(),
+            )
             entry.job = scope.launch(start = CoroutineStart.LAZY) {
+                var slot = false
                 try {
-                    val result = runCatching { permits.withPermit { fetcher(key) } }.getOrElse { Result.failure(it) }
+                    awaitFetchSlot(entry)
+                    slot = true
+                    val result = runCatching { fetcher(key) }.getOrElse { Result.failure(it) }
                     val track = result.getOrNull()
                     val stale = synchronized(entry) {
                         if (entries[key] !== entry) true
@@ -178,6 +240,8 @@ internal abstract class LazyTrackResolver<T : Any>(private val prefix: String, m
                     }
                     if (stale) track?.let { discardCopy(pathOf(it)) }
                 } finally {
+                    if (slot) releaseFetchSlot()
+                    entry.waiting = false
                     LazyTrackRegistry.publishProgress()
                 }
             }
@@ -187,6 +251,97 @@ internal abstract class LazyTrackResolver<T : Any>(private val prefix: String, m
                 return
             }
             entry.job.cancel()
+        }
+    }
+
+    /**
+     * Waits until a slot is free and this entry is the most urgent waiting fetch. A promoted prefetch therefore starts
+     * as soon as the next wake-up allows it, while the newest playback request overtakes an older one.
+     */
+    private suspend fun awaitFetchSlot(entry: Entry<T>) {
+        entry.waiting = true
+        try {
+            while (true) {
+                // Read the version before the check: a change after it must wake this waiter at least once.
+                val version = admissionVersion.value
+                val admitted = synchronized(admissionLock) {
+                    val next = entries.values
+                        .filter { it.waiting && it.track == null && !it.failed }
+                        .minWithOrNull(compareByDescending<Entry<T>> { it.priority }.thenBy { it.sequence })
+                    if (activeFetches < maxConcurrentFetches && (next == null || next === entry)) {
+                        activeFetches++
+                        true
+                    } else false
+                }
+                if (admitted) return
+                admissionVersion.first { it != version }
+            }
+        } finally {
+            entry.waiting = false
+        }
+    }
+
+    private fun releaseFetchSlot() {
+        synchronized(admissionLock) {
+            if (activeFetches > 0) activeFetches--
+        }
+        wakeWaiters()
+    }
+
+    private fun wakeWaiters() {
+        admissionVersion.update { it + 1 }
+    }
+
+    /**
+     * Keeps the download slots on the rows playback actually needs. Unfinished fetches outside [keep] have no reader
+     * (a growing reader marks its copy handed over), so their slot is freed; the row is fetched again if the player
+     * returns to it. Completed copies stay for the existing cache/eviction policy.
+     */
+    override fun prioritize(keep: Set<String>, urgent: String?) {
+        var changed = false
+        val cancelled = mutableListOf<Pair<String, Entry<T>>>()
+        entries.forEach { (key, entry) ->
+            val wanted = when {
+                key == urgent -> PRIORITY_PLAYING
+                key in keep -> PRIORITY_NEXT
+                else -> PRIORITY_SPECULATIVE
+            }
+            val drop = synchronized(entry) {
+                if (entries[key] !== entry) {
+                    false
+                } else {
+                    if (entry.priority != wanted) {
+                        entry.priority = wanted
+                        changed = true
+                    }
+                    key !in keep && entry.track == null && !entry.failed && !entry.handedOver
+                }
+            }
+            if (drop) cancelled += key to entry
+        }
+        cancelled.forEach { (key, entry) ->
+            synchronized(entry) {
+                if (entries.remove(key, entry)) {
+                    entry.job.cancel()
+                    changed = true
+                }
+            }
+        }
+        if (changed) {
+            wakeWaiters()
+            LazyTrackRegistry.publishProgress()
+        }
+        if (cancelled.isNotEmpty()) {
+            recordAppEvent(
+                kind = EventKind.PERFORMANCE,
+                code = "provider_fetch_deprioritized",
+                text = "Музыка: устаревшая загрузка освободила слот",
+                attrs = mapOf(
+                    "cancelled" to cancelled.size.toString(),
+                    "slots" to maxConcurrentFetches.toString(),
+                    "urgent" to (urgent != null).toString(),
+                )
+            )
         }
     }
 
@@ -206,7 +361,10 @@ internal abstract class LazyTrackResolver<T : Any>(private val prefix: String, m
                 }
             }
         }
-        if (changed) LazyTrackRegistry.publishProgress()
+        if (changed) {
+            wakeWaiters()
+            LazyTrackRegistry.publishProgress()
+        }
     }
 
     /**
@@ -232,7 +390,10 @@ internal abstract class LazyTrackResolver<T : Any>(private val prefix: String, m
                 discard?.let { discardCopy(pathOf(it)) }
             }
         }
-        if (changed) LazyTrackRegistry.publishProgress()
+        if (changed) {
+            wakeWaiters()
+            LazyTrackRegistry.publishProgress()
+        }
         return changed
     }
 
@@ -261,11 +422,19 @@ internal abstract class LazyTrackResolver<T : Any>(private val prefix: String, m
             discard?.let { discardCopy(pathOf(it)) }
         }
         cooldownUntil.clear()
+        wakeWaiters()
         LazyTrackRegistry.publishProgress()
     }
 
     private companion object {
         /** After a failed attempt (usually the network), the same row is not fetched again for this long. */
         const val RETRY_COOLDOWN_MS = 5_000L
+
+        const val PRIORITY_SPECULATIVE = 0
+        const val PRIORITY_NEXT = 1
+        const val PRIORITY_PLAYING = 2
+
+        /** FIFO within one priority, so two equally urgent rows keep their order. */
+        val nextSequence = AtomicLong()
     }
 }
