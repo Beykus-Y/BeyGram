@@ -855,7 +855,7 @@ internal fun MediaPreview(
         val longPressLabel = stringResource(R.string.a11y_message_actions)
         val playSpec = rememberMotionSpec(MotionToken.MicroFeedback)
         Row(
-            Modifier.width(280.dp).clip(styledShape(12.dp))
+            Modifier.widthIn(max = 280.dp).fillMaxWidth().clip(styledShape(12.dp))
                 .combinedClickable(
                     onClickLabel = if (card.isCurrent) openLabel else playLabel,
                     onLongClickLabel = longPressLabel,
@@ -995,7 +995,7 @@ private fun DocumentRow(media: MessageMedia, fileHandle: MediaFileHandle, onOpen
     val mediaLabel = media.kind.label(context)
     val openLabel = stringResource(R.string.a11y_media_open, mediaLabel)
     val longPressLabel = stringResource(R.string.a11y_message_actions)
-    Row(Modifier.width(244.dp).clip(styledShape(12.dp))
+    Row(Modifier.widthIn(max = 244.dp).fillMaxWidth().clip(styledShape(12.dp))
         .combinedClickable(onClickLabel = openLabel, onLongClickLabel = longPressLabel, onClick = onOpen, onLongClick = onLongPress)
         .padding(top = 4.dp), verticalAlignment = Alignment.CenterVertically) {
         Icon(Icons.Rounded.InsertDriveFile, contentDescription = null, tint = palette.accentInk,
