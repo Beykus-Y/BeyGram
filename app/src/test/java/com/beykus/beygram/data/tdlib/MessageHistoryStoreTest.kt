@@ -21,6 +21,19 @@ class MessageHistoryStoreTest {
     private fun message(id: Long, date: Long = 1L, state: MessageSendState = MessageSendState.Sent, chatId: Long = 1L) =
         ChatMessage(id, chatId, "test", "12:00", true, date, state)
 
+    @Test fun topicSnapshotYieldsToLiveEventsAndAcceptsAnEqualCountAfterRefresh() {
+        val store = MessageHistoryStore()
+        val one = UnreadMarkCounts(1, 0)
+        val zero = UnreadMarkCounts(0, 0)
+        store.updateTopicReadMarks(1L, 0L, 0L, one)
+        val expected = store.currentTopicUnreadMarks(1L)
+        store.updateTopicReadMarks(1L, 0L, 0L, one.copy())
+        assertEquals(one, store.refreshTopicUnreadMarks(1L, expected, zero))
+        assertEquals(zero, store.refreshTopicUnreadMarks(1L, store.currentTopicUnreadMarks(1L), zero))
+        store.updateTopicReadMarks(1L, 0L, 0L, one)
+        assertEquals(one, store.observe(1L).value.topicUnreadMarks)
+    }
+
     @Test fun topicReadUpdatesReplaceBadgeCountsWithoutMovingTheReadCursorBackward() {
         val store = MessageHistoryStore(maxCachedChats = 1)
         store.readInbox(1L, 30L)

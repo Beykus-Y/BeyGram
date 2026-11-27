@@ -239,6 +239,21 @@ internal class MessageHistoryStore(private val maxCachedChats: Int = 16, maxStat
         rememberReadMarks(chatId, state.value)
     }
 
+    fun currentTopicUnreadMarks(chatId: Long): UnreadMarkCounts? = synchronized(lock) { topicUnreadMarks[chatId] }
+
+    fun refreshTopicUnreadMarks(
+        chatId: Long,
+        expected: UnreadMarkCounts?,
+        fresh: UnreadMarkCounts
+    ): UnreadMarkCounts? = synchronized(lock) {
+        val current = topicUnreadMarks[chatId]
+        if (current !== expected) return@synchronized current
+        topicUnreadMarks[chatId] = fresh
+        val state = flow(chatId)
+        state.value = state.value.copy(topicUnreadMarks = fresh)
+        fresh
+    }
+
     /** Keeps the read markers of a chat, so they survive the chat's state being dropped. */
     private fun rememberReadMarks(chatId: Long, history: ChatHistory) {
         val marks = ReadMarks(history.lastReadInboxMessageId, history.lastReadOutboxMessageId)
