@@ -1,0 +1,4 @@
+<resources>
+    <string name="video_note_show_transcription">Transkription anzeigen</string>
+    <string name="video_note_hide_transcription">Transkription ausblenden</string>
+</resources>
