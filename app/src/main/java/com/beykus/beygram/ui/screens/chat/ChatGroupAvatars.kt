@@ -83,7 +83,7 @@ internal fun rememberGroupAvatarPhotos(
         if (avatars.isEmpty()) return@LaunchedEffect
         snapshotFlow {
             listState.layoutInfo.visibleItemsInfo.mapNotNull { row ->
-                val key = row.key as? String ?: return@mapNotNull null
+                val key = row.key.toString()
                 avatars[key]?.senderId?.takeIf { it > 0L && knownMembers[it]?.photo == null }
             }.distinct()
         }.collectLatest { visible ->
