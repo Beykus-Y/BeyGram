@@ -149,7 +149,8 @@ data class ChatHistory(
      * Messages loaded outside the window, such as older comments of a channel post's thread. Updates and deletions reach
      * them like [messages], but they are never part of [messages], so the chat timeline and its paging do not show them.
      */
-    val outsideWindowMessages: List<ChatMessage> = emptyList()
+    val outsideWindowMessages: List<ChatMessage> = emptyList(),
+    val topicUnreadMarks: UnreadMarkCounts? = null
 )
 
 /** One live insertion, ordered by [sequence] within a history store. A temporary-to-server replacement is not an arrival. */
@@ -213,5 +214,7 @@ data class MessageLimits(
     val paidReactionStarMax: Int? = null,
     val quote: Int = 1024
 )
+
+data class UnreadMarkCounts(val mentions: Int, val reactions: Int)
 
 data class PinnedMessagePage(val messages: List<ChatMessage>, val totalCount: Int, val nextFromMessageId: Long)
