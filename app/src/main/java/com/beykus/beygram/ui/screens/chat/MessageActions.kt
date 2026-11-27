@@ -384,7 +384,7 @@ internal fun MessageContextPopover(
     Popup(
         alignment = Alignment.TopStart,
         offset = IntOffset.Zero,
-        onDismissRequest = { if (selectedText != null) selection.clear() else dismiss() },
+        onDismissRequest = { if (selectedText != null) selection?.clear() else dismiss() },
         properties = PopupProperties(focusable = true, clippingEnabled = false)
     ) {
         Box(
@@ -424,7 +424,7 @@ internal fun MessageContextPopover(
                             }
                             if (onCopyFragment != null) {
                                 TextButton(onClick = { onCopyFragment(selectedText) }) {
-                                    Text(stringResource(R.string.message_action_copy))
+                                    Text(stringResource(R.string.message_action_copy_text))
                                 }
                             }
                             IconButton(onClick = selection::clear) {
