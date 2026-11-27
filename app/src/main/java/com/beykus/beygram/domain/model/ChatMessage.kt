@@ -21,6 +21,8 @@ data class ChatMessage(
     val senderName: String = "",
     /** Telegram user id of the sender when TDLib reports a user; zero for channel posts and system events. */
     val senderId: Long = 0L,
+    val senderAccentColor: PeerAccentColor? = null,
+    val forwardedAccentColor: PeerAccentColor? = null,
     val reply: MessageReply? = null,
     val entities: List<MessageTextEntity> = emptyList(),
     val inlineKeyboard: List<List<BotButton>> = emptyList(),
@@ -169,7 +171,7 @@ data class MessageTranslation(
     val entities: List<MessageTextEntity> = emptyList()
 )
 
-data class MessageReply(val chatId: Long, val messageId: Long, val text: UiText, val senderName: String = "", val isUnavailable: Boolean = false)
+data class MessageReply(val chatId: Long, val messageId: Long, val text: UiText, val senderName: String = "", val isUnavailable: Boolean = false, val senderAccentColor: PeerAccentColor? = null)
 data class MessageCapabilities(
     val canReply: Boolean = false,
     val canCopy: Boolean = false,

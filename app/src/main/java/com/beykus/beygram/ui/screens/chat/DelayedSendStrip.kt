@@ -208,20 +208,22 @@ internal class DelayedSendController(
         if (rows.isEmpty()) return
         val palette = beyGramPalette()
         // Bounded and scrollable: a backlog of waiting messages must never push the composer off the screen.
-        Column(Modifier.fillMaxWidth().heightIn(max = 168.dp).chatChromeBackground(palette.surface).verticalScroll(rememberScrollState()).padding(horizontal = 12.dp, vertical = 4.dp)) {
-            rows.forEach { entry ->
-                DelayedSendRow(
-                    entry = entry,
-                    onCancel = {
-                        if (composerEmpty) {
-                            restore(entry.id, onRestoreDraft)
-                        } else {
-                            Toast.makeText(context, R.string.delayed_send_clear_composer, Toast.LENGTH_SHORT).show()
-                        }
-                    },
-                    onDiscard = { discard(entry.id) },
-                    onSendNow = { sendNow(entry.id) }
-                )
+        ChatFloatingBarHost(Modifier.heightIn(max = 168.dp)) {
+            Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(horizontal = 12.dp, vertical = 4.dp)) {
+                rows.forEach { entry ->
+                    DelayedSendRow(
+                        entry = entry,
+                        onCancel = {
+                            if (composerEmpty) {
+                                restore(entry.id, onRestoreDraft)
+                            } else {
+                                Toast.makeText(context, R.string.delayed_send_clear_composer, Toast.LENGTH_SHORT).show()
+                            }
+                        },
+                        onDiscard = { discard(entry.id) },
+                        onSendNow = { sendNow(entry.id) }
+                    )
+                }
             }
         }
     }
