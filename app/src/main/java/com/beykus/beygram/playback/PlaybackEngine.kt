@@ -1424,8 +1424,11 @@ object PlaybackEngine {
             val driver = bgMix ?: return
             bgMixSeekJob?.cancel()
             val session = driver.status
+            val before = _state.value
             bgMixSeekJob = scope.launch {
-                if (bgMix?.status === session) driver.seek(positionMs.coerceAtLeast(0L) / 1000.0)
+                if (bgMix?.status === session && driver.seek(positionMs.coerceAtLeast(0L) / 1000.0)) {
+                    publishConfirmedNativeSeek(session, before, positionMs)
+                }
             }
             return
         }
@@ -1910,6 +1913,9 @@ object PlaybackEngine {
             }
             if (events.contains(Player.EVENT_IS_PLAYING_CHANGED)) listener.onIsPlayingChanged(player.isPlaying)
             if (events.contains(Player.EVENT_IS_LOADING_CHANGED)) listener.onIsLoadingChanged(player.isLoading)
+            if (events.contains(Player.EVENT_POSITION_DISCONTINUITY)) {
+                listener.onPositionDiscontinuity(nativePositionInfo(before), nativePositionInfo(after), Player.DISCONTINUITY_REASON_AUTO_TRANSITION)
+            }
             if (events.contains(Player.EVENT_MEDIA_ITEM_TRANSITION)) {
                 listener.onMediaItemTransition(after.item?.let { placeholderItem(it) }, Player.MEDIA_ITEM_TRANSITION_REASON_AUTO)
             }
@@ -1918,6 +1924,38 @@ object PlaybackEngine {
             if (events.contains(Player.EVENT_PLAYBACK_SUPPRESSION_REASON_CHANGED)) {
                 listener.onPlaybackSuppressionReasonChanged(player.playbackSuppressionReason)
             }
+            listener.onEvents(player, events)
+        }
+    }
+
+    @OptIn(UnstableApi::class)
+    private fun nativePositionInfo(snapshot: PlaybackState): Player.PositionInfo = Player.PositionInfo(
+        null, 0, snapshot.item?.let { placeholderItem(it) }, null, 0,
+        snapshot.positionMs, snapshot.positionMs, C.INDEX_UNSET, C.INDEX_UNSET
+    )
+
+    /** Only report a seek after native acceptance and a matching current-session position snapshot. */
+    @OptIn(UnstableApi::class)
+    private suspend fun publishConfirmedNativeSeek(
+        session: StateFlow<BgMixStatus?>?,
+        before: PlaybackState,
+        requestedMs: Long
+    ) {
+        if (session == null || bgMix?.status !== session || !bgMixActive()) return
+        val target = requestedMs.coerceIn(0L, before.durationMs.takeIf { it > 0L } ?: Long.MAX_VALUE)
+        val after = withTimeoutOrNull(1_500L) {
+            _state.first { current ->
+                !current.bgMixActive || !sameNativeSessionOccurrence(before, current) ||
+                    kotlin.math.abs(current.positionMs - target) <= 500L
+            }
+        } ?: return
+        if (bgMix?.status !== session || !bgMixActive() || !after.bgMixActive ||
+            !sameNativeSessionOccurrence(before, after)
+        ) return
+        val player = controls ?: return
+        val events = Player.Events(FlagSet.Builder().add(Player.EVENT_POSITION_DISCONTINUITY).build())
+        bgMixListeners.toList().forEach { listener ->
+            listener.onPositionDiscontinuity(nativePositionInfo(before), nativePositionInfo(after), Player.DISCONTINUITY_REASON_SEEK)
             listener.onEvents(player, events)
         }
     }
@@ -2897,7 +2935,9 @@ object PlaybackEngine {
                     val session = driver.status
                     bgMixSeekJob?.cancel()
                     bgMixSeekJob = scope.launch {
-                        if (!driver.seek(0.0) && bgMix?.status === session && _state.value.item?.key == state.item?.key) {
+                        if (driver.seek(0.0)) {
+                            publishConfirmedNativeSeek(session, state, 0L)
+                        } else if (bgMix?.status === session && _state.value.item?.key == state.item?.key) {
                             restartBgMix(state.queue, state.queueIndex, 0L, _state.value.intentPlaying)
                         }
                     }
