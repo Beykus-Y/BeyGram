@@ -2,6 +2,7 @@ package com.beykus.beygram.ui.screens.theme
 
 import com.beykus.beygram.data.appearance.AppearanceConfig
 import com.beykus.beygram.data.appearance.BubbleStyle
+import com.beykus.beygram.data.appearance.ChatTopPanelLayout
 import com.beykus.beygram.data.appearance.ChatWallpaper
 import com.beykus.beygram.data.appearance.DesignStyle
 import com.beykus.beygram.data.appearance.GlassQuality
@@ -69,7 +70,23 @@ class AppearanceDraftSaverTest {
         val draft = completeDraft()
         val restored = decodeAppearanceDraft(encodeAppearanceDraft(draft))
         assertEquals(draft, restored)
-        assertEquals(19, encodeAppearanceDraft(draft).size)
+        assertEquals(20, encodeAppearanceDraft(draft).size)
+    }
+
+    @Test fun chatTopPanelLayoutRestoresIndependentlyOfNavigationPlacement() {
+        for (mode in ChatTopPanelLayout.entries) {
+            val draft = completeDraft().copy(
+                navigationPlacement = NavigationPlacement.Pinned,
+                chatTopPanelLayout = mode
+            )
+            assertEquals(draft, decodeAppearanceDraft(encodeAppearanceDraft(draft)))
+        }
+    }
+
+    @Test fun previousDraftKeepsItsNavigationPlacementAndCurrentChatTopLayout() {
+        val draft = completeDraft().copy(navigationPlacement = NavigationPlacement.Floating)
+        val previous = encodeAppearanceDraft(draft).take(18) + "6"
+        assertEquals(draft, decodeAppearanceDraft(previous))
     }
 
     @Test fun liquidGlassV2SwitchSurvivesActivityRecreation() {
