@@ -334,6 +334,7 @@ private fun StickerPanel(
     var gifSearchMoreError by remember { mutableStateOf<String?>(null) }
     var premium by remember { mutableStateOf<Boolean?>(null) }
     var notice by remember { mutableStateOf<String?>(null) }
+    var reorderingStickers by remember { mutableStateOf(false) }
     var savingGifKeys by remember { mutableStateOf<Set<String>>(emptySet()) }
     var confirmClearRecent by remember { mutableStateOf(false) }
     var favoriteBusyKeys by remember { mutableStateOf<Set<String>>(emptySet()) }
@@ -830,6 +831,22 @@ private fun StickerPanel(
             savedGifs = gifSavedState.readyValue()?.mapTo(HashSet()) { it.key },
             savingGifKeys = savingGifKeys,
             onSetSavedGif = ::updateSavedGif,
+            regularPackOrder = setsState.readyValue().orEmpty().map { it.id },
+            reorderingStickers = reorderingStickers,
+            reorderStickers = { order ->
+                if (!reorderingStickers) {
+                    reorderingStickers = true
+                    scope.launch {
+                        try {
+                            conversation.reorderStickerSets(customEmoji = false, orderedIds = order)
+                                .onSuccess { setsRetry++ }
+                                .onFailure { notice = it.userMessage(context, R.string.sticker_panel_load_failed) }
+                        } finally {
+                            reorderingStickers = false
+                        }
+                    }
+                }
+            },
             premium = premium,
             onDismiss = { overlay = null },
             onSendSticker = { item ->
@@ -1664,6 +1681,9 @@ private fun StickerPanelOverlayContent(
     savedGifs: Set<String>?,
     savingGifKeys: Set<String>,
     onSetSavedGif: (AnimationItem, Boolean) -> Unit,
+    regularPackOrder: List<Long>,
+    reorderingStickers: Boolean,
+    reorderStickers: (List<Long>) -> Unit,
     premium: Boolean?,
     onDismiss: () -> Unit,
     onSendSticker: (StickerItem) -> Unit,
@@ -1706,7 +1726,10 @@ private fun StickerPanelOverlayContent(
                 summary = overlay.summary,
                 observeFile = observeFile,
                 downloadFile = downloadFile,
-                onOpen = { onOpenPack(overlay.summary.id) }
+                onOpen = { onOpenPack(overlay.summary.id) },
+                orderButtons = {
+                    PickerPackOrderButtons(regularPackOrder, overlay.summary.id, reorderingStickers, reorderStickers)
+                }
             )
         }
     }
@@ -1912,7 +1935,8 @@ private fun PackPreviewContent(
     summary: StickerSetSummary,
     observeFile: (Int) -> StateFlow<MediaFileState>,
     downloadFile: (Int) -> Unit,
-    onOpen: () -> Unit
+    onOpen: () -> Unit,
+    orderButtons: @Composable () -> Unit
 ) {
     val palette = beyGramPalette()
     Column(
@@ -1928,6 +1952,7 @@ private fun PackPreviewContent(
             fontWeight = FontWeight.SemiBold,
             modifier = Modifier.fillMaxWidth()
         )
+        Row { orderButtons() }
         Spacer(Modifier.height(12.dp))
         val cover = summary.cover
         if (cover != null) {

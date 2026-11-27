@@ -9,6 +9,14 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class StickerPanelLogicTest {
+    @Test fun movesOnlyTheChosenInstalledPackAndKeepsOtherIdsInOrder() {
+        val order = listOf(1L, 2L, 3L, 4L)
+        assertEquals(listOf(1L, 3L, 2L, 4L), movePickerPack(order, 2L, 1))
+        assertEquals(listOf(1L, 3L, 2L, 4L), movePickerPack(order, 3L, -1))
+        assertNull(movePickerPack(order, 1L, -1))
+        assertNull(movePickerPack(order, 5L, 1))
+    }
+
     @Test fun gifMosaicUsesDimensionsBeforeFilesLoad() {
         assertEquals(16f / 9, gifPickerAspectRatio(AnimationItem(1, width = 160, height = 90)), 0.001f)
         assertEquals(1f, gifPickerAspectRatio(AnimationItem(2, thumbnailWidth = 80, thumbnailHeight = 80)), 0.001f)

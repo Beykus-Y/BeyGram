@@ -45,6 +45,8 @@ internal data class DockCustomEmoji(
     val busyPacks: Set<Long>,
     val failedPacks: Set<Long>,
     val changeInstallation: (Long, Boolean) -> Unit,
+    val reorderBusy: Boolean,
+    val reorder: (List<Long>) -> Unit,
     val rows: List<PremiumEmojiRow>,
     val recentIds: List<Long>,
     val loadPack: (Long) -> Unit,
@@ -90,6 +92,7 @@ internal fun rememberDockCustomEmoji(
     LaunchedEffect(conversation, attempt) {
         conversation.recommendedCustomEmojiSets().onSuccess { values -> recommended = values.distinctBy { it.id } }
     }
+    var reorderBusy by remember(conversation) { mutableStateOf(false) }
     val installedIds = remember(installed) { installed.mapTo(HashSet()) { it.id } }
     val packs = remember(installed, recommended, installedIds) { installed + recommended.filterNot { it.id in installedIds } }
     val scope = rememberCoroutineScope()
@@ -111,7 +114,21 @@ internal fun rememberDockCustomEmoji(
     val states by loader.states.collectAsStateWithLifecycle()
     val rows = remember(packs, states) { premiumEmojiRows(packs, states) }
     return DockCustomEmoji(
-        packs, installedIds, busyPacks, failedPacks, ::changeInstallation,
+        packs, installedIds, busyPacks, failedPacks, ::changeInstallation, reorderBusy,
+        { order ->
+            if (!reorderBusy) {
+                reorderBusy = true
+                scope.launch {
+                    try {
+                        conversation.reorderStickerSets(customEmoji = true, orderedIds = order)
+                            .onSuccess { attempt++ }
+                            .onFailure { failed = true }
+                    } finally {
+                        reorderBusy = false
+                    }
+                }
+            }
+        },
         rows, recents, loader::request, failed, { attempt++ },
         conversation::observeCustomEmoji, observeFile, downloadFile
     ) { emoji ->
@@ -196,6 +213,12 @@ internal fun DockEmojiPackHeader(setId: Long, title: String, dock: DockCustomEmo
     val installed = setId in dock.installedIds
     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
         Box(Modifier.weight(1f)) { EmojiGroupHeader(title) }
+        if (installed) {
+            PickerPackOrderButtons(
+                dock.packs.filter { it.id in dock.installedIds }.map { it.id },
+                setId, dock.reorderBusy, dock.reorder
+            )
+        }
         TextButton(
             enabled = setId !in dock.busyPacks,
             onClick = { dock.changeInstallation(setId, !installed) }

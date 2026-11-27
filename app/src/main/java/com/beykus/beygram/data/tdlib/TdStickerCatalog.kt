@@ -80,6 +80,12 @@ internal class TdStickerCatalog(
         )
     }
 
+    suspend fun reorderStickerSets(customEmoji: Boolean, orderedIds: List<Long>): Result<Unit> = requestResult {
+        val type = if (customEmoji) TdApi.StickerTypeCustomEmoji() else TdApi.StickerTypeRegular()
+        request(TdApi.ReorderInstalledStickerSets(type, orderedIds.toLongArray()))
+        Unit
+    }
+
     suspend fun clearRecentStickers(): Result<Unit> = requestResult {
         request(TdApi.ClearRecentStickers(false))
         Unit

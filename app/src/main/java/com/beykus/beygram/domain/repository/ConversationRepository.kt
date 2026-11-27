@@ -238,6 +238,8 @@ interface ConversationRepository {
      * from a chat only needs the installed state.
      */
     suspend fun changeStickerSet(setId: Long, installed: Boolean): Result<Unit>
+    suspend fun reorderStickerSets(customEmoji: Boolean, orderedIds: List<Long>): Result<Unit> =
+        Result.failure(UnsupportedOperationException())
     /** Sticker text search across sets. Pass 0 first, then [StickerSearchPage.nextOffset]. */
     suspend fun searchStickers(query: String, offset: Int = 0): Result<StickerSearchPage>
     /** GIFs explicitly saved by the user in this Telegram account. */
