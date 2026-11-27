@@ -2035,9 +2035,11 @@ object PlaybackEngine {
                 // Output that fails during the session hands the queue back to ExoPlayer. Stopping the session cancels this.
                 launch {
                     failureFlow.first { it != null }
-                    failBgMix()
+                    if (bgMix?.status === statusFlow) failBgMix()
                 }
-                statusFlow.collect { status -> if (status != null) applyBgMix(status) }
+                statusFlow.collect { status ->
+                    if (status != null && bgMix?.status === statusFlow) applyBgMix(status)
+                }
             }
         }
         startBgMixFeed()
@@ -2452,6 +2454,9 @@ object PlaybackEngine {
     private fun applyBgMix(status: BgMixStatus) {
         val driver = bgMix ?: return
         val before = _state.value
+        val master = status.decks.getOrNull(status.master)
+        val masterId = master?.trackId?.takeIf { it != 0L }
+        val index = if (masterId != null) driver.indexOfNative(masterId) ?: return else before.queueIndex
         _bgMixTransition.value = nextBgMixTransition(
             previous = _bgMixTransition.value,
             status = status,
@@ -2459,8 +2464,6 @@ object PlaybackEngine {
             indexOfNative = driver::indexOfNative,
             itemAt = driver::itemAt
         )
-        val master = status.decks.getOrNull(status.master)
-        val index = master?.trackId?.takeIf { it != 0L }?.let(driver::indexOfNative) ?: before.queueIndex
         val item = driver.itemAt(index) ?: return
         // Eligibility changes on track adoption/transition, not on every 50 ms status tick.
         if (before.item?.key != item.key || before.item?.let(::isWaveCaptureEligible) != isWaveCaptureEligible(item)) {
@@ -2482,7 +2485,11 @@ object PlaybackEngine {
             // Ignore a delayed fallback after a queue replacement or a new native session.
             val sessionStatus = driver.status
             scope.launch {
-                if (bgMix?.status === sessionStatus && driver.pendingIndex == pending && _state.value.queueIndex == before.queueIndex) {
+                val fresh = sessionStatus?.value ?: return@launch
+                if (bgMix?.status === sessionStatus && driver.queueItems === items &&
+                    driver.pendingIndex == pending && _state.value.queueIndex == before.queueIndex &&
+                    bgMixDeferredMasterMatches(status, fresh)
+                ) {
                     continueBgMixQueueOnExo(items, fallbackIndex, autoPlay = before.intentPlaying || before.playing, rejected = fallbackIndex == failed)
                 }
             }
@@ -2551,8 +2558,16 @@ object PlaybackEngine {
             // Repeat One plays the same track again, Repeat All starts the queue over; the mode stays BG Mix.
             val items = driver.queueItems
             val next = if (repeat == PlaybackRepeatMode.One) index else 0
+            val sessionStatus = driver.status
             notifyChanges(before, _state.value)
-            scope.launch { restartBgMix(items, next, 0L, autoPlay = true) }
+            scope.launch {
+                val fresh = sessionStatus?.value ?: return@launch
+                val current = _state.value
+                if (bgMix?.status === sessionStatus && driver.queueItems === items &&
+                    current.ended && current.repeatMode == repeat && current.queueIndex == index &&
+                    bgMixDeferredMasterMatches(status, fresh)
+                ) restartBgMix(items, next, 0L, autoPlay = true)
+            }
             return
         }
         if (reportFinished && !before.ended) {
