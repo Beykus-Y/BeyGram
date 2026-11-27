@@ -220,6 +220,9 @@ internal fun rememberChatSearchController(
     val searchMatchSessionState = remember(chatId, forumTopicId) { mutableStateOf(ChatSearchMatchSession()) }
     val searchMatchGenerationState = remember(chatId, forumTopicId) { mutableIntStateOf(0) }
 
+    val currentCancelJump = androidx.compose.runtime.rememberUpdatedState(cancelActiveJump)
+    val currentJump = androidx.compose.runtime.rememberUpdatedState(onJumpToMessage)
+    val currentError = androidx.compose.runtime.rememberUpdatedState(onError)
     val controller = remember(chatId, forumTopicId, conversation, context, scope) {
         ChatSearchController(
             chatId = chatId,
@@ -227,9 +230,9 @@ internal fun rememberChatSearchController(
             conversation = conversation,
             context = context,
             scope = scope,
-            cancelActiveJump = cancelActiveJump,
-            onJumpToMessage = onJumpToMessage,
-            onError = onError,
+            cancelActiveJump = { currentCancelJump.value() },
+            onJumpToMessage = { id, failure -> currentJump.value(id, failure) },
+            onError = { currentError.value(it) },
             searchingState = searchingState,
             searchQueryState = searchQueryState,
             searchFilterState = searchFilterState,

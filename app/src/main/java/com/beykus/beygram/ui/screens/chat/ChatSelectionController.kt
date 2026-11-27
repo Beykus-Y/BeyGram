@@ -271,6 +271,7 @@ internal fun rememberChatSelectionController(
     val selectionDeleteErrorState = remember { mutableStateOf<String?>(null) }
 
     val messagesState = androidx.compose.runtime.rememberUpdatedState(messages)
+    val currentCloseActions = androidx.compose.runtime.rememberUpdatedState(closeActions)
     val controller = remember(chatId, accountId, conversation, context, clipboard, scope) {
         ChatSelectionController(
             chatId = chatId,
@@ -281,7 +282,7 @@ internal fun rememberChatSelectionController(
             messagesProvider = { messagesState.value },
             observeFile = observeFile,
             onDownloadFile = onDownloadFile,
-            closeActions = closeActions,
+            closeActions = { currentCloseActions.value() },
             selectionModeState = selectionModeState,
             selectionIdsState = selectionIdsState,
             selectionAnchorIdState = selectionAnchorIdState,
