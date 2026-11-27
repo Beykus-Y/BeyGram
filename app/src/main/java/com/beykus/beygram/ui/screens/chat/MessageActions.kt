@@ -54,6 +54,7 @@ import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.geometry.Rect
 import kotlinx.coroutines.delay
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.boundsInWindow
@@ -341,10 +342,14 @@ internal fun MessageContextPopover(
     val viewportBounds = paneBounds?.intersect(windowBounds) ?: windowBounds
     val preferredSceneMenuHeight = with(density) { 280.dp.roundToPx() }
     val menuWidth = menuSize.width.coerceAtLeast(with(density) { 248.dp.roundToPx() })
+    val showReactionStrip = onQuickReaction != null && (freeReactions.isNotEmpty() || onReactions != null)
+    val reactionCount = freeReactions.size + if (onReactions != null) 1 else 0
+    val reactionWidth = if (showReactionStrip) with(density) { (16 + reactionCount * 44).dp.roundToPx() } else 0
+    val reactionHeight = if (showReactionStrip) with(density) { 56.dp.roundToPx() } else 0
     val scene = if (foreground != null && anchorBounds != null) {
         computeMessageContextScene(
             anchorBounds, viewportBounds.deflate(marginPx.toFloat()), preferredSceneMenuHeight,
-            minPopoverHeightPx, menuWidth, gapPx, isOutgoing
+            minPopoverHeightPx, menuWidth, gapPx, isOutgoing, reactionWidth, reactionHeight
         )
     } else null
     val showForeground = scene != null && foreground != null
@@ -372,7 +377,6 @@ internal fun MessageContextPopover(
     }
     val maxCardHeightDp = if (effectiveMaxHeightPx > 0) with(density) { effectiveMaxHeightPx.toDp() } else 360.dp
 
-    val showReactionStrip = onQuickReaction != null && (freeReactions.isNotEmpty() || onReactions != null)
 
     Popup(
         alignment = Alignment.TopStart,
@@ -403,59 +407,73 @@ internal fun MessageContextPopover(
                     }.size(with(density) { target.width.toDp() }, with(density) { target.height.toDp() }).clipToBounds()
                 ) { foreground() }
             }
-            val cardContent: @Composable () -> Unit = {
-                Column(Modifier.fillMaxWidth()) {
-                    if (showReactionStrip && onQuickReaction != null) {
-                        Row(
+            val reactionStrip: @Composable () -> Unit = {
+            if (showReactionStrip && onQuickReaction != null) {
+                Row(
+                    Modifier
+                        .fillMaxWidth()
+                        .horizontalScroll(rememberScrollState())
+                        .padding(horizontal = 10.dp, vertical = 8.dp),
+                    horizontalArrangement = Arrangement.spacedBy(4.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    freeReactions.forEach { option ->
+                        val chosen = option in chosenReactions
+                        val label = option.emoji.ifBlank { stringResource(R.string.message_action_react) }
+                        Box(
                             Modifier
-                                .fillMaxWidth()
-                                .horizontalScroll(rememberScrollState())
-                                .padding(horizontal = 10.dp, vertical = 8.dp),
-                            horizontalArrangement = Arrangement.spacedBy(4.dp),
-                            verticalAlignment = Alignment.CenterVertically
+                                .size(40.dp)
+                                .clip(CircleShape)
+                                .background(if (chosen) palette.accentSoft else Color.Transparent)
+                                .clickable(role = Role.Button) { onQuickReaction(option) }
+                                .semantics {
+                                    contentDescription = label
+                                    selected = chosen
+                                },
+                            contentAlignment = Alignment.Center
                         ) {
-                            freeReactions.forEach { option ->
-                                val chosen = option in chosenReactions
-                                val label = option.emoji.ifBlank { stringResource(R.string.message_action_react) }
-                                Box(
-                                    Modifier
-                                        .size(40.dp)
-                                        .clip(CircleShape)
-                                        .background(if (chosen) palette.accentSoft else Color.Transparent)
-                                        .clickable(role = Role.Button) { onQuickReaction(option) }
-                                        .semantics {
-                                            contentDescription = label
-                                            selected = chosen
-                                        },
-                                    contentAlignment = Alignment.Center
-                                ) {
-                                    if (option.customEmojiId != 0L) {
-                                        val emoji by observeCustomEmoji(option.customEmojiId).collectAsStateWithLifecycle()
-                                        val fileId = emoji?.fileId ?: 0
-                                        val file by remember(fileId) { observeFile(fileId) }.collectAsStateWithLifecycle()
-                                        androidx.compose.runtime.LaunchedEffect(fileId) {
-                                            if (fileId != 0) onDownloadFile(fileId)
-                                        }
-                                        val path = file.localPath
-                                        if (path != null) {
-                                            LocalMediaImage(path, Modifier.size(24.dp), fit = true, animate = false)
-                                        } else {
-                                            Text(emojiPresentation(option.emoji.ifBlank { "✨" }), fontSize = 20.sp)
-                                        }
-                                    } else {
-                                        Text(emojiPresentation(option.emoji), fontSize = 20.sp)
-                                    }
+                            if (option.customEmojiId != 0L) {
+                                val emoji by observeCustomEmoji(option.customEmojiId).collectAsStateWithLifecycle()
+                                val fileId = emoji?.fileId ?: 0
+                                val file by remember(fileId) { observeFile(fileId) }.collectAsStateWithLifecycle()
+                                androidx.compose.runtime.LaunchedEffect(fileId) {
+                                    if (fileId != 0) onDownloadFile(fileId)
                                 }
-                            }
-                            onReactions?.let { openPicker ->
-                                IconButton(
-                                    onClick = openPicker,
-                                    modifier = Modifier.size(40.dp)
-                                ) {
-                                    Icon(Icons.Rounded.AddReaction, stringResource(R.string.message_action_react), tint = palette.accent)
+                                val path = file.localPath
+                                if (path != null) {
+                                    LocalMediaImage(path, Modifier.size(24.dp), fit = true, animate = false)
+                                } else {
+                                    Text(emojiPresentation(option.emoji.ifBlank { "✨" }), fontSize = 20.sp)
                                 }
+                            } else {
+                                Text(emojiPresentation(option.emoji), fontSize = 20.sp)
                             }
                         }
+                    }
+                    onReactions?.let { openPicker ->
+                        IconButton(
+                            onClick = openPicker,
+                            modifier = Modifier.size(40.dp)
+                        ) {
+                            Icon(Icons.Rounded.AddReaction, stringResource(R.string.message_action_react), tint = palette.accent)
+                        }
+                    }
+                }
+                }
+            }
+            scene?.reactionBounds?.let { bounds ->
+                val root = rootBounds ?: Rect.Zero
+                val reactionModifier = Modifier.absoluteOffset {
+                    IntOffset((bounds.left - root.left).roundToInt(), (bounds.top - root.top).roundToInt())
+                }.width(with(density) { bounds.width.toDp() })
+                    .graphicsLayer { alpha = progress }
+                    .clickable(interactionSource = remember { MutableInteractionSource() }, indication = null) {}
+                MessageContextSurface(reactionModifier, CircleShape, reactionStrip)
+            }
+            val cardContent: @Composable () -> Unit = {
+                Column(Modifier.fillMaxWidth()) {
+                    if (showReactionStrip && scene?.reactionBounds == null) {
+                        reactionStrip()
                         HorizontalDivider(color = palette.divider)
                     }
 
@@ -648,39 +666,46 @@ internal fun MessageContextPopover(
                     else -> 16.dp
                 }
             )
-            if (design.surfaces.treatment == SurfaceTreatment.Glass) {
-                GlassPanel(
-                    design = design,
-                    tint = palette.surface,
-                    rim = palette.textSecondary,
-                    backdropBase = palette.screen,
-                    shape = shape,
-                    modifier = cardModifier.shadow(design.surfaces.glass?.shadowElevation ?: 8.dp, shape)
-                ) {
-                    cardContent()
-                }
-            } else {
-                val elevation = when (design.style) {
-                    DesignStyle.Material2 -> 8.dp
-                    DesignStyle.Material3 -> 3.dp
-                    DesignStyle.Signature -> 1.dp
-                    else -> 6.dp
-                }
-                val borderModifier = when (design.style) {
-                    DesignStyle.Signature -> Modifier.border(1.dp, palette.divider, shape)
-                    DesignStyle.Default -> Modifier.border(1.dp, palette.divider.copy(alpha = 0.6f), shape)
-                    else -> Modifier
-                }
-                Box(
-                    cardModifier
-                        .shadow(elevation, shape)
-                        .clip(shape)
-                        .background(palette.surface)
-                        .then(borderModifier)
-                ) {
-                    cardContent()
-                }
-            }
+            MessageContextSurface(cardModifier, shape, cardContent)
+        }
+    }
+}
+
+@Composable
+private fun MessageContextSurface(modifier: Modifier, shape: Shape, content: @Composable () -> Unit) {
+    val palette = beyGramPalette()
+    val design = LocalDesignSystem.current
+    if (design.surfaces.treatment == SurfaceTreatment.Glass) {
+        GlassPanel(
+            design = design,
+            tint = palette.surface,
+            rim = palette.textSecondary,
+            backdropBase = palette.screen,
+            shape = shape,
+            modifier = modifier.shadow(design.surfaces.glass?.shadowElevation ?: 8.dp, shape)
+        ) {
+            content()
+        }
+    } else {
+        val elevation = when (design.style) {
+            DesignStyle.Material2 -> 8.dp
+            DesignStyle.Material3 -> 3.dp
+            DesignStyle.Signature -> 1.dp
+            else -> 6.dp
+        }
+        val borderModifier = when (design.style) {
+            DesignStyle.Signature -> Modifier.border(1.dp, palette.divider, shape)
+            DesignStyle.Default -> Modifier.border(1.dp, palette.divider.copy(alpha = 0.6f), shape)
+            else -> Modifier
+        }
+        Box(
+            modifier
+                .shadow(elevation, shape)
+                .clip(shape)
+                .background(palette.surface)
+                .then(borderModifier)
+        ) {
+            content()
         }
     }
 }
