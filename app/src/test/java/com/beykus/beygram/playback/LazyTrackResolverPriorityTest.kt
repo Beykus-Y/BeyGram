@@ -1,4 +1,4 @@
-package com.beykus.beygram.playback
+﻿package com.beykus.beygram.playback
 
 import java.util.Collections
 import kotlinx.coroutines.CompletableDeferred
@@ -16,6 +16,8 @@ import org.junit.Test
  * slots while the newly selected row waited. These tests pin the priority/ownership rules that fix it.
  */
 class LazyTrackResolverPriorityTest {
+    /** Generous: CI runs thousands of tests in parallel, and the assertions do not depend on the wall time. */
+    private val TEST_TIMEOUT_MS = 30_000L
     private fun resolver(slots: Int, fetch: suspend (String) -> Result<String?>) =
         object : LazyTrackResolver<String>("fake:", maxConcurrentFetches = slots) {
             override val restricted = false
@@ -46,13 +48,13 @@ class LazyTrackResolverPriorityTest {
         }
         try {
             resolver.prefetch("fake:a")
-            withTimeout(5_000) { firstStarted.await() }
+            withTimeout(TEST_TIMEOUT_MS) { firstStarted.await() }
             // b and c are queued behind the only slot; c is the row the player is opening now.
             resolver.prefetch("fake:b")
             resolver.prefetch("fake:c")
             resolver.request("fake:c")
             releaseFirst.complete(Unit)
-            withTimeout(5_000) { selectedStarted.await() }
+            withTimeout(TEST_TIMEOUT_MS) { selectedStarted.await() }
             assertEquals("fake:c", started.toList().getOrNull(1))
         } finally {
             resolver.reset()
@@ -85,13 +87,13 @@ class LazyTrackResolverPriorityTest {
             // A and B were playback requests, but the user moved on before either opened.
             resolver.request("fake:a")
             resolver.request("fake:b")
-            withTimeout(5_000) { startedA.await(); startedB.await() }
+            withTimeout(TEST_TIMEOUT_MS) { startedA.await(); startedB.await() }
             resolver.request("fake:c")
             assertFalse(selectedStarted.isCompleted)
             // The window now contains only C: nobody reads A or B, so their slots belong to the selected row.
             resolver.prioritize(setOf("fake:c"), urgent = "fake:c")
-            withTimeout(5_000) { cancelledA.await(); cancelledB.await() }
-            withTimeout(5_000) { selectedStarted.await() }
+            withTimeout(TEST_TIMEOUT_MS) { cancelledA.await(); cancelledB.await() }
+            withTimeout(TEST_TIMEOUT_MS) { selectedStarted.await() }
             assertTrue(resolver.fetchingKeys().contains("fake:c"))
         } finally {
             resolver.reset()
@@ -112,7 +114,7 @@ class LazyTrackResolverPriorityTest {
         }
         try {
             resolver.request("fake:a")
-            withTimeout(5_000) { startedA.await() }
+            withTimeout(TEST_TIMEOUT_MS) { startedA.await() }
             // The data source already opened the growing copy: it is an active reader, not a stale request.
             resolver.published("fake:a")
             resolver.prioritize(setOf("fake:c"), urgent = "fake:c")
@@ -121,7 +123,7 @@ class LazyTrackResolverPriorityTest {
         } finally {
             resolver.reset()
         }
-        withTimeout(5_000) { cancelledA.await() }
+        withTimeout(TEST_TIMEOUT_MS) { cancelledA.await() }
     }
 
     @Test
@@ -133,8 +135,8 @@ class LazyTrackResolverPriorityTest {
         }
         try {
             resolver.request("fake:a")
-            withTimeout(5_000) { done.await() }
-            withTimeout(5_000) {
+            withTimeout(TEST_TIMEOUT_MS) { done.await() }
+            withTimeout(TEST_TIMEOUT_MS) {
                 while (!resolver.readyKeys().contains("fake:a")) delay(5)
             }
             // A completed file may be needed again by Previous; only the bounded eviction policy may drop it.

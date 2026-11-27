@@ -273,7 +273,13 @@ internal abstract class LazyTrackResolver<T : Any>(private val prefix: String, p
                         true
                     } else false
                 }
-                if (admitted) return
+                if (admitted) {
+                    // More than one slot can be free. An admission does not change activeFetches for the other
+                    // waiters unless they are woken, so the remaining free slots would otherwise stay unused while
+                    // a lower-priority waiter sleeps until the first fetch finishes.
+                    wakeWaiters()
+                    return
+                }
                 admissionVersion.first { it != version }
             }
         } finally {
