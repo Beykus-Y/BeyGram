@@ -42,6 +42,7 @@ internal fun rememberDockCustomEmoji(
     conversation: ConversationRepository,
     observeFile: ObserveMediaFile,
     downloadFile: DownloadMediaFile,
+    packsVersion: Long,
     onPick: (CustomEmoji) -> Boolean
 ): DockCustomEmoji {
     val context = LocalContext.current
@@ -57,7 +58,7 @@ internal fun rememberDockCustomEmoji(
     var packs by remember(conversation) { mutableStateOf<List<CustomEmojiSetBrief>>(emptyList()) }
     var failed by remember(conversation) { mutableStateOf(false) }
     var attempt by remember(conversation) { mutableIntStateOf(0) }
-    LaunchedEffect(conversation, attempt) {
+    LaunchedEffect(conversation, attempt, packsVersion) {
         failed = false
         conversation.installedCustomEmojiSets().fold(
             onSuccess = { values -> packs = values.distinctBy { it.id } },

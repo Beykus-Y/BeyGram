@@ -172,12 +172,13 @@ internal object EmojiCatalog {
 internal fun List<String>.withRecentEmoji(emoji: String): List<String> =
     (listOf(emoji) + filterNot { it == emoji }).take(RECENT_EMOJI_LIMIT)
 
-/** Recent emoji shared by the whole app, kept in private preferences. Storage failures fall back to an empty list. */
-internal class RecentEmojiStore(context: Context) {
+/** Unicode recents belong to the account that selected them. */
+internal class RecentEmojiStore(context: Context, accountId: String) {
+    private val recentKey = "recent_$accountId"
     private val preferences = context.applicationContext.getSharedPreferences(PREFERENCES, Context.MODE_PRIVATE)
 
     fun load(): List<String> = try {
-        preferences.getString(KEY_RECENT, null).orEmpty()
+        preferences.getString(recentKey, null).orEmpty()
             .split(SEPARATOR)
             .filter { it.isNotEmpty() }
             .distinct()
@@ -190,7 +191,7 @@ internal class RecentEmojiStore(context: Context) {
     fun record(emoji: String): List<String> {
         val updated = load().withRecentEmoji(emoji)
         try {
-            preferences.edit().putString(KEY_RECENT, updated.joinToString(SEPARATOR)).apply()
+            preferences.edit().putString(recentKey, updated.joinToString(SEPARATOR)).apply()
         } catch (_: Exception) {
             // The emoji still shows in the Recent section for this session when the preference cannot be written.
         }
@@ -199,7 +200,6 @@ internal class RecentEmojiStore(context: Context) {
 
     private companion object {
         const val PREFERENCES = "emoji_panel"
-        const val KEY_RECENT = "recent"
         const val SEPARATOR = ","
     }
 }

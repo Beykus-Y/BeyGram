@@ -53,6 +53,7 @@ import androidx.compose.material.icons.rounded.Search
 import androidx.compose.material.icons.rounded.Star
 import androidx.compose.material.icons.rounded.StarBorder
 import androidx.compose.material.icons.rounded.Tune
+import com.beykus.beygram.playback.LocalPlaybackAccountId
 import com.beykus.beygram.ui.components.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
@@ -103,6 +104,7 @@ import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.beykus.beygram.ui.components.BeyGramSheet
 import com.beykus.beygram.R
+import com.beykus.beygram.domain.model.StickerShelfVersions
 import com.beykus.beygram.domain.model.CustomEmoji
 import com.beykus.beygram.domain.model.AnimationItem
 import com.beykus.beygram.domain.model.AnimationPage
@@ -323,6 +325,7 @@ private fun StickerPanel(
     var gifSavedState by remember { mutableStateOf<PickerLoad<List<AnimationItem>>>(PickerLoad.Loading) }
     var gifSavedRetry by remember { mutableIntStateOf(0) }
     var gifSavedLoadedRetry by remember { mutableIntStateOf(-1) }
+    var gifSavedLoadedVersion by remember { mutableStateOf(-1L) }
     var gifSavedLoadedConversation by remember { mutableStateOf<ConversationRepository?>(null) }
     var gifSearchState by remember { mutableStateOf<PickerLoad<AnimationPage>>(PickerLoad.Ready(AnimationPage())) }
     var gifSearchRetry by remember { mutableIntStateOf(0) }
@@ -333,8 +336,10 @@ private fun StickerPanel(
     var favoriteBusyKeys by remember { mutableStateOf<Set<String>>(emptySet()) }
     var searchGeneration by remember { mutableIntStateOf(0) }
     var overlay by remember { mutableStateOf<StickerPanelOverlay?>(null) }
-    // Recent emoji are shared by the whole app; the list is read again each time the panel is opened.
-    val emojiStore = remember(context) { RecentEmojiStore(context) }
+    val accountId = LocalPlaybackAccountId.current
+    val emojiStore = remember(context, accountId) { RecentEmojiStore(context, accountId) }
+    val shelfVersions by remember(conversation) { conversation.observeStickerShelfVersions() }
+        .collectAsStateWithLifecycle(StickerShelfVersions())
     var recentEmoji by remember(emojiStore) { mutableStateOf(emojiStore.load()) }
 
     val premiumNotice = stringResource(R.string.sticker_panel_premium_locked)
@@ -366,21 +371,21 @@ private fun StickerPanel(
         overlay = null
         favoriteBusyKeys = emptySet()
     }
-    LaunchedEffect(conversation, recentRetry) {
+    LaunchedEffect(conversation, recentRetry, shelfVersions.recentStickers) {
         recentState = PickerLoad.Loading
         conversation.recentStickers().fold(
             onSuccess = { recentState = PickerLoad.Ready(it.distinctBy { sticker -> sticker.key }) },
             onFailure = { recentState = PickerLoad.Failed(it.userMessage(context, R.string.sticker_panel_load_failed)) }
         )
     }
-    LaunchedEffect(conversation, favoritesRetry) {
+    LaunchedEffect(conversation, favoritesRetry, shelfVersions.favoriteStickers) {
         favoritesState = PickerLoad.Loading
         conversation.favoriteStickers().fold(
             onSuccess = { favoritesState = PickerLoad.Ready(it.distinctBy { sticker -> sticker.key }) },
             onFailure = { favoritesState = PickerLoad.Failed(it.userMessage(context, R.string.sticker_panel_load_failed)) }
         )
     }
-    LaunchedEffect(conversation, setsRetry) {
+    LaunchedEffect(conversation, setsRetry, shelfVersions.stickerPacks) {
         setsState = PickerLoad.Loading
         conversation.installedStickerSets().fold(
             onSuccess = { setsState = PickerLoad.Ready(it) },
@@ -414,14 +419,18 @@ private fun StickerPanel(
             onFailure = { gifRecentState = PickerLoad.Failed(it.userMessage(context, R.string.gif_panel_load_failed)) }
         )
     }
-    LaunchedEffect(conversation, view.tab, gifSavedRetry) {
+    LaunchedEffect(conversation, view.tab, gifSavedRetry, shelfVersions.savedAnimations) {
         if (view.tab != StickerPanelTab.Gifs) return@LaunchedEffect
-        if (gifSavedLoadedRetry == gifSavedRetry && gifSavedLoadedConversation === conversation && gifSavedState.readyValue() != null) return@LaunchedEffect
+        val savedVersion = shelfVersions.savedAnimations
+        if (gifSavedLoadedRetry == gifSavedRetry && gifSavedLoadedVersion == savedVersion &&
+            gifSavedLoadedConversation === conversation && gifSavedState.readyValue() != null
+        ) return@LaunchedEffect
         gifSavedState = PickerLoad.Loading
         conversation.savedAnimations().fold(
             onSuccess = {
                 gifSavedState = PickerLoad.Ready(it.distinctBy { animation -> animation.key })
                 gifSavedLoadedRetry = gifSavedRetry
+                gifSavedLoadedVersion = savedVersion
                 gifSavedLoadedConversation = conversation
             },
             onFailure = { gifSavedState = PickerLoad.Failed(it.userMessage(context, R.string.gif_panel_load_failed)) }
@@ -677,7 +686,7 @@ private fun StickerPanel(
                     StickerPanelTab.Emoji -> EmojiPanel(
                         recents = recentEmoji,
                         onEmoji = ::insertEmoji,
-                        customEmoji = rememberDockCustomEmoji(conversation, observeFile, downloadFile) { emoji ->
+                        customEmoji = rememberDockCustomEmoji(conversation, observeFile, downloadFile, shelfVersions.emojiPacks) { emoji ->
                             if (premium == true) onInsertCustomEmoji(emoji)
                             else notice = premiumNotice
                             premium == true
@@ -1159,8 +1168,13 @@ private fun StickerContent(
             else StickerGrid(content.stickers, observeFile, downloadFile, onSend, onOptions)
         }
         else -> PickerLoadContent(recentState, onRetryRecent) { stickers ->
-            if (stickers.isEmpty()) PanelEmpty(emptyRecent)
-            else StickerGrid(stickers, observeFile, downloadFile, onSend, onOptions)
+            val favorites = favoritesState.readyValue()
+            val visible = remember(stickers, favorites) {
+                val keys = favorites.orEmpty().mapTo(HashSet()) { it.key }
+                stickers.filterNot { it.key in keys }
+            }
+            if (visible.isEmpty()) PanelEmpty(emptyRecent)
+            else StickerGrid(visible, observeFile, downloadFile, onSend, onOptions)
         }
     }
 }

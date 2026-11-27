@@ -10,6 +10,7 @@ interface ConversationRepository {
     /** Cache-only observation of the user appearance for this account. */
     fun observeGroupAuthor(userId: Long): Flow<GroupAuthorAppearance?> = flowOf(null)
 
+    fun observeStickerShelfVersions(): Flow<StickerShelfVersions> = flowOf(StickerShelfVersions())
     fun observePinnedMessagesVersion(chatId: Long): StateFlow<Long>
     /** Resolve avatars from user IDs without creating private chats or opening profiles. */
     suspend fun loadPinnedSenderAvatars(userIds: Collection<Long>): Map<Long, AvatarPhoto?> = emptyMap()

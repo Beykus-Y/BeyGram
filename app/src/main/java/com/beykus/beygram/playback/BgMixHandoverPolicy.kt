@@ -1,5 +1,7 @@
 package com.beykus.beygram.playback
 
+import com.beykus.beygram.media.bgmix.BgMixStatus
+
 /**
  * Why ExoPlayer has not handed the current track over to BG Mix yet.
  * Used for both privacy-safe diagnostics (no track titles/paths/IDs logged) and
@@ -75,3 +77,12 @@ internal fun exoQueueOccurrenceIndex(
     timelineSize: Int?
 ): Int = timelineIndex?.takeIf { timelineSize == queue.size && queue.getOrNull(it)?.key == mediaId }
     ?: queue.indexOfFirst { it.key == mediaId }
+
+/** A queued terminal action must not override a newly active or explicitly paused native deck. */
+internal fun bgMixDeferredMasterMatches(previous: BgMixStatus, current: BgMixStatus): Boolean {
+    val priorDeck = previous.decks.getOrNull(previous.master)
+    val currentDeck = current.decks.getOrNull(current.master)
+    return !current.transitionActive && previous.paused == current.paused &&
+        priorDeck?.trackId == currentDeck?.trackId && priorDeck?.playing == currentDeck?.playing &&
+        priorDeck?.ended == currentDeck?.ended
+}
