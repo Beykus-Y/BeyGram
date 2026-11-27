@@ -439,6 +439,8 @@ object PlaybackEngine {
     private var bgMixHandoverJob: Job? = null
     /** Counts the handover cancellations: a crossfade that started under an older count has been superseded. */
     private var bgMixHandoverGeneration = 0
+    /** True from the native commit until the handover fade ends: the ordinary crossfade has no ownership then. */
+    private var bgMixHandoverFading = false
     /** Adds tracks that finished downloading to the running BG Mix session and asks for the next ones; see [startBgMixFeed]. */
     private var bgMixFeedJob: Job? = null
     /** Latest active BG Wave native session handle from [BgWaveHub], kept so new BG Mix players attach at once. */
@@ -482,7 +484,7 @@ object PlaybackEngine {
     private val crossfader = TrackCrossfader(
         scope = scope,
         enabled = { TrackTransitionSettings.crossfade.value },
-        busy = { bgMixActive() || deferredSeek != null },
+        blocked = { crossfadeOwnershipBlock(bgMixActive(), bgMixHandoverFading, deferredSeek != null) },
         newPlayer = { newCrossfadePlayer() },
         trailingMs = { mediaId -> crossfadeTrailingMs(mediaId) },
         nextAfter = { primary, mediaId -> crossfadeNextAfter(primary, mediaId) },
@@ -2309,10 +2311,19 @@ object PlaybackEngine {
         // Once committed, native playback suppresses Exo callbacks. Check the live Exo occurrence throughout the fade.
         return withContext(NonCancellable) {
             _audioSessionId.value = driver.audioSessionId
-            val completed = crossfadeIntoBgMix(target, driver) {
-                generation == bgMixHandoverGeneration && driver.status === committedSession &&
-                    driver.isActive && exo === target &&
-                    occurrence.canFinishOn(target.handoverOccurrence(), ended = target.playbackState == Player.STATE_ENDED)
+            // The ordinary crossfade may have prepared or already started a transition on the same primary. It loses
+            // ownership atomically here: its tail is released and the primary level is restored before the handover
+            // reads the level it fades from. Without this the two ramps write the same gain and dip the sound.
+            bgMixHandoverFading = true
+            crossfader.cancel(target)
+            val completed = try {
+                crossfadeIntoBgMix(target, driver) {
+                    generation == bgMixHandoverGeneration && driver.status === committedSession &&
+                        driver.isActive && exo === target &&
+                        occurrence.canFinishOn(target.handoverOccurrence(), ended = target.playbackState == Player.STATE_ENDED)
+                }
+            } finally {
+                bgMixHandoverFading = false
             }
             if (!completed) {
                 Log.i("BgMixHandover", "handover_superseded stage=fade")
