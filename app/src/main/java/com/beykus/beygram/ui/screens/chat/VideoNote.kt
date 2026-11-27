@@ -264,14 +264,15 @@ internal fun VideoNoteBubble(
         TranslationPolicy.isTranscriptionRefusalLifted(transcriptFailure, speechRecognitionUi.trial, speechRecognitionUi.isPremiumAccount))
     val circleDescription = stringResource(R.string.a11y_video_note_message, duration(shownSeconds))
     BoxWithConstraints {
+        val availableWidth = maxWidth
         val expandMotion = rememberMotionSpec(MotionToken.MediaExpand)
         val size by animateDpAsState(
-            targetValue = if (showing) maxWidth else minOf(maxWidth, IDLE_SIZE),
+            targetValue = if (showing) availableWidth else minOf(availableWidth, IDLE_SIZE),
             animationSpec = expandMotion.animationSpec(),
             label = "video note size"
         )
         Column(horizontalAlignment = Alignment.End) {
-            Box(Modifier.size(minOf(size, maxWidth)).then(if (highlighted) Modifier.border(2.dp, palette.accent, CircleShape) else Modifier)) {
+            Box(Modifier.size(minOf(size, availableWidth)).then(if (highlighted) Modifier.border(2.dp, palette.accent, CircleShape) else Modifier)) {
                 Box(
                     Modifier.fillMaxSize().clip(CircleShape).background(VideoNoteBackground)
                         .then(
