@@ -20,6 +20,7 @@ import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performTouchInput
 import androidx.compose.ui.test.click
 import androidx.compose.ui.geometry.Offset
+import androidx.test.core.app.ApplicationProvider
 import com.beykus.beygram.data.appearance.AppearanceConfig
 import com.beykus.beygram.data.appearance.DesignStyle
 import com.beykus.beygram.data.appearance.GlassQuality
@@ -197,5 +198,46 @@ class BeyGramModalHostTest {
         rule.waitForIdle()
         rule.onNodeWithText("open sheet").assertIsDisplayed()
         rule.runOnIdle { assert(hostRef!!.isOpen) { "the host must know a modal is on screen" } }
+    }
+
+    @Test
+    fun aModalOfAnotherWindowMustNotRegisterWithThisHost() {
+        val host = BeyGramModalHost()
+        val ownWindow = android.view.View(ApplicationProvider.getApplicationContext())
+        val otherWindow = android.view.View(ApplicationProvider.getApplicationContext())
+        assert(!host.ownsWindow(ownWindow)) { "an unbound host owns no window" }
+        host.windowRoot = ownWindow
+        assert(host.ownsWindow(ownWindow)) { "the host owns the window it was bound to" }
+        assert(!host.ownsWindow(otherWindow)) { "a sheet inside a Dialog window must not host here" }
+        assert(!host.ownsWindow(null)) { "a detached composition owns nothing" }
+    }
+
+    @Test
+    fun aDialogInsideAWindowOfItsOwnStaysInThatWindow() {
+        var hostRef: BeyGramModalHost? = null
+        rule.setContent {
+            val host = rememberBeyGramModalHost()
+            hostRef = host
+            BeyGramTheme(design = rememberDesign(liquidGlass())) {
+                BeyGramModalHostProvider(host = host) {
+                    Box(Modifier.fillMaxSize()) {
+                        // A plain Compose Dialog is a window of its own: its content inherits this host through the
+                        // composition locals, but it must not register with it and be drawn behind the window.
+                        androidx.compose.ui.window.Dialog(onDismissRequest = {}) {
+                            BeyGramDialog(
+                                onDismissRequest = {},
+                                title = "Nested dialog",
+                                confirmText = "OK",
+                                onConfirm = {}
+                            )
+                        }
+                    }
+                }
+            }
+        }
+        rule.waitForIdle()
+        rule.runOnIdle {
+            assert(!hostRef!!.isOpen) { "a dialog in another window must not be hosted in this one" }
+        }
     }
 }

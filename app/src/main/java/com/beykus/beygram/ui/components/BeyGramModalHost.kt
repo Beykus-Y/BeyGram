@@ -1,6 +1,8 @@
 package com.beykus.beygram.ui.components
 
 import androidx.activity.compose.BackHandler
+import androidx.compose.ui.platform.LocalView
+import android.view.View
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
@@ -96,6 +98,19 @@ class BeyGramModalHost {
     internal val sheets = mutableStateListOf<SheetRoute>()
     internal var dialog by mutableStateOf<DialogRoute?>(null)
 
+    /**
+     * The root view of the window this host belongs to. A sheet or dialog composed inside a separate window (a
+     * `Dialog`, a `Popup`, a Material sheet) inherits the composition locals of its parent, so without this check it
+     * would register here and be drawn behind that window instead of in front of it.
+     */
+    internal var windowRoot: View? = null
+
+    /** True when the composition drawing into [rootView] is the window this host owns. */
+    fun ownsWindow(rootView: View?): Boolean {
+        val root = windowRoot ?: return false
+        return rootView != null && rootView === root
+    }
+
     /** True while any modal surface is on screen: the only time the window backdrop is worth recording. */
     val isOpen: Boolean get() = sheets.isNotEmpty() || dialog != null
 
@@ -134,6 +149,9 @@ fun BeyGramModalHostProvider(
 ) {
     val design = LocalDesignSystem.current
     val modalBackdrop = rememberGlassBackdrop()
+    val view = LocalView.current
+    // Bound before the children compose: a sheet or dialog of this window reads it to decide whether it may host here.
+    host.windowRoot = view.rootView
     val open = host.isOpen
     // Only a style that really samples a backdrop pays for the recording, and only while something is open.
     val record = open && design.recordsGlassBackdrop

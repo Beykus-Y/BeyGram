@@ -17,6 +17,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.paneTitle
@@ -70,7 +71,10 @@ fun BeyGramSheet(
     }
     val design = LocalDesignSystem.current
     val host = LocalBeyGramModalHost.current
-    if (glassEligible && design.usesGlassPanels && host != null) {
+    // A sheet composed inside another window (a Dialog, a Popup) inherits this host and would be drawn behind that
+    // window. Only a sheet of the host's own window may take the hosted path.
+    val windowRoot = LocalView.current.rootView
+    if (glassEligible && design.usesGlassPanels && host != null && host.ownsWindow(windowRoot)) {
         val route = rememberSheetRoute(
             state = sheetState,
             content = content,

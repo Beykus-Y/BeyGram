@@ -19,6 +19,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.paneTitle
@@ -83,9 +84,12 @@ fun BeyGramDialog(
     val maxHeight = (LocalConfiguration.current.screenHeightDp * 0.8f).dp
     val design = LocalDesignSystem.current
     val host = LocalBeyGramModalHost.current
+    // Same rule as the sheet: a dialog inside another window must stay in that window instead of registering with a
+    // host it would be drawn behind.
+    val windowRoot = LocalView.current.rootView
     // A secure dialog must keep its own window: FLAG_SECURE belongs to the window, and a snapshot of the app must not
     // show the key or the code it displays. Such a dialog keeps the plain fill, which is the safe fallback.
-    val hosted = design.usesGlassPanels && host != null && !secure
+    val hosted = design.usesGlassPanels && host != null && host.ownsWindow(windowRoot) && !secure
     val body: @Composable (Boolean) -> Unit = { fillWidth ->
         BeyGramDialogBody(
             title = title,
