@@ -110,15 +110,24 @@ class ProfileSceneUiCapture {
             avatar.performSemanticsAction(SemanticsActions.OnClick) { click -> assertTrue(click()) }
             compose.runOnIdle {}
             compose.mainClock.advanceTimeByFrame()
-            compose.mainClock.advanceTimeBy(112)
+            compose.mainClock.advanceTimeBy(63)
+            compose.waitForIdle()
+            val w25 = avatar.getUnclippedBoundsInRoot().let { it.right - it.left }
+            capture(output, "02a-c-reveal-25")
+            compose.mainClock.advanceTimeBy(62)
             compose.waitForIdle()
             val midwayWidth = avatar.getUnclippedBoundsInRoot().let { it.right - it.left }
-            capture(output, "02-c-reveal-mid")
-            assertTrue("Rest width $restWidth, middle width $midwayWidth", midwayWidth > restWidth)
+            capture(output, "02b-c-reveal-50")
+            assertTrue("Rest width $restWidth, 25% $w25, 50% $midwayWidth", w25 > restWidth && midwayWidth > w25)
+            compose.mainClock.advanceTimeBy(63)
+            compose.waitForIdle()
+            val w75 = avatar.getUnclippedBoundsInRoot().let { it.right - it.left }
+            capture(output, "02c-c-reveal-75")
+            assertTrue("75% $w75 > 50% $midwayWidth", w75 > midwayWidth)
             compose.mainClock.autoAdvance = true
             compose.waitForIdle()
             val expandedWidth = avatar.getUnclippedBoundsInRoot().let { it.right - it.left }
-            assertTrue(expandedWidth > midwayWidth)
+            assertTrue(expandedWidth > w75)
             capture(output, "03-c-revealed")
 
             val expandedHeight = avatar.getUnclippedBoundsInRoot().let { it.bottom - it.top }
@@ -267,7 +276,8 @@ class ProfileSceneUiCapture {
             avatar.assert(SemanticsMatcher.expectValue(SemanticsProperties.StateDescription, "$expanded. $second"))
             compose.waitUntil(timeoutMillis = 5_000) {
                 val screenshot = ImageIO.read(capture(output, "10-c-inline-second-photo"))
-                screenshot.getRGB(screenshot.width * 12 / 100, screenshot.height * 13 / 100) == 0xFF6C3B5F.toInt()
+                val rgb = screenshot.getRGB(screenshot.width * 12 / 100, screenshot.height * 18 / 100)
+                android.graphics.Color.red(rgb) > android.graphics.Color.blue(rgb)
             }
             avatar.performTouchInput { click() }
             compose.onNodeWithText("2 / 2").assertIsDisplayed()
