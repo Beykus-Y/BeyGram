@@ -1809,7 +1809,8 @@ fun ChatScreen(
                 .orEmpty()
             val sceneEligible = !chat.isSecret && !chat.hasProtectedContent && !waveChat &&
                 actionMessage.supportsContextScene() &&
-                (actionMessage.media == null || capabilities?.canForward == true)
+                (actionMessage.media == null || capabilities?.canForward == true ||
+                    (capabilities?.canCopy == true && actionMessage.text.isNotBlank()))
             MessageContextPopover(
                 anchorBounds = actionAnchorBounds,
                 paneBounds = composerLaunch.overlayBounds,

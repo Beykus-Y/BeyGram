@@ -180,3 +180,34 @@ internal fun computeMessageContextScene(
         reactionBounds
     )
 }
+
+/** Keeps a scrollable message in the same scene when its original bounds cannot fit. */
+internal fun computeScrollableMessageContextScene(
+    anchor: Rect?,
+    viewport: Rect,
+    desiredMenuHeight: Int,
+    minMenuHeight: Int,
+    menuWidth: Int,
+    gap: Int,
+    isOutgoing: Boolean,
+    reactionWidth: Int,
+    reactionHeight: Int
+): MessageContextScenePlacement? {
+    if (viewport.width <= 0 || viewport.height <= gap) return null
+    val reactionStack = if (reactionWidth > 0 && reactionHeight > 0) reactionHeight + gap else 0
+    val showSeparateReactions = viewport.height - reactionStack - gap >= 2 * minMenuHeight
+    val available = viewport.height - gap - if (showSeparateReactions) reactionStack else 0
+    val menuMinimum = minOf(minMenuHeight, (available / 2).toInt())
+    if (menuMinimum <= 0) return null
+    val height = minOf(anchor?.height?.takeIf { it > 0 } ?: available, available / 2)
+    val width = minOf(anchor?.width?.takeIf { it > 0 } ?: menuWidth.toFloat(), viewport.width)
+    val left = (anchor?.left ?: if (isOutgoing) viewport.right - width else viewport.left)
+        .coerceIn(viewport.left, viewport.right - width)
+    val top = (anchor?.top ?: viewport.top).coerceIn(viewport.top, viewport.bottom - height)
+    return computeMessageContextScene(
+        Rect(left, top, left + width, top + height), viewport, desiredMenuHeight, menuMinimum,
+        minOf(menuWidth, viewport.width.toInt()), gap, isOutgoing,
+        if (showSeparateReactions) reactionWidth else 0,
+        if (showSeparateReactions) reactionHeight else 0
+    )
+}

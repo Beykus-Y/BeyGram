@@ -194,7 +194,7 @@ internal fun MessageBubble(message: ChatMessage, observeFile: (Int) -> StateFlow
                                 if (selectionState != null) stateDescription = selectionState
                             }
                         }
-                        .combinedClickable(
+                        .then(if (contextScenePassive) Modifier else Modifier.combinedClickable(
                             onClickLabel = when {
                                 selectionMode -> selectionLabel
                                 sticker -> openStickerSetLabel
@@ -204,21 +204,19 @@ internal fun MessageBubble(message: ChatMessage, observeFile: (Int) -> StateFlow
                             },
                             onLongClickLabel = if (selectionMode) selectionLabel else longPressLabel,
                             onClick = {
-                                if (!contextScenePassive) {
-                                    when {
-                                        selectionMode -> onToggleSelection()
-                                        sticker -> stickerMedia?.let { onStickerOpen?.invoke(it) }
-                                        // A tap on the caption of a track, such as a shared timecode, plays it in the music player.
-                                        message.media?.kind == MediaKind.Audio ->
-                                            captionPlay = AudioPlayRequest(parseShareTimecodeMs(message.text, message.media.durationSeconds))
-                                        message.media != null && !message.media.kind.playsInline() -> onOpen()
-                                    }
+                                when {
+                                    selectionMode -> onToggleSelection()
+                                    sticker -> stickerMedia?.let { onStickerOpen?.invoke(it) }
+                                    // A tap on the caption of a track, such as a shared timecode, plays it in the music player.
+                                    message.media?.kind == MediaKind.Audio ->
+                                        captionPlay = AudioPlayRequest(parseShareTimecodeMs(message.text, message.media.durationSeconds))
+                                    message.media != null && !message.media.kind.playsInline() -> onOpen()
                                 }
                             },
                             // Media and other interactive content need an immediate single tap.
-                            onDoubleClick = quickReaction.takeIf { !contextScenePassive && message.media == null && message.special == null },
-                            onLongClick = if (contextScenePassive) ({}) else if (selectionMode) onToggleSelection else onActions
-                        ),
+                            onDoubleClick = quickReaction.takeIf { message.media == null && message.special == null },
+                            onLongClick = if (selectionMode) onToggleSelection else onActions
+                        )),
                     overlayMeta = overlayMeta,
                     body = {
                     Column {
