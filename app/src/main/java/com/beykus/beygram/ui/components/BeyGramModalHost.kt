@@ -33,10 +33,13 @@ import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalContext
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.Stable
+import androidx.compose.runtime.currentCompositionLocalContext
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
@@ -55,6 +58,7 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.heading
@@ -92,11 +96,25 @@ import kotlinx.coroutines.launch
  *
  * The pattern is the one the chat's long-press sheet already uses
  * (`ChatActionsSheet`) and [SameWindowPopoverHost] uses for popovers; this class makes it shared instead of per-screen.
+ *
+ * A modal is drawn where the host is, not where it was declared, so it does not inherit the composition locals of the
+ * screen that opened it. Every route therefore carries the caller's [CompositionLocalContext] and the host restores it
+ * before drawing the surface, then re-provides the locals the host itself owns. Without that, a sheet that draws gift
+ * artwork loses `LocalGiftFileAccess` of the profile screen and falls back to emoji.
  */
 @Stable
 class BeyGramModalHost {
     internal val sheets = mutableStateListOf<SheetRoute>()
-    internal var dialog by mutableStateOf<DialogRoute?>(null)
+
+    /**
+     * The dialogs of the window, bottom first. A dialog opened from another dialog (the gift market and the details of
+     * one of its lots) is pushed on top and stays there; the parent is not replaced, so closing the child brings the
+     * parent back with the state it had.
+     */
+    internal val dialogs = mutableStateListOf<DialogRoute>()
+
+    /** The dialog that is drawn on top, if any. */
+    internal val topDialog: DialogRoute? get() = dialogs.lastOrNull()
 
     /**
      * The root view of the window this host belongs to. A sheet or dialog composed inside a separate window (a
@@ -112,7 +130,7 @@ class BeyGramModalHost {
     }
 
     /** True while any modal surface is on screen: the only time the window backdrop is worth recording. */
-    val isOpen: Boolean get() = sheets.isNotEmpty() || dialog != null
+    val isOpen: Boolean get() = sheets.isNotEmpty() || dialogs.isNotEmpty()
 
     internal fun pushSheet(route: SheetRoute) {
         if (sheets.none { it === route }) sheets.add(route)
@@ -121,6 +139,25 @@ class BeyGramModalHost {
     internal fun removeSheet(route: SheetRoute) {
         sheets.removeAll { it === route }
     }
+
+    internal fun pushDialog(route: DialogRoute) {
+        if (dialogs.none { it === route }) dialogs.add(route)
+    }
+
+    internal fun removeDialog(route: DialogRoute) {
+        dialogs.removeAll { it === route }
+    }
+}
+
+/**
+ * Provides [locals] to [content] when they were captured, and nothing when they were not.
+ *
+ * [CompositionLocalContext] cannot be built by hand, so an unsupported caller (a preview, a test that composes a
+ * surface without the host) simply keeps the ambient values.
+ */
+@Composable
+private fun RestoreCallerLocals(locals: CompositionLocalContext?, content: @Composable () -> Unit) {
+    if (locals == null) content() else CompositionLocalProvider(locals, content = content)
 }
 
 /** The host of the current window. Null in previews and wherever no host is provided. */
@@ -141,8 +178,12 @@ fun rememberBeyGramModalHost(): BeyGramModalHost = remember { BeyGramModalHost()
  *
  * The content is recorded into the host's own [GlassBackdrop] only while a modal is open, so nothing is copied on
  * idle frames and the window-level backdrop that screens already use is not disturbed. While a modal is open the
- * content is also hidden from accessibility and cannot take focus, which is what a separate dialog window gives for
- * free; pointer input is stopped by the scrim, so a drag inside the modal still reaches it.
+ * content is also hidden from accessibility, cannot take focus and loses the focus it had, which is what a separate
+ * dialog window gives for free; pointer input is stopped by the scrim, so a drag inside the modal still reaches it.
+ *
+ * [content] must cover every surface a modal has to hide, including the mini player and any bottom chrome. A bar
+ * composed outside the provider is not part of the scrim, so it keeps drawing above the dimmed screen and accepts taps
+ * while a sheet is open; the route content and the bottom bar therefore have to share one provider.
  *
  * The recorded subtree and the overlay are siblings: the panel is drawn after the content has been recorded for the
  * same frame, and it is outside the subtree it samples, so it can never feed itself.
@@ -178,15 +219,51 @@ fun BeyGramModalHostProvider(
 }
 
 /**
- * Draws the modals of [host]: the top sheet first, then the dialog. Both are ordinary in-window composables, so every
- * material rule of the design system applies to them unchanged.
+ * Draws the modals of [host]: the top sheet first, then every dialog from the bottom up. Both are ordinary in-window
+ * composables, so every material rule of the design system applies to them unchanged.
+ *
+ * Each surface is composed with the composition locals of the screen that opened it ([SheetRoute.locals],
+ * [DialogRoute.locals]) and then with the locals the host owns: the modal backdrop the glass samples, and the host
+ * itself. That is the order the screen content had, so a sheet sees `LocalGiftFileAccess` of the profile screen and the
+ * panel still samples the screen behind it.
+ *
+ * Only the top dialog is a modal surface of its own: it owns the scrim, the Back handler and the dismissal. The dialogs
+ * below it stay composed (their scroll position and remembered state survive) and are drawn dimmed under it.
  */
 @Composable
 fun BeyGramModalHostOverlay(host: BeyGramModalHost, backdrop: GlassBackdrop?) {
-    val topSheet = host.sheets.lastOrNull()
-    if (topSheet != null) CompositionLocalProvider(LocalGlassBackdrop provides backdrop) { SheetModal(topSheet) }
-    val dialog = host.dialog
-    if (dialog != null) CompositionLocalProvider(LocalGlassBackdrop provides backdrop) { DialogModal(dialog) }
+    val focusManager = LocalFocusManager.current
+    val open = host.isOpen
+    // A focused field of the screen underneath keeps the IME and receives typed text while a modal covers it. Focus is
+    // dropped when a modal appears; the modal's own autofocus requests focus afterwards, in the same frame.
+    LaunchedEffect(open) { if (open) focusManager.clearFocus(force = true) }
+    val sheets = host.sheets
+    if (sheets.isNotEmpty()) {
+        val topSheet = sheets.last()
+        // A dialog above the sheet owns Back and the screen: the sheet must not answer a Back that is meant for it.
+        val sheetOwnsBack = host.dialogs.isEmpty()
+        RestoreCallerLocals(topSheet.locals.value) {
+            CompositionLocalProvider(
+                LocalGlassBackdrop provides backdrop,
+                LocalBeyGramModalHost provides host
+            ) {
+                SheetModal(topSheet, backEnabled = sheetOwnsBack)
+            }
+        }
+    }
+    val dialogs = host.dialogs
+    for (index in dialogs.indices) {
+        val route = dialogs[index]
+        val topmost = index == dialogs.lastIndex
+        RestoreCallerLocals(route.locals.value) {
+            CompositionLocalProvider(
+                LocalGlassBackdrop provides backdrop,
+                LocalBeyGramModalHost provides host
+            ) {
+                DialogModal(route, topmost = topmost, depth = index)
+            }
+        }
+    }
 }
 
 /** Values of a [BeyGramSheetState]. Mirrors the Material states so call sites read the same way. */
@@ -271,6 +348,12 @@ internal class SheetRoute(
     val scrollable = mutableStateOf(scrollableContent)
     val bottom = mutableStateOf(bottomPadding)
     val tint = mutableStateOf(contentColor)
+
+    /**
+     * Composition locals of the screen that declared the sheet. The sheet itself is composed in the host, above the
+     * routes, so without this it would read the ambient values of the window instead of the caller's.
+     */
+    val locals = mutableStateOf<CompositionLocalContext?>(null)
 }
 
 /** Creates the route of a hosted sheet, updating it in place so the host never sees a new identity. */
@@ -295,6 +378,9 @@ internal fun rememberSheetRoute(
             latestHandle.value, scrollableContent, bottomPadding, contentColor
         )
     }
+    // Re-captured on every composition of the declaration, so a theme, style or account change that recomposes the
+    // caller also reaches the sheet and never leaves it on the values of a previous screen.
+    route.locals.value = currentCompositionLocalContext
     route.content.value = latestContent.value
     route.dismiss.value = latestDismiss.value
     route.handle.value = latestHandle.value
@@ -325,7 +411,7 @@ private val SheetCorner = 28.dp
 private val PanelMaxWidth = 560.dp
 
 @Composable
-private fun SheetModal(route: SheetRoute) {
+private fun SheetModal(route: SheetRoute, backEnabled: Boolean) {
     val palette = beyGramPalette()
     val design = LocalDesignSystem.current
     val dismiss = route.dismiss.value
@@ -346,13 +432,15 @@ private fun SheetModal(route: SheetRoute) {
     // Every dismissal goes through the state's veto, so a sheet that owns an in-flight operation stays put under a
     // swipe, a tap outside and Back alike.
     val requestDismiss: () -> Unit = { if (state.dismissAllowed()) dismiss() }
-    BackHandler(enabled = visible) { requestDismiss() }
     val scrim by animateFloatAsState(
         targetValue = if (visible) 1f else 0f,
         animationSpec = tween(180),
         label = "beyGramSheetScrim"
     )
+    // The sheet is still drawn while it animates away, so it must keep owning Back until it is really gone: a Back in
+    // that window closes nothing under it. A dialog above this sheet owns Back instead.
     if (!visible && scrim == 0f) return
+    BackHandler(enabled = backEnabled) { if (visible) requestDismiss() }
 
     fun settle(velocity: Float) {
         val dismissByDistance = panelHeight > 0 && offset.value > panelHeight * DismissDistanceFraction
@@ -498,6 +586,9 @@ internal class DialogRoute(
     val title = mutableStateOf(paneTitle)
     val backDismiss = mutableStateOf(dismissOnBackPress)
     val outsideDismiss = mutableStateOf(dismissOnClickOutside)
+
+    /** Composition locals of the screen that declared the dialog. See [SheetRoute.locals]. */
+    val locals = mutableStateOf<CompositionLocalContext?>(null)
 }
 
 @Composable
@@ -518,6 +609,7 @@ internal fun rememberDialogRoute(
             dismissOnBackPress, dismissOnClickOutside
         )
     }
+    route.locals.value = currentCompositionLocalContext
     route.dismiss.value = latestDismiss.value
     route.body.value = latestContent.value
     route.panelModifier.value = modifier
@@ -528,20 +620,31 @@ internal fun rememberDialogRoute(
     return route
 }
 
-/** Registers [route] as the dialog of the current window. The dialog is drawn above the sheet. */
+/**
+ * Registers [route] on top of the dialogs of the current window.
+ *
+ * The route is pushed, never assigned: a dialog opened from another dialog keeps its parent in place, so closing the
+ * child restores the parent instead of emptying the slot. Registration is idempotent, so a recomposing parent cannot
+ * put the same dialog on the stack twice.
+ */
 @Composable
 internal fun HostedDialog(route: DialogRoute) {
     val host = LocalBeyGramModalHost.current ?: return
-    SideEffect { host.dialog = route }
-    DisposableEffect(host, route) {
-        onDispose { if (host.dialog === route) host.dialog = null }
-    }
+    SideEffect { host.pushDialog(route) }
+    DisposableEffect(host, route) { onDispose { host.removeDialog(route) } }
 }
 
 private const val DialogScrimAlpha = 0.4f
 
+/**
+ * Draws one dialog of the stack.
+ *
+ * [topmost] is the dialog that owns the scrim, the outside-tap dismissal and Back. The dialog below it is drawn under
+ * that scrim, without a dim of its own, so a stack of two does not draw the window twice as dark and Back always
+ * belongs to the child. [depth] keeps the drawing order of the stack stable across recompositions.
+ */
 @Composable
-private fun DialogModal(route: DialogRoute) {
+private fun DialogModal(route: DialogRoute, topmost: Boolean, depth: Int) {
     val palette = beyGramPalette()
     val design = LocalDesignSystem.current
     val dismiss = route.dismiss.value
@@ -552,19 +655,23 @@ private fun DialogModal(route: DialogRoute) {
     val imePx = WindowInsets.ime.getBottom(density).toFloat()
     val availablePx = (screenHeightPx - imePx).coerceAtLeast(screenHeightPx * 0.3f)
     val maxHeight = with(density) { (availablePx * DialogMaxHeightFraction).toDp() }
-    BackHandler(enabled = route.backDismiss.value) { dismiss() }
-    Box(Modifier.fillMaxSize().zIndex(40f)) {
-        Box(
-            Modifier
-                .fillMaxSize()
-                .testTag("beyGramDialogScrim")
-                .background(Color.Black.copy(alpha = DialogScrimAlpha))
-                .clickable(
-                    interactionSource = remember { MutableInteractionSource() },
-                    indication = null,
-                    onClick = { if (route.outsideDismiss.value) dismiss() }
-                )
-        )
+    // A dialog that forbids Back still owns it: swallowing the gesture is not the same as closing on it, and the screen
+    // underneath must not navigate while this dialog is on top.
+    if (topmost) BackHandler { if (route.backDismiss.value) dismiss() }
+    Box(Modifier.fillMaxSize().zIndex(40f + depth)) {
+        if (topmost) {
+            Box(
+                Modifier
+                    .fillMaxSize()
+                    .testTag("beyGramDialogScrim")
+                    .background(Color.Black.copy(alpha = DialogScrimAlpha))
+                    .clickable(
+                        interactionSource = remember { MutableInteractionSource() },
+                        indication = null,
+                        onClick = { if (route.outsideDismiss.value) dismiss() }
+                    )
+            )
+        }
         Box(
             Modifier
                 .fillMaxSize()
