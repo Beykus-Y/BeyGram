@@ -1050,6 +1050,7 @@
     <string name="chat_read_all_reactions_message">Todas las reacciones a tus mensajes de este chat se marcarán como leídas.</string>
     <string name="chat_read_all_confirm">Marcar como leído</string>
     <string name="chat_read_all_failed">No se pudo marcar todo como leído</string>
+    <string name="chat_jump_unread_empty">No hay menciones ni reacciones sin leer</string>
     <string name="chat_swipe_secondary_title">Deslizamiento inverso</string>
     <string name="chat_swipe_secondary_reaction">Reacción rápida</string>
     <string name="chat_swipe_secondary_saved">Guardar en Guardados</string>
@@ -1108,7 +1109,7 @@
     <string name="forum_topic_move_up">Subir</string>
     <string name="forum_topic_move_down">Bajar</string>
     <string name="diag_video_buffer_title">Búfer inicial de vídeo</string>
-    <string name="diag_video_buffer_value_default">Predeterminado de Media3</string>
+    <string name="diag_video_buffer_value_default">Predeterminado</string>
     <string name="diag_video_buffer_value_ms">%1$d ms</string>
     <string name="composer_quality_hint_codec">Telegram no reproduce el códec de este vídeo. Comprímelo para enviarlo como vídeo o envíalo como archivo.</string>
     <!-- Автопроверка обновлений (#1148): канал уведомлений и плашка на экране чатов. -->

@@ -29,14 +29,13 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material.icons.rounded.KeyboardArrowDown
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.rememberModalBottomSheetState
-import androidx.compose.material3.SheetValue
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.RadioButton
 import com.beykus.beygram.ui.components.BeyGramSheet
+import com.beykus.beygram.ui.components.rememberBeyGramSheetState
 import com.beykus.beygram.ui.components.Switch
 import androidx.compose.material3.Text
 import com.beykus.beygram.ui.components.TextButton
@@ -90,6 +89,7 @@ internal fun ChatSettingsSheet(
     overrides: ChatOverridesStore,
     globalWallpaper: ChatWallpaper,
     isSecretChat: Boolean = false,
+    supportsGroupAvatars: Boolean = false,
     onSecretChatClosed: () -> Unit = {},
     onClose: () -> Unit
 ) {
@@ -157,11 +157,11 @@ internal fun ChatSettingsSheet(
     // use one scrollable bottom sheet instead of compressing them into an AlertDialog.
     BeyGramSheet(
         onDismissRequest = { if (!busy) onClose() },
-        sheetState = rememberModalBottomSheetState(
+        sheetState = rememberBeyGramSheetState(
             skipPartiallyExpanded = true,
-            // A swipe must not hide the sheet during an in-flight TDLib/store operation:
-            // onDismissRequest alone is too late to veto the state transition.
-            confirmValueChange = { next -> next != SheetValue.Hidden || !busy }
+            // A swipe must not hide the sheet during an in-flight TDLib/store operation: the veto is checked before
+            // the sheet leaves, so onDismissRequest cannot be outrun.
+            canDismiss = { !busy }
         ),
         scrollableContent = false
     ) {
@@ -188,6 +188,14 @@ internal fun ChatSettingsSheet(
                     .padding(bottom = 20.dp)
             ) {
                 error?.let { Text(it, color = palette.danger, fontSize = 13.sp, modifier = Modifier.padding(bottom = 8.dp)) }
+                if (supportsGroupAvatars) {
+                    SettingSwitch(
+                        title = stringResource(R.string.chat_settings_group_avatars),
+                        checked = allOverrides[chatId]?.groupAvatarsHidden != true,
+                        enabled = true,
+                        onCheckedChange = { overrides.setGroupAvatarsHidden(chatId, !it) }
+                    )
+                }
                 if (loading) {
                     CircularProgressIndicator(Modifier.size(22.dp), color = palette.accent, strokeWidth = 2.dp)
                     return@Column

@@ -123,6 +123,7 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.DpSize
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -309,6 +310,9 @@ private object MinithumbnailCache {
     }
 }
 
+@OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
+private val MediaDecodeDispatcher = kotlinx.coroutines.Dispatchers.IO.limitedParallelism(4)
+
 /**
  * Decode still artwork normally. Telegram GIFs are often MP4 animations: their thumbnails can be
  * missing, stale or non-image files. Only animation/video callers opt in to a bounded frame fallback.
@@ -336,7 +340,7 @@ internal fun LocalMediaImage(
     val cached = remember(cacheKey) { if (cacheable) DecodedImageCache.get(cacheKey)?.let { BitmapDrawable(context.resources, it) } else null }
     val loaded by produceState<Drawable?>(cached, cacheKey) {
         if (cached != null) { failed = false; value = cached; return@produceState }
-        val result = withContext(Dispatchers.IO) {
+        val result = withContext(MediaDecodeDispatcher) {
             val still = runCatching {
                 val source = ImageDecoder.createSource(File(path))
                 val sizeListener = ImageDecoder.OnHeaderDecodedListener { decoder, info, _ ->
@@ -383,7 +387,15 @@ internal fun LocalMediaImage(
     val fading by remember(reveal) { derivedStateOf { reveal.value < 1f } }
     Box(modifier.clipToBounds(), contentAlignment = Alignment.Center) {
         if (placeholder != null && (drawable == null && !failed || drawable != null && fading)) placeholder()
-        if (drawable != null) AndroidView(
+        if (drawable is BitmapDrawable) {
+            val bitmap = remember(drawable) { drawable.bitmap.asImageBitmap() }
+            Image(
+                bitmap = bitmap,
+                contentDescription = contentDescriptionText,
+                contentScale = if (fit) ContentScale.Fit else ContentScale.Crop,
+                modifier = Modifier.fillMaxSize().graphicsLayer { alpha = reveal.value }
+            )
+        } else if (drawable != null) AndroidView(
             factory = { ImageView(it).apply { contentDescription = contentDescriptionText } },
             update = { view ->
                 view.contentDescription = contentDescriptionText
@@ -455,20 +467,27 @@ internal fun softMinithumbnailSlot(data: ByteArray?): (@Composable () -> Unit)? 
 /**
  * Longest-side decode size that covers a center-cropped box of [boxWidthPx]x[boxHeightPx] for a [mediaWidth]x[mediaHeight] source, in 256 px steps.
  */
-internal fun bubbleDecodeDimension(mediaWidth: Int, mediaHeight: Int, boxWidthPx: Float, boxHeightPx: Float): Int {
+internal fun bubbleDecodeDimension(mediaWidth: Int, mediaHeight: Int, boxWidthPx: Float, boxHeightPx: Float, fit: Boolean = false): Int {
     if (mediaWidth <= 0 || mediaHeight <= 0 || boxWidthPx <= 0f || boxHeightPx <= 0f) return 1024
-    val scale = maxOf(boxWidthPx / mediaWidth, boxHeightPx / mediaHeight)
+    val widthScale = boxWidthPx / mediaWidth
+    val heightScale = boxHeightPx / mediaHeight
+    val scale = if (fit) minOf(widthScale, heightScale) else maxOf(widthScale, heightScale)
     val needed = kotlin.math.ceil(maxOf(mediaWidth, mediaHeight) * scale).toInt()
     return (((needed + 255) / 256) * 256).coerceIn(512, BUBBLE_MAX_DECODE_DIMENSION)
 }
 
 /** What the bubble shows before the full file: the downloaded preview at its own resolution, else the soft minithumbnail. */
 @Composable
-private fun MediaThumbnailLayer(media: MessageMedia, thumbnailPath: String?, modifier: Modifier) {
+private fun MediaThumbnailLayer(
+    media: MessageMedia,
+    thumbnailPath: String?,
+    modifier: Modifier,
+    fit: Boolean = false
+) {
     val minithumbnail = media.minithumbnail
     when {
         thumbnailPath != null -> LocalMediaImage(
-            thumbnailPath, modifier,
+            thumbnailPath, modifier, fit = fit,
             allowVideoFrame = media.kind == MediaKind.Animation || media.kind == MediaKind.Video,
             fallbackMinithumbnail = minithumbnail,
             animate = false,
@@ -588,6 +607,7 @@ internal fun MediaPreview(
     externalPlay: AudioPlayRequest? = null,
     /** Selection mode is on: a tap on the bubble selects the message instead of opening it. */
     selectionActive: Boolean = false,
+    mediaSize: DpSize? = null,
 ) {
     // The bubble reads [file] and [thumb] without byte counters; progress is read only in deferred lambdas through the handles.
     val thumbId = media.thumbnailFileId ?: media.fileId
@@ -611,7 +631,7 @@ internal fun MediaPreview(
             Unit
         }
     }
-    val isVisual = media.kind in listOf(MediaKind.Photo, MediaKind.Video, MediaKind.Animation)
+    val isVisual = media.kind.isSingleVisualMedia()
     // A GIF in the bubble animates only after it has been on screen for the autoplay dwell time; until then its first frame shows.
     val autoplay = rememberAutoplayEligible(enabled = media.mimeType == "image/gif")
     // Секретное вложение в ленте не грузим и не показываем до открытия: превью иначе видно раньше просмотрщика.
@@ -726,7 +746,8 @@ internal fun MediaPreview(
             media, file, thumb, downloadFile,
             onOpen = onStickerOpen ?: {},
             onLongPress = onLongPress,
-            autoDownloadFile = autoDownload
+            autoDownloadFile = autoDownload,
+            mediaSize = mediaSize
         )
         return
     }
@@ -742,16 +763,17 @@ internal fun MediaPreview(
         val viewOnceHint = stringResource(R.string.media_view_once_hint, mediaLabel)
         // Full file not here yet: the downloaded preview is shown at its own resolution until it arrives, with the download button on top.
         val awaitingFile = revealed && !concealed && file.localPath == null
-        val boxHeightDp = (244 / ratio).coerceIn(120f, 280f)
+        val previewSize = mediaSize ?: DpSize(244.dp, (244 / ratio).coerceIn(120f, 280f).dp)
+        val fit = mediaSize != null
         val density = LocalDensity.current
         // Decode size for the full image: covers the crop box, so bubbles never decode 1024 px for a small box.
-        val decodeDimension = remember(media.width, media.height, boxHeightDp, density.density) {
-            val cover = with(density) { bubbleDecodeDimension(media.width, media.height, 244.dp.toPx(), boxHeightDp.dp.toPx()) }
+        val decodeDimension = remember(media.width, media.height, previewSize, density.density, fit, media.kind, media.mimeType) {
+            val cover = with(density) { bubbleDecodeDimension(media.width, media.height, previewSize.width.toPx(), previewSize.height.toPx(), fit) }
             // Animated drawables are not cached and hold every frame at this size, so they keep the old 1024 limit.
             if (media.mimeType == "image/gif" || media.kind == MediaKind.Animation) minOf(cover, 1024) else cover
         }
         Box(
-            Modifier.width(244.dp).height(boxHeightDp.dp)
+            Modifier.size(previewSize)
                 .background(palette.disabled)
                 .combinedClickable(
                     onClickLabel = if (viewOnce) viewOnceLabel else if (revealed) openLabel else spoilerLabel,
@@ -771,17 +793,18 @@ internal fun MediaPreview(
                         modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
                     )
                 }
-            } else if (awaitingFile) MediaThumbnailLayer(media, thumb.localPath, Modifier.fillMaxSize())
+            } else if (awaitingFile) MediaThumbnailLayer(media, thumb.localPath, Modifier.fillMaxSize(), fit = fit)
             else if (revealed && posterFile != null) LocalMediaImage(
                 posterFile, Modifier.fillMaxSize(),
                 maxDimension = decodeDimension,
+                fit = fit,
                 allowVideoFrame = media.kind == MediaKind.Animation || media.kind == MediaKind.Video,
                 fallbackVideoPath = if (posterFile != file.localPath) file.localPath else null,
                 fallbackMinithumbnail = media.minithumbnail,
                 animate = autoplay.eligible.value,
                 // Without a preview or minithumbnail there is nothing to hold, so the spinner stays.
                 placeholder = if (posterFile != thumb.localPath && (thumb.localPath != null || media.minithumbnail != null)) {
-                    val layer: @Composable () -> Unit = { MediaThumbnailLayer(media, thumb.localPath, Modifier.fillMaxSize()) }
+                    val layer: @Composable () -> Unit = { MediaThumbnailLayer(media, thumb.localPath, Modifier.fillMaxSize(), fit = fit) }
                     layer
                 } else softMinithumbnailSlot(media.minithumbnail)
             )
@@ -802,7 +825,7 @@ internal fun MediaPreview(
                             modifier = Modifier.size(52.dp).background(Color.Black.copy(alpha = 0.45f), CircleShape).padding(10.dp))
                     }
                 }
-                if (revealed) Text(
+                if (revealed && (media.kind != MediaKind.Photo || !fit)) Text(
                     media.kind.label(context) + if (media.durationSeconds > 0) " · ${duration(media.durationSeconds)}" else "",
                     color = Color.White, fontSize = 11.sp,
                     modifier = Modifier.align(Alignment.TopStart).padding(6.dp).background(Color.Black.copy(alpha = 0.5f), styledShape(6.dp)).padding(horizontal = 6.dp, vertical = 3.dp)
@@ -843,7 +866,7 @@ internal fun MediaPreview(
         val longPressLabel = stringResource(R.string.a11y_message_actions)
         val playSpec = rememberMotionSpec(MotionToken.MicroFeedback)
         Row(
-            Modifier.width(280.dp).clip(styledShape(12.dp))
+            Modifier.widthIn(max = 280.dp).fillMaxWidth().clip(styledShape(12.dp))
                 .combinedClickable(
                     onClickLabel = if (card.isCurrent) openLabel else playLabel,
                     onLongClickLabel = longPressLabel,
@@ -983,7 +1006,7 @@ private fun DocumentRow(media: MessageMedia, fileHandle: MediaFileHandle, onOpen
     val mediaLabel = media.kind.label(context)
     val openLabel = stringResource(R.string.a11y_media_open, mediaLabel)
     val longPressLabel = stringResource(R.string.a11y_message_actions)
-    Row(Modifier.width(244.dp).clip(styledShape(12.dp))
+    Row(Modifier.widthIn(max = 244.dp).fillMaxWidth().clip(styledShape(12.dp))
         .combinedClickable(onClickLabel = openLabel, onLongClickLabel = longPressLabel, onClick = onOpen, onLongClick = onLongPress)
         .padding(top = 4.dp), verticalAlignment = Alignment.CenterVertically) {
         Icon(Icons.Rounded.InsertDriveFile, contentDescription = null, tint = palette.accentInk,
@@ -1298,7 +1321,7 @@ internal fun MediaViewer(
                         // Never index the backing list until this page exists in our current snapshot.
                         currentPages.getOrNull(page)?.let { item ->
                             MediaViewerPage(item, observeFile, downloadFile, autoDownload, playbackCoordinator, canExport = canExport, active = page == safeSettledPage,
-                                fullFileOnlyWhenActive = fullFileOnlyWhenActive,
+                                fullFileOnlyWhenActive = fullFileOnlyWhenActive, forceSecure = forceSecure,
                                 revealed = item.messageId in revealedSpoilers, onReveal = { revealedSpoilers += item.messageId },
                                 onOpenFile = { path -> openExternal(item, path) }, onViewed = onViewed,
                                 onDismiss = ::requestClose, onToggleControls = { controlsVisible = !controlsVisible },
@@ -1439,7 +1462,7 @@ private fun MediaViewerPage(
     item: MediaViewerItem, observeFile: (Int) -> StateFlow<MediaFileState>, downloadFile: (Int) -> Unit,
     autoDownloadFile: (AutoDownloadRequest) -> Unit,
     playbackCoordinator: UserRangeCoordinator?,
-    canExport: Boolean, active: Boolean, fullFileOnlyWhenActive: Boolean, revealed: Boolean, onReveal: () -> Unit, onOpenFile: (String) -> Unit, onViewed: (Long) -> Unit,
+    canExport: Boolean, active: Boolean, fullFileOnlyWhenActive: Boolean, forceSecure: Boolean, revealed: Boolean, onReveal: () -> Unit, onOpenFile: (String) -> Unit, onViewed: (Long) -> Unit,
     onDismiss: () -> Unit, onToggleControls: () -> Unit, onDismissProgress: (Float) -> Unit, showZoomControls: Boolean, zoomControlsBottomPadding: Dp, onUserInteraction: () -> Unit
 ) {
     val media = item.media
@@ -1458,6 +1481,9 @@ private fun MediaViewerPage(
     // Миниатюра показывается вместо оригинала, пока тот грузится.
     val thumbId = previewId ?: media.fileId
     val thumb by remember(thumbId) { observeFile(thumbId) }.collectAsStateWithLifecycle()
+    val pipAccountId = accountId.takeIf {
+        MediaViewerPolicy.canOpenPip(media, item.viewOnce, forceSecure)
+    }
     val exportable = canExport && !media.isSecret
     // Спойлер не грузится и не показывается, пока пользователь не раскроет именно эту страницу.
     val spoilerHidden = media.hasSpoiler && !media.isSecret && !revealed
@@ -1640,6 +1666,7 @@ private fun MediaViewerPage(
                 streamSource.path, loop = media.kind == MediaKind.Animation, active = active,
                 onStarted = { currentOnViewed(item.messageId) }, progressive = streamSource,
                 onManualDownload = { downloadFile(media.fileId) },
+                pipAccountId = pipAccountId.takeIf { path != null },
                 onOpenPipDismiss = onDismiss
             )
             path == null && media.mimeType.startsWith("image/") -> PhotoPreview(file, thumb.localPath) { downloadFile(media.fileId) }
@@ -1676,7 +1703,11 @@ private fun MediaViewerPage(
                 showZoomControls = showZoomControls, zoomControlsBottomPadding = zoomControlsBottomPadding, onUserInteraction = onUserInteraction,
                 contentDescription = media.kind.label(context))
             media.kind == MediaKind.Video || media.kind == MediaKind.Animation || media.mimeType.startsWith("video/") ->
-                LocalVideo(path, media.kind == MediaKind.Animation, active, onStarted = { currentOnViewed(item.messageId) }, onOpenPipDismiss = onDismiss)
+                LocalVideo(
+                    path, media.kind == MediaKind.Animation, active,
+                    onStarted = { currentOnViewed(item.messageId) },
+                    pipAccountId = pipAccountId, onOpenPipDismiss = onDismiss
+                )
             else -> Column(horizontalAlignment = Alignment.CenterHorizontally) {
                 Text(formatMediaSize(file.size), color = Color.LightGray)
                 if (exportable) TextButton(onClick = { onOpenFile(path) }) { Text(stringResource(R.string.media_open_file)) }
@@ -2065,12 +2096,23 @@ private fun LocalVideo(
     onStarted: () -> Unit,
     progressive: ProgressiveVideoSource? = null,
     onManualDownload: (() -> Unit)? = null,
+    pipAccountId: String? = null,
     onOpenPipDismiss: () -> Unit = {}
 ) {
     val context = LocalContext.current
     val lifecycle = LocalLifecycleOwner.current.lifecycle
     val currentOnStarted by rememberUpdatedState(onStarted)
     val currentActive by rememberUpdatedState(active)
+    val brightnessWindow = (context as? android.app.Activity)?.window
+    val originalBrightness = remember(brightnessWindow, active) { mutableStateOf<Float?>(null) }
+    DisposableEffect(brightnessWindow, active) {
+        onDispose {
+            val brightness = originalBrightness.value
+            if (brightnessWindow != null && brightness != null) {
+                brightnessWindow.attributes = brightnessWindow.attributes.apply { screenBrightness = brightness }
+            }
+        }
+    }
     val sourceKey = progressive?.fileId ?: -1
     // Стартовый буфер: по умолчанию не задан (Media3), выбирается только в диагностическом режиме (Issue #1121).
     val startBuffer = remember(context) { VideoStartBufferSettings.load(context) }
@@ -2260,7 +2302,8 @@ private fun LocalVideo(
                                     }
                                 )
                             }
-                            .pointerInput(context, path) {
+                            .pointerInput(context, path, active) {
+                                if (!active) return@pointerInput
                                 val audioManager = context.getSystemService(android.content.Context.AUDIO_SERVICE) as? android.media.AudioManager
                                 val maxVol = (audioManager?.getStreamMaxVolume(android.media.AudioManager.STREAM_MUSIC) ?: 15).coerceAtLeast(1)
                                 var mode = 0 // -1 = brightness, 1 = volume
@@ -2276,8 +2319,7 @@ private fun LocalVideo(
                                             else -> 0
                                         }
                                         if (mode == -1) {
-                                            val window = (context as? android.app.Activity)?.window
-                                            val cur = window?.attributes?.screenBrightness ?: 0.5f
+                                            val cur = brightnessWindow?.attributes?.screenBrightness ?: 0.5f
                                             startLevel = if (cur in 0f..1f) cur else 0.5f
                                         } else if (mode == 1 && audioManager != null) {
                                             startLevel = audioManager.getStreamVolume(android.media.AudioManager.STREAM_MUSIC).toFloat() / maxVol
@@ -2293,8 +2335,14 @@ private fun LocalVideo(
                                         val next = (startLevel + totalDy / range).coerceIn(0.05f, 1f)
                                         val pct = (next * 100f).toInt().coerceIn(0, 100)
                                         if (mode == -1) {
-                                            val window = (context as? android.app.Activity)?.window
-                                            window?.attributes = window?.attributes?.apply { screenBrightness = next }
+                                            if (brightnessWindow != null) {
+                                                val attrs = brightnessWindow.attributes
+                                                if (originalBrightness.value == null) {
+                                                    originalBrightness.value = attrs.screenBrightness
+                                                }
+                                                attrs.screenBrightness = next
+                                                brightnessWindow.attributes = attrs
+                                            }
                                             gestureHud = "$brightnessLabel $pct%"
                                         } else if (mode == 1 && audioManager != null) {
                                             val targetVol = (next * maxVol).toInt().coerceIn(0, maxVol)
@@ -2336,11 +2384,14 @@ private fun LocalVideo(
             state = video,
             onAction = { action -> if (action == VideoAction.Pause) player.pause() else play() },
             onSeek = ::seek,
-            onOpenPip = {
-                player.pause()
-                InAppVideoPip.open(path, player.currentPosition)
-                onOpenPipDismiss()
-            },
+            onOpenPip = if (active && pipAccountId != null) {
+                {
+                    if (InAppVideoPip.open(path, player.currentPosition, pipAccountId)) {
+                        player.pause()
+                        onOpenPipDismiss()
+                    }
+                }
+            } else null,
             modifier = Modifier.align(Alignment.BottomCenter)
         )
     }

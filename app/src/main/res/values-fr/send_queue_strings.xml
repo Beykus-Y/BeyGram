@@ -1,0 +1,6 @@
+<resources>
+    <string name="chat_send_recovery_notice">L’envoi a été interrompu par un redémarrage. Vérifiez l’historique avant de réessayer : le message a peut-être déjà été envoyé.</string>
+    <string name="chat_send_queue_storage_failed">Impossible de lire ou d’enregistrer la file d’attente des messages. Vérifiez l’espace disponible. Le texte non mis en file reste dans la zone de saisie.</string>
+    <string name="chat_send_queue_corrupt_notice">Le fichier de la file d’attente des messages en attente est corrompu. Réinitialisez la file pour conserver une copie isolée et reprendre l’envoi.</string>
+    <string name="chat_send_queue_reset_action">Réinitialiser la file</string>
+</resources>

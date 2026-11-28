@@ -1,5 +1,6 @@
 package com.beykus.beygram.ui.screens.chat
 
+import com.beykus.beygram.domain.model.AnimationItem
 import androidx.compose.runtime.saveable.listSaver
 import com.beykus.beygram.domain.model.StickerItem
 
@@ -45,11 +46,10 @@ internal data class StickerPanelView(
         query = ""
     )
 
-    // The Emoji tab has no search, so opening or typing a query there leaves the view unchanged.
-    fun openSearch(): StickerPanelView = if (tab == StickerPanelTab.Emoji) this else copy(searchOpen = true)
+    fun openSearch(): StickerPanelView = copy(searchOpen = true)
 
     fun updateQuery(text: String): StickerPanelView =
-        if (tab == StickerPanelTab.Emoji) this else copy(searchOpen = true, query = text)
+        copy(searchOpen = true, query = text)
 
     fun closeSearch(): StickerPanelView = copy(searchOpen = false, query = "")
 
@@ -83,7 +83,7 @@ internal val StickerPanelViewSaver = listSaver<StickerPanelView, Any>(
 
 /**
  * Rebuilds a view from its saved fields and normalizes combinations the UI can no longer reach: a pack needs its id,
- * GIFs have no packs, and the Emoji tab is always its plain root without search.
+ * and GIFs and emoji have no standalone sticker-pack view.
  */
 internal fun restoreStickerPanelView(
     tab: StickerPanelTab,
@@ -102,8 +102,8 @@ internal fun restoreStickerPanelView(
             else -> section
         },
         selectedSetId = if (tab == StickerPanelTab.Gifs || emojiRoot) null else setId,
-        searchOpen = searchOpen && !emojiRoot,
-        query = if (emojiRoot) "" else query
+        searchOpen = searchOpen,
+        query = query
     )
 }
 
@@ -129,4 +129,24 @@ internal fun updateFavoriteStickers(
     (listOf(item) + current).distinctBy { it.key }
 } else {
     current.filterNot { it.key == item.key }
+}
+
+/** Hides stickers already shown in Favorites from the Recent section without mutating history. */
+internal fun deduplicateRecentStickers(
+    recent: List<StickerItem>,
+    favorites: List<StickerItem>
+): List<StickerItem> {
+    if (favorites.isEmpty()) return recent.distinctBy { it.key }
+    val favoriteKeys = favorites.mapTo(HashSet()) { it.key }
+    return recent.distinctBy { it.key }.filterNot { it.key in favoriteKeys }
+}
+
+/** Size the mosaic before downloads finish so replacing the placeholder never reflows the grid. */
+internal fun gifPickerAspectRatio(item: AnimationItem): Float {
+    val ratio = when {
+        item.width > 0 && item.height > 0 -> item.width.toFloat() / item.height
+        item.thumbnailWidth > 0 && item.thumbnailHeight > 0 -> item.thumbnailWidth.toFloat() / item.thumbnailHeight
+        else -> 4f / 3f
+    }
+    return ratio.coerceIn(0.68f, 2.1f)
 }

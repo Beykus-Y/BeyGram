@@ -26,10 +26,13 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.Backspace
+import androidx.compose.material.icons.rounded.Tune
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
@@ -47,7 +50,9 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.beykus.beygram.R
+import com.beykus.beygram.ui.components.SystemEmojiFont
 import com.beykus.beygram.ui.components.beyGramPalette
+import com.beykus.beygram.ui.components.emojiPresentation
 import kotlinx.coroutines.launch
 
 /**
@@ -59,34 +64,119 @@ internal fun EmojiPanel(
     recents: List<String>,
     onEmoji: (String) -> Unit,
     onBackspace: () -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    customEmoji: DockCustomEmoji? = null,
+    /** Clears Unicode and custom recents; the panel also suppresses recovering them from history afterwards. */
+    onClearRecent: (() -> Unit)? = null
 ) {
     val groups = remember(recents) { EmojiCatalog.withRecent(recents) }
     val headerIndexes = remember(groups) { groupHeaderIndexes(groups) }
+    val packRows = customEmoji?.rows.orEmpty()
+    val recentCustom = customEmoji?.recentIds.orEmpty()
+    val recentIndex = groups.sumOf { 1 + it.emoji.size }
+    val packsStart = recentIndex + if (recentCustom.isEmpty()) 0 else 1 + recentCustom.size
+    val packIndexes = remember(packRows, packsStart) {
+        packRows.mapIndexedNotNull { index, row ->
+            (row as? PremiumEmojiRow.Header)?.let { it.setId to packsStart + index }
+        }.toMap()
+    }
     val gridState = rememberLazyGridState()
     val listMotionInstant = rememberMotionInstant(MotionToken.ListReorder)
     val scope = rememberCoroutineScope()
     // The strip highlights the last group whose header has scrolled to the top of the grid.
-    val activeId by remember(groups) {
+    val activeId by remember(groups, recentIndex) {
         derivedStateOf {
             val top = gridState.firstVisibleItemIndex
-            groups.lastOrNull { (headerIndexes[it.id] ?: 0) <= top }?.id ?: groups.firstOrNull()?.id
+            if (top < recentIndex) groups.lastOrNull { (headerIndexes[it.id] ?: 0) <= top }?.id else null
         }
     }
+    val activePackId by remember(customEmoji?.packs, packIndexes) {
+        derivedStateOf {
+            val packs = customEmoji?.packs ?: return@derivedStateOf null
+            val top = gridState.firstVisibleItemIndex
+            packs.lastOrNull { (packIndexes[it.id] ?: Int.MAX_VALUE) <= top }?.id
+        }
+    }
+    val recentCustomSelected by remember(recentCustom, recentIndex, activePackId) {
+        derivedStateOf {
+            recentCustom.isNotEmpty() && activePackId == null && gridState.firstVisibleItemIndex >= recentIndex
+        }
+    }
+    val scrolling by remember(gridState) { derivedStateOf { gridState.isScrollInProgress } }
+    val parentPolicy = LocalEmojiAnimationPolicy.current
     Column(modifier) {
-        LazyVerticalGrid(
-            columns = GridCells.Adaptive(48.dp),
-            modifier = Modifier.fillMaxWidth().weight(1f),
-            state = gridState,
-            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp)
+        androidx.compose.runtime.CompositionLocalProvider(
+            LocalEmojiAnimationPolicy provides parentPolicy.copy(
+                paused = parentPolicy.paused || scrolling,
+                priority = EmojiAnimationPolicy.PRIORITY_GRID
+            )
         ) {
+            LazyVerticalGrid(
+                columns = GridCells.Adaptive(48.dp),
+                modifier = Modifier.fillMaxWidth().weight(1f),
+                state = gridState,
+                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp)
+            ) {
             groups.forEach { group ->
                 item(span = { GridItemSpan(maxLineSpan) }, key = "header-${group.id}") {
-                    EmojiGroupHeader(stringResource(group.titleRes))
+                    if (group.id == RECENT_EMOJI_GROUP_ID && onClearRecent != null) {
+                        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                            Box(Modifier.weight(1f)) { EmojiGroupHeader(stringResource(group.titleRes)) }
+                            TextButton(onClick = onClearRecent) {
+                                Text(stringResource(R.string.emoji_clear_recent_short))
+                            }
+                        }
+                    } else {
+                        EmojiGroupHeader(stringResource(group.titleRes))
+                    }
                 }
                 gridItems(group.emoji, key = { "${group.id}-$it" }) { emoji ->
                     EmojiCell(emoji = emoji, onClick = { onEmoji(emoji) })
                 }
+            }
+            if (customEmoji != null) {
+                val firstRecommended = customEmoji.packs.firstOrNull { it.id !in customEmoji.installedIds }?.id
+                if (recentCustom.isNotEmpty()) {
+                    item(key = "custom-recent-header", span = { GridItemSpan(maxLineSpan) }) {
+                        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                            Box(Modifier.weight(1f)) { EmojiGroupHeader(stringResource(R.string.emoji_custom_recent)) }
+                            if (onClearRecent != null) {
+                                TextButton(onClick = onClearRecent) {
+                                    Text(stringResource(R.string.emoji_clear_recent_short))
+                                }
+                            }
+                        }
+                    }
+                    gridItems(recentCustom, key = { "custom-recent-$it" }) { id ->
+                        DockCustomEmojiCell(id, customEmoji)
+                    }
+                }
+                gridItems(
+                    packRows,
+                    key = { it.key },
+                    span = { GridItemSpan(if (it is PremiumEmojiRow.Header) maxLineSpan else 1) }
+                ) { row ->
+                    when (row) {
+                        is PremiumEmojiRow.Header -> {
+                            LaunchedEffect(row.setId) { customEmoji.loadPack(row.setId) }
+                            Column {
+                                if (row.setId == firstRecommended) {
+                                    EmojiGroupHeader(stringResource(R.string.emoji_recommended_sets))
+                                }
+                                DockEmojiPackHeader(row.setId, row.title, customEmoji)
+                            }
+                        }
+                        is PremiumEmojiRow.Emoji -> DockCustomEmojiCell(row.customEmojiId, customEmoji)
+                    }
+                }
+                if (customEmoji.failed) {
+                    item(key = "custom-packs-retry", span = { GridItemSpan(maxLineSpan) }) {
+                        TextButton(onClick = customEmoji.retry) {
+                            Text(stringResource(R.string.common_retry))
+                        }
+                    }
+                }
+            }
             }
         }
         EmojiGroupStrip(
@@ -95,7 +185,15 @@ internal fun EmojiPanel(
             onSelect = { group ->
                 scope.launch { gridState.scrollToItemRespectingMotion(headerIndexes[group.id] ?: 0, motionInstant = listMotionInstant) }
             },
-            onBackspace = onBackspace
+            onBackspace = onBackspace,
+            customEmoji = customEmoji,
+            recentCustomIndex = recentIndex.takeIf { recentCustom.isNotEmpty() },
+            packIndexes = packIndexes,
+            activePackId = activePackId,
+            recentCustomSelected = recentCustomSelected,
+            onSelectCustom = { index ->
+                scope.launch { gridState.scrollToItemRespectingMotion(index, motionInstant = listMotionInstant) }
+            }
         )
     }
 }
@@ -112,7 +210,7 @@ private fun groupHeaderIndexes(groups: List<EmojiGroup>): Map<String, Int> {
 }
 
 @Composable
-private fun EmojiGroupHeader(title: String) {
+internal fun EmojiGroupHeader(title: String) {
     Text(
         title,
         color = beyGramPalette().textSecondary,
@@ -125,14 +223,20 @@ private fun EmojiGroupHeader(title: String) {
 
 /** One emoji on a 48dp touch target; the glyph is 28sp so it reads well in the grid. */
 @Composable
-private fun EmojiCell(emoji: String, onClick: () -> Unit) {
+internal fun EmojiCell(emoji: String, onClick: () -> Unit) {
     Box(
         Modifier.fillMaxWidth().height(48.dp)
             .clip(styledShape(12.dp))
             .clickable(role = Role.Button, onClick = onClick),
         contentAlignment = Alignment.Center
     ) {
-        Text(emoji, fontSize = 28.sp, maxLines = 1)
+        Text(
+            emojiPresentation(emoji),
+            fontSize = 28.sp,
+            lineHeight = 28.sp,
+            fontFamily = SystemEmojiFont,
+            maxLines = 1
+        )
     }
 }
 
@@ -141,7 +245,13 @@ private fun EmojiGroupStrip(
     groups: List<EmojiGroup>,
     activeId: String?,
     onSelect: (EmojiGroup) -> Unit,
-    onBackspace: () -> Unit
+    onBackspace: () -> Unit,
+    customEmoji: DockCustomEmoji?,
+    recentCustomIndex: Int?,
+    packIndexes: Map<Long, Int>,
+    activePackId: Long?,
+    recentCustomSelected: Boolean,
+    onSelectCustom: (Int) -> Unit
 ) {
     val palette = beyGramPalette()
     Row(
@@ -154,6 +264,33 @@ private fun EmojiGroupStrip(
         ) {
             rowItems(groups, key = { it.id }) { group ->
                 EmojiGroupButton(group = group, selected = group.id == activeId, onClick = { onSelect(group) })
+            }
+            if (customEmoji != null) {
+                if (recentCustomIndex != null) {
+                    item(key = "custom-recents") {
+                        CustomDockShortcut(
+                            label = stringResource(R.string.emoji_custom_recent),
+                            selected = recentCustomSelected,
+                            onClick = { onSelectCustom(recentCustomIndex) }
+                        ) { Text("🕘", fontSize = 20.sp) }
+                    }
+                }
+                rowItems(customEmoji.packs, key = { "custom-pack-${it.id}" }) { pack ->
+                    CustomDockShortcut(
+                        label = pack.title,
+                        selected = activePackId == pack.id,
+                        onClick = { packIndexes[pack.id]?.let(onSelectCustom) }
+                    ) {
+                        val cover = pack.covers.firstOrNull()
+                        if (cover != null) DockCustomEmojiCell(cover, customEmoji, animated = false, onClick = null)
+                        else Text(pack.title.take(1), fontSize = 16.sp)
+                    }
+                }
+            }
+        }
+        if (customEmoji != null) {
+            IconButton(onClick = customEmoji.onPackOrder, modifier = Modifier.size(48.dp)) {
+                Icon(Icons.Rounded.Tune, stringResource(R.string.pack_order_settings), tint = palette.textSecondary)
             }
         }
         IconButton(onClick = onBackspace, modifier = Modifier.size(48.dp)) {
@@ -174,6 +311,25 @@ private fun EmojiGroupButton(group: EmojiGroup, selected: Boolean, onClick: () -
             .semantics { contentDescription = label },
         contentAlignment = Alignment.Center
     ) {
-        Text(group.icon, fontSize = 20.sp)
+        Text(
+            emojiPresentation(group.icon),
+            fontSize = 20.sp,
+            lineHeight = 20.sp,
+            fontFamily = SystemEmojiFont,
+            maxLines = 1
+        )
     }
+}
+
+@Composable
+private fun CustomDockShortcut(label: String, selected: Boolean, onClick: () -> Unit, body: @Composable () -> Unit) {
+    val palette = beyGramPalette()
+    Box(
+        Modifier.size(48.dp)
+            .clip(CircleShape)
+            .background(if (selected) palette.accentSoft else Color.Transparent)
+            .selectable(selected = selected, role = Role.Tab, onClick = onClick)
+            .semantics { contentDescription = label },
+        contentAlignment = Alignment.Center
+    ) { body() }
 }

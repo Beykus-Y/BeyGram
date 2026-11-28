@@ -134,6 +134,26 @@ Repository-side wrappers that were used (**Confirmed** by their existence and by
 | `MTPROTO_LAYER` | Not extracted; it changes per release and pins the protocol layer | Read it from the device during the check in §7, or from a rebuild |
 | Field-level schema identity | Constructor comparison cannot see field additions | Compare generated `TdApi.java` field lists after a rebuild |
 
+### 6.1 OpenSSL 3.3.0 security assessment (read-only)
+
+The statically linked OpenSSL predates the security fixes that landed in the 3.3.x series after 3.3.0.
+The table below records each advisory from the audit and whether the affected API is plausibly reachable
+from BeyGram's use of TDLib. This is a code-level triage, not a proof of exploitability: no fuzzing or
+device-side attack was performed, and the upstream advisories remain authoritative.
+
+| Advisory | Affected area | Plausible exposure in BeyGram |
+| --- | --- | --- |
+| CVE-2024-4603 | Excessive time checking DSA/DH parameters supplied by the peer | Low: a TLS client negotiates ECDHE named groups; DSA/DH parameter checks are not on the normal Telegram DC handshake |
+| CVE-2024-4741 | Use-after-free in `SSL_free_buffers` | Low: TDLib's TLS wrapper does not expose `SSL_free_buffers` to application input |
+| CVE-2024-5535 | Buffer overread in `SSL_select_next_proto` | Low: selected ALPN is fixed by the client; no peer-controlled protocol list is passed to that helper |
+| CVE-2024-6119 | Denial of service while checking X.509 names | Low–medium: Telegram DC certificates are verified by TDLib's own pinned-key path; even a crafted chain is a DoS, not code execution |
+| CVE-2024-9143 | Out-of-bounds access with invalid GF(2^m) curve parameters | Low: only named curves are used; explicit invalid parameters are not accepted from the peer |
+
+**Conclusion.** No remote code-execution path through these advisories is demonstrated for this client.
+The correct action is still a rebuild against a current, pinned OpenSSL 3.x release together with a
+pinned TDLib commit (sections 9–10), not a local binary swap. Advisories published after this record
+must be added to the same table in the next rebuild PR.
+
 ## 7. Device verification (read-only)
 
 Nothing here writes to the device, opens the TDLib database, or touches the account. Run it only with

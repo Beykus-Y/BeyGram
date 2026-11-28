@@ -1,5 +1,6 @@
 package com.beykus.beygram.ui.screens.chat
 
+import com.beykus.beygram.domain.model.AnimationItem
 import com.beykus.beygram.domain.model.StickerItem
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -8,6 +9,29 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class StickerPanelLogicTest {
+    @Test fun movesOnlyTheChosenInstalledPackAndKeepsOtherIdsInOrder() {
+        val order = listOf(1L, 2L, 3L, 4L)
+        assertEquals(listOf(1L, 3L, 2L, 4L), movePickerPack(order, 2L, 1))
+        assertEquals(listOf(1L, 3L, 2L, 4L), movePickerPack(order, 3L, -1))
+        assertNull(movePickerPack(order, 1L, -1))
+        assertNull(movePickerPack(order, 5L, 1))
+    }
+
+    @Test fun gifMosaicUsesDimensionsBeforeFilesLoad() {
+        assertEquals(16f / 9, gifPickerAspectRatio(AnimationItem(1, width = 160, height = 90)), 0.001f)
+        assertEquals(1f, gifPickerAspectRatio(AnimationItem(2, thumbnailWidth = 80, thumbnailHeight = 80)), 0.001f)
+        assertEquals(0.68f, gifPickerAspectRatio(AnimationItem(3, width = 1, height = 100)), 0.001f)
+        assertEquals(2.1f, gifPickerAspectRatio(AnimationItem(4, width = 100, height = 1)), 0.001f)
+    }
+
+    @Test fun deduplicateRecentStickersRemovesFavoritesFromDisplay() {
+        val a = sticker(1L, 10L)
+        val b = sticker(1L, 20L)
+        val c = sticker(2L, 30L)
+        assertEquals(listOf(b), deduplicateRecentStickers(listOf(a, b, b, c), listOf(a, c)))
+        assertEquals(listOf(a, b), deduplicateRecentStickers(listOf(a, b), emptyList()))
+    }
+
     private fun sticker(setId: Long, id: Long, fileId: Int = id.toInt()) =
         StickerItem(setId = setId, stickerId = id, fileId = fileId)
 
@@ -159,6 +183,9 @@ class StickerPanelLogicTest {
         assertEquals(PickerLoad.Loading, loading)
         assertEquals(1, (ready as PickerLoad.Ready<List<StickerItem>>).value.size)
         assertEquals("offline", (failed as PickerLoad.Failed).message)
+        assertEquals(ready, ready.beginRefresh())
+        assertEquals(ready, ready.failRefresh("offline"))
+        assertEquals(PickerLoad.Loading, failed.beginRefresh())
     }
 
     @Test
@@ -186,12 +213,14 @@ class StickerPanelLogicTest {
     }
 
     @Test
-    fun theEmojiTabHasNoSearchSoOpeningOrTypingLeavesTheViewUnchanged() {
+    fun emojiSearchKeepsItsTabAndBackRestoresItsRoot() {
         val emoji = StickerPanelView().switchTab(StickerPanelTab.Emoji)
 
-        assertEquals(emoji, emoji.openSearch())
-        assertEquals(emoji, emoji.updateQuery("cat"))
-        assertFalse(emoji.searchActive)
+        val search = emoji.openSearch().updateQuery("cat")
+        assertEquals(StickerPanelTab.Emoji, search.tab)
+        assertEquals("cat", search.query)
+        assertTrue(search.searchActive)
+        assertEquals(emoji, search.back())
     }
 
     @Test
@@ -203,7 +232,7 @@ class StickerPanelLogicTest {
     }
 
     @Test
-    fun restoringTheEmojiTabAlwaysLandsOnItsPlainRoot() {
+    fun restoringEmojiSearchDropsTheStaleStickerPack() {
         val restored = restoreStickerPanelView(
             tab = StickerPanelTab.Emoji,
             section = StickerPanelSection.Favorites,
@@ -212,7 +241,7 @@ class StickerPanelLogicTest {
             query = "cat"
         )
 
-        assertEquals(StickerPanelView(tab = StickerPanelTab.Emoji), restored)
+        assertEquals(StickerPanelView(tab = StickerPanelTab.Emoji, searchOpen = true, query = "cat"), restored)
     }
 
     @Test

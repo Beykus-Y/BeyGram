@@ -18,6 +18,7 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.DpSize
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -27,7 +28,9 @@ import com.airbnb.lottie.compose.LottieConstants
 import com.airbnb.lottie.compose.animateLottieCompositionAsState
 import com.beykus.beygram.R
 import com.beykus.beygram.data.media.AutoDownloadNetworkStatus
+import com.beykus.beygram.data.media.SharedTgsEmojiRenderer
 import com.beykus.beygram.data.media.TgsCompositionCache
+import com.beykus.beygram.data.media.bucketEmojiSizePx
 import com.beykus.beygram.data.settings.AutoDownloadSettingsStore
 import com.beykus.beygram.domain.model.AutoDownloadRequest
 import com.beykus.beygram.domain.model.CustomEmoji
@@ -54,7 +57,8 @@ internal fun StickerPreview(
     media: MessageMedia, file: MediaFileState, thumbnail: MediaFileState,
     downloadFile: (Int) -> Unit, onOpen: () -> Unit, onLongPress: (() -> Unit)?,
     /** Repository-backed automatic sticker download; explicit viewer actions still use [downloadFile]. */
-    autoDownloadFile: ((AutoDownloadRequest) -> Unit)? = null
+    autoDownloadFile: ((AutoDownloadRequest) -> Unit)? = null,
+    mediaSize: DpSize? = null
 ) {
     val webm = media.mimeType == WEBM_MIME
     val description = stringResource(R.string.media_kind_sticker)
@@ -91,7 +95,7 @@ internal fun StickerPreview(
     // An animated sticker plays only after it has been on screen for the autoplay dwell time. WebM is never drawn here.
     val autoplay = rememberAutoplayEligible(enabled = !webm)
     Box(
-        Modifier.size(STICKER_SIZE)
+        Modifier.size(mediaSize ?: DpSize(STICKER_SIZE, STICKER_SIZE))
             .semantics { contentDescription = description }
             .combinedClickable(onClick = onOpen, onLongClick = onLongPress)
             .then(autoplay.modifier),
@@ -180,9 +184,68 @@ private fun LottieSticker(
  * Пользовательский эмодзи как стикер: TGS играет анимацией, WebP показывается картинкой. Другие форматы и стикер, которого ещё
  * нет на устройстве, показывают [fallback], обычно текст эмодзи. WebM не рисуется, поэтому его не скачиваем.
  */
+internal data class EmojiAnimationPolicy(
+    val paused: Boolean = false,
+    val priority: Int = PRIORITY_DEFAULT
+) {
+    companion object {
+        const val PRIORITY_COVER = -1
+        const val PRIORITY_GRID = 0
+        const val PRIORITY_DEFAULT = 1
+        const val PRIORITY_PREVIEW = 10
+    }
+}
+
+internal val LocalEmojiAnimationPolicy = androidx.compose.runtime.compositionLocalOf { EmojiAnimationPolicy() }
+
 @Composable
-internal fun CustomEmojiImage(emoji: CustomEmoji, size: Dp, observeFile: (Int) -> StateFlow<MediaFileState>, downloadFile: (Int) -> Unit, fallback: @Composable () -> Unit) {
+internal fun CustomEmojiImage(
+    emoji: CustomEmoji,
+    size: Dp,
+    observeFile: (Int) -> StateFlow<MediaFileState>,
+    downloadFile: (Int) -> Unit,
+    animated: Boolean = true,
+    fallback: @Composable () -> Unit
+) {
     val file by remember(emoji.fileId) { observeFile(emoji.fileId) }.collectAsStateWithLifecycle()
+    val path = file.localPath
+    if (path == null && emoji.mimeType != WEBM_MIME) {
+        CustomEmojiAutoDownload(
+            fileId = emoji.fileId,
+            fileSize = file.size,
+            isDownloading = file.isDownloading,
+            downloadFile = downloadFile
+        )
+    }
+    val animPolicy = LocalEmojiAnimationPolicy.current
+    // A custom emoji animates only after it has been on screen for the autoplay dwell time; until then its first frame shows.
+    val autoplay = rememberAutoplayEligible(enabled = animated && !animPolicy.paused && (emoji.mimeType == TGS_MIME || emoji.mimeType == WEBP_MIME))
+    val playing = animated && !animPolicy.paused && autoplay.eligible.value
+    val maxDimensionPx = with(androidx.compose.ui.platform.LocalDensity.current) {
+        (size.roundToPx() * 2).coerceIn(48, 256)
+    }
+    val modifier = Modifier.size(size).then(autoplay.modifier)
+    when {
+        path != null && emoji.mimeType == TGS_MIME -> SharedTgsEmoji(
+            path = path,
+            size = size,
+            playing = playing,
+            priority = animPolicy.priority,
+            modifier = modifier,
+            fallback = fallback
+        )
+        path != null && emoji.mimeType == WEBP_MIME -> LocalMediaImage(path, modifier, fit = true, maxDimension = maxDimensionPx, animate = playing)
+        else -> fallback()
+    }
+}
+
+@Composable
+private fun CustomEmojiAutoDownload(
+    fileId: Int,
+    fileSize: Long,
+    isDownloading: Boolean,
+    downloadFile: (Int) -> Unit
+) {
     val context = LocalContext.current
     val accountId = LocalPlaybackAccountId.current
     val policySettings by remember(context, accountId) {
@@ -191,19 +254,84 @@ internal fun CustomEmojiImage(emoji: CustomEmoji, size: Dp, observeFile: (Int) -
     val policyNetwork by AutoDownloadNetworkStatus.network.collectAsStateWithLifecycle()
     LaunchedEffect(context) { AutoDownloadNetworkStatus.ensureStarted(context) }
     val autoDownload = LocalAutoDownloadFile.current
-    LaunchedEffect(emoji.fileId, file.size, file.localPath, policySettings, policyNetwork) {
-        if (emoji.mimeType != WEBM_MIME && !file.isDownloading && file.localPath == null) {
-            val request = AutoDownloadRequest(fileId = emoji.fileId, kind = MediaKind.Sticker, sizeBytes = file.size)
-            if (autoDownload != null) autoDownload(request) else downloadFile(emoji.fileId)
+    LaunchedEffect(fileId, fileSize, isDownloading, policySettings, policyNetwork) {
+        if (!isDownloading) {
+            val request = AutoDownloadRequest(fileId = fileId, kind = MediaKind.Sticker, sizeBytes = fileSize)
+            if (autoDownload != null) autoDownload(request) else downloadFile(fileId)
         }
     }
-    // A custom emoji animates only after it has been on screen for the autoplay dwell time; until then its first frame shows.
-    val autoplay = rememberAutoplayEligible(enabled = emoji.mimeType == TGS_MIME || emoji.mimeType == WEBP_MIME)
-    val path = file.localPath
-    val modifier = Modifier.size(size).then(autoplay.modifier)
-    when {
-        path != null && emoji.mimeType == TGS_MIME -> TgsSticker(path, modifier, playing = autoplay.eligible.value, fallback = fallback)
-        path != null && emoji.mimeType == WEBP_MIME -> LocalMediaImage(path, modifier, fit = true, animate = autoplay.eligible.value)
-        else -> fallback()
+}
+
+@Composable
+private fun SharedTgsEmoji(
+    path: String,
+    size: Dp,
+    playing: Boolean,
+    priority: Int = EmojiAnimationPolicy.PRIORITY_DEFAULT,
+    modifier: Modifier,
+    fallback: @Composable () -> Unit
+) {
+    val density = androidx.compose.ui.platform.LocalDensity.current
+    val sizePx = remember(density, size) { bucketEmojiSizePx(with(density) { size.roundToPx() }) }
+    SharedTgsMedia(
+        path = path,
+        sizePx = sizePx,
+        playing = playing,
+        priority = priority,
+        modifier = modifier,
+        fallback = fallback
+    )
+}
+
+@Composable
+internal fun SharedTgsMedia(
+    path: String,
+    sizePx: Int,
+    playing: Boolean,
+    priority: Int = EmojiAnimationPolicy.PRIORITY_DEFAULT,
+    modifier: Modifier,
+    fallback: @Composable () -> Unit
+) {
+    val context = LocalContext.current
+    val accountId = LocalPlaybackAccountId.current
+    val normalizedSizePx = remember(sizePx) { bucketEmojiSizePx(sizePx) }
+    val renderer = remember(context) { SharedTgsEmojiRenderer.default(context) }
+    val initialFrame = remember(renderer, accountId, path, normalizedSizePx) {
+        renderer.peekFirstFrame(accountId, path, normalizedSizePx)
+    }
+    val targetState = remember(renderer, accountId, path, normalizedSizePx) {
+        androidx.compose.runtime.mutableStateOf<com.beykus.beygram.data.media.EmojiRenderTarget?>(null)
+    }
+    androidx.compose.runtime.DisposableEffect(renderer, accountId, path, normalizedSizePx) {
+        val attached = renderer.attach(
+            accountId = accountId,
+            path = path,
+            sizePx = normalizedSizePx,
+            playing = playing,
+            priority = priority
+        )
+        targetState.value = attached
+        onDispose {
+            targetState.value = null
+            renderer.detach(attached)
+        }
+    }
+    LaunchedEffect(renderer, targetState.value, playing, priority) {
+        targetState.value?.let { renderer.updateTarget(it, playing = playing, priority = priority) }
+    }
+    val failed = targetState.value?.failedState?.value == true
+    if (failed) {
+        Box(modifier, contentAlignment = Alignment.Center) { fallback() }
+        return
+    }
+    androidx.compose.foundation.Canvas(modifier) {
+        val frame = targetState.value?.frameState?.value ?: initialFrame ?: return@Canvas
+        drawImage(
+            image = frame,
+            dstSize = androidx.compose.ui.unit.IntSize(
+                this.size.width.toInt().coerceAtLeast(1),
+                this.size.height.toInt().coerceAtLeast(1)
+            )
+        )
     }
 }

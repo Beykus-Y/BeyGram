@@ -4,6 +4,14 @@ import androidx.activity.compose.BackHandler
 import com.beykus.beygram.ui.components.topAppBarSurface
 import com.beykus.beygram.ui.design.LocalDesignSystem
 import com.beykus.beygram.ui.design.styledShape
+import com.beykus.beygram.ui.accessibility.errorAnnouncement
+import com.beykus.beygram.ui.components.noticeIconTint
+import com.beykus.beygram.ui.components.NoticeTone
+import com.beykus.beygram.ui.components.GlassNotice
+import com.beykus.beygram.ui.components.ScreenChromeInsets
+import com.beykus.beygram.ui.components.screenChromeBottomInsets
+import com.beykus.beygram.ui.components.screenChromeBar
+import com.beykus.beygram.ui.components.GlassScreenScaffold
 import com.beykus.beygram.ui.motion.MotionToken
 import com.beykus.beygram.ui.motion.rememberMotionInstant
 import com.beykus.beygram.ui.motion.scrollToItemRespectingMotion
@@ -70,6 +78,8 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.repeatOnLifecycle
 import com.beykus.beygram.R
 import com.beykus.beygram.deeplink.MessageEntityLink
+import com.beykus.beygram.data.settings.ChatOverridesStore
+import com.beykus.beygram.domain.model.AvatarPhoto
 import com.beykus.beygram.domain.model.ChatHistory
 import com.beykus.beygram.domain.model.ChatMessage
 import com.beykus.beygram.domain.model.AutoDownloadRequest
@@ -122,7 +132,8 @@ internal fun MessageThreadScreen(
     onOpenProfile: (Long) -> Unit,
     /** Repository-backed automatic download for the shared media viewer. */
     autoDownloadFile: ((AutoDownloadRequest) -> Unit)? = null,
-    onOpenMessageEntity: ((MessageEntityLink) -> Unit)? = null
+    onOpenMessageEntity: ((MessageEntityLink) -> Unit)? = null,
+    chatOverrides: ChatOverridesStore? = null
 ) {
     val palette = beyGramPalette()
     val context = LocalContext.current
@@ -131,6 +142,15 @@ internal fun MessageThreadScreen(
     var post by remember(accountId, channelChatId, postId) { mutableStateOf(initialPost) }
     var thread by remember(accountId, channelChatId, postId) { mutableStateOf<MessageThread?>(null) }
     var messages by remember(accountId, channelChatId, postId) { mutableStateOf<List<ChatMessage>>(emptyList()) }
+    val overrides = chatOverrides?.state?.collectAsStateWithLifecycle()?.value
+    val showGroupAvatars = thread?.discussionChatId?.let { overrides?.get(it)?.groupAvatarsHidden } != true
+    val commentGroups = remember(messages) {
+        groupAvatarRows(messages.asReversed().map { ChatMessageListItem(it.id.toString(), listOf(it)) }, emptySet())
+    }
+    val commentPhotos = rememberGroupAvatarPhotos(
+        conversation, thread?.discussionChatId ?: 0L, thread?.threadId ?: 0L, listState,
+        if (showGroupAvatars) commentGroups else emptyMap(), emptyMap()
+    )
     var loading by remember(accountId, channelChatId, postId) { mutableStateOf(true) }
     var errorText by remember(accountId, channelChatId, postId) { mutableStateOf<String?>(null) }
     var pagingError by remember(accountId, channelChatId, postId) { mutableStateOf<String?>(null) }
@@ -467,281 +487,316 @@ internal fun MessageThreadScreen(
             }
         }
     ) {
+    val currentThread = thread
     Column(Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.safeDrawing)) {
-        Row(
-            Modifier.fillMaxWidth().topAppBarSurface().background(palette.surface).padding(start = 8.dp, end = 12.dp, top = 6.dp, bottom = 6.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            IconButton(onClick = onBack) {
-                Icon(Icons.AutoMirrored.Rounded.ArrowBack, stringResource(R.string.common_back), tint = palette.textPrimary)
-            }
-            Column(Modifier.weight(1f)) {
-                Text(
-                    stringResource(R.string.thread_comments_title, commentsCount),
-                    color = palette.textPrimary,
-                    fontSize = 18.sp,
-                    fontWeight = FontWeight.SemiBold,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
-                )
-                Text(
-                    thread?.discussionTitle?.ifBlank { channelTitle } ?: channelTitle,
-                    color = palette.textSecondary,
-                    fontSize = 12.sp,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
-                )
-            }
-        }
-        if (loading) LinearProgressIndicator(Modifier.fillMaxWidth(), color = palette.accent)
-
-        if (errorText != null && thread == null) {
-            Column(
-                Modifier.fillMaxWidth().weight(1f).padding(24.dp),
-                horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.Center
+    // The thread is a chat surface of its own: one glass toolbar and one glass composer, with the comments
+    // scrolling under both. Only the body is recorded, so neither pane can sample the layer it is drawn into.
+    val threadNotices: @Composable () -> Unit = {
+            if (queueStorageCorrupt) GlassNotice(
+                tone = NoticeTone.Warning,
+                shape = styledShape(0.dp),
+                modifier = Modifier.fillMaxWidth(),
+                contentPadding = PaddingValues(start = 12.dp, end = 4.dp, top = 4.dp, bottom = 4.dp)
             ) {
-                Text(
-                    errorText.orEmpty(),
-                    color = palette.textSecondary,
-                    fontSize = 14.sp,
-                    textAlign = TextAlign.Center
-                )
-                TextButton(onClick = onBack) { Text(stringResource(R.string.common_back)) }
-            }
-        } else Box(Modifier.fillMaxWidth().weight(1f)) {
-            LazyColumn(
-                state = listState,
-                reverseLayout = true,
-                modifier = Modifier.fillMaxSize(),
-                contentPadding = PaddingValues(vertical = 8.dp),
-                verticalArrangement = Arrangement.spacedBy(2.dp)
-            ) {
-                items(visiblePending.map { it.toChatMessage() } + messages.asReversed(), key = { it.id }, contentType = { chatMessageContentType(it) }) { message ->
-                    val localAttempt = visiblePending.firstOrNull { -it.attemptId == message.id }
-                    val failedLocal = localAttempt?.takeIf { it.phase == TextSendAttemptPhase.Failed }
-                    ThreadCommentRow(
-                        message = message,
-                        observeFile = observeFile,
-                        onDownloadFile = downloadFile,
-                        onOpenProfile = onOpenProfile,
-                        onOpenMedia = { selectedMediaId = message.id; selectedMediaChatId = message.chatId; if (message.isViewOnce) retainedViewOnce = message },
-                        onPlayed = { conversation.openMessageContent(message.chatId, message.id) },
-                        onRetry = {
-                            if (failedLocal != null) failedSendTarget = FailedSendTarget(message, failedLocal.attemptId)
-                            else if (localAttempt == null) retryComment(message.chatId, message.id, sendNowConsent = false)
-                        },
-                        onShowFailureDetails = if (message.isOutgoing && message.sendState == MessageSendState.Failed && (localAttempt == null || failedLocal != null)) {
-                            { failedSendTarget = FailedSendTarget(message, failedLocal?.attemptId) }
-                        } else null,
-                        onActions = {
-                            if (failedLocal != null) failedSendTarget = FailedSendTarget(message, failedLocal.attemptId)
-                            else if (localAttempt == null) reactionTarget = message.chatId to message
-                        },
-                        onReplyClick = ::jump,
-                        onReply = if (thread?.canReply == true) {
-                            { target: Long ->
-                                replyTarget = messages.firstOrNull { it.id == target }
-                                replyTargetId = target
-                                onDraftChange(text, entities, target)
-                                focusRequest++
-                            }
-                        } else null,
-                        onReaction = { option -> changeReaction(message.chatId, message, option, addToRecent = false) },
-                        onStickerOpen = { id -> stickerSetId = id },
-                        observeCustomEmoji = conversation::observeCustomEmoji,
-                        onPollVote = { chatId, messageId, choices ->
-                            riskGuard.run {
-                                scope.launch {
-                                    conversation.votePoll(chatId, messageId, choices)
-                                        .onFailure { sendError = it.userMessage(context, R.string.chat_poll_vote_failed) }
-                                }
-                            }
-                        },
-                        onPollStop = { chatId, messageId ->
-                            riskGuard.run {
-                                scope.launch {
-                                    conversation.stopPoll(chatId, messageId)
-                                        .onFailure { sendError = it.userMessage(context, R.string.chat_poll_stop_failed) }
-                                }
-                            }
-                        },
-                        onLoadPollVoters = { chatId, messageId, optionIndex, offset ->
-                            conversation.pollVoters(chatId, messageId, optionIndex, offset)
-                        },
-                        onAddPollOption = { chatId, messageId, text ->
-                            if (riskGuard.confirm()) conversation.addPollOption(chatId, messageId, text)
-                            else Result.failure(CancellationException("stealth risk declined"))
-                        },
-                        paidContent = rememberPaidContentActions(conversation),
-                        onOpenMessageEntity = onOpenMessageEntity
-                    )
-                }
-                if (loadingOlder) item(key = "older_loading") {
-                    Box(Modifier.fillMaxWidth().padding(10.dp), contentAlignment = Alignment.Center) {
-                        CircularProgressIndicator(Modifier.size(22.dp), color = palette.accent, strokeWidth = 2.dp)
-                    }
-                } else if (hasOlder || pagingError != null) item(key = "older_more") {
-                    Column(Modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally) {
-                        pagingError?.let { message ->
-                            Text(message, color = palette.warningText, fontSize = 12.sp, modifier = Modifier.padding(6.dp))
-                        }
-                        TextButton(onClick = ::loadOlder) {
-                            Text(stringResource(if (pagingError == null) R.string.thread_comments_load_earlier else R.string.common_retry))
+                Text(stringResource(R.string.chat_send_queue_corrupt_notice), fontSize = 12.sp, modifier = Modifier.weight(1f).errorAnnouncement())
+                TextButton(onClick = {
+                    sendQueue.launchMutation {
+                        try {
+                            sendQueue.quarantineAndReset()
+                            if (sendError == queueStorageFailureText) sendError = null
+                        } catch (_: TextSendStorageException) {
+                            sendError = queueStorageFailureText
                         }
                     }
-                }
-                if (thread != null && messages.isEmpty() && !loading) item(key = "thread_empty") {
-                    Box(Modifier.fillMaxWidth().padding(20.dp), contentAlignment = Alignment.Center) {
-                        Text(stringResource(R.string.thread_comments_empty), color = palette.textSecondary, fontSize = 14.sp, textAlign = TextAlign.Center)
-                    }
-                }
-                // Reverse layout: the last item is drawn on top, so the post opens the discussion exactly once.
-                post?.let { root ->
-                    item(key = "thread_post") {
-                        Box(Modifier.fillMaxWidth().padding(bottom = 6.dp)) {
-                            MessageBubble(
-                                message = root,
-                                observeFile = observeFile,
-                                onDownloadFile = downloadFile,
-                                onOpen = { selectedMediaId = root.id; selectedMediaChatId = channelChatId; if (root.isViewOnce) retainedViewOnce = root },
-                                onStickerOpen = { media -> stickerSetId = media.stickerSetId },
-                                onPlayed = { conversation.openMessageContent(channelChatId, root.id) },
-                                onActions = { reactionTarget = channelChatId to root },
-                                onReplyClick = ::jump,
-                                onReaction = { _, option -> changeReaction(channelChatId, root, option, addToRecent = false) },
-                                observeCustomEmoji = conversation::observeCustomEmoji,
-                                onPollVote = { messageId, choices ->
-                                    riskGuard.run {
-                                        scope.launch {
-                                            conversation.votePoll(channelChatId, messageId, choices)
-                                                .onFailure { sendError = it.userMessage(context, R.string.chat_poll_vote_failed) }
-                                        }
-                                    }
-                                },
-                                onPollStop = { messageId ->
-                                    riskGuard.run {
-                                        scope.launch {
-                                            conversation.stopPoll(channelChatId, messageId)
-                                                .onFailure { sendError = it.userMessage(context, R.string.chat_poll_stop_failed) }
-                                        }
-                                    }
-                                },
-                                onLoadPollVoters = { messageId, optionIndex, offset ->
-                                    conversation.pollVoters(channelChatId, messageId, optionIndex, offset)
-                                },
-                                onAddPollOption = { messageId, text ->
-                                    if (riskGuard.confirm()) conversation.addPollOption(channelChatId, messageId, text)
-                                    else Result.failure(CancellationException("stealth risk declined"))
-                                },
-                                onRetry = {},
-                                paidContent = rememberPaidContentActions(conversation) { reloadPost() },
-                                onOpenMessageEntity = onOpenMessageEntity
-                            )
-                        }
-                    }
+                }) {
+                    Text(stringResource(R.string.chat_send_queue_reset_action), color = palette.accent, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
                 }
             }
-        }
-
-        reactionTarget?.let { (chatId, message) ->
-            MessageReactionPicker(
-                options = reactionOptions,
-                chosen = message.reactions.filter { it.isChosen && !it.isPaid }.mapTo(hashSetOf()) { it.option },
-                observeCustomEmoji = conversation::observeCustomEmoji,
-                observeFile = observeFile,
-                downloadFile = downloadFile,
-                onPick = { option ->
-                    changeReaction(chatId, message, option, addToRecent = true)
-                    reactionTarget = null
+            sendError?.let { message ->
+                GlassNotice(
+                    tone = NoticeTone.Danger,
+                    shape = styledShape(0.dp),
+                    modifier = Modifier.fillMaxWidth(),
+                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp)
+                ) {
+                    Text(message, fontSize = 12.sp, modifier = Modifier.weight(1f).errorAnnouncement())
+                    IconButton(onClick = { sendError = null }) { Icon(Icons.Rounded.Close, stringResource(R.string.common_close), tint = noticeIconTint(NoticeTone.Danger)) }
                 }
-            )
-        }
-        if (queueStorageCorrupt) Row(
-            Modifier.fillMaxWidth().background(palette.warningSurface).padding(start = 12.dp, end = 4.dp, top = 4.dp, bottom = 4.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Text(stringResource(R.string.chat_send_queue_corrupt_notice), color = palette.warningText, fontSize = 12.sp, modifier = Modifier.weight(1f))
-            TextButton(onClick = {
-                sendQueue.launchMutation {
-                    try {
-                        sendQueue.quarantineAndReset()
-                        if (sendError == queueStorageFailureText) sendError = null
-                    } catch (_: TextSendStorageException) {
-                        sendError = queueStorageFailureText
-                    }
-                }
-            }) {
-                Text(stringResource(R.string.chat_send_queue_reset_action), color = palette.accent, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
             }
-        }
-        sendError?.let { message ->
-            Row(Modifier.fillMaxWidth().background(palette.warningSurface).padding(horizontal = 12.dp, vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
-                Text(message, color = palette.warningText, fontSize = 12.sp, modifier = Modifier.weight(1f))
-                IconButton(onClick = { sendError = null }) { Icon(Icons.Rounded.Close, stringResource(R.string.common_close), tint = palette.warningText) }
-            }
-        }
-        val currentThread = thread
-        NowPlayingBar(bottomInset = currentThread?.canReply != true)
-        if (currentThread != null) {
-            if (currentThread.canReply) {
-                Column(Modifier.fillMaxWidth().background(palette.surface).navigationBarsPadding().imePadding()) {
-                    replyTarget?.let { target ->
-                        Row(Modifier.fillMaxWidth().padding(start = 14.dp, end = 6.dp, top = 6.dp), verticalAlignment = Alignment.CenterVertically) {
-                            Column(
-                                Modifier.weight(1f).clip(styledShape(12.dp))
-                                    .background(palette.surface2)
-                                    .padding(horizontal = 10.dp, vertical = 6.dp)
-                            ) {
-                                Text(
-                                    stringResource(R.string.chat_reply_label) + " · " + target.senderName.ifBlank { stringResource(R.string.chat_message) },
-                                    color = palette.accentInk,
-                                    fontSize = 12.sp,
-                                    fontWeight = FontWeight.SemiBold,
-                                    maxLines = 1
-                                )
-                                Text(target.summary(), color = palette.textSecondary, fontSize = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                            }
-                            IconButton(onClick = { replyTarget = null; replyTargetId = 0L; onDraftChange(text, entities, 0L) }) {
-                                Icon(Icons.Rounded.Close, stringResource(R.string.chat_cancel_reply_description), tint = palette.textSecondary)
-                            }
-                        }
-                    }
-                    Row(Modifier.fillMaxWidth().padding(horizontal = 10.dp, vertical = 8.dp), verticalAlignment = Alignment.Bottom) {
-                        FormattingTextField(
-                            value = text,
-                            entities = entities,
-                            onChange = { text = it; onDraftChange(it, entities, replyTarget?.id ?: replyTargetId) },
-                            onEntitiesChange = { entities = it; onDraftChange(text, it, replyTarget?.id ?: replyTargetId) },
-                            placeholder = stringResource(R.string.thread_reply_placeholder),
-                            locked = false,
-                            isError = false,
-                            modifier = Modifier.weight(1f),
-                            focusRequest = focusRequest
-                        )
-                        Spacer(Modifier.width(8.dp))
-                        // Material 3 sends with the tonal accent container, as the chat composer does.
-                        val tonalSend = LocalDesignSystem.current.composerTonal
-                        Box(
-                            Modifier.size(40.dp).clip(CircleShape)
-                                .background((if (tonalSend) palette.accentSoft else palette.accent).copy(alpha = if (text.isNotBlank() && !writing) 1f else 0.4f))
-                                .clickable(enabled = text.isNotBlank() && !writing) { sendGuard.run { send() } },
-                            contentAlignment = Alignment.Center
-                        ) {
-                            val sendInk = if (tonalSend) palette.accentInk else palette.onAccent
-                            Icon(Icons.AutoMirrored.Rounded.Send, stringResource(R.string.common_send), tint = sendInk, modifier = Modifier.size(21.dp))
-                        }
-                    }
-                }
-            } else {
+    }
+    GlassScreenScaffold(
+        modifier = Modifier.fillMaxSize(),
+        toolbar = {
+            Column(Modifier.fillMaxWidth()) {
                 Row(
-                    Modifier.fillMaxWidth().background(palette.surface).navigationBarsPadding().padding(horizontal = 16.dp, vertical = 12.dp),
+                    Modifier.fillMaxWidth().topAppBarSurface().screenChromeBar()
+                        .padding(start = 8.dp, end = 12.dp, top = 6.dp, bottom = 6.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Text(stringResource(R.string.thread_read_only), color = palette.textSecondary, fontSize = 13.sp)
+                IconButton(onClick = onBack) {
+                    Icon(Icons.AutoMirrored.Rounded.ArrowBack, stringResource(R.string.common_back), tint = palette.textPrimary)
+                }
+                Column(Modifier.weight(1f)) {
+                    Text(
+                        stringResource(R.string.thread_comments_title, commentsCount),
+                        color = palette.textPrimary,
+                        fontSize = 18.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                    Text(
+                        thread?.discussionTitle?.ifBlank { channelTitle } ?: channelTitle,
+                        color = palette.textSecondary,
+                        fontSize = 12.sp,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
+                }
+                if (loading) LinearProgressIndicator(Modifier.fillMaxWidth(), color = palette.accent)
+            }
+        },
+        bottomBar = if (currentThread != null) {
+            {
+                Column(Modifier.fillMaxWidth()) {
+                    threadNotices()
+                    NowPlayingBar(bottomInset = !currentThread.canReply)
+                    if (currentThread.canReply) {
+                        Column(Modifier.fillMaxWidth().screenChromeBar().screenChromeBottomInsets()) {
+                            replyTarget?.let { target ->
+                                Row(Modifier.fillMaxWidth().padding(start = 14.dp, end = 6.dp, top = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+                                    Column(
+                                        Modifier.weight(1f).clip(styledShape(12.dp))
+                                            .background(palette.surface2)
+                                            .padding(horizontal = 10.dp, vertical = 6.dp)
+                                    ) {
+                                        Text(
+                                            stringResource(R.string.chat_reply_label) + " · " + target.senderName.ifBlank { stringResource(R.string.chat_message) },
+                                            color = palette.accentInk,
+                                            fontSize = 12.sp,
+                                            fontWeight = FontWeight.SemiBold,
+                                            maxLines = 1
+                                        )
+                                        Text(target.summary(), color = palette.textSecondary, fontSize = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                    }
+                                    IconButton(onClick = { replyTarget = null; replyTargetId = 0L; onDraftChange(text, entities, 0L) }) {
+                                        Icon(Icons.Rounded.Close, stringResource(R.string.chat_cancel_reply_description), tint = palette.textSecondary)
+                                    }
+                                }
+                            }
+                            Row(Modifier.fillMaxWidth().padding(horizontal = 10.dp, vertical = 8.dp), verticalAlignment = Alignment.Bottom) {
+                                FormattingTextField(
+                                    value = text,
+                                    entities = entities,
+                                    onChange = { text = it; onDraftChange(it, entities, replyTarget?.id ?: replyTargetId) },
+                                    onEntitiesChange = { entities = it; onDraftChange(text, it, replyTarget?.id ?: replyTargetId) },
+                                    placeholder = stringResource(R.string.thread_reply_placeholder),
+                                    locked = false,
+                                    isError = false,
+                                    modifier = Modifier.weight(1f),
+                                    focusRequest = focusRequest
+                                )
+                                Spacer(Modifier.width(8.dp))
+                                // Material 3 sends with the tonal accent container, as the chat composer does.
+                                val tonalSend = LocalDesignSystem.current.composerTonal
+                                Box(
+                                    Modifier.size(40.dp).clip(CircleShape)
+                                        .background((if (tonalSend) palette.accentSoft else palette.accent).copy(alpha = if (text.isNotBlank() && !writing) 1f else 0.4f))
+                                        .clickable(enabled = text.isNotBlank() && !writing) { sendGuard.run { send() } },
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    val sendInk = if (tonalSend) palette.accentInk else palette.onAccent
+                                    Icon(Icons.AutoMirrored.Rounded.Send, stringResource(R.string.common_send), tint = sendInk, modifier = Modifier.size(21.dp))
+                                }
+                            }
+                        }
+                    } else {
+                        Row(
+                            Modifier.fillMaxWidth().screenChromeBar().screenChromeBottomInsets(withIme = false).padding(horizontal = 16.dp, vertical = 12.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(stringResource(R.string.thread_read_only), color = palette.textSecondary, fontSize = 13.sp)
+                        }
+                    }
                 }
             }
+        } else {
+            null
         }
+    ) { chrome ->
+        if (errorText != null && thread == null) {
+                Column(
+                    Modifier.fillMaxWidth().weight(1f).padding(24.dp).padding(top = chrome.top),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.Center
+                ) {
+                    Text(
+                        errorText.orEmpty(),
+                        color = palette.textSecondary,
+                        fontSize = 14.sp,
+                        textAlign = TextAlign.Center
+                    )
+                    TextButton(onClick = onBack) { Text(stringResource(R.string.common_back)) }
+                }
+        } else Box(Modifier.fillMaxWidth().weight(1f)) {
+                LazyColumn(
+                    state = listState,
+                    reverseLayout = true,
+                    modifier = Modifier.fillMaxSize(),
+                    contentPadding = PaddingValues(top = 8.dp + chrome.top, bottom = 8.dp + chrome.bottom),
+                    verticalArrangement = Arrangement.spacedBy(2.dp)
+                ) {
+                    items(visiblePending.map { it.toChatMessage() } + messages.asReversed(), key = { it.id }, contentType = { chatMessageContentType(it) }) { message ->
+                        val localAttempt = visiblePending.firstOrNull { -it.attemptId == message.id }
+                        val failedLocal = localAttempt?.takeIf { it.phase == TextSendAttemptPhase.Failed }
+                        ThreadCommentRow(
+                            message = message,
+                            showGroupAvatars = showGroupAvatars,
+                            groupAvatar = commentGroups[message.id.toString()],
+                            avatarPhotos = commentPhotos,
+                            conversation = conversation,
+                            observeFile = observeFile,
+                            onDownloadFile = downloadFile,
+                            onOpenProfile = onOpenProfile,
+                            onOpenMedia = { selectedMediaId = message.id; selectedMediaChatId = message.chatId; if (message.isViewOnce) retainedViewOnce = message },
+                            onPlayed = { conversation.openMessageContent(message.chatId, message.id) },
+                            onRetry = {
+                                if (failedLocal != null) failedSendTarget = FailedSendTarget(message, failedLocal.attemptId)
+                                else if (localAttempt == null) retryComment(message.chatId, message.id, sendNowConsent = false)
+                            },
+                            onShowFailureDetails = if (message.isOutgoing && message.sendState == MessageSendState.Failed && (localAttempt == null || failedLocal != null)) {
+                                { failedSendTarget = FailedSendTarget(message, failedLocal?.attemptId) }
+                            } else null,
+                            onActions = {
+                                if (failedLocal != null) failedSendTarget = FailedSendTarget(message, failedLocal.attemptId)
+                                else if (localAttempt == null) reactionTarget = message.chatId to message
+                            },
+                            onReplyClick = ::jump,
+                            onReply = if (thread?.canReply == true) {
+                                { target: Long ->
+                                    replyTarget = messages.firstOrNull { it.id == target }
+                                    replyTargetId = target
+                                    onDraftChange(text, entities, target)
+                                    focusRequest++
+                                }
+                            } else null,
+                            onReaction = { option -> changeReaction(message.chatId, message, option, addToRecent = false) },
+                            loadQuickReactions = conversation::availableReactions,
+                            onStickerOpen = { id -> stickerSetId = id },
+                            observeCustomEmoji = conversation::observeCustomEmoji,
+                            onPollVote = { chatId, messageId, choices ->
+                                riskGuard.run {
+                                    scope.launch {
+                                        conversation.votePoll(chatId, messageId, choices)
+                                            .onFailure { sendError = it.userMessage(context, R.string.chat_poll_vote_failed) }
+                                    }
+                                }
+                            },
+                            onPollStop = { chatId, messageId ->
+                                riskGuard.run {
+                                    scope.launch {
+                                        conversation.stopPoll(chatId, messageId)
+                                            .onFailure { sendError = it.userMessage(context, R.string.chat_poll_stop_failed) }
+                                    }
+                                }
+                            },
+                            onLoadPollVoters = { chatId, messageId, optionIndex, offset ->
+                                conversation.pollVoters(chatId, messageId, optionIndex, offset)
+                            },
+                            onAddPollOption = { chatId, messageId, text ->
+                                if (riskGuard.confirm()) conversation.addPollOption(chatId, messageId, text)
+                                else Result.failure(CancellationException("stealth risk declined"))
+                            },
+                            paidContent = rememberPaidContentActions(conversation),
+                            onOpenMessageEntity = onOpenMessageEntity
+                        )
+                    }
+                    if (loadingOlder) item(key = "older_loading") {
+                        Box(Modifier.fillMaxWidth().padding(10.dp), contentAlignment = Alignment.Center) {
+                            CircularProgressIndicator(Modifier.size(22.dp), color = palette.accent, strokeWidth = 2.dp)
+                        }
+                    } else if (hasOlder || pagingError != null) item(key = "older_more") {
+                        Column(Modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally) {
+                            pagingError?.let { message ->
+                                Text(message, color = palette.warningText, fontSize = 12.sp, modifier = Modifier.padding(6.dp))
+                            }
+                            TextButton(onClick = ::loadOlder) {
+                                Text(stringResource(if (pagingError == null) R.string.thread_comments_load_earlier else R.string.common_retry))
+                            }
+                        }
+                    }
+                    if (thread != null && messages.isEmpty() && !loading) item(key = "thread_empty") {
+                        Box(Modifier.fillMaxWidth().padding(20.dp), contentAlignment = Alignment.Center) {
+                            Text(stringResource(R.string.thread_comments_empty), color = palette.textSecondary, fontSize = 14.sp, textAlign = TextAlign.Center)
+                        }
+                    }
+                    // Reverse layout: the last item is drawn on top, so the post opens the discussion exactly once.
+                    post?.let { root ->
+                        item(key = "thread_post") {
+                            Box(Modifier.fillMaxWidth().padding(bottom = 6.dp)) {
+                                MessageBubble(
+                                    message = root,
+                                    observeFile = observeFile,
+                                    onDownloadFile = downloadFile,
+                                    onOpen = { selectedMediaId = root.id; selectedMediaChatId = channelChatId; if (root.isViewOnce) retainedViewOnce = root },
+                                    onStickerOpen = { media -> stickerSetId = media.stickerSetId },
+                                    onPlayed = { conversation.openMessageContent(channelChatId, root.id) },
+                                    onActions = { reactionTarget = channelChatId to root },
+                                    onReplyClick = ::jump,
+                                    onReaction = { _, option -> changeReaction(channelChatId, root, option, addToRecent = false) },
+                                    loadQuickReactions = conversation::availableReactions,
+                                    observeCustomEmoji = conversation::observeCustomEmoji,
+                                    onPollVote = { messageId, choices ->
+                                        riskGuard.run {
+                                            scope.launch {
+                                                conversation.votePoll(channelChatId, messageId, choices)
+                                                    .onFailure { sendError = it.userMessage(context, R.string.chat_poll_vote_failed) }
+                                            }
+                                        }
+                                    },
+                                    onPollStop = { messageId ->
+                                        riskGuard.run {
+                                            scope.launch {
+                                                conversation.stopPoll(channelChatId, messageId)
+                                                    .onFailure { sendError = it.userMessage(context, R.string.chat_poll_stop_failed) }
+                                            }
+                                        }
+                                    },
+                                    onLoadPollVoters = { messageId, optionIndex, offset ->
+                                        conversation.pollVoters(channelChatId, messageId, optionIndex, offset)
+                                    },
+                                    onAddPollOption = { messageId, text ->
+                                        if (riskGuard.confirm()) conversation.addPollOption(channelChatId, messageId, text)
+                                        else Result.failure(CancellationException("stealth risk declined"))
+                                    },
+                                    onRetry = {},
+                                    paidContent = rememberPaidContentActions(conversation) { reloadPost() },
+                                    onOpenMessageEntity = onOpenMessageEntity
+                                )
+                            }
+                        }
+                    }
+                }
+            reactionTarget?.let { (chatId, message) ->
+                MessageReactionPicker(
+                    options = reactionOptions,
+                    chosen = message.reactions.filter { it.isChosen && !it.isPaid }.mapTo(hashSetOf()) { it.option },
+                    observeCustomEmoji = conversation::observeCustomEmoji,
+                    observeFile = observeFile,
+                    downloadFile = downloadFile,
+                    onPick = { option ->
+                        changeReaction(chatId, message, option, addToRecent = true)
+                        reactionTarget = null
+                    }
+                )
+            }
+        }
+        if (currentThread == null) {
+            threadNotices()
+            NowPlayingBar(bottomInset = true)
+        }
+    }
     }
     }
 
@@ -862,6 +917,10 @@ internal fun MessageThreadScreen(
 @Composable
 private fun ThreadCommentRow(
     message: ChatMessage,
+    showGroupAvatars: Boolean,
+    groupAvatar: ChatMessage?,
+    avatarPhotos: Map<Long, AvatarPhoto?>,
+    conversation: ConversationRepository,
     observeFile: (Int) -> StateFlow<MediaFileState>,
     onDownloadFile: (Int) -> Unit,
     onOpenProfile: (Long) -> Unit,
@@ -873,6 +932,7 @@ private fun ThreadCommentRow(
     onReplyClick: (MessageReply) -> Unit,
     onReply: ((Long) -> Unit)?,
     onReaction: (ReactionOption) -> Unit,
+    loadQuickReactions: suspend (Long, Long) -> Result<List<ReactionOption>>,
     onPollVote: (chatId: Long, messageId: Long, optionIndices: List<Int>) -> Unit,
     onPollStop: (chatId: Long, messageId: Long) -> Unit,
     onLoadPollVoters: suspend (chatId: Long, messageId: Long, optionIndex: Int, offset: Int) -> Result<PollVotersPage>,
@@ -882,53 +942,46 @@ private fun ThreadCommentRow(
     onOpenMessageEntity: ((MessageEntityLink) -> Unit)? = null,
     paidContent: PaidContentActions? = null
 ) {
-    val palette = beyGramPalette()
-    Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 1.dp), verticalAlignment = Alignment.Top) {
-        if (message.senderId > 0L) {
-            Box(
-                Modifier.padding(top = 10.dp).size(28.dp).clip(CircleShape)
-                    .background(palette.surface2)
-                    .clickable { onOpenProfile(message.senderId) },
-                contentAlignment = Alignment.Center
-            ) {
-                Text(
-                    message.senderName.trim().firstOrNull()?.uppercaseChar()?.toString().orEmpty(),
-                    color = palette.textSecondary,
-                    fontSize = 12.sp,
-                    fontWeight = FontWeight.SemiBold
-                )
-            }
-            Spacer(Modifier.width(6.dp))
-        }
-        Box(Modifier.weight(1f)) {
-            val openSender: (() -> Unit)? = if (message.senderId > 0L) {
-                { onOpenProfile(message.senderId) }
-            } else null
-            MessageBubble(
-                message = message,
-                observeFile = observeFile,
-                onDownloadFile = onDownloadFile,
-                onOpen = { onOpenMedia() },
-                onStickerOpen = { media -> onStickerOpen(media.stickerSetId) },
-                onPlayed = onPlayed,
-                onActions = onActions,
-                onReplyClick = onReplyClick,
-                onReply = onReply,
-                onReaction = { _, option -> onReaction(option) },
-                observeCustomEmoji = observeCustomEmoji,
-                onRetry = onRetry,
-                onShowFailureDetails = onShowFailureDetails,
-                onSenderClick = openSender,
-                onPollVote = { messageId, choices -> onPollVote(message.chatId, messageId, choices) },
-                onPollStop = { messageId -> onPollStop(message.chatId, messageId) },
-                onLoadPollVoters = { messageId, optionIndex, offset ->
-                    onLoadPollVoters(message.chatId, messageId, optionIndex, offset)
-                },
-                onAddPollOption = { messageId, text -> onAddPollOption(message.chatId, messageId, text) },
-                paidContent = paidContent,
-                onOpenMessageEntity = onOpenMessageEntity
-            )
-        }
+    ChatGroupAvatarRow(
+        enabled = showGroupAvatars,
+        message = message,
+        avatar = groupAvatar,
+        members = emptyMap(),
+        photos = avatarPhotos,
+        observeFile = observeFile,
+        downloadFile = onDownloadFile,
+        onOpenProfile = onOpenProfile,
+        peerColors = conversation
+    ) {
+        val openSender: (() -> Unit)? = if (message.senderId > 0L) {
+            { onOpenProfile(message.senderId) }
+        } else null
+        MessageBubble(
+            message = message,
+            observeFile = observeFile,
+            onDownloadFile = onDownloadFile,
+            onOpen = { onOpenMedia() },
+            onStickerOpen = { media -> onStickerOpen(media.stickerSetId) },
+            onPlayed = onPlayed,
+            onActions = onActions,
+            onReplyClick = onReplyClick,
+            onReply = onReply,
+            onReaction = { _, option -> onReaction(option) },
+            loadQuickReactions = loadQuickReactions,
+            observeCustomEmoji = observeCustomEmoji,
+            onRetry = onRetry,
+            onShowFailureDetails = onShowFailureDetails,
+            onSenderClick = openSender,
+            showSenderHeader = groupAvatar != null,
+            onPollVote = { messageId, choices -> onPollVote(message.chatId, messageId, choices) },
+            onPollStop = { messageId -> onPollStop(message.chatId, messageId) },
+            onLoadPollVoters = { messageId, optionIndex, offset ->
+                onLoadPollVoters(message.chatId, messageId, optionIndex, offset)
+            },
+            onAddPollOption = { messageId, text -> onAddPollOption(message.chatId, messageId, text) },
+            paidContent = paidContent,
+            onOpenMessageEntity = onOpenMessageEntity
+        )
     }
 }
 

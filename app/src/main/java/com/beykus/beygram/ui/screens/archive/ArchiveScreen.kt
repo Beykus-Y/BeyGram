@@ -55,6 +55,8 @@ import com.beykus.beygram.ui.screens.chats.ChatSwipeActionKind
 import com.beykus.beygram.ui.screens.chats.showsUnreadIndicator
 import com.beykus.beygram.ui.screens.chats.SwipeChatRow
 import kotlinx.coroutines.flow.StateFlow
+import com.beykus.beygram.ui.components.GlassScreenScaffold
+import com.beykus.beygram.ui.components.screenChromeBar
 
 /** Отдельный экран архива: архивные чаты в порядке Telegram, без закреплённых и фильтров. */
 @Composable
@@ -82,20 +84,22 @@ fun ArchiveScreen(
         enabled = true, kind = ChatSwipeActionKind.Archive, perform = onUnarchive
     )
     BackHandler(onBack = onBack)
-    Column(
-        modifier = Modifier.fillMaxSize().background(palette.screen).windowInsetsPadding(WindowInsets.safeDrawing)
-    ) {
-        Row(
-            modifier = Modifier.fillMaxWidth().topAppBarSurface().padding(start = 8.dp, top = 6.dp, end = 20.dp, bottom = 6.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            IconButton(onClick = onBack, modifier = Modifier.semantics { contentDescription = context.getString(R.string.common_back) }) {
-                Icon(Icons.AutoMirrored.Rounded.ArrowBack, contentDescription = null, tint = palette.textPrimary, modifier = Modifier.size(24.dp))
+    GlassScreenScaffold(
+        modifier = Modifier.fillMaxSize().background(palette.screen).windowInsetsPadding(WindowInsets.safeDrawing),
+        toolbar = {
+            Row(
+                modifier = Modifier.fillMaxWidth().topAppBarSurface().screenChromeBar().padding(start = 8.dp, top = 6.dp, end = 20.dp, bottom = 6.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                IconButton(onClick = onBack, modifier = Modifier.semantics { contentDescription = context.getString(R.string.common_back) }) {
+                    Icon(Icons.AutoMirrored.Rounded.ArrowBack, contentDescription = null, tint = palette.textPrimary, modifier = Modifier.size(24.dp))
+                }
+                Spacer(Modifier.width(6.dp))
+                Text(stringResource(R.string.archive_title), color = palette.textPrimary, fontSize = 18.sp, fontWeight = FontWeight.SemiBold)
             }
-            Spacer(Modifier.width(6.dp))
-            Text(stringResource(R.string.archive_title), color = palette.textPrimary, fontSize = 18.sp, fontWeight = FontWeight.SemiBold)
         }
-        LazyColumn(modifier = Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 20.dp)) {
+    ) { chrome ->
+        LazyColumn(modifier = Modifier.fillMaxSize(), contentPadding = PaddingValues(top = chrome.top, bottom = 20.dp)) {
             if (chats.isEmpty()) {
                 item {
                     Text(

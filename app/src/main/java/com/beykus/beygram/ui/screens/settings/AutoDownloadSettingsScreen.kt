@@ -50,6 +50,9 @@ import com.beykus.beygram.ui.design.LocalDesignSystem
 import com.beykus.beygram.ui.design.glassScreenBackground
 import com.beykus.beygram.ui.design.glassCard
 import com.beykus.beygram.ui.screens.profile.ProfileToolbar
+import com.beykus.beygram.ui.components.GlassScreenScaffold
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.height
 
 private val CONFIGURED_NETWORKS = listOf(
     AutoDownloadNetwork.Wifi,
@@ -87,12 +90,17 @@ fun AutoDownloadSettingsScreen(onBack: () -> Unit, accountId: String = "legacy")
         update { value -> value.withPolicy(network, transform(value.policyFor(network))) }
     }
 
-    Column(Modifier.fillMaxSize().glassScreenBackground(design, palette.screen).windowInsetsPadding(WindowInsets.safeDrawing)) {
-        ProfileToolbar(stringResource(R.string.settings_auto_download_title), onBack)
+    GlassScreenScaffold(
+        modifier = Modifier.fillMaxSize().glassScreenBackground(design, palette.screen).windowInsetsPadding(WindowInsets.safeDrawing),
+        toolbar = {
+            ProfileToolbar(stringResource(R.string.settings_auto_download_title), onBack)
+        }
+    ) { chrome ->
         Column(
             Modifier.fillMaxWidth().weight(1f).verticalScroll(rememberScrollState()).padding(horizontal = 16.dp, vertical = 8.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
+            Spacer(Modifier.height(chrome.top))
             Text(stringResource(R.string.auto_download_intro), color = palette.textSecondary, fontSize = 13.sp)
             TrafficUsageSummary(snapshot = traffic, network = liveNetwork, dataSaver = settings.dataSaver)
             TabRow(

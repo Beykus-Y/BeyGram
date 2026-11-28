@@ -37,6 +37,9 @@ import com.beykus.beygram.ui.design.LocalDesignSystem
 import com.beykus.beygram.ui.design.glassScreenBackground
 import com.beykus.beygram.ui.screens.profile.ProfileSceneSettings
 import com.beykus.beygram.ui.screens.profile.ProfileToolbar
+import com.beykus.beygram.ui.components.GlassScreenScaffold
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.height
 
 /**
  * Experimental features in their own screen, grouped by area. Music holds BG Mix, BG Beat, the BG Mascot
@@ -63,9 +66,14 @@ fun ExperimentsScreen(onBack: () -> Unit, onMusicAccount: () -> Unit = {}) {
     val expressiveProfileCover by ProfileSceneSettings.expressiveCover.collectAsStateWithLifecycle()
     val skipSilence by TrackTransitionSettings.skipSilence.collectAsStateWithLifecycle()
     val crossfade by TrackTransitionSettings.crossfade.collectAsStateWithLifecycle()
-    Column(Modifier.fillMaxSize().glassScreenBackground(design, palette.screen).windowInsetsPadding(WindowInsets.safeDrawing)) {
-        ProfileToolbar(stringResource(R.string.settings_experiments_title), onBack)
+    GlassScreenScaffold(
+        modifier = Modifier.fillMaxSize().glassScreenBackground(design, palette.screen).windowInsetsPadding(WindowInsets.safeDrawing),
+        toolbar = {
+            ProfileToolbar(stringResource(R.string.settings_experiments_title), onBack)
+        }
+    ) { chrome ->
         Column(Modifier.verticalScroll(rememberScrollState()).padding(bottom = 24.dp)) {
+            Spacer(Modifier.height(chrome.top))
             Text(
                 stringResource(R.string.settings_experiments_intro),
                 color = palette.textSecondary, fontSize = 14.sp,

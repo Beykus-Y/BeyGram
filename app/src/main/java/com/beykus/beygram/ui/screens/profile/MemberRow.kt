@@ -24,6 +24,8 @@ import com.beykus.beygram.domain.model.ProfileMember
 import com.beykus.beygram.domain.model.ProfileMemberRole
 import com.beykus.beygram.ui.components.TelegramAvatar
 import com.beykus.beygram.ui.components.beyGramPalette
+import com.beykus.beygram.ui.screens.chat.authorColor
+import com.beykus.beygram.ui.screens.chat.avatarColor
 import kotlinx.coroutines.flow.StateFlow
 
 /** Пометка рядом с именем участника. Текст выбирает интерфейс: строки живут в ресурсах. */
@@ -51,15 +53,20 @@ internal fun MemberRow(
     onClick: () -> Unit
 ) {
     val palette = beyGramPalette()
+    val dark = com.beykus.beygram.ui.theme.LocalBeyGramDarkTheme.current
+    val avatarColor = member.accentColor?.avatarColor(dark)
+        ?: Color(member.avatarColorArgb)
+    val nameColor = member.accentColor?.authorColor(dark, palette.surface, palette.textPrimary)
+        ?: palette.textPrimary
     Row(
         Modifier.fillMaxWidth().clickable(role = Role.Button, onClick = onClick).semantics(mergeDescendants = true) {}.padding(horizontal = 20.dp, vertical = 10.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        TelegramAvatar(member.initials, Color(member.avatarColorArgb), 48.dp, member.photo, observeFile, downloadFile, Modifier.clearAndSetSemantics {})
+        TelegramAvatar(member.initials, avatarColor, 48.dp, member.photo, observeFile, downloadFile, Modifier.clearAndSetSemantics {})
         Spacer(Modifier.width(14.dp))
         Column(Modifier.weight(1f)) {
             Text(
-                member.name.ifBlank { stringResource(R.string.user_name_unknown) }, color = palette.textPrimary,
+                member.name.ifBlank { stringResource(R.string.user_name_unknown) }, color = nameColor,
                 fontSize = 16.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis
             )
             if (member.isBot) Text(stringResource(R.string.presence_bot), color = palette.textSecondary, fontSize = 14.sp, maxLines = 1)

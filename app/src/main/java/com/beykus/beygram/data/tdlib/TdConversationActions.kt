@@ -40,10 +40,11 @@ internal class TdConversationActions(
         when (name) {
             "message_text_length_max" -> _limits.update { it.copy(text = limit) }
             "message_caption_length_max" -> _limits.update { it.copy(caption = limit) }
+            "message_reply_quote_length_max" -> _limits.update { it.copy(quote = limit) }
             "paid_reaction_star_count_max" -> _limits.update { it.copy(paidReactionStarMax = limit) }
         }
     }
-    fun initialize() { scope.launch { listOf("message_text_length_max", "message_caption_length_max", "paid_reaction_star_count_max").forEach { name -> runCatching { option(name, request(TdApi.GetOption(name))) } } } }
+    fun initialize() { scope.launch { listOf("message_text_length_max", "message_caption_length_max", "message_reply_quote_length_max", "paid_reaction_star_count_max").forEach { name -> runCatching { option(name, request(TdApi.GetOption(name))) } } } }
 
     suspend fun capabilities(chatId: Long, messageId: Long): Result<MessageCapabilities> = conversationResult {
         val properties = request(TdApi.GetMessageProperties(chatId, messageId))
@@ -96,6 +97,16 @@ internal class TdConversationActions(
         oldestMatch(chatId, forumTopicId, TdApi.SearchMessagesFilterUnreadReaction())
     }
 
+    suspend fun unreadMarkCounts(chatId: Long, forumTopicId: Long): Result<UnreadMarkCounts?> = conversationResult {
+        if (forumTopicId > 0L) {
+            val topic = request(TdApi.GetForumTopic(chatId, forumTopicId.toInt()))
+            UnreadMarkCounts(topic.unreadMentionCount, topic.unreadReactionCount)
+        } else {
+            val chat = request(TdApi.GetChat(chatId))
+            UnreadMarkCounts(chat.unreadMentionCount, chat.unreadReactionCount)
+        }
+    }
+
     /** Marks every unread mention or reaction of a chat, or of a forum topic, as read. The user confirmed it in a dialog. */
     suspend fun readAllMarks(chatId: Long, forumTopicId: Long, mentions: Boolean): Result<Unit> = conversationResult {
         when {
@@ -107,14 +118,9 @@ internal class TdConversationActions(
         Unit
     }
 
-    /**
-     * TDLib pages search results from the newest match backwards, so the oldest one is only on the last page.
-     * Every page is read until TDLib reports no next page; a chat with more than [MAX_MATCH_PAGES] pages is cut there.
-     */
-    private suspend fun oldestMatch(chatId: Long, forumTopicId: Long, searchFilter: TdApi.SearchMessagesFilter): Long? {
-        var from = 0L
-        var oldest: Long? = null
-        repeat(MAX_MATCH_PAGES) {
+    /** TDLib returns matches from newest to oldest, using a cursor for the next older page. */
+    private suspend fun oldestMatch(chatId: Long, forumTopicId: Long, searchFilter: TdApi.SearchMessagesFilter): Long? =
+        oldestUnreadMark { from ->
             val page = request(TdApi.SearchChatMessages().apply {
                 this.chatId = chatId
                 topicId = if (forumTopicId > 0L) TdApi.MessageTopicForum(forumTopicId.toInt()) else null
@@ -124,12 +130,8 @@ internal class TdConversationActions(
                 limit = 100
                 filter = searchFilter
             })
-            page.messages.minOfOrNull { it.id }?.let { id -> oldest = minOf(oldest ?: id, id) }
-            if (page.nextFromMessageId == 0L || page.messages.isEmpty()) return oldest
-            from = page.nextFromMessageId
+            UnreadMarkPage(page.messages.minOfOrNull { it.id }, page.nextFromMessageId)
         }
-        return oldest
-    }
 
     /**
      * Resolves a channel post to its discussion thread with GetMessageThread. A channel post whose comments were
@@ -396,6 +398,27 @@ internal class TdConversationActions(
         }
     }
 
+    suspend fun searchPickerEmoji(query: String, languages: List<String>): Result<EmojiPickerSearchResults> = requestResult {
+        if (query.isBlank()) return@requestResult EmojiPickerSearchResults()
+        val codes = languages.toTypedArray()
+        val type = TdApi.StickerTypeCustomEmoji()
+        coroutineScope {
+            val unicode = async { request(TdApi.SearchEmojis(query, codes)).emojiKeywords.orEmpty() }
+            val custom = async { request(TdApi.SearchStickers(type, "", query, codes, 0, 40)).stickers.orEmpty() }
+            val packs = async { request(TdApi.SearchStickerSets(type, query)).sets.orEmpty() }
+            EmojiPickerSearchResults(
+                unicode = unicode.await().mapNotNull { it?.emoji?.takeIf(String::isNotBlank) }.distinct().take(60),
+                custom = custom.await().mapNotNull { it?.customEmojiIdOrNull() }.distinct(),
+                packs = packs.await().mapNotNull { it?.toCustomEmojiSetBrief() }.distinctBy { it.id }.take(20)
+            )
+        }
+    }
+
+    suspend fun recommendedCustomEmojiSets(): Result<List<CustomEmojiSetBrief>> = requestResult {
+        request(TdApi.GetTrendingStickerSets(TdApi.StickerTypeCustomEmoji(), 0, 20)).sets.orEmpty()
+            .mapNotNull { it?.toCustomEmojiSetBrief() }
+    }
+
     /** The custom emoji sets the account has installed. A set's covers are custom emoji too, so the editor can preview each set. */
     suspend fun installedCustomEmojiSets(): Result<List<CustomEmojiSetBrief>> = requestResult {
         request(TdApi.GetInstalledStickerSets(TdApi.StickerTypeCustomEmoji())).sets.orEmpty()
@@ -608,10 +631,7 @@ internal class TdConversationActions(
             requireFutureSchedule(options)
             if (options.viewOnce) throw UserMessageException(UiText.Res(R.string.err_view_once_single_media))
             val boundedCaption = boundTelegramText(caption, entities, limits.value.caption)
-            val replyTarget = replyId?.let {
-                if (!request(TdApi.GetMessageProperties(chatId, it)).canBeReplied) throw UserMessageException(UiText.Res(R.string.err_message_cannot_reply))
-                request(TdApi.GetMessage(chatId, it))
-            }
+            val replyTarget = replyId?.let { loadReplyTarget(chatId, it, options) }
             val resolved = stealth.resolve(chatId, options, media, onMediaHandoff = handoff::markHandedOff)
             val protocolOptions = sendOptions(resolved.options)
             val messages = stealth.scheduledRequest(resolved, TdApi.SendMessageAlbum().apply {
@@ -621,12 +641,10 @@ internal class TdConversationActions(
                 if (replyTarget != null) {
                     topicId = replySendTopic(replyTarget.topicId)
                     replyTo = TdApi.InputMessageReplyToMessage().apply {
-                    messageId = replyTarget.id
-                    pollOptionId = ""
-                    options.replyQuote?.takeIf { it.isNotBlank() }?.let { q ->
-                        quote = TdApi.InputTextQuote(TdApi.FormattedText(q, emptyArray()), options.replyQuotePosition.coerceAtLeast(0))
+                        messageId = replyTarget.id
+                        pollOptionId = ""
+                        quote = options.toInputTextQuote()
                     }
-                }
                 } else if (forumTopicId > 0L) {
                     topicId = TdApi.MessageTopicForum(forumTopicId.toInt())
                 }
@@ -659,6 +677,17 @@ internal class TdConversationActions(
         stealth.resend(chatId, orderedIds, sendNowConsent)
         Unit
     }
+    private suspend fun loadReplyTarget(chatId: Long, replyId: Long, options: MessageSendOptions): TdApi.Message {
+        val properties = request(TdApi.GetMessageProperties(chatId, replyId))
+        if (!properties.canBeReplied) throw UserMessageException(UiText.Res(R.string.err_message_cannot_reply))
+        val target = request(TdApi.GetMessage(chatId, replyId))
+        val quote = options.replyQuotePayload()
+        if (quote != null && (!properties.canBeCopied || !quote.matchesSource(messageFormattedText(target.content)?.text))) {
+            throw UserMessageException(UiText.Res(R.string.err_message_quote_unavailable))
+        }
+        return target
+    }
+
     /** [forumTopicId] is used only without a reply target: a reply already carries its topic. */
     /** [content] is built from the media that stealth mode may have uploaded ahead of the send. */
     private suspend fun send(
@@ -669,10 +698,7 @@ internal class TdConversationActions(
         onVisibleId: (Long) -> Unit = {},
         content: (List<OutgoingMedia>) -> TdApi.InputMessageContent
     ) {
-        val replyTarget = replyId?.let {
-            if (!request(TdApi.GetMessageProperties(chatId, it)).canBeReplied) throw UserMessageException(UiText.Res(R.string.err_message_cannot_reply))
-            request(TdApi.GetMessage(chatId, it))
-        }
+        val replyTarget = replyId?.let { loadReplyTarget(chatId, it, options) }
         // Never persist a payment authorization or turn it into a scheduled send.
         if (confirmedPaidStars > 0L) {
             if (forumTopicId !in 0L..Int.MAX_VALUE.toLong() ||
@@ -704,9 +730,7 @@ internal class TdConversationActions(
                 replyTo = TdApi.InputMessageReplyToMessage().apply {
                     messageId = replyTarget.id
                     pollOptionId = ""
-                    options.replyQuote?.takeIf { it.isNotBlank() }?.let { q ->
-                        quote = TdApi.InputTextQuote(TdApi.FormattedText(q, emptyArray()), options.replyQuotePosition.coerceAtLeast(0))
-                    }
+                    quote = options.toInputTextQuote()
                 }
             } else if (forumTopicId > 0L) {
                 topicId = TdApi.MessageTopicForum(forumTopicId.toInt())
@@ -960,7 +984,7 @@ internal class TdConversationActions(
         if (chatId == 0L) throw UserMessageException(UiText.Res(R.string.err_message_original_unavailable))
         val collected = LinkedHashMap<Long, TdApi.Message>()
         var fromMessageId = 0L
-        repeat(3) {
+        for (attempt in 1..3) {
             val remaining = (PEEK_MESSAGE_LIMIT - collected.size).coerceAtLeast(1)
             val req = if (fromMessageId == 0L) {
                 peekHistoryRequest(chatId, remaining)
@@ -968,12 +992,12 @@ internal class TdConversationActions(
                 TdApi.GetChatHistory(chatId, fromMessageId, 0, remaining, false)
             }
             val page = request(req).messages.orEmpty().filterNotNull()
-            if (page.isEmpty()) return@repeat
+            if (page.isEmpty()) break
             val before = collected.size
             for (msg in page) collected.putIfAbsent(msg.id, msg)
             val oldest = page.minOf { it.id }
             if (collected.size >= PEEK_MESSAGE_LIMIT || oldest == fromMessageId || (fromMessageId != 0L && collected.size == before)) {
-                return@repeat
+                break
             }
             fromMessageId = oldest
         }
@@ -1071,7 +1095,12 @@ internal class TdConversationActions(
             try {
                 val original = request(TdApi.GetRepliedMessage(message.chatId, message.id))
                 val mapped = map(original)
-                val preview = MessageReply(original.chatId, original.id, reply.quote?.text?.text?.takeIf { it.isNotBlank() }?.take(180)?.let { UiText.Raw(it) } ?: mapped.preview(), mapped.senderName)
+                val preview = MessageReply(
+                    original.chatId, original.id,
+                    reply.quote?.text?.text?.takeIf { it.isNotBlank() }?.take(180)?.let { UiText.Raw(it) } ?: mapped.preview(),
+                    mapped.senderName,
+                    senderAccentColor = mapped.senderAccentColor
+                )
                 history.update(message.chatId, message.id) { if (it.reply?.messageId == reply.messageId) it.copy(reply = preview) else it }
             } catch (cancelled: CancellationException) { throw cancelled }
             catch (error: TdRequestError) {
@@ -1091,7 +1120,23 @@ internal fun peekHistoryRequest(chatId: Long, limit: Int): TdApi.GetChatHistory 
     TdApi.GetChatHistory(chatId, 0L, 0, limit.coerceIn(1, PEEK_MESSAGE_LIMIT), false)
 private const val MAX_FORUM_TOPIC_PAGES = 20
 /** 100 matches a page; this bounds the walk to the oldest match of a chat. */
-private const val MAX_MATCH_PAGES = 1000
+internal const val MAX_UNREAD_MARK_PAGES = 24
+
+internal data class UnreadMarkPage(val oldestId: Long?, val nextCursor: Long)
+
+internal suspend fun oldestUnreadMark(loadPage: suspend (Long) -> UnreadMarkPage): Long? {
+    var cursor = 0L
+    var oldest: Long? = null
+    val visited = mutableSetOf(cursor)
+    repeat(MAX_UNREAD_MARK_PAGES) {
+        val page = loadPage(cursor)
+        val pageOldest = page.oldestId ?: return oldest
+        oldest = minOf(oldest ?: pageOldest, pageOldest)
+        if (page.nextCursor == 0L || !visited.add(page.nextCursor)) return oldest
+        cursor = page.nextCursor
+    }
+    return oldest
+}
 /** Telegram's shortest live-location window offered by the composer. */
 private const val LIVE_LOCATION_PERIOD_SECONDS = 15 * 60
 

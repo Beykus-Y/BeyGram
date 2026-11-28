@@ -9,6 +9,7 @@ import androidx.compose.foundation.background
 import com.beykus.beygram.ui.design.styledShape
 import androidx.compose.foundation.border
 import androidx.compose.foundation.combinedClickable
+import androidx.compose.ui.layout.Layout
 import androidx.compose.ui.layout.LayoutCoordinates
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.foundation.layout.Arrangement
@@ -35,6 +36,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -42,24 +44,26 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
-import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.beykus.beygram.R
+import com.beykus.beygram.playback.PlaybackOrigin
 import com.beykus.beygram.ui.accessibility.systemReducedMotion
 import com.beykus.beygram.data.media.AutoDownloadNetworkStatus
 import com.beykus.beygram.data.settings.AutoDownloadSettingsStore
 import com.beykus.beygram.deeplink.MessageEntityLink
 import com.beykus.beygram.domain.model.AutoDownloadRequest
 import com.beykus.beygram.domain.model.ChatMemoryVersion
+import com.beykus.beygram.domain.model.ProfileMember
 import com.beykus.beygram.domain.model.ChatMessage
 import com.beykus.beygram.domain.model.ChatPreview
 import com.beykus.beygram.domain.model.CustomEmoji
@@ -163,6 +167,7 @@ internal fun MessageAlbumBubble(
     onOpen: (Long) -> Unit,
     onActions: (Long) -> Unit,
     onReplyClick: (MessageReply) -> Unit,
+    onPlayed: (Long) -> Unit = {},
     onReply: ((Long) -> Unit)? = null,
     onReaction: (Long, ReactionOption) -> Unit,
     observeCustomEmoji: (Long) -> StateFlow<CustomEmoji?>,
@@ -172,6 +177,7 @@ internal fun MessageAlbumBubble(
     onAutoDownloadFile: ((AutoDownloadRequest) -> Unit)? = null,
     /** Whether this album shows its author above the media; callers decide it from the chat type and the previous row. */
     showSenderHeader: Boolean = true,
+    senderMember: ProfileMember? = null,
     selectionMode: Boolean = false,
     selected: Boolean = false,
     onToggleSelection: () -> Unit = {},
@@ -181,6 +187,7 @@ internal fun MessageAlbumBubble(
     /** Loads the earlier texts that Chat Memory kept for a member; without it the album shows no versions link. */
     onLoadVersions: (suspend (chatId: Long, messageId: Long) -> List<ChatMemoryVersion>)? = null,
     composerMediaLaunches: Map<Long, ComposerMediaLaunch> = emptyMap(),
+    loadQuickReactions: (suspend (Long, Long) -> Result<List<ReactionOption>>)? = null,
     onComposerMediaLaunchFinished: (ComposerMediaLaunch) -> Unit = {}
 ) {
     if (messages.isEmpty()) return
@@ -203,6 +210,13 @@ internal fun MessageAlbumBubble(
 
     // The latest member that kept earlier texts; the album's versions link opens its history.
     val versionsOwner = chronological.lastOrNull { (it.memory?.versionCount ?: 0) > 0 }
+    val visualMosaic = chronological.size in 2..10 && chronological.all {
+        val kind = it.media?.kind
+        kind == MediaKind.Photo || kind == MediaKind.Video || kind == MediaKind.Animation
+    }
+    val fileList = chronological.all { it.media?.kind == MediaKind.Document || it.media?.kind == MediaKind.Audio }
+    val retryAvailable = latest.isOutgoing && chronological.any { it.sendState == MessageSendState.Failed }
+    val timeOverLastTile = visualMosaic && captions.isEmpty() && reply == null && !retryAvailable && versionsOwner == null
     val loadVersions = onLoadVersions
     var showVersions by remember(latest.id) { mutableStateOf(false) }
     val openVersions: () -> Unit = { showVersions = true }
@@ -210,7 +224,15 @@ internal fun MessageAlbumBubble(
         ChatMemoryVersionsSheet(versionsOwner, loadVersions, onDismiss = { showVersions = false })
     }
 
-    Column(Modifier.fillMaxWidth().padding(horizontal = metrics.sideInset), horizontalAlignment = if (latest.isOutgoing) Alignment.End else Alignment.Start) {
+    val quickReaction = if (!selectionMode && loadQuickReactions != null && reactionOwner.sendState == MessageSendState.Sent) {
+        rememberBubbleQuickReaction(reactionOwner, loadQuickReactions, onReaction)
+    } else null
+    Column(
+        Modifier.fillMaxWidth()
+            .quickReactionOnFreeSpace(reactionOwner.chatId, reactionOwner.id, quickReaction)
+            .padding(horizontal = metrics.sideInset),
+        horizontalAlignment = if (latest.isOutgoing) Alignment.End else Alignment.Start
+    ) {
         SwipeToReply(enabled = onReply != null && captionMessage.sendState == MessageSendState.Sent, outgoing = latest.isOutgoing,
             onReply = { onReply?.invoke(captionMessage.id) }) { swipe ->
             Box(swipe) {
@@ -235,24 +257,73 @@ internal fun MessageAlbumBubble(
                     body = {
                         Column {
                             if (showSenderHeader && !latest.isOutgoing && latest.senderName.isNotBlank()) {
-                                Text(latest.senderName, color = palette.accentInk, fontSize = 13.sp, fontWeight = FontWeight.SemiBold,
-                                    maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(start = 12.dp, end = 12.dp, top = 8.dp, bottom = 4.dp))
+                                ChatGroupAuthorName(
+                                    latest.senderName, senderMember,
+                                    Modifier.padding(start = 12.dp, end = 12.dp, top = 8.dp, bottom = 4.dp),
+                                    observeCustomEmoji, observeFile, onDownloadFile
+                                )
                             }
                             chronological.firstOrNull { it.isForwarded }?.let { ForwardedMessageHeader(it) }
-                            val rows = chronological.chunked(columns)
-                            rows.forEachIndexed { index, rowMessages ->
-                                Row(Modifier.fillMaxWidth().padding(horizontal = 14.dp), horizontalArrangement = Arrangement.spacedBy(2.dp)) {
-                                    rowMessages.forEach { message ->
-                                        val media = message.media ?: return@forEach
-                                        AlbumMediaTile(media, observeFile, onDownloadFile, onAutoDownloadFile, onOpen = { onOpen(message.id) }, onLongPress = { onActions(message.id) },
-                                            modifier = Modifier.weight(1f), selectionMode = selectionMode, selectionLabel = selectionLabel,
+                            if (visualMosaic) {
+                                val aspects = chronological.map { message ->
+                                    val media = requireNotNull(message.media)
+                                    if (media.width > 0 && media.height > 0) media.width.toDouble() / media.height else 1.0
+                                }
+                                VisualAlbumMosaic(
+                                    aspects = aspects,
+                                    tile = { tileIndex ->
+                                        val message = chronological[tileIndex]
+                                        AlbumMediaTile(
+                                            requireNotNull(message.media), observeFile, onDownloadFile, onAutoDownloadFile,
+                                            onOpen = { onOpen(message.id) }, onLongPress = { onActions(message.id) },
+                                            selectionMode = selectionMode, selectionLabel = selectionLabel,
                                             onToggleSelection = onToggleSelection,
                                             composerMediaLaunch = composerMediaLaunches[message.id],
-                                            onComposerMediaLaunchFinished = onComposerMediaLaunchFinished)
+                                            mosaicTile = true,
+                                            reserveEndForTime = timeOverLastTile && tileIndex == chronological.lastIndex,
+                                            onComposerMediaLaunchFinished = onComposerMediaLaunchFinished
+                                        )
+                                    },
+                                    metadata = if (timeOverLastTile) {
+                                        { BubbleMeta(latest, isRead, retryAvailable = false, overlay = true, onRetry = onRetry) }
+                                    } else null
+                                )
+                            } else if (fileList) {
+                                val accountId = LocalPlaybackAccountId.current
+                                Column(Modifier.fillMaxWidth().padding(horizontal = metrics.textInset)) {
+                                    chronological.forEach { message ->
+                                        key(message.id) {
+                                            MediaPreview(
+                                                requireNotNull(message.media), observeFile, onDownloadFile,
+                                                onOpen = { if (selectionMode) onToggleSelection() else onOpen(message.id) },
+                                                onLongPress = { if (selectionMode) onToggleSelection() else onActions(message.id) },
+                                                onPlayed = { onPlayed(message.id) },
+                                                origin = if (message.sendState == MessageSendState.Sent) {
+                                                    PlaybackOrigin(message.chatId, message.id, accountId)
+                                                } else null,
+                                                viewOnce = message.isViewOnce,
+                                                autoDownloadFile = onAutoDownloadFile,
+                                                selectionActive = selectionMode
+                                            )
+                                        }
                                     }
-                                    repeat(columns - rowMessages.size) { SpacerTile(Modifier.weight(1f)) }
                                 }
-                                if (index < rows.lastIndex) Spacer(Modifier.height(2.dp))
+                            } else {
+                                val rows = chronological.chunked(columns)
+                                rows.forEachIndexed { index, rowMessages ->
+                                    Row(Modifier.fillMaxWidth().padding(horizontal = 14.dp), horizontalArrangement = Arrangement.spacedBy(2.dp)) {
+                                        rowMessages.forEach { message ->
+                                            val media = message.media ?: return@forEach
+                                            AlbumMediaTile(media, observeFile, onDownloadFile, onAutoDownloadFile, onOpen = { onOpen(message.id) }, onLongPress = { onActions(message.id) },
+                                                modifier = Modifier.weight(1f), selectionMode = selectionMode, selectionLabel = selectionLabel,
+                                                onToggleSelection = onToggleSelection,
+                                                composerMediaLaunch = composerMediaLaunches[message.id],
+                                                onComposerMediaLaunchFinished = onComposerMediaLaunchFinished)
+                                        }
+                                        repeat(columns - rowMessages.size) { SpacerTile(Modifier.weight(1f)) }
+                                    }
+                                    if (index < rows.lastIndex) Spacer(Modifier.height(2.dp))
+                                }
                             }
                             if (reply != null) {
                                 ReplyQuote(
@@ -277,7 +348,7 @@ internal fun MessageAlbumBubble(
                         }
                     },
                     meta = {
-                        BubbleMeta(latest, isRead, retryAvailable = latest.isOutgoing && chronological.any { it.sendState == MessageSendState.Failed },
+                        if (!timeOverLastTile) BubbleMeta(latest, isRead, retryAvailable = retryAvailable,
                             overlay = false, onRetry = onRetry,
                             onShowVersions = if (loadVersions != null && versionsOwner != null) openVersions else null,
                             versionCount = versionsOwner?.memory?.versionCount ?: 0)
@@ -299,6 +370,57 @@ internal fun MessageAlbumBubble(
     }
 }
 
+/** Rectangles depend on media metadata and constraints. File progress never invalidates the cache. */
+@Composable
+private fun VisualAlbumMosaic(
+    aspects: List<Double>,
+    tile: @Composable (Int) -> Unit,
+    metadata: (@Composable () -> Unit)?
+) {
+    val density = LocalDensity.current
+    val gutter = with(density) { 2.dp.roundToPx() }
+    val maxHeight = with(density) { 420.dp.roundToPx() }
+    val minCell = with(density) { 54.dp.roundToPx() }
+    val cache = remember(aspects, gutter, maxHeight, minCell) { mutableMapOf<Pair<Int, Int>, AlbumMosaic>() }
+    Layout(
+        content = {
+            aspects.indices.forEach { index -> Box { tile(index) } }
+            if (metadata != null) Box { metadata() }
+        },
+        modifier = Modifier.fillMaxWidth()
+    ) { children, constraints ->
+        val width = constraints.maxWidth
+        val heightCap = minOf(maxHeight, constraints.maxHeight)
+        val dimensions = width to heightCap
+        val mosaic = cache[dimensions] ?: chooseAlbumMosaic(width, heightCap, gutter, minCell, aspects).also {
+            cache.clear()
+            cache[dimensions] = it
+        }
+        if (mosaic.tiles.isEmpty()) {
+            layout(width, constraints.minHeight) {}
+        } else {
+            val tiles = mosaic.tiles.mapIndexed { index, rect ->
+                children[index].measure(Constraints.fixed(rect.width, rect.height))
+            }
+            val last = mosaic.tiles.last()
+            val inset = 4.dp.roundToPx()
+            val time = children.getOrNull(aspects.size)?.measure(Constraints(
+                maxWidth = (last.width - inset).coerceAtLeast(0),
+                maxHeight = (last.height - inset).coerceAtLeast(0)
+            ))
+            layout(width, mosaic.height.coerceAtLeast(constraints.minHeight)) {
+                tiles.zip(mosaic.tiles).forEach { (placeable, rect) -> placeable.placeRelative(rect.x, rect.y) }
+                if (time != null) {
+                    time.placeRelative(
+                        (last.x + last.width - time.width - inset).coerceAtLeast(last.x),
+                        (last.y + last.height - time.height - inset).coerceAtLeast(last.y)
+                    )
+                }
+            }
+        }
+    }
+}
+
 @Composable
 private fun AlbumMediaTile(
     media: MessageMedia,
@@ -312,6 +434,8 @@ private fun AlbumMediaTile(
     selectionLabel: String? = null,
     onToggleSelection: () -> Unit = {},
     composerMediaLaunch: ComposerMediaLaunch? = null,
+    mosaicTile: Boolean = false,
+    reserveEndForTime: Boolean = false,
     onComposerMediaLaunchFinished: (ComposerMediaLaunch) -> Unit = {}
 ) {
     val palette = beyGramPalette()
@@ -355,7 +479,9 @@ private fun AlbumMediaTile(
     }
 
     val flight = composerMediaLaunchModifier(composerMediaLaunch, onComposerMediaLaunchFinished)
-    Box(modifier.aspectRatio(1f).padding(1.dp).then(flight).clip(styledShape(5.dp)).background(palette.disabled)
+    val tileShape = if (mosaicTile) Modifier.fillMaxSize() else Modifier.aspectRatio(1f).padding(1.dp)
+    val tileClip = if (mosaicTile) Modifier else Modifier.clip(styledShape(5.dp))
+    Box(modifier.then(tileShape).then(flight).then(tileClip).background(palette.disabled)
         .combinedClickable(
             onClickLabel = if (selectionMode) selectionLabel else if (revealed) openLabel else spoilerLabel,
             onLongClickLabel = if (selectionMode) selectionLabel else longPressLabel,
@@ -398,7 +524,7 @@ private fun AlbumMediaTile(
                 modifier = Modifier.size(36.dp).background(Color.Black.copy(alpha = 0.5f), CircleShape).padding(7.dp))
         }
         if (media.durationSeconds > 0) Text(duration(media.durationSeconds), color = Color.White, fontSize = 11.sp,
-            modifier = Modifier.align(Alignment.BottomEnd).padding(4.dp).background(Color.Black.copy(alpha = 0.55f), styledShape(5.dp)).padding(horizontal = 4.dp, vertical = 2.dp))
+            modifier = Modifier.align(if (reserveEndForTime) Alignment.TopStart else Alignment.BottomEnd).padding(4.dp).background(Color.Black.copy(alpha = 0.55f), styledShape(5.dp)).padding(horizontal = 4.dp, vertical = 2.dp))
         if (file.isDownloading || file.isUploading) LinearProgressIndicator(
             progress = { fileHandle.raw.value.transferProgress() },
             modifier = Modifier.fillMaxWidth().align(Alignment.BottomCenter)

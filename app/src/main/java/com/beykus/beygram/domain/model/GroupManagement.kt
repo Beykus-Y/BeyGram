@@ -79,7 +79,8 @@ data class GroupMemberEntry(
     val canBeEdited: Boolean = false,
     val restrictedUntilSeconds: Int = 0,
     val bannedUntilSeconds: Int = 0,
-    val isCurrentUser: Boolean = false
+    val isCurrentUser: Boolean = false,
+    val accentColor: PeerAccentColor? = null
 ) {
     val initials: String get() = initialsOf(name)
 }

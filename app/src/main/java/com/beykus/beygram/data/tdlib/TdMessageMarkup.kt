@@ -117,3 +117,9 @@ internal fun botKeyboard(message: TdApi.Message?): BotKeyboard? = when (val mark
     is TdApi.ReplyMarkupForceReply -> BotKeyboard(message.id, emptyList(), placeholder = markup.inputFieldPlaceholder.orEmpty(), forceReply = true)
     else -> null
 }
+
+internal fun MessageSendOptions.toInputTextQuote(): TdApi.InputTextQuote? {
+    val text = replyQuote?.takeIf { it.isNotBlank() } ?: return null
+    if (replyQuotePosition < 0) return null
+    return TdApi.InputTextQuote(formattedText(text, replyQuoteEntities), replyQuotePosition)
+}

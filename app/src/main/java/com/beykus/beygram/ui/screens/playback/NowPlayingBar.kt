@@ -64,8 +64,8 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Text
 import com.beykus.beygram.ui.components.BeyGramSheet
+import com.beykus.beygram.ui.components.rememberBeyGramSheetState
 import com.beykus.beygram.ui.components.TextButton
-import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
@@ -176,8 +176,7 @@ val LocalOpenMyMusic = compositionLocalOf<(() -> Unit)?> { null }
  */
 @Composable
 internal fun rememberBottomPlayerBarVisible(hideWhenImeVisible: Boolean = true): Boolean {
-    val isVideoNote = PlaybackEngine.state.collectAsStateWithLifecycle().value.item?.kind == MediaKind.VideoNote
-    val mini = rememberMiniPlayerUi()?.takeUnless { isVideoNote }
+    val mini = rememberMiniPlayerUi()?.takeUnless { it.isVideoNote }
     val keyboardVisible = WindowInsets.ime.getBottom(LocalDensity.current) > 0
     val undoAvailable by PlaybackEngine.undoClose.collectAsStateWithLifecycle()
     val wave by BgWaveHub.controller.state.collectAsStateWithLifecycle()
@@ -203,8 +202,7 @@ fun NowPlayingBar(
     /** Compact vertical density used inside an open chat so the bar yields more space to messages. */
     compact: Boolean = false
 ) {
-    val isVideoNote = PlaybackEngine.state.collectAsStateWithLifecycle().value.item?.kind == MediaKind.VideoNote
-    val mini = rememberMiniPlayerUi()?.takeUnless { isVideoNote }
+    val mini = rememberMiniPlayerUi()?.takeUnless { it.isVideoNote }
     // Root and tab bars yield their space to the keyboard; the chat-integrated bar
     // keeps its own composer layout. Playback and the full-player sheet stay alive.
     val keyboardVisible = WindowInsets.ime.getBottom(LocalDensity.current) > 0
@@ -888,7 +886,7 @@ private fun VoiceNowPlayingSheet(onDismiss: () -> Unit) {
     val item = state.item ?: return
     BeyGramSheet(
         onDismissRequest = onDismiss,
-        sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
+        sheetState = rememberBeyGramSheetState(skipPartiallyExpanded = true),
         // The controls scroll on their own, so the sheet must not add a second scroll around them.
         scrollableContent = false
     ) {

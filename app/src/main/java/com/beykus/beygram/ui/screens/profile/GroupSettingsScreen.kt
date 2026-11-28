@@ -42,6 +42,9 @@ import com.beykus.beygram.ui.text.userMessage
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
+import com.beykus.beygram.ui.components.GlassScreenScaffold
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.height
 
 /**
  * Настройки группы или канала. Показываются только поля, которые роль действительно может менять:
@@ -145,38 +148,41 @@ internal fun GroupSettingsScreen(
         }
     }
 
-    Column(
-        Modifier.fillMaxSize().background(palette.screen).windowInsetsPadding(WindowInsets.safeDrawing).imePadding()
-    ) {
-        ProfileToolbar(
-            stringResource(if (kind == ManagedChatKind.Channel) R.string.group_settings_title_channel else R.string.group_settings_title_group),
-            ::leave
-        ) {
-            TextButton(
-                enabled = changed && problem == null && !saving && !photoBusy,
-                onClick = {
-                    scope.launch {
-                        saving = true
-                        error = null
-                        notice = null
-                        discardWarning = false
-                        repository.saveGroupSettings(info.chatId, edit).fold(
-                            onSuccess = {
-                                notice = context.getString(R.string.group_settings_saved)
-                                onChanged()
-                            },
-                            onFailure = {
-                                error = it.userMessage(context, R.string.group_settings_save_failed)
-                                // Часть запросов могла примениться до отказа: показываем актуальное состояние.
-                                onChanged()
-                            }
-                        )
-                        saving = false
+    GlassScreenScaffold(
+        modifier = Modifier.fillMaxSize().background(palette.screen).windowInsetsPadding(WindowInsets.safeDrawing).imePadding(),
+        toolbar = {
+            ProfileToolbar(
+                stringResource(if (kind == ManagedChatKind.Channel) R.string.group_settings_title_channel else R.string.group_settings_title_group),
+                ::leave
+            ) {
+                TextButton(
+                    enabled = changed && problem == null && !saving && !photoBusy,
+                    onClick = {
+                        scope.launch {
+                            saving = true
+                            error = null
+                            notice = null
+                            discardWarning = false
+                            repository.saveGroupSettings(info.chatId, edit).fold(
+                                onSuccess = {
+                                    notice = context.getString(R.string.group_settings_saved)
+                                    onChanged()
+                                },
+                                onFailure = {
+                                    error = it.userMessage(context, R.string.group_settings_save_failed)
+                                    // Часть запросов могла примениться до отказа: показываем актуальное состояние.
+                                    onChanged()
+                                }
+                            )
+                            saving = false
+                        }
                     }
-                }
-            ) { Text(stringResource(if (saving) R.string.common_saving else R.string.common_save)) }
+                ) { Text(stringResource(if (saving) R.string.common_saving else R.string.common_save)) }
+            }
+            if (saving || photoBusy) LinearProgressIndicator(Modifier.fillMaxWidth(), color = palette.accent)
         }
-        if (saving || photoBusy) LinearProgressIndicator(Modifier.fillMaxWidth(), color = palette.accent)
+    ) { chrome ->
+        Spacer(Modifier.height(chrome.top))
         if (discardWarning) Row(
             Modifier.fillMaxWidth().padding(horizontal = 16.dp).clip(styledShape(16.dp)).background(palette.warningSurface)
                 .padding(start = 16.dp, end = 4.dp, top = 4.dp, bottom = 4.dp),

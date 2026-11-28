@@ -29,6 +29,7 @@ import com.beykus.beygram.ui.design.GlassEdge
 import com.beykus.beygram.ui.design.GlassPanel
 import com.beykus.beygram.ui.design.LocalDesignSystem
 import com.beykus.beygram.ui.design.LocalGlassBackdrop
+import com.beykus.beygram.ui.design.usesGlassPanels
 import com.beykus.beygram.ui.components.beyGramPalette
 
 /**
@@ -43,6 +44,33 @@ internal val LocalComposerOnGlassPlane = staticCompositionLocalOf { false }
 @Composable
 internal fun Modifier.chatChromeBackground(color: Color): Modifier =
     if (LocalChatChromeOnGlass.current) this else background(color)
+
+/** Hosts a chat bar with a single [GlassPanel] in floating Liquid Glass while inheriting parent glass in shared chrome. */
+@Composable
+internal fun ChatFloatingBarHost(
+    modifier: Modifier = Modifier,
+    content: @Composable ColumnScope.() -> Unit
+) {
+    val design = LocalDesignSystem.current
+    val palette = beyGramPalette()
+    val onSharedGlass = LocalChatChromeOnGlass.current || LocalComposerOnGlassPlane.current
+    if (design.usesGlassPanels && !onSharedGlass && LocalGlassBackdrop.current != null) {
+        GlassPanel(
+            design = design,
+            tint = palette.surface,
+            rim = palette.textSecondary,
+            backdropBase = palette.screen,
+            shape = RectangleShape,
+            edge = GlassEdge.TopHairline,
+            lensOnFreeEdge = true,
+            modifier = modifier.fillMaxWidth()
+        ) {
+            Column(Modifier.fillMaxWidth(), content = content)
+        }
+    } else {
+        Column(modifier.fillMaxWidth().chatChromeBackground(palette.surface), content = content)
+    }
+}
 
 /**
  * The chat's header stack (top) or composer stack (bottom). In the Liquid Glass style it is one pane of glass that the
@@ -75,7 +103,11 @@ internal fun ChatChromeHost(
     }
     if (!glass) {
         // The top stack is drawn above the message list, so a header shadow (Material 2) is not painted over by it.
-        Column(Modifier.fillMaxWidth().zIndex(if (edge == GlassEdge.BottomHairline) 1f else 0f)) {
+        Column(Modifier.fillMaxWidth().zIndex(1f).then(
+            if (edge == GlassEdge.TopHairline) Modifier.onSizeChanged { onHeight(it.height) }
+                .pointerInput(Unit) { awaitPointerEventScope { while (true) awaitPointerEvent() } }
+            else Modifier
+        )) {
             statusBarSpacer()
             paneContent()
             floatingContent()

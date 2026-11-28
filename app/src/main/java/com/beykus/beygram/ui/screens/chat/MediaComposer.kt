@@ -1,6 +1,14 @@
 package com.beykus.beygram.ui.screens.chat
 
 import android.content.Context
+import androidx.compose.foundation.layout.ColumnScope
+import com.beykus.beygram.ui.components.GlassNotice
+import com.beykus.beygram.ui.components.NoticeTone
+import com.beykus.beygram.ui.design.GlassEdge
+import com.beykus.beygram.ui.design.GlassPanel
+import com.beykus.beygram.ui.design.styledTopShape
+import com.beykus.beygram.ui.design.LocalGlassBackdrop
+import com.beykus.beygram.ui.design.usesGlassPanels
 import com.beykus.beygram.ui.components.BeyGramDialog
 import com.beykus.beygram.ui.components.BeyGramPopover
 import com.beykus.beygram.ui.components.BeyGramPopoverItem
@@ -22,6 +30,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.ui.platform.testTag
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -64,6 +73,7 @@ import androidx.compose.material3.Text
 import androidx.compose.foundation.horizontalScroll
 import com.beykus.beygram.ui.components.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.ui.layout.onGloballyPositioned
@@ -520,10 +530,7 @@ internal class AttachmentState(
                     val originalCopy = stagedOriginal
                     val replaced = session.replaceItem
                     if (replaced != null) {
-                        val withoutReplaced = pending.filterNot { it.path == replaced.path }
-                        // "Keep original" promises a separate file, so a retained photo becomes a document.
-                        val retained = if (keepOriginal) replaced.copy(kind = MediaKind.Document) else null
-                        pendingState.value = ArrayList(withoutReplaced + edited + listOfNotNull(retained))
+                        pendingState.value = ArrayList(replaceEditedAttachment(pending, replaced, edited, keepOriginal))
                         if (!keepOriginal) runCatching { importer.discard(replaced) }
                     } else {
                         pendingState.value = ArrayList(pending + edited + listOfNotNull(originalCopy))
@@ -1271,7 +1278,7 @@ internal fun AttachmentButton(state: AttachmentState, enabled: Boolean = true, e
         modifier = Modifier.size(ComposerButtonSize)
             .semantics { contentDescription = context.getString(R.string.composer_attach_description) }
     ) {
-        Box(Modifier.size(ComposerButtonSize), contentAlignment = Alignment.Center) {
+        Box(Modifier.size(ComposerButtonSize).testTag("attachment_composer_button"), contentAlignment = Alignment.Center) {
             ComposerMaterial(
                 if (tonal) palette.accentSoft else palette.surface2,
                 CircleShape,
@@ -1282,7 +1289,7 @@ internal fun AttachmentButton(state: AttachmentState, enabled: Boolean = true, e
                 Icons.Rounded.AttachFile,
                 contentDescription = null,
                 tint = if (state.menuOpen || state.active) palette.accent else palette.textSecondary,
-                modifier = Modifier.size(ComposerIconSize)
+                modifier = Modifier.size(ComposerIconSize).testTag("attachment_composer_glyph")
             )
         }
     }
@@ -1361,8 +1368,22 @@ internal fun AttachmentPanel(
             shrinkVertically(shrinkTowards = Alignment.Bottom, animationSpec = exitSpec.animationSpec()) +
                 fadeOut(animationSpec = exitSpec.animationSpec())
     ) {
-    val sheetModifier = if (embedded || (!visible && exitPreview.isNotEmpty() && !exitMenuOpen)) Modifier else Modifier.glassSheet(LocalDesignSystem.current, palette.surface, palette.textSecondary)
-    Column(Modifier.fillMaxWidth().then(sheetModifier)) {
+    val design = LocalDesignSystem.current
+    val onSharedGlass = LocalComposerOnGlassPlane.current || LocalChatChromeOnGlass.current
+    val drawsOwnSheet = !embedded && (visible || exitPreview.isEmpty() || exitMenuOpen)
+    // One plane of material per surface. On the shared composer plane the panel stays transparent so the pane behind it
+    // shows; with a backdrop of its own it becomes a real glass pane; the dense fill is only the fallback when neither
+    // is possible, so the imitation never stands in for the material.
+    val drawsGlassPanel = drawsOwnSheet && design.usesGlassPanels && !onSharedGlass && LocalGlassBackdrop.current != null
+    // A surface inside the panel's own pane is on glass even though the panel itself is not the shared composer plane:
+    // its children must not open a second pane, which would blur and tint the same backdrop twice.
+    val onGlassSurface = onSharedGlass || drawsGlassPanel
+    val containerModifier = if (drawsOwnSheet && !drawsGlassPanel && !onSharedGlass) {
+        Modifier.glassSheet(design, palette.surface, palette.textSecondary)
+    } else {
+        Modifier
+    }
+    AttachmentPanelSurface(glass = drawsGlassPanel, modifier = containerModifier) {
         when {
             state.menuOpen || (!visible && exitMenuOpen) -> AttachmentMenu(
                 allowsPolls = state.allowsPolls,
@@ -1391,16 +1412,22 @@ internal fun AttachmentPanel(
             )
         }
         state.error?.let { message ->
-            Column(Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 4.dp)) {
-                Text(message, color = palette.danger, fontSize = 13.sp, modifier = Modifier.errorAnnouncement())
-                if (state.extraSendFailed) {
-                    Text(stringResource(R.string.poll_send_retained), color = palette.textSecondary, fontSize = 12.sp)
-                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
-                        TextButton(onClick = state::discardFailedExtra, modifier = Modifier.defaultMinSize(minHeight = 48.dp)) {
-                            Text(stringResource(R.string.common_cancel), color = palette.textSecondary)
-                        }
-                        TextButton(onClick = state::retryExtra, modifier = Modifier.defaultMinSize(minHeight = 48.dp)) {
-                            Text(stringResource(R.string.common_retry), color = palette.accent)
+            GlassNotice(
+                tone = NoticeTone.Danger,
+                onGlassPlane = onGlassSurface,
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 4.dp)
+            ) {
+                Column(Modifier.fillMaxWidth()) {
+                    Text(message, fontSize = 13.sp, modifier = Modifier.errorAnnouncement())
+                    if (state.extraSendFailed) {
+                        Text(stringResource(R.string.poll_send_retained), color = palette.textSecondary, fontSize = 12.sp)
+                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+                            TextButton(onClick = state::discardFailedExtra, modifier = Modifier.defaultMinSize(minHeight = 48.dp)) {
+                                Text(stringResource(R.string.common_cancel), color = palette.textSecondary)
+                            }
+                            TextButton(onClick = state::retryExtra, modifier = Modifier.defaultMinSize(minHeight = 48.dp)) {
+                                Text(stringResource(R.string.common_retry), color = palette.accent)
+                            }
                         }
                     }
                 }
@@ -1408,9 +1435,13 @@ internal fun AttachmentPanel(
         }
         Column(Modifier.padding(start = 14.dp)) {
             if (state.canRetryCapture && !state.importing) {
-                Row(Modifier.fillMaxWidth().padding(end = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+                GlassNotice(
+                    tone = NoticeTone.Info,
+                    onGlassPlane = onGlassSurface,
+                    modifier = Modifier.fillMaxWidth().padding(end = 14.dp, bottom = 2.dp)
+                ) {
                     Text(
-                        stringResource(R.string.capture_retry_hint), color = palette.textSecondary, fontSize = 12.sp,
+                        stringResource(R.string.capture_retry_hint), fontSize = 12.sp,
                         modifier = Modifier.weight(1f)
                     )
                     IconButton(onClick = { state.retryCapture() }, enabled = !state.importing && !state.sending, modifier = Modifier.size(48.dp)) {
@@ -1419,9 +1450,13 @@ internal fun AttachmentPanel(
                 }
             }
             state.notice?.let { message ->
-                Row(Modifier.fillMaxWidth().padding(end = 6.dp, bottom = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+                GlassNotice(
+                    tone = NoticeTone.Info,
+                    onGlassPlane = onGlassSurface,
+                    modifier = Modifier.fillMaxWidth().padding(end = 14.dp, bottom = 4.dp)
+                ) {
                     Text(
-                        message, color = palette.textSecondary, fontSize = 12.sp,
+                        message, fontSize = 12.sp,
                         modifier = Modifier.weight(1f).errorAnnouncement()
                     )
                     IconButton(onClick = { state.dismissNotice() }, modifier = Modifier.size(48.dp)) {
@@ -1449,6 +1484,41 @@ internal fun AttachmentPanel(
             dismissText = stringResource(R.string.composer_attachments_clear_keep),
             onDismiss = { discardConfirm = false }
         )
+    }
+}
+
+/**
+ * The container of the attachment panel: a real [GlassPanel] when the panel owns its plane, otherwise the column with
+ * the fill the caller selected. Keeping it in one composable is what makes "one material plane per surface" true for
+ * the panel, the action menu inside it and the staged files alike.
+ */
+@Composable
+private fun AttachmentPanelSurface(
+    glass: Boolean,
+    modifier: Modifier,
+    content: @Composable ColumnScope.() -> Unit
+) {
+    val palette = beyGramPalette()
+    val design = LocalDesignSystem.current
+    if (glass) {
+        GlassPanel(
+            design = design,
+            tint = palette.surface,
+            rim = palette.textSecondary,
+            backdropBase = palette.screen,
+            shape = styledTopShape(20.dp),
+            edge = GlassEdge.TopHairline,
+            lensOnFreeEdge = true,
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            // Everything inside this pane already sits on glass: the action menu, the staged files and the notices must
+            // inherit it instead of opening panes of their own.
+            CompositionLocalProvider(LocalComposerOnGlassPlane provides true) {
+                Column(Modifier.fillMaxWidth(), content = content)
+            }
+        }
+    } else {
+        Column(Modifier.fillMaxWidth().then(modifier), content = content)
     }
 }
 
@@ -1700,6 +1770,31 @@ internal fun reorderPendingAttachment(
     val index = pending.indexOfFirst { it.samePendingAttachment(item) }
     if (index < 0 || index + offset !in pending.indices) return pending
     return ArrayList(pending).apply { add(index + offset, removeAt(index)) }
+}
+
+/**
+ * Swaps an edited photo for its export in place. The export is a new file, so it carries no attachment flags of its
+ * own: the spoiler mark belongs to the user's choice and must survive cropping. The untouched source, when kept,
+ * stays right after the edit instead of jumping to the end and reordering the album.
+ */
+internal fun replaceEditedAttachment(
+    pending: List<OutgoingMedia>,
+    replaced: OutgoingMedia,
+    edited: OutgoingMedia,
+    keepOriginal: Boolean
+): List<OutgoingMedia> {
+    val result = ArrayList(pending)
+    val editedInPlace = edited.copy(hasSpoiler = replaced.hasSpoiler)
+    val index = result.indexOfFirst { it.path == replaced.path }
+    if (index < 0) {
+        result += editedInPlace
+        if (keepOriginal) result += replaced.copy(kind = MediaKind.Document)
+        return result
+    }
+    result[index] = editedInPlace
+    // "Keep original" promises a separate file, so a retained photo becomes a document.
+    if (keepOriginal) result.add(index + 1, replaced.copy(kind = MediaKind.Document))
+    return result
 }
 
 /** Identity independent of filename, as different photos are commonly both named photo.jpg. */

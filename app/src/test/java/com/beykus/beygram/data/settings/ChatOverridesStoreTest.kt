@@ -86,4 +86,15 @@ class ChatOverridesStoreTest {
         ChatOverridesStore(storage).reset(10L)
         assertNull(ChatOverridesStore(storage).state.value[10L])
     }
+    @Test fun groupAvatarOverrideSurvivesRestartAndClearsWithReset() {
+        val storage = FakeStorage()
+        val store = ChatOverridesStore(storage)
+        store.setGroupAvatarsHidden(10L, true)
+        val reopened = ChatOverridesStore(storage)
+        assertEquals(true, reopened.state.value[10L]?.groupAvatarsHidden)
+        assertNull(reopened.state.value[11L])
+        reopened.reset(10L)
+        assertNull(ChatOverridesStore(storage).state.value[10L])
+    }
+
 }

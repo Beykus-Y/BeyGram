@@ -15,6 +15,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.Dp
 import com.beykus.beygram.domain.model.ChatPreview
 import com.beykus.beygram.domain.model.MediaFileState
+import com.beykus.beygram.ui.screens.chat.avatarColor
 import kotlinx.coroutines.flow.StateFlow
 
 /** Значок «Избранное» вместо фото и инициалов. */
@@ -33,5 +34,8 @@ fun ChatAvatar(
     modifier: Modifier = Modifier
 ) {
     if (chat.isSavedMessages) SavedMessagesAvatar(size, modifier)
-    else TelegramAvatar(chat.initials, Color(chat.avatarColorArgb), size, chat.photo, observeFile, downloadFile, modifier)
+    else {
+        val fallbackColor = chat.accentColor?.avatarColor(com.beykus.beygram.ui.theme.LocalBeyGramDarkTheme.current) ?: Color(chat.avatarColorArgb)
+        TelegramAvatar(chat.initials, fallbackColor, size, chat.photo, observeFile, downloadFile, modifier)
+    }
 }

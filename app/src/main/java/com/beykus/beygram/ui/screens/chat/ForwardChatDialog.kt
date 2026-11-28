@@ -30,8 +30,6 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
-import androidx.compose.material3.SheetValue
-import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
@@ -47,6 +45,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
@@ -57,6 +56,9 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.beykus.beygram.ui.components.BeyGramSheet
+import com.beykus.beygram.ui.components.LocalSheetOnGlass
+import com.beykus.beygram.ui.components.BeyGramSheetValue
+import com.beykus.beygram.ui.components.rememberBeyGramSheetState
 import com.beykus.beygram.ui.components.Switch
 import com.beykus.beygram.ui.components.TextButton
 import com.beykus.beygram.ui.components.sheetSurfaceColor
@@ -182,9 +184,9 @@ internal fun ForwardChatDialog(
     val directory = rememberShareRecipientDirectory(chats, recipientRepository, candidatePolicy)
     val writableIds = remember(directory.chats) { directory.chats.filter { it.canPost }.map { it.id }.toSet() }
     val unavailableTarget = targets.any { it.chatId !in writableIds }
-    val sheetState = rememberModalBottomSheetState(
+    val sheetState = rememberBeyGramSheetState(
         skipPartiallyExpanded = false,
-        confirmValueChange = { next -> next == SheetValue.Expanded || !dismissLocked }
+        canDismiss = { !dismissLocked }
     )
 
     fun isPicked(chatId: Long, topicId: Long) = targets.any { it.chatId == chatId && it.topicId == topicId }
@@ -282,6 +284,9 @@ internal fun ForwardChatDialog(
     }
     val paneLabel = if (chat != null) stringResource(R.string.forward_choose_topic, chat.title)
         else titleOverride ?: stringResource(if (asCopy) R.string.forward_title_copy else R.string.forward_title)
+    // On the hosted glass pane the sheet is the material and already handles the keyboard; this content must not paint
+    // a second container or pad the IME twice. In Material's own window it keeps both, exactly as before.
+    val onGlass = LocalSheetOnGlass.current
     BeyGramSheet(
         onDismissRequest = { if (!locked) onClose() },
         modifier = Modifier.semantics { paneTitle = paneLabel },
@@ -291,8 +296,8 @@ internal fun ForwardChatDialog(
     ) {
         BackHandler(enabled = chat != null || locked) { if (!locked) backFromTopics() }
         Scaffold(
-            modifier = Modifier.fillMaxSize().imePadding(),
-            containerColor = sheetSurfaceColor(),
+            modifier = Modifier.fillMaxSize().then(if (onGlass) Modifier else Modifier.imePadding()),
+            containerColor = if (onGlass) Color.Transparent else sheetSurfaceColor(),
             topBar = {
                 TopAppBar(
                     modifier = Modifier.topAppBarSurface(),
@@ -322,18 +327,22 @@ internal fun ForwardChatDialog(
                         ) {
                             Icon(Icons.Rounded.Share, stringResource(R.string.share_other_app), tint = palette.textPrimary)
                         }
-                        if (sheetState.currentValue != SheetValue.Expanded) IconButton(
+                        if (sheetState.currentValue != BeyGramSheetValue.Expanded) IconButton(
                             onClick = { scope.launch { sheetState.expand() } }
                         ) {
                             Icon(Icons.Rounded.KeyboardArrowUp, stringResource(R.string.share_expand_picker), tint = palette.textPrimary)
                         }
                     },
-                    colors = TopAppBarDefaults.topAppBarColors(containerColor = sheetSurfaceColor())
+                    colors = TopAppBarDefaults.topAppBarColors(
+                        containerColor = if (onGlass) Color.Transparent else sheetSurfaceColor()
+                    )
                 )
             },
             bottomBar = {
                 Column(
-                    Modifier.fillMaxWidth().background(sheetSurfaceColor()).padding(horizontal = 16.dp, vertical = 12.dp)
+                    Modifier.fillMaxWidth()
+                        .then(if (onGlass) Modifier else Modifier.background(sheetSurfaceColor()))
+                        .padding(horizontal = 16.dp, vertical = 12.dp)
                 ) {
                     if (targets.isNotEmpty()) {
                         LazyRow(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {

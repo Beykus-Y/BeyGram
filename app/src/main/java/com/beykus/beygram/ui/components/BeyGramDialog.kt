@@ -19,16 +19,20 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.paneTitle
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import androidx.compose.ui.window.SecureFlagPolicy
+import com.beykus.beygram.ui.design.LocalDesignSystem
+import com.beykus.beygram.ui.design.usesGlassPanels
 
 /**
  * BeyGram's own centred dialog for short confirmations and small inputs. Built on the low-level Compose [Dialog]
@@ -78,6 +82,47 @@ fun BeyGramDialog(
     }
     val palette = beyGramPalette()
     val maxHeight = (LocalConfiguration.current.screenHeightDp * 0.8f).dp
+    val design = LocalDesignSystem.current
+    val host = LocalBeyGramModalHost.current
+    // Same rule as the sheet: a dialog inside another window must stay in that window instead of registering with a
+    // host it would be drawn behind.
+    val windowRoot = LocalView.current.rootView
+    // A secure dialog must keep its own window: FLAG_SECURE belongs to the window, and a snapshot of the app must not
+    // show the key or the code it displays. Such a dialog keeps the plain fill, which is the safe fallback.
+    val hosted = design.usesGlassPanels && host != null && host.ownsWindow(windowRoot) && !secure
+    val body: @Composable (Boolean) -> Unit = { fillWidth ->
+        BeyGramDialogBody(
+            title = title,
+            message = message,
+            content = content,
+            confirmText = confirmText,
+            onConfirm = onConfirm,
+            dismissText = dismissText,
+            onDismiss = onDismiss,
+            dismissEnabled = dismissEnabled,
+            destructive = destructive,
+            confirmEnabled = confirmEnabled,
+            neutralText = neutralText,
+            onNeutral = onNeutral,
+            maxHeight = maxHeight,
+            fillWidth = fillWidth,
+            scrollableContent = scrollableContent,
+            onDismissRequest = onDismissRequest
+        )
+    }
+    if (hosted) {
+        val route = rememberDialogRoute(
+            onDismissRequest = onDismissRequest,
+            content = { body(true) },
+            modifier = modifier,
+            shape = shape,
+            paneTitle = title,
+            dismissOnBackPress = dismissOnBackPress,
+            dismissOnClickOutside = dismissOnClickOutside
+        )
+        HostedDialog(route)
+        return
+    }
     Dialog(
         onDismissRequest = onDismissRequest,
         properties = DialogProperties(
@@ -97,11 +142,38 @@ fun BeyGramDialog(
             contentColor = palette.textPrimary,
             tonalElevation = 0.dp
         ) {
-            Column(
-                modifier = Modifier
-                    .padding(start = 24.dp, top = 24.dp, end = 24.dp, bottom = 16.dp)
-                    .heightIn(max = maxHeight)
-            ) {
+            body(false)
+        }
+    }
+}
+
+/** The panel of a [BeyGramDialog]. Shared by the windowed and the in-window dialog so both keep one layout. */
+@Composable
+private fun BeyGramDialogBody(
+    title: String,
+    message: String?,
+    content: (@Composable () -> Unit)?,
+    confirmText: String,
+    onConfirm: () -> Unit,
+    dismissText: String?,
+    onDismiss: (() -> Unit)?,
+    dismissEnabled: Boolean,
+    destructive: Boolean,
+    confirmEnabled: Boolean,
+    neutralText: String?,
+    onNeutral: (() -> Unit)?,
+    maxHeight: Dp,
+    fillWidth: Boolean,
+    scrollableContent: Boolean,
+    onDismissRequest: () -> Unit
+) {
+    val palette = beyGramPalette()
+    Column(
+        modifier = Modifier
+            .then(if (fillWidth) Modifier.fillMaxWidth() else Modifier)
+            .padding(start = 24.dp, top = 24.dp, end = 24.dp, bottom = 16.dp)
+            .heightIn(max = maxHeight)
+    ) {
                 Text(
                     text = title,
                     modifier = Modifier.semantics { heading() },
@@ -158,7 +230,5 @@ fun BeyGramDialog(
                         )
                     }
                 }
-            }
-        }
     }
 }

@@ -78,4 +78,5 @@
     <string name="recorder_too_short">La grabación es demasiado corta</string>
     <string name="recorder_video_note_unavailable">La grabación de mensajes de video no está disponible temporalmente</string>
     <string name="recorder_zoom_value">%1$.1f×</string>
+    <string name="chat_peek_open_chat">Abrir chat</string>
 </resources>

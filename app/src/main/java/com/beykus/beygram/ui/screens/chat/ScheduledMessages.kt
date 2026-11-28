@@ -22,14 +22,13 @@ import androidx.compose.material.icons.automirrored.rounded.Send
 import androidx.compose.material.icons.rounded.Schedule
 import androidx.compose.material.icons.rounded.VolumeOff
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.rememberModalBottomSheetState
-import androidx.compose.material3.SheetValue
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import com.beykus.beygram.ui.components.BeyGramDialog
 import com.beykus.beygram.ui.components.BeyGramSheet
+import com.beykus.beygram.ui.components.rememberBeyGramSheetState
 import com.beykus.beygram.ui.components.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -220,11 +219,11 @@ internal fun ScheduledMessagesDialog(
 
     BeyGramSheet(
         onDismissRequest = { if (!busy) onClose() },
-        sheetState = rememberModalBottomSheetState(
+        sheetState = rememberBeyGramSheetState(
             skipPartiallyExpanded = true,
-            // A swipe must not hide the sheet during an in-flight TDLib/store operation:
-            // onDismissRequest alone is too late to veto the state transition.
-            confirmValueChange = { next -> next != SheetValue.Hidden || !busy }
+            // A swipe must not hide the sheet during an in-flight TDLib/store operation: the veto is checked before
+            // the sheet leaves, so onDismissRequest cannot be outrun.
+            canDismiss = { !busy }
         ),
         scrollableContent = false
     ) {
@@ -329,12 +328,15 @@ internal fun ScheduledMessagesDialog(
     }
 }
 
-internal fun scheduledMessageStatus(sendState: MessageSendState, queueKnown: Boolean): Int =
-    if (!queueKnown) R.string.stealth_schedule_status_unknown else when (sendState) {
-        MessageSendState.Sending -> R.string.stealth_schedule_status_pending
-        MessageSendState.Failed -> R.string.chat_scheduled_failed
-        MessageSendState.Sent -> R.string.stealth_schedule_status_queued
-    }
+/**
+ * A failed scheduled message is a local fact and never becomes "unknown": hiding it behind a stale queue would tell
+ * the user the message may still be sent. Only successful states depend on the freshly loaded queue.
+ */
+internal fun scheduledMessageStatus(sendState: MessageSendState, queueKnown: Boolean): Int = when (sendState) {
+    MessageSendState.Failed -> R.string.chat_scheduled_failed
+    MessageSendState.Sending -> if (queueKnown) R.string.stealth_schedule_status_pending else R.string.stealth_schedule_status_unknown
+    MessageSendState.Sent -> if (queueKnown) R.string.stealth_schedule_status_queued else R.string.stealth_schedule_status_unknown
+}
 
 @Composable
 private fun ScheduledMessageRow(
@@ -354,7 +356,7 @@ private fun ScheduledMessageRow(
         Text(scheduledTimeLabel(message), color = palette.textSecondary, fontSize = 12.sp, modifier = Modifier.padding(top = 2.dp))
         Text(
             stringResource(scheduledMessageStatus(message.sendState, queueKnown)),
-            color = if (queueKnown && failed) palette.danger else palette.textSecondary,
+            color = if (failed) palette.danger else palette.textSecondary,
             fontSize = 12.sp,
             modifier = Modifier.padding(top = 2.dp)
         )

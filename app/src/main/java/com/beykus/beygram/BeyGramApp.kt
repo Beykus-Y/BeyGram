@@ -137,6 +137,8 @@ import com.beykus.beygram.ui.components.MainTabsHost
 import com.beykus.beygram.ui.components.LocalMainTabTransitionOrigin
 import com.beykus.beygram.ui.components.LocalBackgroundMediaDownload
 import com.beykus.beygram.ui.components.BeyGramDialog
+import com.beykus.beygram.ui.components.BeyGramModalHostProvider
+import com.beykus.beygram.ui.components.rememberBeyGramModalHost
 import com.beykus.beygram.ui.components.beyGramPalette
 import com.beykus.beygram.ui.screens.auth.LoginCodeScreen
 import com.beykus.beygram.ui.screens.auth.LoginPasswordScreen
@@ -491,13 +493,24 @@ internal fun BeyGramAppContent(
         runCatching { context.packageManager.getPackageInfo(context.packageName, 0).longVersionCode }
             .getOrDefault(0L)
     }
+    val updateSnoozedUntil = remember(updateNoticeStore, updateSnoozeRevision) { updateNoticeStore.snoozedUntil() }
+    LaunchedEffect(updateSnoozedUntil) {
+        val until = updateSnoozedUntil ?: return@LaunchedEffect
+        var remaining = until - System.currentTimeMillis()
+        if (remaining <= 0L) return@LaunchedEffect
+        while (remaining > 0L) {
+            delay(remaining)
+            remaining = until - System.currentTimeMillis()
+        }
+        updateSnoozeRevision++
+    }
     val updateBanner = remember(updateUiState, installedUpdateCode, updateSnoozeRevision) {
         updateBannerState(
             state = updateUiState,
             installedCode = installedUpdateCode,
             now = System.currentTimeMillis(),
             snoozedCode = updateNoticeStore.snoozedVersionCode(),
-            snoozedUntil = updateNoticeStore.snoozedUntil(),
+            snoozedUntil = updateSnoozedUntil,
         )
     }
     // Keyed by the account's repository: a question asked for one account is dropped when the user switches to another.
@@ -898,6 +911,17 @@ internal fun BeyGramAppContent(
     val currentAuthState by rememberUpdatedState(authState)
     // Выход из аккаунта останавливает общий плеер: его файл и «Показать в чате» относятся к прошлой сессии.
     LaunchedEffect(authState) { if (authState != AuthState.Ready) PlaybackEngine.stop() }
+    val readyAccountsForLyricsCleanup = remember { mutableSetOf<String>() }
+    LaunchedEffect(selectedAccountId, authState) {
+        when (authState) {
+            is AuthState.Ready -> readyAccountsForLyricsCleanup += selectedAccountId
+            is AuthState.WaitingForPhone -> if (readyAccountsForLyricsCleanup.remove(selectedAccountId)) {
+                com.beykus.beygram.data.lyrics.AppLyricsRepository.get(context)
+                    .clearAccountCacheOffMain(selectedAccountId)
+            }
+            else -> Unit
+        }
+    }
     // Смена выбранного аккаунта не должна оставлять музыку/очередь прошлого аккаунта в общем плеере.
     LaunchedEffect(selectedAccountId) {
         PlaybackEngine.setActiveAccount(selectedAccountId)
@@ -2617,6 +2641,7 @@ internal fun BeyGramAppContent(
                             postId = threadPostId,
                             initialPost = history.messages.firstOrNull { it.id == threadPostId },
                             conversation = repository,
+                            chatOverrides = chatOverrides,
                             observeFile = repository::observeFile,
                             downloadFile = repository::downloadFile,
                             initialDraftText = threadDraftText,
@@ -3126,7 +3151,11 @@ GlobalSearchScreen(
                         val lastMountedMainTab = MainTab.entries.firstOrNull { it.name == lastMountedMainTabName } ?: MainTab.Chats
                         val keepPhoneTabsMounted = shouldKeepPhoneTabsMounted(currentFrame, phoneTabsVisited)
                         val phoneTabsCovered = keepPhoneTabsMounted && !usesSharedPhoneTabs(currentFrame)
+                        // Modal sheets and dialogs are drawn inside this window so their glass samples the screen
+                        // behind them; a Material sheet or Dialog window cannot read a backdrop recorded here.
+                        val modalHost = rememberBeyGramModalHost()
                         Box(Modifier.fillMaxSize()) {
+                        BeyGramModalHostProvider(host = modalHost) {
                         if (keepPhoneTabsMounted) {
                             PersistentPhoneTabsBackdrop(covered = phoneTabsCovered) {
                                 MainTabsHost(
@@ -3621,6 +3650,8 @@ GlobalSearchScreen(
                                                 // Never erase the primary TDLib database here. TDLib rebuilds
                                                 // the closed legacy client and publishes WaitPhoneNumber; the
                                                 // composition effect opens the sign-in screen through Start.
+                                                com.beykus.beygram.data.lyrics.AppLyricsRepository.get(context)
+                                                    .clearAccountCacheOffMain(securityAccountId)
                                                 AccountDeletionTracker.finish(
                                                     securityAccountId,
                                                     serverDeleted = true
@@ -3634,6 +3665,8 @@ GlobalSearchScreen(
                                                         securityAccountId,
                                                         serverDeleted = true
                                                     )
+                                                    com.beykus.beygram.data.lyrics.AppLyricsRepository.get(context)
+                                                        .clearAccountCacheOffMain(securityAccountId)
                                                 }
                                             } catch (cancelled: CancellationException) {
                                                 throw cancelled
@@ -3813,12 +3846,13 @@ GlobalSearchScreen(
                     }
                     }
                     }
+                    }
                 }
                 if (route !in playerBarHostRoutes) NowPlayingBar(bottomInset = true)
             }
         }
         PlayerExpansionHost()
-        com.beykus.beygram.ui.screens.chat.InAppVideoPipHost()
+        com.beykus.beygram.ui.screens.chat.InAppVideoPipHost(selectedAccountId)
     }
     }
     AccountSwitcherSheet(

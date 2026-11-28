@@ -50,6 +50,7 @@ import com.beykus.beygram.domain.model.CustomEmoji
 import com.beykus.beygram.domain.model.MediaFileState
 import com.beykus.beygram.domain.model.MessageReaction
 import com.beykus.beygram.domain.model.ReactionOption
+import com.beykus.beygram.ui.components.SystemEmojiFont
 import com.beykus.beygram.ui.components.beyGramPalette
 import com.beykus.beygram.ui.components.emojiPresentation
 import com.beykus.beygram.ui.design.LocalDesignSystem
@@ -95,7 +96,7 @@ private fun ReactionChip(
     }
     // Compact vertical geometry; Compose expands small click targets for touch input.
     Box(
-        Modifier.defaultMinSize(minWidth = 48.dp, minHeight = 40.dp)
+        Modifier.defaultMinSize(minWidth = 48.dp, minHeight = 36.dp)
             .semantics { contentDescription = description; selected = reaction.isChosen }
             .clickable { onToggle(reaction.option) },
         contentAlignment = Alignment.Center
@@ -126,18 +127,18 @@ private fun ReactionGlyph(
         return
     }
     if (option.customEmojiId == 0L) {
-        Text(emojiPresentation(option.emoji.ifBlank { CUSTOM_EMOJI_FALLBACK }), fontSize = fontSize)
+        Text(emojiPresentation(option.emoji.ifBlank { CUSTOM_EMOJI_FALLBACK }), fontSize = fontSize, fontFamily = SystemEmojiFont)
         return
     }
     val custom by remember(option.customEmojiId) { observeCustomEmoji(option.customEmojiId) }.collectAsStateWithLifecycle()
     val emoji = custom
     // A chip must never collapse to an empty box while TDLib looks the sticker up, or after it reports that the id is gone.
     if (emoji == null) {
-        Text(emojiPresentation(CUSTOM_EMOJI_FALLBACK), fontSize = fontSize)
+        Text(emojiPresentation(CUSTOM_EMOJI_FALLBACK), fontSize = fontSize, fontFamily = SystemEmojiFont)
         return
     }
     CustomEmojiImage(emoji, size, observeFile, downloadFile) {
-        Text(emojiPresentation(emoji.emoji.ifBlank { CUSTOM_EMOJI_FALLBACK }), fontSize = fontSize)
+        Text(emojiPresentation(emoji.emoji.ifBlank { CUSTOM_EMOJI_FALLBACK }), fontSize = fontSize, fontFamily = SystemEmojiFont)
     }
 }
 
@@ -157,7 +158,7 @@ internal fun MessageReactionPicker(
 ) {
     if (options.isEmpty()) return
     val palette = beyGramPalette()
-    Column(Modifier.fillMaxWidth().background(palette.surface)) {
+    Column(Modifier.fillMaxWidth().chatChromeBackground(palette.surface)) {
         // Two 48dp touch rows, 2dp apart, inside 4dp of padding.
         LazyHorizontalGrid(
             rows = GridCells.Fixed(2),

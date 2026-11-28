@@ -22,13 +22,16 @@ internal fun ForwardedMessageHeader(message: ChatMessage) {
     } else {
         stringResource(R.string.chat_message_forwarded)
     }
+    val palette = beyGramPalette()
+    val dark = com.beykus.beygram.ui.theme.LocalBeyGramDarkTheme.current
+    val textColor = message.forwardedAccentColor?.authorColor(dark, palette.surface, palette.accentInk) ?: palette.accentInk
     Text(
         text = label,
-        color = beyGramPalette().accentInk,
+        color = textColor,
         fontSize = 13.sp,
         fontWeight = FontWeight.Medium,
         maxLines = 2,
         overflow = TextOverflow.Ellipsis,
-        modifier = Modifier.padding(horizontal = 12.dp, vertical = 5.dp),
+        modifier = Modifier.padding(horizontal = LocalBubbleMetrics.current.textInset).padding(top = 4.dp),
     )
 }

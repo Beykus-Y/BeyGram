@@ -27,12 +27,23 @@ internal object YandexWaveLauncher {
     private var activeRadio: PlaybackRadio? = null
 
     /** A session whose requests run only under [generation], the sign-in the wave started under; the provider checks it under its lock. */
-    private fun openSession(provider: YandexMusicProvider, generation: Long, seeds: List<String>, given: Collection<String>) = YandexWaveSession(
+    private fun openSession(
+        provider: YandexMusicProvider,
+        generation: Long,
+        seeds: List<String>,
+        given: Collection<String>,
+        origins: Map<String, WaveTrackOrigin> = emptyMap(),
+    ) = YandexWaveSession(
         seeds = seeds,
         start = { s, queue -> provider.waveStart(generation, s, queue) },
         next = { id, queue -> provider.waveNext(generation, id, queue) },
         initialGiven = given,
+        initialOrigins = origins,
     )
+
+    /** The settings change started last; an older one that returns later must not replace it. */
+    @Volatile
+    private var settingsChange = 0
 
     /**
      * Changes the seeds of the radio that plays: the upcoming tracks are replaced, the playing one keeps playing. The
@@ -42,15 +53,24 @@ internal object YandexWaveLauncher {
     fun changeSeeds(context: Context, seeds: List<String>, subtitle: String, onDone: (Boolean) -> Unit) {
         val router = active
         val radio = activeRadio
-        if (router == null || radio == null || !PlaybackEngine.currentQueueIsEndless()) {
+        if (router == null || radio == null ||
+            PlaybackEngine.activeRadio !== radio || !PlaybackEngine.currentQueueIsEndless()
+        ) {
             onDone(false)
             return
         }
+        val mine = ++settingsChange
         val app = context.applicationContext
         scope.launch {
-            when (val result = router.swap(seeds)) {
+            // A newer settings change (or a new radio) supersedes this one; its request may finish later.
+            when (val result = router.swap(seeds) { mine == settingsChange }) {
+                null -> onDone(false)
                 is ProviderResult.Failure -> onDone(false)
                 is ProviderResult.Success -> {
+                    if (PlaybackEngine.activeRadio !== radio) {
+                        onDone(false)
+                        return@launch
+                    }
                     val fresh = result.value.filter { it.isAvailable }
                     if (fresh.isEmpty()) {
                         onDone(false)
@@ -111,7 +131,9 @@ internal object YandexWaveLauncher {
                             title = app.getString(R.string.yandex_wave_title),
                             subtitle = subtitle,
                         )
-                        val router = YandexWaveRouter(session) { s, given -> openSession(provider, generation, s, given) }
+                        val router = YandexWaveRouter(session) { s, given, origins ->
+                            openSession(provider, generation, s, given, origins)
+                        }
                         active = router
                         activeRadio = radio
                         ProviderArtwork.playTracks(app, leading, 0, { router.more() }, radio, keepPositionMs)

@@ -1,0 +1,110 @@
+package com.beykus.beygram.playback
+
+import com.beykus.beygram.media.bgmix.BgMixStatus
+
+/**
+ * Why ExoPlayer has not handed the current track over to BG Mix yet.
+ * Used for both privacy-safe diagnostics (no track titles/paths/IDs logged) and
+ * keeping the UI "BG" preparing indicator aligned with real handover eligibility.
+ */
+internal enum class BgMixHandoverBlockReason {
+    Ready,
+    Disabled,
+    NativeUnavailable,
+    NotMusicOrPrivate,
+    FormatNotCandidate,
+    Retiring,
+    TrackRejected,
+    AttemptsExhausted,
+    NotPlaying,
+    SpeedNotNormal,
+    WindowTooShort,
+    FileNotReady,
+}
+
+internal fun bgMixHandoverBlockReason(
+    enabled: Boolean,
+    nativeAvailable: Boolean,
+    isMusic: Boolean,
+    systemPrivate: Boolean,
+    isCandidate: Boolean,
+    isRetiring: Boolean,
+    isRejected: Boolean,
+    isAttemptsExhausted: Boolean,
+    playing: Boolean,
+    intentPlaying: Boolean,
+    ended: Boolean,
+    waitingForNetwork: Boolean,
+    hasDeferredSeek: Boolean,
+    speed: Float,
+    remainingMs: Long?,
+    minRemainingMs: Long,
+    fileReady: Boolean,
+): BgMixHandoverBlockReason = when {
+    !enabled -> BgMixHandoverBlockReason.Disabled
+    !nativeAvailable -> BgMixHandoverBlockReason.NativeUnavailable
+    !isMusic || systemPrivate -> BgMixHandoverBlockReason.NotMusicOrPrivate
+    !isCandidate -> BgMixHandoverBlockReason.FormatNotCandidate
+    isRetiring -> BgMixHandoverBlockReason.Retiring
+    isRejected -> BgMixHandoverBlockReason.TrackRejected
+    isAttemptsExhausted -> BgMixHandoverBlockReason.AttemptsExhausted
+    !playing || !intentPlaying || ended || waitingForNetwork || hasDeferredSeek -> BgMixHandoverBlockReason.NotPlaying
+    speed != 1f -> BgMixHandoverBlockReason.SpeedNotNormal
+    remainingMs != null && remainingMs < minRemainingMs -> BgMixHandoverBlockReason.WindowTooShort
+    !fileReady -> BgMixHandoverBlockReason.FileNotReady
+    else -> BgMixHandoverBlockReason.Ready
+}
+
+/**
+ * Only show the grey "BG" preparing mark when handover is actively waiting on a local file,
+ * waiting for a retiring host, or actively preparing the native session.
+ */
+internal fun BgMixHandoverBlockReason.showsPreparingIndicator(): Boolean =
+    this == BgMixHandoverBlockReason.Ready ||
+        this == BgMixHandoverBlockReason.FileNotReady ||
+        this == BgMixHandoverBlockReason.Retiring
+
+/** A stable Media3 window UID distinguishes repeated occurrences of the same media ID. */
+internal data class BgMixExoOccurrence(val mediaId: String, val windowUid: Any) {
+    fun canFinishOn(current: BgMixExoOccurrence?, ended: Boolean): Boolean = !ended && this == current
+}
+
+/** The Exo timeline can contain only the currently streaming item, so only trust indices in a matching timeline. */
+internal fun exoQueueOccurrenceIndex(
+    queue: List<PlaybackItem>,
+    mediaId: String,
+    timelineIndex: Int?,
+    timelineSize: Int?
+): Int = timelineIndex?.takeIf { timelineSize == queue.size && queue.getOrNull(it)?.key == mediaId }
+    ?: queue.indexOfFirst { it.key == mediaId }
+
+/**
+ * How far the silent native output may still be from ExoPlayer when the alignment corrections are spent. A handover
+ * around this bound is heard as the same moment of the song; a bigger offset is heard as a jump and must not be
+ * committed. The tight measurement target stays 8 ms; this is only the safety limit for a handover that never reached
+ * that target.
+ */
+internal const val BG_HANDOVER_UNALIGNED_LIMIT_MS = 300L
+
+/** What the silent alignment measured; a handover is only safe when the final offset is known and close enough. */
+internal data class BgMixAlignmentResult(
+    val alignedInTolerance: Boolean,
+    val offsetsMs: List<Long>,
+) {
+    val measured: Boolean get() = offsetsMs.isNotEmpty()
+    val lastOffsetMs: Long? get() = offsetsMs.lastOrNull()
+    val safeToHandOver: Boolean
+        get() {
+            val offset = lastOffsetMs ?: return false
+            return kotlin.math.abs(offset) <= BG_HANDOVER_UNALIGNED_LIMIT_MS
+        }
+}
+
+/** A queued terminal action must not override a newly active or explicitly paused native deck. */
+internal fun bgMixDeferredMasterMatches(previous: BgMixStatus, current: BgMixStatus): Boolean {
+    val priorDeck = previous.decks.getOrNull(previous.master)
+    val currentDeck = current.decks.getOrNull(current.master)
+    return !current.transitionActive && previous.paused == current.paused &&
+        priorDeck?.trackId == currentDeck?.trackId && priorDeck?.playing == currentDeck?.playing &&
+        priorDeck?.ended == currentDeck?.ended
+}

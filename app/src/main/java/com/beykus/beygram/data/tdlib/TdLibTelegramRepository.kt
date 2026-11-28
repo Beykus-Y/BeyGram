@@ -12,12 +12,14 @@ import com.beykus.beygram.R
 import com.beykus.beygram.playback.MusicBotCache
 import com.beykus.beygram.domain.UiText
 import com.beykus.beygram.domain.UserMessageException
+import com.beykus.beygram.domain.model.UnreadMarkCounts
 import com.beykus.beygram.domain.model.paidTextCanConfirm
 import com.beykus.beygram.analytics.AnalyticsSync
 import com.beykus.beygram.data.export.ChatExportMessage
 import com.beykus.beygram.diagnostics.MultiAccountDiagnostics
 import com.beykus.beygram.domain.model.AnimationItem
 import com.beykus.beygram.domain.model.AnimationPage
+import com.beykus.beygram.domain.model.RecentEmojiHistory
 import com.beykus.beygram.domain.model.AuthState
 import com.beykus.beygram.domain.model.AutoDownloadRequest
 import com.beykus.beygram.domain.model.ChatActivity
@@ -199,6 +201,7 @@ import com.beykus.beygram.diagnostics.report.Severity
 import com.beykus.beygram.domain.repository.TelegramRepository
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.TimeoutCancellationException
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.StateFlow
@@ -444,8 +447,13 @@ class TdLibTelegramRepository private constructor(
 
     /** Кэш сообщений по chatId. */
     private val pinnedVersions = ConcurrentHashMap<Long, MutableStateFlow<Long>>()
+    private val stickerShelfVersions = MutableStateFlow(com.beykus.beygram.domain.model.StickerShelfVersions())
+    override fun observeStickerShelfVersions() = stickerShelfVersions.asStateFlow()
+
     override fun observePinnedMessagesVersion(chatId: Long): StateFlow<Long> = pinnedVersions.getOrPut(chatId) { MutableStateFlow(0L) }.asStateFlow()
     override suspend fun pinnedMessages(chatId: Long, fromMessageId: Long, forumTopicId: Long, query: String) = conversationActions.pinnedMessages(chatId, fromMessageId, forumTopicId, query)
+    override fun observeGroupAuthor(userId: Long, senderChatId: Long) = profiles.observeGroupAuthor(userId, senderChatId)
+
     override suspend fun loadPinnedSenderAvatars(userIds: Collection<Long>): Map<Long, com.beykus.beygram.domain.model.AvatarPhoto?> =
         profiles.resolveUsers(userIds).mapValues { (_, user) ->
             user.profilePhoto?.let { profiles.photo(it.small, it.big) }
@@ -518,6 +526,7 @@ class TdLibTelegramRepository private constructor(
         { profiles.me.value.info?.isPremium == true }
     )
     private val stickerCatalog = TdStickerCatalog(tdRequests, mediaFiles)
+    private val recentEmojiRecovery = RecentEmojiRecovery(TdRecentEmojiSource(tdRequests))
     private val payments = TdPayments(tdRequests, mediaFiles)
 
     init {
@@ -1739,6 +1748,32 @@ class TdLibTelegramRepository private constructor(
     override suspend fun messageContext(chatId: Long, messageId: Long) = conversationActions.context(chatId, messageId)
     override suspend fun singleMessage(chatId: Long, messageId: Long) = conversationActions.single(chatId, messageId)
     override suspend fun linkedDiscussionChatId(chatId: Long) = conversationActions.linkedDiscussionChatId(chatId)
+    override suspend fun unreadMarkCounts(chatId: Long, forumTopicId: Long): Result<UnreadMarkCounts?> {
+        if (forumTopicId > 0L) {
+            val store = topicStores[chatId to forumTopicId]
+            val before = store?.currentTopicUnreadMarks(chatId)
+            return conversationActions.unreadMarkCounts(chatId, forumTopicId).map { fresh ->
+                if (fresh == null || store == null) fresh else store.refreshTopicUnreadMarks(chatId, before, fresh)
+            }
+        }
+
+        val before = chatCache[chatId]
+        return conversationActions.unreadMarkCounts(chatId, forumTopicId).map { fresh ->
+            if (fresh == null || before == null) return@map fresh
+            // Reconcile the source of truth as well as the badge. An arriving count which equals the old cached
+            // value must still be visible after the refresh changed it (e.g. stale 1 -> refreshed 0 -> new 1).
+            val current = chatCache.computeIfPresent(chatId) { _, published ->
+                if (published === before) published.copy(
+                    unreadMentionCount = fresh.mentions,
+                    unreadReactionCount = fresh.reactions
+                ) else published
+            }
+            if (current == null) null else {
+                publishChat(chatId)
+                UnreadMarkCounts(current.unreadMentionCount, current.unreadReactionCount)
+            }
+        }
+    }
     override suspend fun nextUnreadMention(chatId: Long, forumTopicId: Long) = conversationActions.nextUnreadMention(chatId, forumTopicId)
     override suspend fun nextUnreadReaction(chatId: Long, forumTopicId: Long) = conversationActions.nextUnreadReaction(chatId, forumTopicId)
     override suspend fun loadMessageThread(chatId: Long, messageId: Long) = conversationActions.messageThread(chatId, messageId)
@@ -2651,10 +2686,35 @@ class TdLibTelegramRepository private constructor(
     override suspend fun changeStickerSet(setId: Long, installed: Boolean): Result<Unit> =
         stickerCatalog.changeStickerSet(setId, installed)
     override suspend fun searchStickers(query: String, offset: Int): Result<StickerSearchPage> = stickerCatalog.searchStickers(query, offset)
+    override suspend fun reorderStickerSets(customEmoji: Boolean, orderedIds: List<Long>) =
+        stickerCatalog.reorderStickerSets(customEmoji, orderedIds)
+    override suspend fun clearRecentStickers() = stickerCatalog.clearRecentStickers()
+    override suspend fun setAnimationSaved(animation: AnimationItem, saved: Boolean) =
+        stickerCatalog.setAnimationSaved(animation, saved)
     override suspend fun savedAnimations(): Result<List<AnimationItem>> = stickerCatalog.savedAnimations()
     override suspend fun recentAnimations(offset: String): Result<AnimationPage> = stickerCatalog.recentAnimations(offset)
     override suspend fun searchAnimations(query: String, offset: String): Result<AnimationPage> = stickerCatalog.searchAnimations(query, offset)
-    override suspend fun isPremiumAccount(): Result<Boolean> = stickerCatalog.isPremiumAccount()
+override suspend fun isPremiumAccount(): Result<Boolean> = try {
+        val me = tdRequests(TdApi.GetMe())
+        // Seed the profile store as well, so the observed status and later UpdateUser changes start from the truth.
+        profiles.rememberMe(me)
+        Result.success(me.isPremium)
+    } catch (cancelled: CancellationException) {
+        throw cancelled
+    } catch (error: Exception) {
+        Result.failure(error)
+    }
+
+    override suspend fun recoverRecentEmoji(unicodeLimit: Int, customLimit: Int): Result<RecentEmojiHistory> = try {
+        Result.success(recentEmojiRecovery.recover(unicodeLimit, customLimit))
+    } catch (cancelled: CancellationException) {
+        throw cancelled
+    } catch (error: Exception) {
+        Result.failure(error)
+    }
+
+    override fun observeIsPremium(): Flow<Boolean?> =
+        profiles.me.map { it.info?.isPremium }.distinctUntilChanged()
 
     override suspend fun scheduledMessages(chatId: Long): Result<List<ChatMessage>> = conversationActions.scheduledMessages(chatId)
     override suspend fun deleteScheduledMessage(chatId: Long, messageId: Long): Result<Unit> =
@@ -2764,6 +2824,9 @@ class TdLibTelegramRepository private constructor(
     override suspend fun editForumTopic(chatId: Long, forumTopicId: Long, name: String, iconCustomEmojiId: Long?): Result<Unit> =
         conversationActions.editTopic(chatId, forumTopicId, name, iconCustomEmojiId)
     override suspend fun forumTopicDefaultIcons(): Result<List<Long>> = conversationActions.forumTopicDefaultIcons()
+    override suspend fun searchPickerEmoji(query: String, languages: List<String>) =
+        conversationActions.searchPickerEmoji(query, languages)
+    override suspend fun recommendedCustomEmojiSets() = conversationActions.recommendedCustomEmojiSets()
     override suspend fun installedCustomEmojiSets(): Result<List<CustomEmojiSetBrief>> = conversationActions.installedCustomEmojiSets()
     override suspend fun customEmojiSetIds(setId: Long): Result<List<Long>> = conversationActions.customEmojiSetIds(setId)
     override suspend fun setForumTopicClosed(chatId: Long, forumTopicId: Long, closed: Boolean) = conversationActions.closeTopic(chatId, forumTopicId, closed)
@@ -2829,15 +2892,29 @@ class TdLibTelegramRepository private constructor(
         stories.handle(update)
         notificationFeed.handle(update)
         when (update) {
-            is TdApi.UpdateUser -> refreshLastSenders(update.user.id)
+            is TdApi.UpdateInstalledStickerSets -> when (update.stickerType) {
+                is TdApi.StickerTypeRegular -> stickerShelfVersions.update { it.copy(stickerPacks = it.stickerPacks + 1) }
+                is TdApi.StickerTypeCustomEmoji -> stickerShelfVersions.update { it.copy(emojiPacks = it.emojiPacks + 1) }
+                else -> Unit
+            }
+            is TdApi.UpdateRecentStickers -> if (!update.isAttached) {
+                stickerShelfVersions.update { it.copy(recentStickers = it.recentStickers + 1) }
+            }
+            is TdApi.UpdateFavoriteStickers -> stickerShelfVersions.update { it.copy(favoriteStickers = it.favoriteStickers + 1) }
+            is TdApi.UpdateSavedAnimations -> stickerShelfVersions.update { it.copy(savedAnimations = it.savedAnimations + 1) }
+            is TdApi.UpdateUser -> {
+                // Premium can be bought or expire while the app runs; the picker's locked marks follow this update.
+                if (profiles.isSelf(update.user.id)) profiles.rememberMe(update.user)
+                refreshLastSenders(update.user.id)
+            }
             is TdApi.UpdateAuthorizationState -> handleAuthorizationState(update.authorizationState)
             is TdApi.UpdateNewChat            -> handleNewChat(update.chat)
             is TdApi.UpdateForumTopic -> {
                 messageDrafts.receiveTopic(update.chatId, update.forumTopicId.toLong(), update.draftMessage)
-                topicStores[update.chatId to update.forumTopicId.toLong()]?.apply {
-                readInbox(update.chatId, update.lastReadInboxMessageId)
-                readOutbox(update.chatId, update.lastReadOutboxMessageId)
-                }
+                topicStores[update.chatId to update.forumTopicId.toLong()]?.updateTopicReadMarks(
+                    update.chatId, update.lastReadInboxMessageId, update.lastReadOutboxMessageId,
+                    UnreadMarkCounts(update.unreadMentionCount, update.unreadReactionCount)
+                )
             }
             is TdApi.UpdateForumTopicInfo -> forumTopicBriefs.receive(update.info)
             is TdApi.UpdateChatFolders -> handleChatFolders(update)
@@ -3313,6 +3390,10 @@ class TdLibTelegramRepository private constructor(
                     stealthSettings.update { it.copy(chats = emptyMap()) }
                     // Queued messages were typed for the account that is leaving, so they are not sent after a later sign-in.
                     DelayedSendQueue.forAccount(appContext, accountId).clear()
+                    runCatching { com.beykus.beygram.ui.screens.chat.RecentEmojiStore.clearAccount(appContext, accountId) }
+                    runCatching { com.beykus.beygram.ui.screens.chat.PackUsageStore.clearAccount(appContext, accountId) }
+                    runCatching { com.beykus.beygram.data.media.SharedTgsEmojiRenderer.clearAccount(accountId) }
+                    runCatching { com.beykus.beygram.ui.screens.chat.MediaPickerSessionCache.clearAccount(accountId) }
                     // Trigger alerts and mentions show chat titles and senders of the account that left. The shared rules stay.
                     TriggerAlerts.cancelAccount(appContext, accountId)
                     TriggerWordsStore.get(appContext).forgetAccount(accountId)
@@ -3820,6 +3901,12 @@ class TdLibTelegramRepository private constructor(
                 .ifBlank { origin.authorSignature.orEmpty() }
             else -> ""
         },
+        forwardedAccentColor = when (val origin = forwardInfo?.origin) {
+            is TdApi.MessageOriginUser -> profiles.accentForUser(origin.senderUserId)
+            is TdApi.MessageOriginChat -> profiles.accentForChat(origin.senderChatId)
+            is TdApi.MessageOriginChannel -> profiles.accentForChat(origin.chatId)
+            else -> null
+        },
         sendState = sendingState.toSendState(),
         sendError = (sendingState as? TdApi.MessageSendingStateFailed)?.error?.message?.takeIf { it.isNotBlank() },
         media = if (secretChat) attachment?.copy(isSecretChat = true) else attachment,
@@ -3827,6 +3914,12 @@ class TdLibTelegramRepository private constructor(
         mediaAlbumId = mediaAlbumId,
         senderName = profiles.senderName(senderId),
         senderId = (this.senderId as? TdApi.MessageSenderUser)?.userId?.toLong() ?: 0L,
+        senderChatId = (this.senderId as? TdApi.MessageSenderChat)?.chatId ?: 0L,
+        senderAccentColor = when (val sender = this.senderId) {
+            is TdApi.MessageSenderUser -> profiles.accentForUser(sender.userId)
+            is TdApi.MessageSenderChat -> profiles.accentForChat(sender.chatId)
+            else -> null
+        },
         isEdited = editDate > 0,
         entities = messageFormattedText(content)?.domainEntities().orEmpty(),
         inlineKeyboard = inlineKeyboard(replyMarkup),
@@ -4070,7 +4163,8 @@ class TdLibTelegramRepository private constructor(
             isChannelAdmin = profiles.isChannelAdministrator(this),
             isForum = profiles.isForum(this),
             photo = profiles.photo(photo),
-            folderPositions = folderPositions
+            folderPositions = folderPositions,
+            accentColor = profiles.accentForColorId(accentColorId)
         )
     }
 

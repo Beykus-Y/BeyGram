@@ -1,6 +1,7 @@
 package com.beykus.beygram.ui.screens.chat
 
 import com.beykus.beygram.data.appearance.AppearanceConfig
+import com.beykus.beygram.data.appearance.ChatTopPanelLayout
 import com.beykus.beygram.data.appearance.DesignStyle
 import com.beykus.beygram.data.appearance.ThemeMode
 import com.beykus.beygram.data.appearance.ThemePreset
@@ -8,21 +9,13 @@ import com.beykus.beygram.domain.model.MediaKind
 import com.beykus.beygram.domain.model.MessageSendOptions
 import com.beykus.beygram.domain.model.OutgoingMedia
 import com.beykus.beygram.ui.screens.theme.AppearanceUserPresetStore
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class UxMegaUpgradeTest {
-    @Test
-    fun quoteCandidatesSplitSentencesAndComputeOffset() {
-        val text = "First sentence here. Second sentence! Third line\nFourth line"
-        val parts = extractQuoteCandidates(text)
-        assertEquals(listOf("First sentence here.", "Second sentence!", "Third line", "Fourth line"), parts)
-        assertEquals(21, quoteOffsetIn(text, "Second sentence!"))
-        assertEquals(0, quoteOffsetIn(text, "Custom edited phrase"))
-    }
-
     @Test
     fun messageSendOptionsCarriesReplyQuote() {
         val opts = MessageSendOptions(replyQuote = "exact phrase", replyQuotePosition = 12)
@@ -48,6 +41,22 @@ class UxMegaUpgradeTest {
         val encoded = AppearanceUserPresetStore.encode(original)
         val decoded = AppearanceUserPresetStore.decode(encoded)
         assertEquals(original, decoded)
+    }
+
+    @Test
+    fun legacyAppearancePresetPreservesTheActiveChatTopPanelLayout() {
+        for (layout in ChatTopPanelLayout.entries) {
+            assertEquals(layout, AppearanceUserPresetStore.decode("{}", layout)?.chatTopPanelLayout)
+        }
+    }
+
+    @Test
+    fun explicitAppearancePresetChatTopPanelLayoutOverridesTheActiveLayout() {
+        for (layout in ChatTopPanelLayout.entries) {
+            val saved = AppearanceConfig(chatTopPanelLayout = layout)
+            val active = ChatTopPanelLayout.entries.first { it != layout }
+            assertEquals(saved, AppearanceUserPresetStore.decode(AppearanceUserPresetStore.encode(saved), active))
+        }
     }
 
     @Test

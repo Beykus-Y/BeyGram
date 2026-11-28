@@ -61,6 +61,9 @@ import com.beykus.beygram.ui.theme.contrastIssues
 import com.beykus.beygram.ui.theme.resolveTokens
 import kotlinx.coroutines.launch
 import kotlin.math.roundToInt
+import com.beykus.beygram.ui.components.GlassScreenScaffold
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.height
 
 internal enum class AppearancePage {
     Overview,
@@ -237,32 +240,34 @@ fun ThemeSettingsScreen(
         )
     }
 
-    Column(
-        Modifier.fillMaxSize().background(palette.screen).windowInsetsPadding(WindowInsets.safeDrawing)
-    ) {
-        ProfileToolbar(
-            title = stringResource(page.titleRes()),
-            onBack = ::navigateBack
-        ) {
-            if (page != AppearancePage.Preview && history.canUndo) {
-                IconButton(onClick = ::undoDraft) {
-                    Icon(
-                        Icons.AutoMirrored.Rounded.Undo,
-                        stringResource(R.string.theme_editor_undo),
-                        tint = palette.textPrimary
-                    )
+    GlassScreenScaffold(
+        modifier = Modifier.fillMaxSize().background(palette.screen).windowInsetsPadding(WindowInsets.safeDrawing),
+        toolbar = {
+            ProfileToolbar(
+                title = stringResource(page.titleRes()),
+                onBack = ::navigateBack
+            ) {
+                if (page != AppearancePage.Preview && history.canUndo) {
+                    IconButton(onClick = ::undoDraft) {
+                        Icon(
+                            Icons.AutoMirrored.Rounded.Undo,
+                            stringResource(R.string.theme_editor_undo),
+                            tint = palette.textPrimary
+                        )
+                    }
                 }
-            }
-            if (page == AppearancePage.Preview) {
-                IconButton(onClick = { replayKey++ }) {
-                    Icon(
-                        Icons.Rounded.Replay,
-                        stringResource(R.string.theme_animations_replay),
-                        tint = palette.textPrimary
-                    )
+                if (page == AppearancePage.Preview) {
+                    IconButton(onClick = { replayKey++ }) {
+                        Icon(
+                            Icons.Rounded.Replay,
+                            stringResource(R.string.theme_animations_replay),
+                            tint = palette.textPrimary
+                        )
+                    }
                 }
             }
         }
+    ) { chrome ->
         CompositionLocalProvider(LocalAppearanceSliderGestureFinished provides ::finishContinuousGesture) {
             AnimatedContent(
                 targetState = page,

@@ -59,7 +59,6 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
-import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.State
@@ -121,6 +120,7 @@ import com.beykus.beygram.domain.music.TrackIdentity
 import com.beykus.beygram.playback.PlaybackEngine
 import kotlinx.coroutines.launch
 import com.beykus.beygram.ui.components.BeyGramSheet
+import com.beykus.beygram.ui.components.rememberBeyGramSheetState
 import com.beykus.beygram.ui.components.TextButton
 import com.beykus.beygram.ui.components.beyGramPalette
 import com.beykus.beygram.ui.design.styledShape
@@ -1232,24 +1232,37 @@ private fun LyricRow(
         }
         val words = richLine?.words.orEmpty()
         if (isActive && !reduced && words.isNotEmpty() && positionMs != null) {
-            val pos = positionMs.value
-            val annotated = buildAnnotatedString {
-                var cursor = 0
-                for (w in words) {
-                    if (w.startCharIndex > cursor) {
-                        withStyle(SpanStyle(color = palette.textPrimary.copy(alpha = 0.55f))) {
-                            append(text.substring(cursor, w.startCharIndex))
-                        }
+            val highlightedWordCount by remember(words, positionMs) {
+                derivedStateOf {
+                    val pos = positionMs.value
+                    var count = 0
+                    for (w in words) {
+                        if (pos >= w.startMs) count++ else break
                     }
-                    val wordColor = if (pos >= w.startMs) palette.accent else palette.textPrimary.copy(alpha = 0.55f)
-                    withStyle(SpanStyle(color = wordColor)) {
-                        append(text.substring(w.startCharIndex, w.endCharIndexExclusive))
-                    }
-                    cursor = w.endCharIndexExclusive
+                    count
                 }
-                if (cursor < text.length) {
-                    withStyle(SpanStyle(color = palette.textPrimary.copy(alpha = 0.55f))) {
-                        append(text.substring(cursor))
+            }
+            val dimColor = palette.textPrimary.copy(alpha = 0.55f)
+            val accentColor = palette.accent
+            val annotated = remember(text, words, highlightedWordCount, accentColor, dimColor) {
+                buildAnnotatedString {
+                    var cursor = 0
+                    for ((index, w) in words.withIndex()) {
+                        if (w.startCharIndex > cursor) {
+                            withStyle(SpanStyle(color = dimColor)) {
+                                append(text.substring(cursor, w.startCharIndex))
+                            }
+                        }
+                        val wordColor = if (index < highlightedWordCount) accentColor else dimColor
+                        withStyle(SpanStyle(color = wordColor)) {
+                            append(text.substring(w.startCharIndex, w.endCharIndexExclusive))
+                        }
+                        cursor = w.endCharIndexExclusive
+                    }
+                    if (cursor < text.length) {
+                        withStyle(SpanStyle(color = dimColor)) {
+                            append(text.substring(cursor))
+                        }
                     }
                 }
             }
@@ -1342,7 +1355,7 @@ private fun LyricsStyleSheet(
     onDismiss: () -> Unit
 ) {
     val palette = beyGramPalette()
-    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    val sheetState = rememberBeyGramSheetState(skipPartiallyExpanded = true)
     BeyGramSheet(
         onDismissRequest = onDismiss,
         sheetState = sheetState,

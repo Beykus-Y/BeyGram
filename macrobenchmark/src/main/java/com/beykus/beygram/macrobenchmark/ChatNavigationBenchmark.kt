@@ -5,7 +5,6 @@ import androidx.benchmark.macro.FrameTimingMetric
 import androidx.benchmark.macro.junit4.MacrobenchmarkRule
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.filters.LargeTest
-import org.junit.Assume.assumeTrue
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -38,7 +37,7 @@ class ChatNavigationBenchmark {
             startAppAndWait()
         },
     ) {
-        assumeTrue("No chat row on screen", Benchmarks.firstChatRow(device) != null)
+        check(Benchmarks.firstChatRow(device) != null) { Benchmarks.NO_ACCOUNT_MESSAGE }
         check(openFirstChat()) { "The chat did not open: the measured screen was not a conversation" }
         goBackFromChat()
         check(Benchmarks.chatList(device) != null) { "The chat list did not come back after the return gesture" }
@@ -55,7 +54,7 @@ class ChatNavigationBenchmark {
             startAppAndWait()
         },
     ) {
-        assumeTrue("No chat list on screen", Benchmarks.chatList(device) != null)
+        check(Benchmarks.chatList(device) != null) { Benchmarks.NO_ACCOUNT_MESSAGE }
         val before = Benchmarks.firstRowSignature(device)
         repeat(SCROLLS) {
             Benchmarks.swipeVertically(device, up = true)

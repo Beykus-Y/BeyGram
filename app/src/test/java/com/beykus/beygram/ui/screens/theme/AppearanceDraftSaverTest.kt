@@ -2,11 +2,13 @@ package com.beykus.beygram.ui.screens.theme
 
 import com.beykus.beygram.data.appearance.AppearanceConfig
 import com.beykus.beygram.data.appearance.BubbleStyle
+import com.beykus.beygram.data.appearance.ChatTopPanelLayout
 import com.beykus.beygram.data.appearance.ChatWallpaper
 import com.beykus.beygram.data.appearance.DesignStyle
 import com.beykus.beygram.data.appearance.GlassQuality
 import com.beykus.beygram.data.appearance.LiquidGlassLensPreset
 import com.beykus.beygram.data.appearance.ListDensity
+import com.beykus.beygram.data.appearance.chatTopPanelLayoutFromStored
 import com.beykus.beygram.data.appearance.encode
 import com.beykus.beygram.data.appearance.MessageAnimationConfig
 import com.beykus.beygram.data.appearance.MessageAnimationDirection
@@ -69,7 +71,32 @@ class AppearanceDraftSaverTest {
         val draft = completeDraft()
         val restored = decodeAppearanceDraft(encodeAppearanceDraft(draft))
         assertEquals(draft, restored)
-        assertEquals(19, encodeAppearanceDraft(draft).size)
+        assertEquals(20, encodeAppearanceDraft(draft).size)
+    }
+
+    @Test fun missingOrUnknownStoredChatTopPanelLayoutUsesCombined() {
+        assertEquals(ChatTopPanelLayout.Combined, AppearanceConfig().chatTopPanelLayout)
+        assertEquals(ChatTopPanelLayout.Combined, chatTopPanelLayoutFromStored(null))
+        assertEquals(ChatTopPanelLayout.Combined, chatTopPanelLayoutFromStored("future-mode"))
+        for (mode in ChatTopPanelLayout.entries) {
+            assertEquals(mode, chatTopPanelLayoutFromStored(mode.name))
+        }
+    }
+
+    @Test fun chatTopPanelLayoutRestoresIndependentlyOfNavigationPlacement() {
+        for (mode in ChatTopPanelLayout.entries) {
+            val draft = completeDraft().copy(
+                navigationPlacement = NavigationPlacement.Pinned,
+                chatTopPanelLayout = mode
+            )
+            assertEquals(draft, decodeAppearanceDraft(encodeAppearanceDraft(draft)))
+        }
+    }
+
+    @Test fun previousDraftKeepsItsNavigationPlacementAndUsesTheDefaultChatTopLayout() {
+        val draft = completeDraft().copy(navigationPlacement = NavigationPlacement.Floating)
+        val previous = encodeAppearanceDraft(draft).take(18) + "6"
+        assertEquals(draft, decodeAppearanceDraft(previous))
     }
 
     @Test fun liquidGlassV2SwitchSurvivesActivityRecreation() {
@@ -201,6 +228,6 @@ class AppearanceDraftSaverTest {
 
     @Test fun tooShortOrAbsurdlyLongListsAreIgnored() {
         assertNull(decodeAppearanceDraft(listOf("Warm", "Dark")))
-        assertNull(decodeAppearanceDraft(List(20) { "Warm" }))
+        assertNull(decodeAppearanceDraft(List(21) { "Warm" }))
     }
 }

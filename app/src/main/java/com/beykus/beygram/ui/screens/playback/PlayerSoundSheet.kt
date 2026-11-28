@@ -26,7 +26,6 @@ import androidx.compose.material.icons.rounded.Tune
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
-import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -60,6 +59,7 @@ import com.beykus.beygram.playback.SLEEP_TIMER_MAX_MINUTES
 import com.beykus.beygram.playback.speedLabel
 import com.beykus.beygram.ui.components.BeyGramDialog
 import com.beykus.beygram.ui.components.BeyGramSheet
+import com.beykus.beygram.ui.components.rememberBeyGramSheetState
 import com.beykus.beygram.ui.components.beyGramPalette
 import com.beykus.beygram.ui.design.styledShape
 import com.beykus.beygram.ui.screens.music.LocalOpenMusicSettings
@@ -84,7 +84,7 @@ internal fun PlayerSoundSheet(
     val palette = beyGramPalette()
     val context = LocalContext.current
     val openMusicSettings = LocalOpenMusicSettings.current
-    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    val sheetState = rememberBeyGramSheetState(skipPartiallyExpanded = true)
     val sleepTimer by PlaybackEngine.sleepTimer.collectAsStateWithLifecycle()
     val rhythmModeFlow = remember(context) { BgRhythmSettingsStore.flow(context) }
     val rhythmMode by rhythmModeFlow.collectAsStateWithLifecycle()

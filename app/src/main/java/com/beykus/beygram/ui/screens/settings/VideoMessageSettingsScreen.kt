@@ -100,6 +100,9 @@ import kotlinx.coroutines.withContext
 import androidx.compose.runtime.rememberCoroutineScope
 import java.text.DateFormat
 import java.util.Date
+import com.beykus.beygram.ui.components.GlassScreenScaffold
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.height
 
 @Composable
 fun VideoMessageSettingsScreen(store: VideoMessageSettingsStore, repository: TelegramRepository, accountId: String = "legacy", onBack: () -> Unit) {
@@ -240,12 +243,17 @@ fun VideoMessageSettingsScreen(store: VideoMessageSettingsStore, repository: Tel
     ))
     val goBack = { if (diagnosticsPage) diagnosticsPage = false else onBack() }
     BackHandler(onBack = goBack)
-    Column(Modifier.fillMaxSize().glassScreenBackground(design, palette.screen).windowInsetsPadding(WindowInsets.safeDrawing)) {
-        ProfileToolbar(
-            stringResource(if (diagnosticsPage) R.string.video_diagnostics_center_screen_title else R.string.settings_video_recording_title),
-            goBack
-        )
+    GlassScreenScaffold(
+        modifier = Modifier.fillMaxSize().glassScreenBackground(design, palette.screen).windowInsetsPadding(WindowInsets.safeDrawing),
+        toolbar = {
+            ProfileToolbar(
+                stringResource(if (diagnosticsPage) R.string.video_diagnostics_center_screen_title else R.string.settings_video_recording_title),
+                goBack
+            )
+        }
+    ) { chrome ->
         Column(Modifier.fillMaxWidth().weight(1f).verticalScroll(if (diagnosticsPage) diagnosticsScroll else settingsScroll).padding(horizontal = 16.dp, vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            Spacer(Modifier.height(chrome.top))
             if (!diagnosticsPage) {
             Text(stringResource(R.string.settings_autosave_note), color = palette.textSecondary, fontSize = 13.sp,
                 modifier = Modifier.padding(horizontal = 4.dp))

@@ -130,7 +130,10 @@ internal class PlaybackSourceHandle(
 ) {
     fun resolve(): ResolvedPlaybackSource? {
         val current = item
-        if (current.path.isNotBlank()) return ResolvedPlaybackSource(current.path, current.growing)
+        // A non-empty path is not proof of a copy: the cache may have evicted the file since the row named it.
+        if (current.growing != null || localCopyReady(current.path)) {
+            return ResolvedPlaybackSource(current.path, current.growing)
+        }
         LazyTrackRegistry.sourceFor(current.key)?.let { lazy ->
             lazy.resolvedPath(current.key)?.let { return ResolvedPlaybackSource(it, null) }
             // A provider row that is still downloading plays from its readable start, as a growing TDLib file does.
@@ -165,7 +168,9 @@ internal class PlaybackSourceHandle(
     fun request() {
         val current = item
         val lazy = LazyTrackRegistry.sourceFor(current.key)
-        if (lazy != null && current.path.isBlank()) {
+        // A lazy row is asked again whenever its copy is not readable: the old path may point at a cache-evicted file,
+        // and the resolver is the only owner that can produce a new one.
+        if (lazy != null && current.growing == null && !localCopyReady(current.path)) {
             lazy.request(current.key)
             return
         }
@@ -174,14 +179,15 @@ internal class PlaybackSourceHandle(
         source.download(fileId)
     }
 
-    /** False for a lazy item that has neither a path nor an account-scoped observer to obtain one. */
+    /** False for a lazy item that has neither a readable path nor an account-scoped observer to obtain one. */
     fun canResolve(): Boolean =
-        item.path.isNotBlank() || LazyTrackRegistry.isLazyKey(item.key) ||
+        item.growing != null || item.hasReadyLocalCopy || LazyTrackRegistry.isLazyKey(item.key) ||
             (item.fileId != null && queueSource?.accountId == item.accountId)
 
     /** A row whose provider could not deliver it: the wait ends with an error so the queue moves on. */
     fun failed(): Boolean =
-        item.path.isBlank() && LazyTrackRegistry.sourceFor(item.key)?.failed(item.key) == true
+        item.growing == null && !item.hasReadyLocalCopy &&
+            LazyTrackRegistry.sourceFor(item.key)?.failed(item.key) == true
 }
 
 /**

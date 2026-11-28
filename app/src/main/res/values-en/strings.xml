@@ -1050,6 +1050,7 @@
     <string name="chat_read_all_reactions_message">All reactions to your messages in this chat will be marked as read.</string>
     <string name="chat_read_all_confirm">Mark read</string>
     <string name="chat_read_all_failed">Could not mark everything as read</string>
+    <string name="chat_jump_unread_empty">No unread mentions or reactions</string>
     <string name="chat_swipe_secondary_title">Opposite swipe action</string>
     <string name="chat_swipe_secondary_reaction">Quick reaction</string>
     <string name="chat_swipe_secondary_saved">Save to Saved Messages</string>
@@ -1108,7 +1109,7 @@
     <string name="forum_topic_move_up">Move up</string>
     <string name="forum_topic_move_down">Move down</string>
     <string name="diag_video_buffer_title">Video start buffer</string>
-    <string name="diag_video_buffer_value_default">Media3 default</string>
+    <string name="diag_video_buffer_value_default">Default</string>
     <string name="diag_video_buffer_value_ms">%1$d ms</string>
     <string name="composer_quality_hint_codec">Telegram cannot play the codec of this video. Compress it to send it as a video, or keep it as a file.</string>
     <!-- Автопроверка обновлений (#1148): канал уведомлений и плашка на экране чатов. -->

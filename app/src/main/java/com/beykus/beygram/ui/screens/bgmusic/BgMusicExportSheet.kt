@@ -22,7 +22,6 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import com.beykus.beygram.ui.components.OutlinedButton
 import androidx.compose.material3.Text
-import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.remember
@@ -42,6 +41,7 @@ import androidx.compose.ui.unit.sp
 import androidx.core.content.FileProvider
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.beykus.beygram.ui.components.BeyGramSheet
+import com.beykus.beygram.ui.components.rememberBeyGramSheetState
 import com.beykus.beygram.MainActivity
 import com.beykus.beygram.R
 import com.beykus.beygram.data.music.MUSIC_COVER_DIRECTORY
@@ -83,7 +83,7 @@ fun BgMusicExportSheet(playlist: MusicPlaylist, onDismiss: () -> Unit) {
     // The chat source owns the account that public-link lookups and playback origins belong to.
     val accountId = source?.accountId ?: LocalPlaybackAccountId.current
     val coverRoot = remember(context) { File(context.filesDir, MUSIC_COVER_DIRECTORY) }
-    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    val sheetState = rememberBeyGramSheetState(skipPartiallyExpanded = true)
     val profile by (repository?.myProfile ?: NoProfile).collectAsStateWithLifecycle()
     val authorName = profile.info?.title.orEmpty().trim()
     val favoritesTitle = stringResource(R.string.bgmusic_favorites_name)

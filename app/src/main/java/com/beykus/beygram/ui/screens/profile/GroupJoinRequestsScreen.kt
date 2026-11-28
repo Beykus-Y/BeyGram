@@ -39,6 +39,9 @@ import com.beykus.beygram.ui.text.userMessage
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
+import com.beykus.beygram.ui.components.GlassScreenScaffold
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.height
 
 private const val REQUESTS_PAGE = 50
 
@@ -158,13 +161,18 @@ internal fun GroupJoinRequestsScreen(
 
     // Пока заявка обрабатывается, Back не должен закрывать всё приложение; догрузку можно прервать.
     BackHandler { if (busyUserId == null) onBack() }
-    Column(Modifier.fillMaxSize().background(palette.screen).windowInsetsPadding(WindowInsets.safeDrawing)) {
-        ProfileToolbar(stringResource(R.string.group_requests_title), { if (busyUserId == null) onBack() }) {
-            IconButton(onClick = ::reload, enabled = !loading) {
-                Icon(Icons.Rounded.Refresh, stringResource(R.string.group_manage_refresh), tint = palette.textPrimary)
+    GlassScreenScaffold(
+        modifier = Modifier.fillMaxSize().background(palette.screen).windowInsetsPadding(WindowInsets.safeDrawing),
+        toolbar = {
+            ProfileToolbar(stringResource(R.string.group_requests_title), { if (busyUserId == null) onBack() }) {
+                IconButton(onClick = ::reload, enabled = !loading) {
+                    Icon(Icons.Rounded.Refresh, stringResource(R.string.group_manage_refresh), tint = palette.textPrimary)
+                }
             }
+            if (loading) LinearProgressIndicator(Modifier.fillMaxWidth(), color = palette.accent)
         }
-        if (loading) LinearProgressIndicator(Modifier.fillMaxWidth(), color = palette.accent)
+    ) { chrome ->
+        Spacer(Modifier.height(chrome.top))
         GroupManagementMessage(error, error = true)
         GroupManagementMessage(notice)
         if (total > 0) Text(

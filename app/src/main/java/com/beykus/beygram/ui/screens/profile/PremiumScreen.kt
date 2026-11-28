@@ -119,6 +119,7 @@ import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import java.text.DateFormat
 import java.util.Date
+import com.beykus.beygram.ui.components.GlassScreenScaffold
 
 @Composable
 fun PremiumScreen(
@@ -396,12 +397,16 @@ private fun PremiumScreenSession(
         else -> null
     }
 
-    Column(Modifier.fillMaxSize().glassScreenBackground(design, palette.screen).windowInsetsPadding(WindowInsets.safeDrawing)) {
-        ProfileToolbar(stringResource(R.string.premium_title), onBack) {
-            IconButton(onClick = { if (!loading && !checkoutBusy) reload++ }, enabled = !loading && !checkoutBusy) {
-                Icon(Icons.Rounded.Refresh, stringResource(R.string.common_retry), tint = palette.textPrimary)
+    GlassScreenScaffold(
+        modifier = Modifier.fillMaxSize().glassScreenBackground(design, palette.screen).windowInsetsPadding(WindowInsets.safeDrawing),
+        toolbar = {
+            ProfileToolbar(stringResource(R.string.premium_title), onBack) {
+                IconButton(onClick = { if (!loading && !checkoutBusy) reload++ }, enabled = !loading && !checkoutBusy) {
+                    Icon(Icons.Rounded.Refresh, stringResource(R.string.common_retry), tint = palette.textPrimary)
+                }
             }
         }
+    ) { chrome ->
         when (val current = loadState) {
             PremiumLoadState.Loading -> Box(Modifier.weight(1f).fillMaxWidth()) {
                 PremiumLoadingSkeleton()

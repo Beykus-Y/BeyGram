@@ -83,8 +83,9 @@ internal fun FormattedMessageText(
     downloadFile: DownloadMediaFile? = null,
     onOpenEntity: ((MessageEntityLink) -> Unit)? = null,
     entityClicksEnabled: Boolean = true,
-    modifier: Modifier = Modifier
-) = FormattedMessageText(message.text, message.entities, message.id, observeCustomEmoji, observeFile, downloadFile, onOpenEntity, entityClicksEnabled, modifier)
+    modifier: Modifier = Modifier,
+    trailingMetadata: (@Composable () -> Unit)? = null
+) = FormattedMessageText(message.text, message.entities, message.id, observeCustomEmoji, observeFile, downloadFile, onOpenEntity, entityClicksEnabled, modifier, trailingMetadata)
 
 /** Used for inline translations, whose text and entities are not fields of the original [ChatMessage]. */
 @Composable
@@ -97,12 +98,13 @@ internal fun FormattedMessageText(
     downloadFile: DownloadMediaFile? = null,
     onOpenEntity: ((MessageEntityLink) -> Unit)? = null,
     entityClicksEnabled: Boolean = true,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    trailingMetadata: (@Composable () -> Unit)? = null
 ) {
     val palette = beyGramPalette()
     val parts = remember(text, entities) { splitMessageText(text, entities) }
     if (parts.size == 1 && parts.single().block == null) {
-        RichTextPart(messageId, parts.single(), observeCustomEmoji, observeFile, downloadFile, onOpenEntity, entityClicksEnabled, modifier)
+        RichTextPart(messageId, parts.single(), observeCustomEmoji, observeFile, downloadFile, onOpenEntity, entityClicksEnabled, modifier, trailingMetadata)
         return
     }
     Column(modifier, verticalArrangement = Arrangement.spacedBy(4.dp)) {
@@ -122,9 +124,15 @@ internal fun FormattedMessageText(
                     TextStyleKind.Pre -> Box(Modifier.clip(styledShape(6.dp)).background(palette.textSecondary.copy(alpha = 0.09f)).padding(8.dp)) {
                         RichTextPart(messageId, part, observeCustomEmoji, observeFile, downloadFile, onOpenEntity, entityClicksEnabled)
                     }
-                    else -> RichTextPart(messageId, part, observeCustomEmoji, observeFile, downloadFile, onOpenEntity, entityClicksEnabled)
+                    else -> RichTextPart(
+                        messageId, part, observeCustomEmoji, observeFile, downloadFile, onOpenEntity, entityClicksEnabled,
+                        trailingMetadata = trailingMetadata.takeIf { index == parts.lastIndex }
+                    )
                 }
             }
+        }
+        if (trailingMetadata != null && parts.lastOrNull()?.block != null) {
+            Box(Modifier.align(Alignment.End)) { trailingMetadata() }
         }
     }
 }
@@ -138,7 +146,8 @@ private fun RichTextPart(
     downloadFile: DownloadMediaFile?,
     onOpenEntity: ((MessageEntityLink) -> Unit)?,
     entityClicksEnabled: Boolean,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    trailingMetadata: (@Composable () -> Unit)? = null
 ) {
     val palette = beyGramPalette()
     val messageSize = LocalMessageTextSize.current
@@ -236,30 +245,35 @@ private fun RichTextPart(
         onLink = { link -> openMessageEntity(context, link, onOpenEntity) },
         onRevealSpoiler = { revealed = true }
     )
-    Text(annotated, modifier = modifier.then(accessibility).then(tapModifier).drawWithContent {
-        drawContent()
-        val result = layout ?: return@drawWithContent
-        hidden.forEach { entity ->
-            val path = result.getPathForRange(entity.offset, entity.offset + entity.length)
-            val bounds = path.getBounds()
-            clipPath(path) {
-                val step = 2.6.dp.toPx()
-                val radius = 0.65.dp.toPx()
-                val columns = (bounds.width / step).toInt() + 1
-                val rows = (bounds.height / step).toInt() + 1
-                for (row in 0..rows) for (column in 0..columns) {
-                    val seed = (row * 73856093) xor (column * 19349663) xor messageId.toInt()
-                    val dx = ((seed ushr 2) and 15) / 15f * step
-                    val dy = ((seed ushr 6) and 15) / 15f * step
-                    drawCircle(palette.messageText.copy(alpha = 0.25f + (seed and 7) / 14f), radius,
-                        Offset(bounds.left + column * step + dx, bounds.top + row * step + dy))
+    val textModifier = if (trailingMetadata == null) modifier else Modifier
+    val content: @Composable ((TextLayoutResult) -> Unit) -> Unit = { reportLayout ->
+        Text(annotated, modifier = textModifier.then(accessibility).then(tapModifier).drawWithContent {
+            drawContent()
+            val result = layout ?: return@drawWithContent
+            hidden.forEach { entity ->
+                val path = result.getPathForRange(entity.offset, entity.offset + entity.length)
+                val bounds = path.getBounds()
+                clipPath(path) {
+                    val step = 2.6.dp.toPx()
+                    val radius = 0.65.dp.toPx()
+                    val columns = (bounds.width / step).toInt() + 1
+                    val rows = (bounds.height / step).toInt() + 1
+                    for (row in 0..rows) for (column in 0..columns) {
+                        val seed = (row * 73856093) xor (column * 19349663) xor messageId.toInt()
+                        val dx = ((seed ushr 2) and 15) / 15f * step
+                        val dy = ((seed ushr 6) and 15) / 15f * step
+                        drawCircle(palette.messageText.copy(alpha = 0.25f + (seed and 7) / 14f), radius,
+                            Offset(bounds.left + column * step + dx, bounds.top + row * step + dy))
+                    }
                 }
             }
-        }
-    }, color = palette.messageText, fontSize = messageSize,
-        fontFamily = if (part.block == TextStyleKind.Pre) FontFamily.Monospace else FontFamily.Default,
-        lineHeight = (messageSize.value * lineSpacing).sp, inlineContent = inlineContent,
-        onTextLayout = { layout = it })
+        }, color = palette.messageText, fontSize = messageSize,
+            fontFamily = if (part.block == TextStyleKind.Pre) FontFamily.Monospace else FontFamily.Default,
+            lineHeight = (messageSize.value * lineSpacing).sp, inlineContent = inlineContent,
+            onTextLayout = { layout = it; reportLayout(it) })
+    }
+    if (trailingMetadata == null) content {}
+    else MeasuredMessageTextWithMeta(modifier, content, trailingMetadata)
 }
 
 private fun inlineEmojiId(run: InlineCustomEmojiRun): String = "custom-emoji:${run.customEmojiId}:${run.offset}"

@@ -91,6 +91,9 @@ import com.beykus.beygram.ui.motion.fadeExit
 import com.beykus.beygram.ui.motion.rememberMotionSpec
 import com.beykus.beygram.ui.screens.profile.ProfileToolbar
 import java.time.Instant
+import com.beykus.beygram.ui.components.GlassScreenScaffold
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.height
 
 /** Tone of the status badge. Its colours come from the palette, so every style and theme keeps its own. */
 private enum class StatusTone { Neutral, Accent, Success, Warning }
@@ -128,24 +131,27 @@ fun StableUpdatesScreen(onBack: () -> Unit, model: StableUpdatesViewModel = view
     val card = updateCardModel(uiState)
     // Unattended checks are a user choice; the manual check stays available either way.
     var autoCheckEnabled by remember { mutableStateOf(model.autoCheckEnabled) }
-    Column(
-        Modifier.fillMaxSize()
+    GlassScreenScaffold(
+        modifier = Modifier.fillMaxSize()
             .glassScreenBackground(design, palette.screen)
-            .windowInsetsPadding(WindowInsets.safeDrawing)
-    ) {
-        ProfileToolbar(stringResource(R.string.updates_title), onBack) {
-            // While an offer exists the re-check moves here; the card keeps its own action otherwise.
-            if (card.showTopCheck) {
-                IconButton(onClick = model::check) {
-                    Icon(Icons.Rounded.Refresh, stringResource(R.string.updates_check), tint = palette.accent)
+            .windowInsetsPadding(WindowInsets.safeDrawing),
+        toolbar = {
+            ProfileToolbar(stringResource(R.string.updates_title), onBack) {
+                // While an offer exists the re-check moves here; the card keeps its own action otherwise.
+                if (card.showTopCheck) {
+                    IconButton(onClick = model::check) {
+                        Icon(Icons.Rounded.Refresh, stringResource(R.string.updates_check), tint = palette.accent)
+                    }
                 }
             }
         }
+    ) { chrome ->
         Column(
             Modifier.fillMaxWidth().weight(1f)
                 .verticalScroll(rememberScrollState())
                 .padding(horizontal = 16.dp, vertical = 12.dp)
         ) {
+            Spacer(Modifier.height(chrome.top))
             UpdateStatusCard(model, uiState, card, isDevBeta)
             SettingsGroup(stringResource(R.string.updates_group_auto_check)) {
                 Column(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 12.dp)) {

@@ -754,6 +754,7 @@
     <string name="err_messages_too_many">За один раз можно обработать не более %1$d сообщений</string>
     <string name="err_message_pin_unavailable">Это сообщение нельзя закрепить</string>
     <string name="err_message_cannot_reply">На это сообщение нельзя ответить</string>
+    <string name="err_message_quote_unavailable">Выбранную цитату нельзя отправить — исходное сообщение изменилось или защищено от копирования</string>
     <string name="err_message_empty">Введите сообщение</string>
     <string name="err_message_original_unavailable">Оригинал недоступен</string>
     <string name="err_message_too_long">Сообщение слишком длинное</string>
@@ -2799,6 +2800,7 @@
     <string name="chat_read_all_reactions_message">Все реакции на ваши сообщения в этом чате будут отмечены прочитанными.</string>
     <string name="chat_read_all_confirm">Прочитать</string>
     <string name="chat_read_all_failed">Не удалось отметить все прочитанными</string>
+    <string name="chat_jump_unread_empty">Нет непрочитанных упоминаний и реакций</string>
     <string name="chat_swipe_secondary_title">Свайп в обратную сторону</string>
     <string name="chat_swipe_secondary_reaction">Быстрая реакция</string>
     <string name="chat_swipe_secondary_saved">В Избранное</string>
@@ -2848,7 +2850,7 @@
     <string name="diag_group_tools">Дополнительные инструменты</string>
     <string name="diag_group_settings">Диагностические настройки</string>
     <string name="diag_video_buffer_title">Стартовый буфер видео</string>
-    <string name="diag_video_buffer_value_default">Media3 по умолчанию</string>
+    <string name="diag_video_buffer_value_default">По умолчанию</string>
     <string name="diag_video_buffer_value_ms">%1$d мс</string>
     <string name="diagnostics_settings_note">Статистика и подробный журнал работают отдельно от отчётов. Отчёт уходит на сервер только тогда, когда вы сами его отправляете. Подробный журнал лишь добавляет этапы в файл «Поделиться логами».</string>
     <string name="diag_overview_telegram">Telegram</string>
@@ -2887,4 +2889,5 @@
     <string name="updates_group_auto_check">Автоматическая проверка</string>
     <string name="updates_auto_check_title">Проверять обновления автоматически</string>
     <string name="updates_auto_check_detail">При запуске, при возврате в приложение и примерно каждые 30 минут. Ручная проверка работает всегда.</string>
+    <string name="chat_peek_open_chat">Открыть чат</string>
 </resources>

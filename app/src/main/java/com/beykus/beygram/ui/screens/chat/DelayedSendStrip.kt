@@ -38,6 +38,7 @@ import com.beykus.beygram.data.delayed.delayedSendEligible
 import com.beykus.beygram.data.settings.DelayedSendSettingsStore
 import com.beykus.beygram.data.tdlib.TdLibTelegramRepository
 import com.beykus.beygram.domain.model.MessageDraft
+import com.beykus.beygram.domain.model.replyQuotePayload
 import com.beykus.beygram.domain.model.MessageSendOptions
 import com.beykus.beygram.domain.model.MessageTextEntity
 import com.beykus.beygram.domain.repository.ConversationRepository
@@ -162,7 +163,10 @@ internal class DelayedSendController(
             // Not cancellable: once the message is stored it will be sent, so leaving the chat in between must still
             // clear the draft. Otherwise the old text comes back and is easily sent twice.
             withContext(NonCancellable) {
-                val result = store.enqueue(chatId, topicId, replyTo ?: 0L, text, entities, options.disableNotification, delaySeconds)
+                val result = store.enqueue(
+                    chatId, topicId, replyTo ?: 0L, text, entities, options.disableNotification, delaySeconds,
+                    quote = options.replyQuotePayload()
+                )
                 storing = false
                 result.onSuccess { onQueued() }.onFailure { error ->
                     val message = if (error is DelayedSendQueueFullException) R.string.delayed_send_queue_full else R.string.delayed_send_queue_failed
@@ -183,12 +187,15 @@ internal class DelayedSendController(
     }
 
     /** Takes a waiting message back into the composer. The caller has checked that the composer is empty. */
-    private fun restore(id: String, onRestoreDraft: (MessageDraft) -> Unit) {
+    private fun restore(id: String, onRestoreDraft: (MessageDraft, com.beykus.beygram.domain.model.OutgoingReplyQuote?) -> Unit) {
         scope.launch {
             // Not cancellable: once the entry is removed from the queue its text must reach the draft, or it is lost.
             withContext(NonCancellable) {
                 val entry = withContext(Dispatchers.IO) { queue?.cancel(id) } ?: return@withContext
-                onRestoreDraft(MessageDraft(entry.text, entry.entities, entry.replyToMessageId.takeIf { it > 0L }))
+                onRestoreDraft(
+                    MessageDraft(entry.text, entry.entities, entry.replyToMessageId.takeIf { it > 0L }),
+                    entry.quote
+                )
             }
         }
     }
@@ -198,26 +205,28 @@ internal class DelayedSendController(
      * text back into the composer only when it is empty; otherwise the message stays and a short notice says why.
      */
     @Composable
-    fun Strip(composerEmpty: Boolean, onRestoreDraft: (MessageDraft) -> Unit) {
+    fun Strip(composerEmpty: Boolean, onRestoreDraft: (MessageDraft, com.beykus.beygram.domain.model.OutgoingReplyQuote?) -> Unit) {
         val all by (queue?.entries ?: NoDelayedSendEntries).collectAsStateWithLifecycle()
         val rows = all.filter { it.chatId == chatId && it.topicId == forumTopicId }
         if (rows.isEmpty()) return
         val palette = beyGramPalette()
         // Bounded and scrollable: a backlog of waiting messages must never push the composer off the screen.
-        Column(Modifier.fillMaxWidth().heightIn(max = 168.dp).chatChromeBackground(palette.surface).verticalScroll(rememberScrollState()).padding(horizontal = 12.dp, vertical = 4.dp)) {
-            rows.forEach { entry ->
-                DelayedSendRow(
-                    entry = entry,
-                    onCancel = {
-                        if (composerEmpty) {
-                            restore(entry.id, onRestoreDraft)
-                        } else {
-                            Toast.makeText(context, R.string.delayed_send_clear_composer, Toast.LENGTH_SHORT).show()
-                        }
-                    },
-                    onDiscard = { discard(entry.id) },
-                    onSendNow = { sendNow(entry.id) }
-                )
+        ChatFloatingBarHost(Modifier.heightIn(max = 168.dp)) {
+            Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(horizontal = 12.dp, vertical = 4.dp)) {
+                rows.forEach { entry ->
+                    DelayedSendRow(
+                        entry = entry,
+                        onCancel = {
+                            if (composerEmpty) {
+                                restore(entry.id, onRestoreDraft)
+                            } else {
+                                Toast.makeText(context, R.string.delayed_send_clear_composer, Toast.LENGTH_SHORT).show()
+                            }
+                        },
+                        onDiscard = { discard(entry.id) },
+                        onSendNow = { sendNow(entry.id) }
+                    )
+                }
             }
         }
     }

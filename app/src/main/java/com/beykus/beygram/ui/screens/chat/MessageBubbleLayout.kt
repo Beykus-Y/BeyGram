@@ -197,26 +197,6 @@ internal fun bubbleMetaFitsBesideBody(bodyWidth: Int, metaWidth: Int, maxWidth: 
 internal fun inlineMetadataTop(bodyHeight: Int, metaHeight: Int, baselineDelta: Int?): Int =
     (baselineDelta ?: (bodyHeight - metaHeight)).coerceAtLeast(0)
 
-/** Inline metadata is deliberately limited to short, simple, single-line text.
- * Multi-line content and sender headers need their own metadata row; width alone
- * is not a sufficient signal that inline placement would look natural.
- */
-internal fun useInlineTextMetadata(message: ChatMessage, hasSenderHeader: Boolean, hasTranslation: Boolean): Boolean =
-    message.text.isNotBlank() &&
-        message.text.length <= 28 &&
-        '\n' !in message.text &&
-        message.entities.isEmpty() &&
-        message.media == null &&
-        message.special == null &&
-        message.reply == null &&
-        message.linkPreview == null &&
-        message.expiredMediaKind == null &&
-        message.inlineKeyboard.isEmpty() &&
-        message.sendState != MessageSendState.Failed &&
-        !hasSenderHeader &&
-        !message.isForwarded &&
-        !hasTranslation
-
 /** Время, статус отправки и кнопка повтора. При [overlay] — белым на тёмной плашке поверх фото. */
 @OptIn(ExperimentalLayoutApi::class)
 @Composable

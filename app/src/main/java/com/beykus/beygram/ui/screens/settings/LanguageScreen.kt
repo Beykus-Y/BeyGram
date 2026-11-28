@@ -35,6 +35,9 @@ import com.beykus.beygram.ui.design.glassScreenBackground
 import com.beykus.beygram.ui.screens.chat.TranslationTargetDialog
 import com.beykus.beygram.ui.screens.chat.translationLanguageLabel
 import com.beykus.beygram.ui.screens.profile.ProfileToolbar
+import com.beykus.beygram.ui.components.GlassScreenScaffold
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.height
 
 /** Text inset of the rows on this page; the dividers start where the row text starts. */
 private val LanguageRowInset = 20.dp
@@ -55,13 +58,16 @@ fun LanguageScreen(translationSettings: TranslationSettingsStore, onBack: () -> 
     var choosingTranslationLanguage by rememberSaveable { mutableStateOf(false) }
     val targetLanguage = translationTargetLanguage(translation.targetLanguageCode,
         AppLocale.selected(context).ifBlank { java.util.Locale.getDefault().language })
-    Column(
-        Modifier.fillMaxSize()
+    GlassScreenScaffold(
+        modifier = Modifier.fillMaxSize()
             .glassScreenBackground(design, palette.screen)
-            .windowInsetsPadding(WindowInsets.safeDrawing)
-            .verticalScroll(rememberScrollState())
-    ) {
-        ProfileToolbar(stringResource(R.string.feature_language), onBack)
+            .windowInsetsPadding(WindowInsets.safeDrawing),
+        toolbar = {
+            ProfileToolbar(stringResource(R.string.feature_language), onBack)
+        }
+    ) { chrome ->
+        Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState())) {
+        Spacer(Modifier.height(chrome.top))
         SettingsGroup(stringResource(R.string.feature_language_group_interface)) {
             AppLocale.supported.forEachIndexed { index, language ->
                 if (index > 0) SettingsRowDivider(startInset = LanguageRowInset)
@@ -101,6 +107,7 @@ fun LanguageScreen(translationSettings: TranslationSettingsStore, onBack: () -> 
             onSelect = { translationSettings.setTargetLanguage(it); choosingTranslationLanguage = false },
             onDismiss = { choosingTranslationLanguage = false }
         )
+        }
     }
 }
 

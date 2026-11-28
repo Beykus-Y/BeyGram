@@ -58,6 +58,9 @@ import com.beykus.beygram.ui.screens.settings.SettingsRowInset
 import com.beykus.beygram.ui.text.userMessage
 import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.launch
+import com.beykus.beygram.ui.components.GlassScreenScaffold
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.height
 
 private enum class FolderChoice { Include, Exclude }
 
@@ -302,13 +305,15 @@ internal fun FolderManagerScreen(
         else -> stringResource(R.string.folder_manage_title)
     }
 
-    Column(
-        Modifier.fillMaxSize()
+    GlassScreenScaffold(
+        modifier = Modifier.fillMaxSize()
             .glassScreenBackground(design, palette.screen)
             .windowInsetsPadding(WindowInsets.safeDrawing)
-            .imePadding()
-    ) {
-        ProfileToolbar(toolbarTitle, ::back)
+            .imePadding(),
+        toolbar = {
+            ProfileToolbar(toolbarTitle, ::back)
+        }
+    ) { chrome ->
         // The bar always keeps its height, so it appears and disappears without moving the content.
         Box(Modifier.fillMaxWidth().height(4.dp)) {
             if (busy) LinearProgressIndicator(Modifier.fillMaxWidth(), color = palette.accent)

@@ -30,6 +30,20 @@ class AttachmentComposerTest {
     )
 
     @Test
+    fun compactMenuBalancesRowsWithinThePane() {
+        // A tile needs room for its caption, so the menu is three balanced columns on a phone, five on a wide pane.
+        assertEquals(3, attachmentTileColumns(360f, 1f, 9))
+        assertEquals(3, attachmentTileColumns(300f, 1f, 9))
+        assertEquals(3, attachmentTileColumns(360f, 1.5f, 9))
+        assertEquals(5, attachmentTileColumns(640f, 1f, 9))
+        // A menu that fits on one screen still never turns into a horizontal row of nine.
+        assertTrue(attachmentTileColumns(640f, 1f, 9) <= 6)
+        // Removing an action never leaves a single tile on the last row.
+        assertEquals(4, attachmentTileColumns(360f, 1f, 8))
+        assertEquals(4, attachmentTileColumns(360f, 1f, 7))
+    }
+
+    @Test
     fun `every attachment type is visible without horizontal scrolling`() {
         val actions = attachmentActions(allowsPolls = true)
         assertEquals(9, actions.size)

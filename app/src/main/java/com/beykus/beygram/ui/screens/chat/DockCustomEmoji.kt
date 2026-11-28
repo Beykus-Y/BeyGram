@@ -1,0 +1,340 @@
+package com.beykus.beygram.ui.screens.chat
+
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.GridItemSpan
+import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import androidx.compose.foundation.lazy.grid.items
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.Lock
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.Icon
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.beykus.beygram.R
+import com.beykus.beygram.playback.LocalPlaybackAccountId
+import com.beykus.beygram.domain.model.CustomEmoji
+import com.beykus.beygram.domain.model.EmojiPickerSearchResults
+import com.beykus.beygram.domain.model.CustomEmojiSetBrief
+import com.beykus.beygram.domain.repository.ConversationRepository
+import com.beykus.beygram.ui.components.SystemEmojiFont
+import com.beykus.beygram.ui.components.beyGramPalette
+import com.beykus.beygram.ui.components.emojiPresentation
+import com.beykus.beygram.ui.text.userMessage
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
+
+/**
+ * Telegram decides custom emoji sending by account Premium and by Saved Messages; TDLib 1.8.65 does not expose the
+ * per-document free flag the official MTProto clients use, so this is the safe approximation. Server refusal still wins.
+ */
+internal fun customEmojiAllowed(premium: Boolean?, savedMessages: Boolean): Boolean =
+    savedMessages || premium != false
+
+/**
+ * Locked marks require a known non-Premium account: before the profile arrives [premium] is null and the picker must not
+ * flash every custom emoji as locked. A server refusal is still surfaced by the normal send error path.
+ */
+internal fun customEmojiLocked(premium: Boolean?, savedMessages: Boolean): Boolean =
+    !savedMessages && premium == false
+
+internal data class DockCustomEmoji(
+    val packs: List<CustomEmojiSetBrief>,
+    val installedIds: Set<Long>,
+    /** The account may not insert these emoji here; the artwork stays visible with a lock. */
+    val locked: Boolean,
+    val busyPacks: Set<Long>,
+    val failedPacks: Set<Long>,
+    val changeInstallation: (Long, Boolean) -> Unit,
+    val dynamicOrder: Boolean,
+    val onPackOrder: () -> Unit,
+    val reorderBusy: Boolean,
+    val reorder: (List<Long>) -> Unit,
+    val rows: List<PremiumEmojiRow>,
+    val recentIds: List<Long>,
+    val loadPack: (Long) -> Unit,
+    val failed: Boolean,
+    val retry: () -> Unit,
+    val observeCustomEmoji: ObserveCustomEmoji,
+    val observeFile: ObserveMediaFile,
+    val downloadFile: DownloadMediaFile,
+    val onPick: (CustomEmoji) -> Unit
+)
+
+@Composable
+internal fun rememberDockCustomEmoji(
+    conversation: ConversationRepository,
+    observeFile: ObserveMediaFile,
+    downloadFile: DownloadMediaFile,
+    packsVersion: Long,
+    locked: Boolean,
+    /** Recent custom emoji are owned by the panel, so recovery and explicit clearing update one list. */
+    recentIds: List<Long>,
+    packUsage: PackUsageStore,
+    dynamicOrder: Boolean,
+    onPackOrder: () -> Unit,
+    onReorderError: (String) -> Unit = {},
+    onPick: (CustomEmoji) -> Boolean,
+    onPicked: (Long) -> Unit,
+): DockCustomEmoji {
+    val context = LocalContext.current
+    val accountId = LocalPlaybackAccountId.current
+    val cachedInstalled = remember(accountId, conversation) {
+        MediaPickerSessionCache.getCustomEmojiInstalled(accountId, conversation)
+    }
+    val cachedRecommended = remember(accountId, conversation) {
+        MediaPickerSessionCache.getCustomEmojiRecommended(accountId, conversation)
+    }
+    var installed by remember(accountId, conversation) {
+        mutableStateOf(cachedInstalled?.value.orEmpty())
+    }
+    var installedLoadedVersion by remember(accountId, conversation) {
+        mutableStateOf(cachedInstalled?.version)
+    }
+    var recommended by remember(accountId, conversation) {
+        mutableStateOf(cachedRecommended.orEmpty())
+    }
+    var recommendedLoaded by remember(accountId, conversation) {
+        mutableStateOf(cachedRecommended != null)
+    }
+    var busyPacks by remember(conversation) { mutableStateOf<Set<Long>>(emptySet()) }
+    var failedPacks by remember(conversation) { mutableStateOf<Set<Long>>(emptySet()) }
+    var failed by remember(conversation) { mutableStateOf(false) }
+    var attempt by remember(conversation) { mutableIntStateOf(0) }
+    LaunchedEffect(conversation, attempt, packsVersion) {
+        if (attempt == 0 && installedLoadedVersion == packsVersion && installed.isNotEmpty()) {
+            failed = false
+            return@LaunchedEffect
+        }
+        failed = false
+        conversation.installedCustomEmojiSets().fold(
+            onSuccess = { values ->
+                val deduped = values.distinctBy { it.id }
+                installed = deduped
+                installedLoadedVersion = packsVersion
+                MediaPickerSessionCache.putCustomEmojiInstalled(accountId, conversation, deduped, packsVersion)
+            },
+            onFailure = {
+                if (installed.isEmpty()) failed = true
+            }
+        )
+    }
+    LaunchedEffect(conversation, attempt) {
+        if (attempt == 0 && recommendedLoaded) return@LaunchedEffect
+        conversation.recommendedCustomEmojiSets().onSuccess { values ->
+            val deduped = values.distinctBy { it.id }
+            recommended = deduped
+            recommendedLoaded = true
+            MediaPickerSessionCache.putCustomEmojiRecommended(accountId, conversation, deduped)
+        }
+    }
+    var reorderBusy by remember(conversation) { mutableStateOf(false) }
+    val installedIds = remember(installed) { installed.mapTo(HashSet()) { it.id } }
+    val basePacks = remember(installed, recommended, installedIds) { installed + recommended.filterNot { it.id in installedIds } }
+    // Usage order is applied when the list is available, not on a send; with the mode off the server/manual order stays.
+    val packs = remember(basePacks, dynamicOrder) {
+        if (dynamicOrder) packUsage.ordered(basePacks) { it.id } else basePacks
+    }
+    val scope = rememberCoroutineScope()
+    fun changeInstallation(setId: Long, install: Boolean) {
+        if (setId in busyPacks) return
+        busyPacks = busyPacks + setId
+        failedPacks = failedPacks - setId
+        scope.launch {
+            try {
+                conversation.changeStickerSet(setId, install)
+                    .onSuccess { attempt++ }
+                    .onFailure { failedPacks = failedPacks + setId }
+            } finally {
+                busyPacks = busyPacks - setId
+            }
+        }
+    }
+    val loader = remember(scope, accountId, conversation) {
+        CustomEmojiSetLoader(
+            scope = scope,
+            initialLoaded = MediaPickerSessionCache.snapshotCustomEmojiSetIds(accountId, conversation),
+            onLoaded = { setId, ids ->
+                MediaPickerSessionCache.putCustomEmojiSetIds(accountId, conversation, setId, ids)
+            },
+            load = conversation::customEmojiSetIds
+        )
+    }
+    val states by loader.states.collectAsStateWithLifecycle()
+    val rows = remember(packs, states) { premiumEmojiRows(packs, states) }
+    // Which loaded pack each visible custom emoji belongs to: only these picks can credit pack usage.
+    val packByEmoji = remember(rows) {
+        val map = HashMap<Long, Long>()
+        var setId = 0L
+        rows.forEach { row ->
+            when (row) {
+                is PremiumEmojiRow.Header -> setId = row.setId
+                is PremiumEmojiRow.Emoji -> if (setId != 0L) map[row.customEmojiId] = setId
+            }
+        }
+        map
+    }
+    return DockCustomEmoji(
+        packs, installedIds, locked, busyPacks, failedPacks, ::changeInstallation, dynamicOrder, onPackOrder, reorderBusy,
+        { order ->
+            if (!reorderBusy) {
+                reorderBusy = true
+                scope.launch {
+                    try {
+                        conversation.reorderStickerSets(customEmoji = true, orderedIds = order)
+                            .onSuccess { attempt++ }
+                            .onFailure { onReorderError(it.userMessage(context, R.string.sticker_panel_load_failed)) }
+                    } finally {
+                        reorderBusy = false
+                    }
+                }
+            }
+        },
+        rows, recentIds, loader::request, failed, { attempt++ },
+        conversation::observeCustomEmoji, observeFile, downloadFile
+    ) { emoji ->
+        if (onPick(emoji)) {
+            onPicked(emoji.customEmojiId)
+            packByEmoji[emoji.customEmojiId]?.let { packUsage.record(it) }
+        }
+    }
+}
+
+@Composable
+internal fun DockCustomEmojiCell(
+    id: Long,
+    dock: DockCustomEmoji,
+    modifier: Modifier = Modifier,
+    animated: Boolean = true,
+    onClick: ((CustomEmoji) -> Unit)? = dock.onPick
+) {
+    val current by remember(id, dock.observeCustomEmoji) {
+        dock.observeCustomEmoji(id)
+    }.collectAsStateWithLifecycle()
+    val emoji = current?.takeIf { it.customEmojiId == id }
+    Box(
+        modifier.height(48.dp).then(if (onClick != null && emoji != null) {
+            Modifier.clickable(role = Role.Button) { onClick(emoji) }
+        } else Modifier),
+        contentAlignment = Alignment.Center
+    ) {
+if (emoji != null) {
+            CustomEmojiImage(
+                emoji = emoji,
+                size = 28.dp,
+                observeFile = dock.observeFile,
+                downloadFile = dock.downloadFile,
+                fallback = {
+                    Text(
+                        emojiPresentation(emoji.emoji),
+                        fontSize = 24.sp,
+                        lineHeight = 24.sp,
+                        fontFamily = SystemEmojiFont
+                    )
+                },
+                animated = animated
+            )
+            if (dock.locked) {
+                Icon(
+                    Icons.Rounded.Lock,
+                    contentDescription = stringResource(R.string.sticker_panel_premium_badge),
+                    tint = beyGramPalette().accent,
+                    modifier = Modifier.align(Alignment.TopEnd).padding(top = 2.dp, end = 2.dp).size(12.dp)
+                )
+            }
+        }
+    }
+}
+
+@Composable
+internal fun DockEmojiSearch(
+    conversation: ConversationRepository,
+    query: String,
+    dock: DockCustomEmoji,
+    onUnicode: (String) -> Unit,
+    modifier: Modifier
+) {
+    val context = LocalContext.current
+    val languages = context.resources.configuration.locales
+    val languageCodes = remember(languages) { List(languages.size()) { languages[it].language }.distinct() }
+    var results by remember(conversation, query) { mutableStateOf<Result<EmojiPickerSearchResults>?>(null) }
+    var attempt by remember(conversation, query) { mutableIntStateOf(0) }
+    LaunchedEffect(conversation, query, languageCodes, attempt) {
+        results = null
+        delay(300)
+        results = conversation.searchPickerEmoji(query.trim(), languageCodes)
+    }
+    val found = results?.getOrNull()
+    LazyVerticalGrid(
+        columns = GridCells.Adaptive(48.dp),
+        modifier = modifier,
+        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp)
+    ) {
+        if (found != null) {
+            items(found.unicode, key = { "unicode-$it" }) { emoji -> EmojiCell(emoji) { onUnicode(emoji) } }
+            items(found.custom, key = { "custom-$it" }) { id -> DockCustomEmojiCell(id, dock) }
+            for (pack in found.packs) {
+                item(key = "pack-${pack.id}", span = { GridItemSpan(maxLineSpan) }) { DockEmojiPackHeader(pack.id, pack.title, dock) }
+                items(pack.covers.distinct(), key = { "cover-${pack.id}-$it" }) { id -> DockCustomEmojiCell(id, dock) }
+            }
+            if (found.unicode.isEmpty() && found.custom.isEmpty() && found.packs.isEmpty()) {
+                item(span = { GridItemSpan(maxLineSpan) }) { EmojiGroupHeader(stringResource(R.string.global_search_empty)) }
+            }
+        } else if (results == null) {
+            item(span = { GridItemSpan(maxLineSpan) }) {
+                CircularProgressIndicator(Modifier.size(20.dp))
+            }
+        } else {
+            item(span = { GridItemSpan(maxLineSpan) }) {
+                TextButton(onClick = { attempt++ }) { Text(stringResource(R.string.common_retry)) }
+            }
+        }
+    }
+}
+
+@Composable
+internal fun DockEmojiPackHeader(setId: Long, title: String, dock: DockCustomEmoji) {
+    val installed = setId in dock.installedIds
+    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+        Box(Modifier.weight(1f)) { EmojiGroupHeader(title) }
+        if (installed && !dock.dynamicOrder) {
+            PickerPackOrderButtons(
+                dock.packs.filter { it.id in dock.installedIds }.map { it.id },
+                setId, dock.reorderBusy, dock.reorder
+            )
+        }
+        TextButton(
+            enabled = setId !in dock.busyPacks,
+            onClick = { dock.changeInstallation(setId, !installed) }
+        ) {
+            Text(stringResource(when {
+                setId in dock.failedPacks -> R.string.common_retry
+                installed -> R.string.sticker_set_remove
+                else -> R.string.sticker_set_add
+            }))
+        }
+    }
+}

@@ -94,6 +94,8 @@ class MusicDefaultsSettingsTest {
         val lyrics = LyricsSettingsStore.current(context)
 
         assertFalse(BgMixSettingsStore.enabled.value)
+        BgBeatSettingsStore.getInstance(context).setEnabled(false)
+        assertFalse(BgBeatSettingsStore.getInstance(context).enabled.value)
         assertFalse(TrackTransitionSettings.crossfade.value)
         assertFalse(TrackTransitionSettings.skipSilence.value)
         assertEquals(7, TrackTransitionSettings.crossfadeSeconds.value)

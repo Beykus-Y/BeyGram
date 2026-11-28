@@ -111,6 +111,7 @@ import java.io.File
 import java.text.DateFormat
 import java.util.Date
 import java.util.UUID
+import com.beykus.beygram.ui.components.GlassScreenScaffold
 
 
 private val SelectedStoryUsersSaver = Saver<Set<Long>, LongArray>(
@@ -344,20 +345,23 @@ fun StoryPublisherScreen(
         }
     }
 
-    Column(
-        Modifier.fillMaxSize().background(palette.screen)
-            .windowInsetsPadding(WindowInsets.safeDrawing)
-    ) {
-        ProfileToolbar(stringResource(R.string.stories_publish_title), close) {
-            IconButton(onClick = { showArchive = true }, enabled = !busy) {
-                Icon(Icons.Rounded.Archive, stringResource(R.string.stories_archive_open), tint = palette.textSecondary)
+    GlassScreenScaffold(
+        modifier = Modifier.fillMaxSize().background(palette.screen)
+            .windowInsetsPadding(WindowInsets.safeDrawing),
+        toolbar = {
+            ProfileToolbar(stringResource(R.string.stories_publish_title), close) {
+                IconButton(onClick = { showArchive = true }, enabled = !busy) {
+                    Icon(Icons.Rounded.Archive, stringResource(R.string.stories_archive_open), tint = palette.textSecondary)
+                }
             }
         }
+    ) { chrome ->
 
         Column(
             Modifier.weight(1f).verticalScroll(rememberScrollState())
                 .padding(start = 20.dp, end = 20.dp, bottom = 24.dp)
         ) {
+            Spacer(Modifier.height(chrome.top))
             if (targets.size > 1) {
                 StorySectionTitle(stringResource(R.string.stories_publish_as))
                 Row(

@@ -20,8 +20,7 @@ fun showSenderHeader(chat: ChatPreview, message: ChatMessage, previous: ChatMess
 }
 
 /**
- * The same author in the same role. A user is identified by id; anonymous administrators and channel posts have no
- * user id, so their visible sender name (the group or channel title) keeps distinct senders apart.
+ * The same visible author in the same role. Anonymous posts use TDLib's public chat identity and display name.
  */
-private fun ChatMessage.hasSameSenderAs(other: ChatMessage): Boolean =
-    senderId == other.senderId && senderName == other.senderName
+internal fun ChatMessage.hasSameSenderAs(other: ChatMessage): Boolean =
+    senderId == other.senderId && senderChatId == other.senderChatId && senderName == other.senderName

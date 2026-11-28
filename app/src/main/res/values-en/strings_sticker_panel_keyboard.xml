@@ -1,0 +1,17 @@
+<resources>
+    <string name="sticker_panel_open_keyboard">Open keyboard</string>
+    <string name="emoji_custom_recent">Recent custom emoji</string>
+    <string name="emoji_recommended_sets">Recommended packs</string>
+    <string name="gif_panel_save">Save GIF</string>
+    <string name="gif_panel_remove_saved">Remove from saved GIFs</string>
+    <string name="gif_panel_save_failed">Could not update saved GIFs</string>
+    <string name="sticker_panel_clear_recent">Clear recent stickers</string>
+    <string name="sticker_panel_clear_recent_confirm">Clear this account’s recent sticker history?</string>
+    <string name="emoji_clear_recent">Clear recent emoji</string>
+    <string name="emoji_clear_recent_confirm">Clear this account\'s recent emoji? They will not be recovered from message history afterwards.</string>
+    <string name="emoji_clear_recent_short">Clear</string>
+    <string name="pack_order_title">Pack order</string>
+    <string name="pack_order_dynamic">Sort by usage</string>
+    <string name="pack_order_dynamic_hint">Frequently used packs move first. With this off, your manual order is kept.</string>
+    <string name="pack_order_settings">Pack order settings</string>
+</resources>

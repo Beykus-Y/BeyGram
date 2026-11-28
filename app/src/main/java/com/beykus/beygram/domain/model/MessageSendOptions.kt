@@ -26,8 +26,9 @@ data class MessageSendOptions(
     val shareDelivery: Boolean = false,
     /** Optional quoted fragment of the replied-to message (TDLib InputTextQuote). */
     val replyQuote: String? = null,
-    /** Character offset of [replyQuote] inside the replied-to message text. */
-    val replyQuotePosition: Int = 0
+    /** UTF-16 offset of [replyQuote] inside the replied-to message text. */
+    val replyQuotePosition: Int = 0,
+    val replyQuoteEntities: List<MessageTextEntity> = emptyList()
 ) {
     companion object {
         /**
@@ -41,3 +42,13 @@ data class MessageSendOptions(
     fun scheduledTimeIsFuture(nowSeconds: Long = System.currentTimeMillis() / 1000): Boolean =
         scheduledAtSeconds == null || scheduledAtSeconds > nowSeconds + MIN_SCHEDULE_LEAD_SECONDS
 }
+
+/** Fragment saved with an outbox entry, in UTF-16 offsets relative to the replied-to text and to the fragment. */
+data class OutgoingReplyQuote(val text: String, val position: Int, val entities: List<MessageTextEntity>) {
+    fun matchesSource(source: String?): Boolean =
+        source != null && position >= 0 && text.isNotBlank() && source.regionMatches(position, text, 0, text.length)
+}
+
+internal fun MessageSendOptions.replyQuotePayload(): OutgoingReplyQuote? =
+    replyQuote?.takeIf { it.isNotBlank() && replyQuotePosition >= 0 }
+        ?.let { OutgoingReplyQuote(it, replyQuotePosition, replyQuoteEntities) }

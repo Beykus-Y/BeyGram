@@ -1,0 +1,5 @@
+<resources>
+    <string name="chat_settings_group_avatars">Аватары рядом с сообщениями</string>
+    <string name="chat_group_sender_avatar">Аватар пользователя %1$s</string>
+    <string name="chat_author_emoji_status">Эмодзи-статус</string>
+</resources>

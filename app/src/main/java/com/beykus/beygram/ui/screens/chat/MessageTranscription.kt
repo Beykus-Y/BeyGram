@@ -56,7 +56,8 @@ internal fun TranscriptionSection(
     onRequest: (() -> Unit)?,
     onRate: ((Boolean) -> Unit)?,
     ui: SpeechRecognitionUi = SpeechRecognitionUi(),
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    showRequestButton: Boolean = true
 ) {
     val palette = beyGramPalette()
     val serverPending = media.transcriptionPending
@@ -127,10 +128,12 @@ internal fun TranscriptionSection(
             }
         }
         request != null -> Column(modifier) {
-            TextButton(onClick = request, modifier = Modifier.padding(horizontal = 4.dp)) {
-                Icon(Icons.Rounded.Subtitles, null, tint = palette.accent, modifier = Modifier.size(17.dp))
-                Spacer(Modifier.width(6.dp))
-                Text(stringResource(R.string.transcription_action), color = palette.accent, fontSize = 13.sp)
+            if (showRequestButton) {
+                TextButton(onClick = request, modifier = Modifier.padding(horizontal = 4.dp)) {
+                    Icon(Icons.Rounded.Subtitles, null, tint = palette.accent, modifier = Modifier.size(17.dp))
+                    Spacer(Modifier.width(6.dp))
+                    Text(stringResource(R.string.transcription_action), color = palette.accent, fontSize = 13.sp)
+                }
             }
             if (quotaHint != null) {
                 Text(

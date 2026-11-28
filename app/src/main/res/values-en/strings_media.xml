@@ -78,4 +78,5 @@
     <string name="recorder_too_short">Recording is too short</string>
     <string name="recorder_video_note_unavailable">Video message recording is temporarily unavailable</string>
     <string name="recorder_zoom_value">%1$.1f×</string>
+    <string name="chat_peek_open_chat">Open chat</string>
 </resources>

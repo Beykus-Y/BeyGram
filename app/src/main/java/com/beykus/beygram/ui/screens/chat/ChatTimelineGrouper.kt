@@ -1,5 +1,6 @@
 package com.beykus.beygram.ui.screens.chat
 
+import com.beykus.beygram.domain.model.hasSameSenderAs
 import com.beykus.beygram.domain.model.ChatMessage
 import java.util.concurrent.atomic.AtomicInteger
 
@@ -19,7 +20,7 @@ private val structureVersions = AtomicInteger()
 internal fun sameTimelinePlace(a: ChatMessage, b: ChatMessage): Boolean =
     a.id == b.id && a.mediaAlbumId == b.mediaAlbumId && (a.media == null) == (b.media == null) &&
         a.dateSeconds == b.dateSeconds && a.isOutgoing == b.isOutgoing && (a.serviceText == null) == (b.serviceText == null) &&
-        a.senderId == b.senderId && a.senderName == b.senderName
+        a.hasSameSenderAs(b)
 
 /**
  * Keeps the feed rows between history updates. A content-only update replaces just the rows that hold a changed

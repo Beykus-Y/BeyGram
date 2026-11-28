@@ -1,10 +1,15 @@
 package com.beykus.beygram.domain.repository
 
 import com.beykus.beygram.domain.model.*
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.flowOf
 
 /** Conversation operations; UI never sends native TDLib requests or chooses protocol flags. */
 interface ConversationRepository {
+    fun observeStickerShelfVersions(): Flow<StickerShelfVersions> = flowOf(StickerShelfVersions())
+    /** Cache-only observation of the public sender appearance for this account. */
+    fun observeGroupAuthor(userId: Long, senderChatId: Long): Flow<GroupAuthorAppearance?> = flowOf(null)
     fun observePinnedMessagesVersion(chatId: Long): StateFlow<Long>
     /** Resolve avatars from user IDs without creating private chats or opening profiles. */
     suspend fun loadPinnedSenderAvatars(userIds: Collection<Long>): Map<Long, AvatarPhoto?> = emptyMap()
@@ -91,6 +96,8 @@ interface ConversationRepository {
     suspend fun nextUnreadMention(chatId: Long, forumTopicId: Long = 0L): Result<Long?> = Result.success(null)
     /** Returns the message id of the next unread reaction in [chatId], or null when none remain. */
     suspend fun nextUnreadReaction(chatId: Long, forumTopicId: Long = 0L): Result<Long?> = Result.success(null)
+    /** Snapshot after an empty unread-mark lookup, scoped to the same chat or forum topic. */
+    suspend fun unreadMarkCounts(chatId: Long, forumTopicId: Long): Result<UnreadMarkCounts?> = Result.success(null)
     /**
      * Opens a channel post's comment thread. TDLib resolves the linked discussion chat and thread id; a post with
      * comments disabled or hidden fails with a user-facing explanation instead of an empty thread.
@@ -174,6 +181,9 @@ interface ConversationRepository {
     /** Custom emoji ids of Telegram's default topic icons. They are the same for every account and need no Premium. */
     suspend fun forumTopicDefaultIcons(): Result<List<Long>>
     /** The custom emoji sets the account has installed. A Premium account may take topic icons from their emoji. */
+    suspend fun searchPickerEmoji(query: String, languages: List<String>): Result<EmojiPickerSearchResults> =
+        Result.success(EmojiPickerSearchResults())
+    suspend fun recommendedCustomEmojiSets(): Result<List<CustomEmojiSetBrief>> = Result.success(emptyList())
     suspend fun installedCustomEmojiSets(): Result<List<CustomEmojiSetBrief>>
     /** The custom emoji ids of one installed set, in the set's order. */
     suspend fun customEmojiSetIds(setId: Long): Result<List<Long>>
@@ -232,16 +242,37 @@ interface ConversationRepository {
      * from a chat only needs the installed state.
      */
     suspend fun changeStickerSet(setId: Long, installed: Boolean): Result<Unit>
+    suspend fun reorderStickerSets(customEmoji: Boolean, orderedIds: List<Long>): Result<Unit> =
+        Result.failure(UnsupportedOperationException())
     /** Sticker text search across sets. Pass 0 first, then [StickerSearchPage.nextOffset]. */
     suspend fun searchStickers(query: String, offset: Int = 0): Result<StickerSearchPage>
     /** GIFs explicitly saved by the user in this Telegram account. */
     suspend fun savedAnimations(): Result<List<AnimationItem>>
+    suspend fun setAnimationSaved(animation: AnimationItem, saved: Boolean): Result<Unit> =
+        Result.failure(UnsupportedOperationException())
+    suspend fun clearRecentStickers(): Result<Unit> = Result.failure(UnsupportedOperationException())
     /** GIFs recently seen in this account's chats, newest first. An empty [offset] starts the list. */
     suspend fun recentAnimations(offset: String = ""): Result<AnimationPage>
     /** GIFs found in this account's message history. [offset] comes from the previous page's nextOffset. */
     suspend fun searchAnimations(query: String, offset: String = ""): Result<AnimationPage>
     /** Whether the current account may send premium stickers. */
     suspend fun isPremiumAccount(): Result<Boolean>
+
+    /**
+     * The account's Premium status as TDLib reports it, updated when the status changes in another client. Null until
+     * the profile is known; the picker must not lock items before that.
+     */
+    fun observeIsPremium(): Flow<Boolean?> = flowOf(null)
+
+    /**
+     * Rebuilds recently used emoji from this account's own sent messages, newest first. Telegram has no server-side
+     * recent-emoji list, so this is a bounded local recovery for a fresh install; it never scans the whole account.
+     * An offline TDLib answers with a failure and the local list stays as it is.
+     */
+    suspend fun recoverRecentEmoji(
+        unicodeLimit: Int = 48,
+        customLimit: Int = 36
+    ): Result<RecentEmojiHistory> = Result.success(RecentEmojiHistory())
     /** Scheduled queue straight from TDLib; no local scheduled-message cache is created. */
     suspend fun scheduledMessages(chatId: Long): Result<List<ChatMessage>>
     /** Cancels one queued message in TDLib. */

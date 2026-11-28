@@ -41,4 +41,8 @@
     <string name="appearance_style_lens_clear">Klar</string>
     <string name="appearance_style_lens_bold">Kräftig</string>
     <string name="appearance_style_lens_detail">Standard ist ausgewogen. Klar hat weniger Unschärfe und Tönung. Kräftig hat ein breiteres Band und stärkere Brechung.</string>
+    <string name="appearance_chat_top_panels">Obere Chatleisten</string>
+    <string name="appearance_chat_top_panels_current">Klassische Anordnung</string>
+    <string name="appearance_chat_top_panels_separate">Zwei getrennte Kapseln</string>
+    <string name="appearance_chat_top_panels_combined">Eine gemeinsame Kapsel</string>
 </resources>

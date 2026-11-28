@@ -198,6 +198,11 @@ jobs:
             echo "yandexMusicLyricsSignKey=${YANDEX_LYRICS_SIGN_KEY:-}"
           } > secrets.properties
 
+      - name: Verify TDLib artifacts against the recorded provenance
+        # libtdjni.so and tdlib-java.jar have no build log in Git. docs/tdlib-artifacts.json records their sha256 and
+        # size; a replacement that changes neither is the only one CI can accept without a dedicated rebuild.
+        run: python3 scripts/verify_tdlib_artifacts.py
+
       - name: Run unit tests
         # JVM tests of the dev debug variant. They run before the APKs are built, so a failing test fails this job,
         # and a failed main build cannot be published. A rerun happens only when every failure is a Robolectric
@@ -259,6 +264,13 @@ jobs:
         env:
           BEYGRAM_OPENSSL_CACHE: ${{ runner.temp }}/beygram-openssl
         run: ./gradlew --no-daemon :app:assembleDevDebug :app:assembleProdRelease :app:assembleDevDebugAndroidTest
+
+      - name: Compile the macrobenchmark module
+        # A PR used to never compile this module, so its scenarios could rot between manual device runs (A-18). The
+        # configuration cache is off: the module's synthetic-merge task is not cacheable in this AGP version.
+        env:
+          BEYGRAM_OPENSSL_CACHE: ${{ runner.temp }}/beygram-openssl
+        run: ./gradlew --no-daemon --no-configuration-cache :macrobenchmark:assembleDevBenchmark
 
       - name: Save OpenSSL for Android (BG Wave)
         if: github.event_name == 'push' && steps.openssl-cache.outputs.cache-hit != 'true'
