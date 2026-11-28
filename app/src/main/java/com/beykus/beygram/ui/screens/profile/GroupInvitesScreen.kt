@@ -149,6 +149,7 @@ internal fun GroupInvitesScreen(
             if (loading) LinearProgressIndicator(Modifier.fillMaxWidth(), color = palette.accent)
         }
     ) { chrome ->
+        Spacer(Modifier.height(chrome.top))
         GroupManagementMessage(error, error = true)
         GroupManagementMessage(notice)
         if (error != null && links.isEmpty() && !loading) TextButton(

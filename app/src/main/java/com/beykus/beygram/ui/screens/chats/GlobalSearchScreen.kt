@@ -399,6 +399,7 @@ fun GlobalSearchScreen(
             ProfileToolbar(stringResource(R.string.global_search_title), onBack)
         }
     ) { chrome ->
+        Spacer(Modifier.height(chrome.top))
         SearchField(
             query = query,
             onChange = { updated ->

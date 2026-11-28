@@ -83,6 +83,7 @@ fun ChatMembersScreen(
             ProfileToolbar(stringResource(R.string.profile_members_title), onBack)
         }
     ) { chrome ->
+        Spacer(Modifier.height(chrome.top))
         total?.let { count -> Text(stringResource(R.string.profile_group_members_count, count), color = palette.textSecondary, fontSize = 13.sp, modifier = Modifier.padding(horizontal = 36.dp, vertical = 2.dp)) }
         if (loading) LinearProgressIndicator(Modifier.fillMaxWidth(), color = palette.accent)
         error?.let { message ->

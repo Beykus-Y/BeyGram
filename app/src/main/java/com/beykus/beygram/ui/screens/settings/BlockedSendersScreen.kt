@@ -150,6 +150,7 @@ fun BlockedSendersScreen(
             ProfileToolbar(stringResource(R.string.blocked_title), onBack)
         }
     ) { chrome ->
+        Spacer(Modifier.height(chrome.top))
         Text(
             stringResource(R.string.blocked_intro),
             color = palette.textSecondary, fontSize = 13.sp,
