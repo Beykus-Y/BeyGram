@@ -43,7 +43,6 @@ import com.beykus.beygram.ui.components.noticeIconTint
 import com.beykus.beygram.ui.components.NoticeTone
 import com.beykus.beygram.ui.components.GlassNotice
 import com.beykus.beygram.domain.model.TelegramConnectionState
-import com.beykus.beygram.ui.components.beyGramPalette
 import com.beykus.beygram.ui.motion.MotionToken
 import com.beykus.beygram.ui.motion.fadeEnter
 import com.beykus.beygram.ui.motion.fadeExit
@@ -82,7 +81,6 @@ internal fun ChatConnectionBanner(accountId: String, connection: TelegramConnect
 @Composable
 private fun ConnectionBannerRow(status: ChatsConnectionStatus) {
     if (status == ChatsConnectionStatus.None) return
-    val palette = beyGramPalette()
     // Ожидание сети в чате говорит, что сообщения уйдут после подключения, поэтому текст свой.
     val warning = status == ChatsConnectionStatus.WaitingForNetwork
     val label = stringResource(if (warning) R.string.chat_connection_waiting_network else status.labelResource())
