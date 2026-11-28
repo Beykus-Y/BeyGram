@@ -28,6 +28,8 @@ import com.beykus.beygram.domain.model.giftListingAllowed
 import com.beykus.beygram.domain.model.GiftSendOutcome
 import com.beykus.beygram.domain.model.GiftTextValidation
 import com.beykus.beygram.domain.model.GiftsInfo
+import com.beykus.beygram.domain.model.ReceivedGiftFilter
+import com.beykus.beygram.domain.model.ReceivedGiftSort
 import com.beykus.beygram.domain.model.PremiumCheckoutOutcome
 import com.beykus.beygram.domain.model.PremiumFeatureKind
 import com.beykus.beygram.domain.model.PremiumGiftCodeApplyOutcome
@@ -370,34 +372,32 @@ internal class TdPayments(
         var receivedUnavailable = false
         var collections: List<GiftCollectionItem> = emptyList()
         var collectionsUnavailable = false
-        if (isSelf) {
-            try {
-                val page = receivedGiftsPage(me.id, offset = "")
-                received = page.gifts
-                receivedNextOffset = page.nextOffset
-            } catch (_: TimeoutCancellationException) {
-                receivedUnavailable = true
-            } catch (cancelled: CancellationException) {
-                throw cancelled
-            } catch (_: Exception) {
-                receivedUnavailable = true
+        try {
+            val page = receivedGiftsPage(owner, offset = "")
+            received = page.gifts
+            receivedNextOffset = page.nextOffset
+        } catch (_: TimeoutCancellationException) {
+            receivedUnavailable = true
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (_: Exception) {
+            receivedUnavailable = true
+        }
+        try {
+            collections = requests(TdApi.GetGiftCollections(owner)).collections.orEmpty().map { collection ->
+                GiftCollectionItem(
+                    id = collection.id,
+                    name = collection.name,
+                    giftCount = collection.giftCount,
+                    emoji = collection.icon?.emoji.orEmpty()
+                )
             }
-            try {
-                collections = requests(TdApi.GetGiftCollections(owner)).collections.orEmpty().map { collection ->
-                    GiftCollectionItem(
-                        id = collection.id,
-                        name = collection.name,
-                        giftCount = collection.giftCount,
-                        emoji = collection.icon?.emoji.orEmpty()
-                    )
-                }
-            } catch (_: TimeoutCancellationException) {
-                collectionsUnavailable = true
-            } catch (cancelled: CancellationException) {
-                throw cancelled
-            } catch (_: Exception) {
-                collectionsUnavailable = true
-            }
+        } catch (_: TimeoutCancellationException) {
+            collectionsUnavailable = true
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (_: Exception) {
+            collectionsUnavailable = true
         }
         GiftsInfo(
             balance = balance,
@@ -953,12 +953,50 @@ internal class TdPayments(
         }
     }
 
-    private suspend fun receivedGiftsPage(ownerId: Long, offset: String): ReceivedGiftsPage {
+    suspend fun receivedGiftsForOwner(
+        profileId: Long,
+        isSelf: Boolean,
+        collectionId: Int = 0,
+        filter: ReceivedGiftFilter = ReceivedGiftFilter.All,
+        sort: ReceivedGiftSort = ReceivedGiftSort.Date,
+        offset: String = ""
+    ): Result<ReceivedGiftsPage> = monetizationResult {
+        val owner = if (isSelf) TdApi.MessageSenderUser(myUserId()) else giftOwner(profileId)
+        receivedGiftsPage(
+            owner = owner,
+            collectionId = collectionId,
+            filter = filter,
+            sort = sort,
+            offset = offset
+        )
+    }
+
+    private suspend fun receivedGiftsPage(ownerId: Long, offset: String): ReceivedGiftsPage =
+        receivedGiftsPage(TdApi.MessageSenderUser(ownerId), offset = offset)
+
+    private suspend fun receivedGiftsPage(
+        owner: TdApi.MessageSender,
+        collectionId: Int = 0,
+        filter: ReceivedGiftFilter = ReceivedGiftFilter.All,
+        sort: ReceivedGiftSort = ReceivedGiftSort.Date,
+        offset: String = ""
+    ): ReceivedGiftsPage {
         val page = requests(
             TdApi.GetReceivedGifts(
-                "", TdApi.MessageSenderUser(ownerId), 0,
-                false, false, false, false, false, false, false, false, false,
-                offset, RECEIVED_LIMIT
+                "",
+                owner,
+                collectionId,
+                filter == ReceivedGiftFilter.Saved,
+                filter == ReceivedGiftFilter.Unsaved,
+                false,
+                false,
+                filter == ReceivedGiftFilter.Collectible,
+                filter == ReceivedGiftFilter.Regular,
+                false,
+                false,
+                sort == ReceivedGiftSort.Price,
+                offset,
+                RECEIVED_LIMIT
             )
         )
         return ReceivedGiftsPage(

@@ -157,6 +157,13 @@
     <string name="gifts_received_empty">Aucun cadeau reçu pour l’instant.</string>
     <string name="gifts_received_error">Impossible de charger les cadeaux reçus</string>
     <string name="gifts_collections_title">Collections</string>
+    <string name="gifts_tab_received">Cadeaux</string>
+    <string name="gifts_tab_shop">Envoyer</string>
+    <string name="gifts_received_filter_collectible">Collector</string>
+    <string name="gifts_received_filter_regular">Classiques</string>
+    <string name="gifts_received_filter_saved">Visibles</string>
+    <string name="gifts_received_filter_unsaved">Masqués</string>
+    <string name="gifts_received_sort_price">Par prix</string>
     <string name="gifts_collections_empty">Aucune collection pour l’instant.</string>
     <string name="gifts_collections_error">Impossible de charger les collections</string>
     <plurals name="gifts_collection_count">

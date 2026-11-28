@@ -197,6 +197,13 @@
     <string name="gifts_received_empty">No gifts received yet.</string>
     <string name="gifts_received_error">Could not load received gifts</string>
     <string name="gifts_collections_title">Collections</string>
+    <string name="gifts_tab_received">Gifts</string>
+    <string name="gifts_tab_shop">Send gift</string>
+    <string name="gifts_received_filter_collectible">Collectibles</string>
+    <string name="gifts_received_filter_regular">Regular</string>
+    <string name="gifts_received_filter_saved">Visible</string>
+    <string name="gifts_received_filter_unsaved">Hidden</string>
+    <string name="gifts_received_sort_price">By price</string>
     <string name="gifts_collections_empty">No collections yet.</string>
     <string name="gifts_collections_error">Could not load collections</string>
     <plurals name="gifts_collection_count">

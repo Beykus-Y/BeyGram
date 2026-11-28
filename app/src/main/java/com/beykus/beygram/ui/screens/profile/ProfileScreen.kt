@@ -141,6 +141,7 @@ fun ProfileScreen(
     onContentOpened: (Long) -> Unit = {}, onOpenMessage: (messageId: Long, forumTopicId: Long) -> Unit = { _, _ -> },
     onPremium: () -> Unit = {}, onStars: () -> Unit = {},
     onGifts: (profileId: Long, isSelf: Boolean, title: String) -> Unit = { _, _, _ -> },
+    onSendGift: ((profileId: Long, title: String) -> Unit)? = null,
     /** Repository-backed automatic download for shared media and profile galleries. */
     autoDownloadFile: ((AutoDownloadRequest) -> Unit)? = null,
     /** Creates a device-specific E2E chat for a regular user; null hides the profile entry. */
@@ -738,7 +739,7 @@ fun ProfileScreen(
                     } else if (info.kind == ProfileKind.Person || info.kind == ProfileKind.Secret) {
                         Spacer(Modifier.height(14.dp))
                         FilledTonalButton(
-                            onClick = { onGifts(info.id, false, info.title) },
+                            onClick = { onSendGift?.invoke(info.id, info.title) ?: onGifts(info.id, false, info.title) },
                             shape = styledShape(14.dp),
                             modifier = Modifier.heightIn(min = 48.dp),
                             colors = ButtonDefaults.filledTonalButtonColors(containerColor = palette.accentSoft, contentColor = palette.accentInk)

@@ -186,6 +186,13 @@
     <string name="gifts_received_empty">Todavía no has recibido regalos.</string>
     <string name="gifts_received_error">No se pudieron cargar los regalos recibidos</string>
     <string name="gifts_collections_title">Colecciones</string>
+    <string name="gifts_tab_received">Regalos</string>
+    <string name="gifts_tab_shop">Enviar</string>
+    <string name="gifts_received_filter_collectible">Coleccionables</string>
+    <string name="gifts_received_filter_regular">Normales</string>
+    <string name="gifts_received_filter_saved">Visibles</string>
+    <string name="gifts_received_filter_unsaved">Ocultos</string>
+    <string name="gifts_received_sort_price">Por precio</string>
     <string name="gifts_collections_empty">Todavía no hay colecciones.</string>
     <string name="gifts_collections_error">No se pudieron cargar las colecciones</string>
     <string name="gifts_cost">%1$s Stars</string>
