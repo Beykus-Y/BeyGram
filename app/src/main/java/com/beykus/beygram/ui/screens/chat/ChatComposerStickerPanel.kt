@@ -6,6 +6,7 @@ import androidx.compose.animation.ExitTransition
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.shrinkVertically
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.key
 import androidx.compose.runtime.saveable.rememberSaveableStateHolder
 import androidx.compose.ui.unit.Dp
@@ -51,33 +52,40 @@ internal fun ChatComposerStickerPanel(
             enter = if (motion.isInstant) EnterTransition.None else expandVertically(motion.animationSpec()),
             exit = if (motion.isInstant) ExitTransition.None else shrinkVertically(motion.animationSpec())
         ) {
-            state.SaveableStateProvider("composer-picker") {
-                StickerPanelHost(
-                    conversation = conversation,
-                    chatId = chatId,
-                    replyId = replyId,
-                    forumTopicId = forumTopicId,
-                    observeFile = observeFile,
-                    downloadFile = onDownloadFile,
-                    scope = scope,
-                    composerReserve = 0.dp,
-                    keyboardHeightHint = keyboardHeightHint,
-                    onReplyConsumed = onReplyConsumed,
-                    onAnimationAttach = { animation ->
-                        attachments.addAnimation(animation.toOutgoingMedia())
-                        onCloseStickerPanel()
-                    },
-                    onStickerOptions = { sticker ->
-                        onStickerOptions(sticker.toOutgoingMedia())
-                        onCloseStickerPanel()
-                    },
-                    onSendError = onSendError,
-                    onInsertEmoji = onInsertEmoji,
-                    onInsertCustomEmoji = onInsertCustomEmoji,
-                    savedMessages = savedMessages,
-                    onDeleteBackward = onDeleteBackward,
-                    onClose = onCloseStickerPanel
-                )
+            val panelTransitioning = transition.isRunning
+            val parentPolicy = LocalEmojiAnimationPolicy.current
+            CompositionLocalProvider(
+                LocalEmojiAnimationPolicy provides parentPolicy.copy(paused = parentPolicy.paused || panelTransitioning)
+            ) {
+                state.SaveableStateProvider("composer-picker") {
+                    StickerPanelHost(
+                        conversation = conversation,
+                        chatId = chatId,
+                        replyId = replyId,
+                        forumTopicId = forumTopicId,
+                        observeFile = observeFile,
+                        downloadFile = onDownloadFile,
+                        scope = scope,
+                        composerReserve = 0.dp,
+                        keyboardHeightHint = keyboardHeightHint,
+                        isTransitioning = panelTransitioning,
+                        onReplyConsumed = onReplyConsumed,
+                        onAnimationAttach = { animation ->
+                            attachments.addAnimation(animation.toOutgoingMedia())
+                            onCloseStickerPanel()
+                        },
+                        onStickerOptions = { sticker ->
+                            onStickerOptions(sticker.toOutgoingMedia())
+                            onCloseStickerPanel()
+                        },
+                        onSendError = onSendError,
+                        onInsertEmoji = onInsertEmoji,
+                        onInsertCustomEmoji = onInsertCustomEmoji,
+                        savedMessages = savedMessages,
+                        onDeleteBackward = onDeleteBackward,
+                        onClose = onCloseStickerPanel
+                    )
+                }
             }
         }
     }
