@@ -378,7 +378,7 @@ internal class BgMixQueueDriver(private val cacheDir: File) {
                 item.growing == null &&
                 item.path.isNotBlank() &&
                 item.path.substringAfterLast('.', "").lowercase() in EXTENSIONS &&
-                File(item.path).isFile
+                localCopyReady(item.path)
     }
 }
 
@@ -398,6 +398,29 @@ internal fun uniqueBgMixQueueIndices(keys: List<String>): Map<String, Int>? {
         if (indices.put(key, index) != null) return null
     }
     return indices
+}
+
+/**
+ * The queue index an edit must keep for the occurrence that is playing. The exact occurrence wins (the same track may
+ * stand in the queue twice), then its key. Only then does the old index apply, clamped to the edited queue: a removed
+ * incoming track must never turn into a blind jump to index 0.
+ */
+internal fun bgMixLogicalIndex(
+    queue: List<PlaybackItem>,
+    occurrenceId: String?,
+    key: String?,
+    fallbackIndex: Int,
+): Int {
+    if (queue.isEmpty()) return -1
+    if (occurrenceId != null) {
+        val exact = queue.indexOfFirst { it.occurrenceId == occurrenceId }
+        if (exact >= 0) return exact
+    }
+    if (key != null) {
+        val sameKey = queue.indexOfFirst { it.key == key }
+        if (sameKey >= 0) return sameKey
+    }
+    return fallbackIndex.coerceIn(0, queue.lastIndex)
 }
 
 /** Native tracks to remove, last first, and the queue index where the native queue continues after the playing track. */

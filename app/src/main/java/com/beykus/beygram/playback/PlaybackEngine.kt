@@ -1,4 +1,4 @@
-package com.beykus.beygram.playback
+﻿package com.beykus.beygram.playback
 
 import android.content.BroadcastReceiver
 import android.content.Context
@@ -57,6 +57,7 @@ import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharedFlow
@@ -252,10 +253,15 @@ object PlaybackEngine {
     private const val BG_DUCK_VOLUME = 0.25f
     /** Maximum lookahead from the playing track, independent of native queue growth. */
     private const val BG_MIX_DOWNLOAD_AHEAD = 2
+    /** Completed copies kept as a small offline window: N−1 (ownership keeps it one further back) through N+3. */
+    private const val MUSIC_RETENTION_AHEAD = 3
     private const val QUEUE_PAGE_TIMEOUT_MS = 20_000L
     private const val BG_MIX_FEED_INTERVAL_MS = 1_000L
+    /** A paused BG Mix queue wakes on resume instead of polling the feed every second. */
+    private const val BG_MIX_FEED_PAUSED_WAIT_MS = 30_000L
     private const val BG_HANDOVER_POLL_MS = 500L
-    private const val BG_HANDOVER_IDLE_POLL_MS = 1_000L
+    /** A state that cannot become ready on its own is re-checked on change, or after this long at the latest. */
+    private const val BG_HANDOVER_IDLE_WAIT_MS = 30_000L
     private const val BG_HANDOVER_RETRY_MS = 2_000L
     private const val BG_HANDOVER_ATTEMPTS = 3
     /** A track this close to its end stays on ExoPlayer; BG Mix takes the next one. */
@@ -1208,7 +1214,7 @@ object PlaybackEngine {
         )
         updateAudioSessionId()
         // A single file has no queue: only its own fetch is wanted, abandoned requests free their slots.
-        LazyTrackRegistry.prioritize(resolved.key, setOf(resolved.key))
+        LazyTrackRegistry.prioritize(LazyFetchWindow.of(resolved.key))
         refreshPrefetchPolicyObserver()
         if (resolved.systemPrivate) stopPlaybackService()
         if (defer) {
@@ -1354,7 +1360,11 @@ object PlaybackEngine {
     private fun mediaItemFor(item: PlaybackItem): MediaItem {
         val metadata = item.systemMetadata()
         val mediaId = item.systemMediaId
-        val needsSource = item.fileId != null || item.path.isBlank() || item.growing != null || BgVideoNoteFile.eligible(item)
+        // A path is not proof of a copy: a removed cache file or a provider row must still go through the source
+        // handle, which re-resolves (and re-fetches) instead of opening a dead URI.
+        val needsSource = item.fileId != null || item.growing != null ||
+            LazyTrackRegistry.isLazyKey(item.key) || !item.hasReadyLocalCopy ||
+            BgVideoNoteFile.eligible(item)
         val uri = if (needsSource) PlaybackSources.uri(mediaId) else Uri.fromFile(File(item.path))
         val mime = item.mimeType.ifBlank {
             when (item.kind) {
@@ -1690,6 +1700,7 @@ object PlaybackEngine {
     /** Пауза без сброса файла: так голосовое или кружок могут остановить музыку, не теряя её места. Состояние меняем сразу: если файл ещё буферизуется, плеер не пришлёт событие о паузе. */
     fun pause() {
         endlessWaitingForRecovery = false
+        endlessRecovery = null
         if (bgMixActive()) {
             pauseBgMix()
             return
@@ -2194,10 +2205,13 @@ object PlaybackEngine {
                 val driver = bgMix?.takeIf { it.isActive } ?: return@launch
                 if (driver.pendingIndex == null) return@launch
                 val currentIndex = _state.value.queueIndex
-                val end = bgMixWindowEndExclusive(driver.queueItems.size, currentIndex, BG_MIX_DOWNLOAD_AHEAD)
+                val downloadEnd = bgMixWindowEndExclusive(driver.queueItems.size, currentIndex, BG_MIX_DOWNLOAD_AHEAD)
                 if (currentIndex in driver.queueItems.indices) {
                     val keepStart = (currentIndex - 1).coerceAtLeast(0)
-                    val keep = driver.queueItems.subList(keepStart, end).mapTo(HashSet()) { it.key }
+                    // The retention window is wider than the download window: a copy that just played must not be
+                    // deleted by this very loop while the regular ownership window still names it.
+                    val keepEnd = bgMixWindowEndExclusive(driver.queueItems.size, currentIndex, MUSIC_RETENTION_AHEAD)
+                    val keep = driver.queueItems.subList(keepStart, keepEnd).mapTo(HashSet()) { it.key }
                     if (YandexTrackResolver.evictOutside(keep)) {
                         appContext?.let { YandexTrackResolver.pruneUnused(it) }
                     }
@@ -2211,12 +2225,21 @@ object PlaybackEngine {
                 val context = appContext
                 val source = queueSource
                 if (context != null) {
-                    for (index in first until bgMixWindowEndExclusive(driver.queueItems.size, currentIndex, BG_MIX_DOWNLOAD_AHEAD)) {
+                    for (index in first until downloadEnd) {
                         // Speculative traffic goes through the automatic-download policy, like the regular prefetch.
                         prefetchItem(context, source, driver.queueItems[index], playbackNext = index == playingNext)
                     }
                 }
-                delay(BG_MIX_FEED_INTERVAL_MS)
+                val state = _state.value
+                if (state.playing || state.intentPlaying) {
+                    delay(BG_MIX_FEED_INTERVAL_MS)
+                } else {
+                    // A paused queue needs no deck prepared right now. Wait for resume instead of doing file I/O on a
+                    // one-second timer for hours.
+                    withTimeoutOrNull(BG_MIX_FEED_PAUSED_WAIT_MS) {
+                        _state.first { it.playing || it.intentPlaying || it.ended }
+                    }
+                }
             }
         }
     }
@@ -2301,7 +2324,20 @@ object PlaybackEngine {
             }
             setBgMixPreparing(reason.showsPreparingIndicator())
             if (reason != BgMixHandoverBlockReason.Ready || file == null) {
-                delay(if (state.intentPlaying && reason.showsPreparingIndicator()) BG_HANDOVER_POLL_MS else BG_HANDOVER_IDLE_POLL_MS)
+                if (state.intentPlaying && reason.showsPreparingIndicator()) {
+                    // The file or a retiring host is about to become ready: a short poll takes over at once.
+                    delay(BG_HANDOVER_POLL_MS)
+                } else {
+                    // Nothing about a paused, private or rejected track changes by itself. Polling the filesystem every
+                    // second for hours is what drained the battery; a state change or a long timeout wakes this instead.
+                    awaitHandoverWakeup(state)
+                }
+                continue
+            }
+            // The ordinary overlap is already moving the primary's gain; staging a second native session on top of it
+            // would either cut its tail or never commit. The next track is handed over after this transition.
+            if (crossfader.isOverlapping()) {
+                delay(BG_HANDOVER_POLL_MS)
                 continue
             }
             when (handOverToBgMix(context, state, file) { rejectedKey = file.key }) {
@@ -2431,7 +2467,20 @@ object PlaybackEngine {
             driver.discardStaged()
             return false
         }
+        // An overlap that already moves the primary's level keeps both players of this occurrence: cancelling it here
+        // would cut the outgoing tail audibly, and two owners would write the same gain. The next track is worth
+        // handing over instead; the queue is not lost, BG Mix is offered it again.
+        if (crossfader.isOverlapping()) {
+            Log.i("BgMixHandover", "handover_deferred stage=crossfade")
+            releaseBgFocus()
+            setExoFocusHandling(target, handle = true)
+            driver.discardStaged()
+            return null
+        }
+        // From here the ordinary crossfade must not write any gain: the handover owns the primary level.
+        bgMixHandoverFading = true
         if (!driver.commitStaged()) {
+            bgMixHandoverFading = false
             driver.discardStaged()
             releaseBgFocus()
             setExoFocusHandling(target, handle = true)
@@ -2482,6 +2531,23 @@ object PlaybackEngine {
             bgMixOriginalQueue = if (shuffled) items else null
             adoptBgMixSession(driver, index, positionMs = positionMs, autoPlay = true)
             true
+        }
+    }
+
+    /**
+     * Waits until the state the handover decision depends on changes. A pending file download still ends here on the
+     * long timeout, so a completed download is noticed even if no state change follows.
+     */
+    private suspend fun awaitHandoverWakeup(snapshot: PlaybackState) {
+        withTimeoutOrNull(BG_HANDOVER_IDLE_WAIT_MS) {
+            _state.first { next ->
+                bgMixActive() || next.item?.key != snapshot.item?.key ||
+                    next.queueIndex != snapshot.queueIndex ||
+                    next.playing != snapshot.playing ||
+                    next.intentPlaying != snapshot.intentPlaying ||
+                    next.ended != snapshot.ended ||
+                    next.waitingForNetwork != snapshot.waitingForNetwork
+            }
         }
     }
 
@@ -2622,7 +2688,24 @@ object PlaybackEngine {
         val before = _state.value
         val master = status.decks.getOrNull(status.master)
         val masterId = master?.trackId?.takeIf { it != 0L }
-        val index = if (masterId != null) driver.indexOfNative(masterId) ?: return else before.queueIndex
+        // A native track that is not mapped yet is a transient of a queue replacement. Fall back to the occurrence that
+        // was current, never to index 0: a blind zero would show another song until the next status tick.
+        val nativeIndex = when {
+            masterId != null -> driver.indexOfNative(masterId)
+                ?: bgMixLogicalIndex(driver.queueItems, before.item?.occurrenceId, before.item?.key, before.queueIndex)
+            else -> before.queueIndex
+        }
+        if (nativeIndex !in driver.queueItems.indices) return
+        // A queue edit during a transition is published at once. The native session still reports the old order for a
+        // few ticks, so its snapshot must not roll the edited queue back underneath the listener.
+        val pendingQueue = pendingBgMixRetarget?.first
+        val logicalQueue = pendingQueue ?: driver.queueItems
+        val index = if (pendingQueue != null) {
+            bgMixLogicalIndex(logicalQueue, before.item?.occurrenceId, before.item?.key, nativeIndex)
+        } else {
+            nativeIndex
+        }
+        if (index !in logicalQueue.indices) return
         _bgMixTransition.value = nextBgMixTransition(
             previous = _bgMixTransition.value,
             status = status,
@@ -2630,7 +2713,7 @@ object PlaybackEngine {
             indexOfNative = driver::indexOfNative,
             itemAt = driver::itemAt
         )
-        val item = driver.itemAt(index) ?: return
+        val item = logicalQueue[index]
         // Eligibility changes on track adoption/transition, not on every 50 ms status tick.
         if (before.item?.key != item.key || before.item?.let(::isWaveCaptureEligible) != isWaveCaptureEligible(item)) {
             updateWaveCaptureEligibility(item)
@@ -2639,13 +2722,13 @@ object PlaybackEngine {
         val terminalQueue = status.queue.isNotEmpty() && status.queue.all { it.state == "played" || it.state == "failed" }
         // Native keeps an ended master loaded (reported as playing in the queue). If no usable
         // successor is admitted, resume the logical queue on Exo rather than strand playback at EOF.
-        val hasNativeSuccessor = driver.hasUnfinishedNativeAfter(index, status)
+        val hasNativeSuccessor = driver.hasUnfinishedNativeAfter(nativeIndex, status)
         val masterEnded = master?.ended == true && !hasNativeSuccessor && !status.paused
         val finished = (terminalQueue || masterEnded) && !status.transitionActive && !deckPlaying
         val pending = driver.pendingIndex
-        val failed = driver.failedIndex(status, index)
+        val failed = driver.failedIndex(status, nativeIndex)
         // A rejected current/successor must still play in logical queue order on ExoPlayer.
-        val fallbackIndex = if (failed != null && (failed == index || finished)) failed else if (finished) pending else null
+        val fallbackIndex = if (failed != null && (failed == nativeIndex || finished)) failed else if (finished) pending else null
         if (fallbackIndex != null) {
             val items = driver.queueItems
             // Ignore a delayed fallback after a queue replacement or a new native session.
@@ -2682,15 +2765,15 @@ object PlaybackEngine {
             endlessWaitingForRecovery = true
         }
         val playing = !status.paused && deckPlaying && !finished
-        val hasNext = status.queue.any { (driver.indexOfNative(it.id) ?: -1) > index } || pending != null
+        val hasNext = status.queue.any { (driver.indexOfNative(it.id) ?: -1) > nativeIndex } || pending != null
         _state.update { current ->
             current.copy(
                 // Repeat One keeps one track in the native queue, so Next is judged by the logical queue.
                 timelineHasNext = hasNext || current.repeatMode == PlaybackRepeatMode.One ||
-                    (index >= driver.queueItems.lastIndex && bgMixHasNext(index, driver.queueItems.size)),
+                    (index >= logicalQueue.lastIndex && bgMixHasNext(index, logicalQueue.size)),
                 timelineHasPrevious = true,
                 item = item,
-                queue = driver.queueItems,
+                queue = logicalQueue,
                 queueIndex = index,
                 playing = playing,
                 intentPlaying = !status.paused && (!finished || awaitingPage),
@@ -2703,15 +2786,19 @@ object PlaybackEngine {
             )
         }
         // A radio asks for its next page as BG Mix advances, the same way the regular player does on a track change.
-        if (before.queueIndex != index) {
+        val trackChanged = before.item?.key != item.key
+        if (trackChanged) {
             queuePageRetries = 0
             queuePageRetryJob?.cancel()
             queuePageRetryJob = null
             queuePageNetworkJob?.cancel()
             queuePageNetworkJob = null
             endlessWaitingForRecovery = false
+            endlessRecovery = null
             loadNextQueuePage()
-            // The native queue moved: the files of the new window (staging next, download ahead) go first.
+        }
+        if (before.queueIndex != index) {
+            // The native queue moved (or the listener edited it): the files of the new window go first.
             reprioritizeLazyRows()
         }
         if (before.item?.key != _state.value.item?.key) {
@@ -2749,7 +2836,9 @@ object PlaybackEngine {
             if (deferred != null) {
                 pendingBgMixRetarget = null
                 if (!retargetBgMix(deferred.first, deferred.second)) {
-                    val fallbackIdx = deferred.first.indexOfFirst { it.key == item.key }.coerceAtLeast(0)
+                    // Never index 0 as a blind fallback: keep the occurrence that is playing, or the nearest one after
+                    // it in the edited queue.
+                    val fallbackIdx = bgMixLogicalIndex(deferred.first, item.occurrenceId, item.key, index)
                     scope.launch {
                         continueBgMixQueueOnExo(
                             deferred.first,
@@ -2791,6 +2880,7 @@ object PlaybackEngine {
         // Any pause but the focus listener's transient one is final: a later focus gain must not restart playback.
         bgResumeOnFocusGain = false
         endlessWaitingForRecovery = false
+        endlessRecovery = null
         val before = _state.value
         bgMix?.pause()
         releaseBgWakeLock()
@@ -2851,6 +2941,8 @@ object PlaybackEngine {
 
     private fun haltPlayer() {
         stopBgMix()
+        endlessRecovery = null
+        endlessWaitingForRecovery = false
         updateWaveCaptureEligibility(null)
         BgWaveHostTap.exoSuppressedForBgMix = false
         progress?.cancel()
@@ -3359,7 +3451,12 @@ object PlaybackEngine {
         val driver = bgMix?.takeIf { it.isActive } ?: return false
         val current = _state.value.item ?: return false
         if (driver.status?.value?.transitionActive == true) {
-            val newIndex = queue.indexOfFirst { it.key == current.key }.takeIf { it >= 0 } ?: return false
+            val newIndex = bgMixLogicalIndex(
+                queue,
+                current.occurrenceId,
+                current.key,
+                _state.value.queueIndex
+            ).takeIf { it in queue.indices } ?: return false
             pendingBgMixRetarget = queue to source
             val known = _state.value.queue.mapTo(HashSet()) { it.key }
             queue.filterNot { it.key in known }.forEach { registerSource(it, source) }
@@ -3378,7 +3475,8 @@ object PlaybackEngine {
         val known = _state.value.queue.mapTo(HashSet()) { it.key }
         if (!driver.retarget(queue, current.key)) return false
         val items = driver.queueItems
-        val index = items.indexOfFirst { it.key == current.key }
+        val index = bgMixLogicalIndex(items, current.occurrenceId, current.key, _state.value.queueIndex)
+            .takeIf { it in items.indices } ?: return false
         items.filterNot { it.key in known }.forEach { registerSource(it, source) }
         _state.update {
             it.copy(
@@ -3397,6 +3495,7 @@ object PlaybackEngine {
         queuePageGeneration++
         queuePageRetries = 0
         endlessWaitingForRecovery = false
+        endlessRecovery = null
         queuePageJob?.cancel()
         queuePageJob = null
         queuePageRetryJob?.cancel()
@@ -3542,13 +3641,14 @@ object PlaybackEngine {
     }
 
     /** Сервис нужен для уведомления и экрана блокировки. Фоновый запуск может не пройти, тогда звук всё равно играет. */
-    private fun startPlaybackService() {
-        val context = appContext ?: return
+    private fun startPlaybackService(): Boolean {
+        val context = appContext ?: return false
         val snapshot = _state.value
-        if (snapshot.item == null || snapshot.item.systemPrivate) return
+        if (snapshot.item == null || snapshot.item.systemPrivate) return false
         val intent = Intent(context, PlaybackService::class.java)
         try {
             context.startService(intent)
+            return true
         } catch (error: Exception) {
             // Android 8+ refuses a plain start from the background. While audio plays the service may still be
             // started as a foreground one, and a failure is written to the diagnostics instead of being swallowed.
@@ -3569,6 +3669,7 @@ object PlaybackEngine {
                     "recovered" to recovered.toString()
                 )
             )
+            return recovered
         }
     }
 
@@ -3750,6 +3851,7 @@ object PlaybackEngine {
         networkWaitJob = null
         queuePageRetries = 0
         endlessWaitingForRecovery = false
+        endlessRecovery = null
         queuePageRetryJob?.cancel()
         queuePageRetryJob = null
         queuePageNetworkJob?.cancel()
@@ -3941,9 +4043,22 @@ object PlaybackEngine {
         }
     }
 
+    /** A radio that has played out its known tracks. The page that ends it resumes playback only when a foreground service may run. */
+    private data class EndlessRecovery(
+        /** The page generation the request was made in: a page of an older queue must not resume anything. */
+        val generation: Long,
+        /** True for an explicit Play/Next: the page must start the new track, not just extend the timeline. */
+        val manual: Boolean,
+    )
+
+    @Volatile
+    private var endlessRecovery: EndlessRecovery? = null
+
     /**
      * Manual recovery when the listener taps Play or Next at the tail of an endless radio queue
-     * (e.g. after temporary network loss or exhausted page retries).
+     * (e.g. after temporary network loss or exhausted page retries). The ended flag is cleared so the controls show a
+     * pending resume; [endlessRecovery] carries that intent to the page result, which would otherwise see ended=false
+     * and never start playback — the regression reported against build 815.
      */
     private fun triggerManualEndlessRecovery(startServiceIfNeeded: Boolean) {
         queuePageRetries = 0
@@ -3952,6 +4067,7 @@ object PlaybackEngine {
         queuePageNetworkJob?.cancel()
         queuePageNetworkJob = null
         endlessWaitingForRecovery = true
+        endlessRecovery = EndlessRecovery(generation = queuePageGeneration, manual = true)
         _state.update { it.copy(failed = false, ended = false, intentPlaying = true, isBuffering = true) }
         if (startServiceIfNeeded && _state.value.item?.systemPrivate != true) startPlaybackService()
         loadNextQueuePage()
@@ -3994,7 +4110,14 @@ object PlaybackEngine {
                         queuePageRetries = 0
                         queuePageNetworkJob?.cancel()
                         queuePageNetworkJob = null
-                        val shouldResume = now.ended && (now.intentPlaying || endlessWaitingForRecovery)
+                        val recovery = endlessRecovery?.takeIf { it.generation == generation }
+                        val shouldResume = queuePageResumesPlayback(
+                            ended = now.ended,
+                            intentPlaying = now.intentPlaying,
+                            endlessWaiting = endlessWaitingForRecovery,
+                            recoveryPending = recovery != null,
+                        )
+                        endlessRecovery = null
                         endlessWaitingForRecovery = false
                         if (shouldResume) _state.update { it.copy(intentPlaying = true) }
                     } else {
@@ -4005,7 +4128,16 @@ object PlaybackEngine {
                 val target = exo ?: return@launch
                 fresh.forEach { registerSource(it, source) }
                 target.addMediaItems(fresh.map(::mediaItemFor))
-                val ended = (now.ended && now.intentPlaying) || (now.ended && endlessWaitingForRecovery)
+                // An explicit Play/Next at the tail asked for this page even though the ended flag was cleared: the
+                // request itself is the resume signal, independent of the state that was published meanwhile.
+                val recovery = endlessRecovery?.takeIf { it.generation == generation }
+                val ended = queuePageResumesPlayback(
+                    ended = now.ended,
+                    intentPlaying = now.intentPlaying,
+                    endlessWaiting = endlessWaitingForRecovery,
+                    recoveryPending = recovery != null,
+                )
+                endlessRecovery = null
                 endlessWaitingForRecovery = false
                 queuePageNetworkJob?.cancel()
                 queuePageNetworkJob = null
@@ -4013,9 +4145,14 @@ object PlaybackEngine {
                 if (ended) {
                     target.seekTo(now.queue.size, 0L)
                     if (target.playbackState == Player.STATE_IDLE || target.playbackState == Player.STATE_ENDED) target.prepare()
-                    target.play()
-                    startPlaybackService()
-                    startProgress()
+                    // Android 12+ refuses a background foreground-service start. Audio must never begin without the
+                    // notification and its controls: the new page stays queued and the listener resumes it in the app.
+                    if (startPlaybackService()) {
+                        target.play()
+                        startProgress()
+                    } else {
+                        _state.update { it.copy(ended = true, isBuffering = false, intentPlaying = true) }
+                    }
                 }
                 queuePageRetries = 0
                 prefetchNext()
@@ -4054,7 +4191,13 @@ object PlaybackEngine {
         }
         val pause = if (endless) endlessQueuePageRetryDelayMs(queuePageRetries) else queuePageRetryDelayMs(queuePageRetries)
         if (pause == null) {
-            // No retry left: a BG Mix queue that waited for this page reports its end now.
+            // No retry left: a manual Play/Next that never got its page must not leave the control spinning forever.
+            if (endlessRecovery?.generation == generation) {
+                endlessRecovery = null
+                endlessWaitingForRecovery = false
+                _state.update { it.copy(isBuffering = false, ended = it.item != null) }
+            }
+            // A BG Mix queue that waited for this page reports its end now.
             if (generation == queuePageGeneration && bgMixActive()) bgMix?.status?.value?.let(::applyBgMix)
             if (endless && generation == queuePageGeneration) {
                 queuePageNetworkJob?.cancel()
@@ -4285,7 +4428,7 @@ object PlaybackEngine {
     private fun isCrossfadeMusic(item: PlaybackItem): Boolean {
         if (!item.isMusic || item.systemPrivate) return false
         val resolved = withResolvedSource(item)
-        return resolved.growing == null && resolved.path.isNotBlank()
+        return resolved.growing == null && resolved.hasReadyLocalCopy
     }
 
     /**
@@ -4310,16 +4453,19 @@ object PlaybackEngine {
         // bandwidth and the request queue with it and pushed the first sound back by seconds. The resolve of the
         // current row calls this again (publishResolvedSource).
         val currentPending = state.item?.let(::lazyRowPending) == true
+        val window = playbackFetchWindow(state, playbackOrder)
         val candidates = prefetchCandidates(state, playbackOrder)
-        val keep = candidates.mapTo(HashSet()) { it.key }
-        state.item?.let { keep.add(it.key) }
-        state.queue.getOrNull(state.queueIndex - 1)?.let { keep.add(it.key) }
+        val keep = playbackRetentionKeys(state, playbackOrder).toMutableSet()
+        state.item?.key?.let(keep::add)
         if (YandexTrackResolver.evictOutside(keep)) {
             YandexTrackResolver.pruneUnused(context)
         }
-        candidates.forEachIndexed { index, item ->
-            if (currentPending && LazyTrackRegistry.isLazyKey(item.key)) return@forEachIndexed
-            prefetchItem(context, source, item, playbackNext = index == 0)
+        // Roles are published even when there is nothing to fetch: a stale unfinished fetch then frees its slot.
+        LazyTrackRegistry.prioritize(window)
+        val nextKey = window.next.firstOrNull()
+        candidates.forEach { item ->
+            if (currentPending && LazyTrackRegistry.isLazyKey(item.key)) return@forEach
+            prefetchItem(context, source, item, playbackNext = item.key == nextKey)
         }
     }
 
@@ -4332,26 +4478,31 @@ object PlaybackEngine {
     }
 
     /**
-     * Tells the lazy resolver which rows playback needs now: the row that is opening, its neighbours and the next rows
-     * in the real play order. Unfinished fetches that no reader owns free their download slot for the selected track;
-     * completed copies stay for the existing ownership/eviction policy.
+     * Tells the lazy resolver which rows playback needs now, with their real roles: the row that is opening, N+1 for
+     * the next deck, N+2 as bounded lookahead, and N−1 only to keep its copy. An unfinished fetch for any other row has
+     * no reader and frees its slot.
      */
     private fun reprioritizeLazyRows() {
         val state = _state.value
-        val current = state.item ?: return
-        val keep = LinkedHashSet<String>()
-        keep.add(current.key)
-        if (state.queue.isNotEmpty()) {
-            state.queue.getOrNull(state.queueIndex - 1)?.key?.let(keep::add)
-            val ahead = if (bgMixActive()) BG_MIX_DOWNLOAD_AHEAD else 2
-            prefetchCandidates(state, playbackOrderIndices(state), max = ahead).mapTo(keep) { it.key }
-            if (bgMixActive()) {
-                for (index in state.queueIndex + 1..state.queueIndex + ahead) {
-                    state.queue.getOrNull(index)?.key?.let(keep::add)
-                }
-            }
+        if (state.item == null) return
+        LazyTrackRegistry.prioritize(playbackFetchWindow(state, playbackOrderIndices(state)))
+    }
+
+    /**
+     * Queue rows whose local copies are kept during playback: N−1 through N+[MUSIC_RETENTION_AHEAD] of the real
+     * play order. Playback only downloads N+1 and N+2; the extra row keeps a just-played neighbour from being evicted
+     * at the moment the window moves past it. This is the only offline cache for music; it is never the whole queue.
+     */
+    private fun playbackRetentionKeys(state: PlaybackState, playbackOrder: List<Int>): Set<String> {
+        if (state.queue.isEmpty() || state.queueIndex !in state.queue.indices) return emptySet()
+        val order = playbackOrder.filter { it in state.queue.indices }.distinct()
+        val position = order.indexOf(state.queueIndex)
+        val indices = if (position >= 0) {
+            ((position - 1)..(position + MUSIC_RETENTION_AHEAD)).mapNotNull { order.getOrNull(it) }
+        } else {
+            (state.queueIndex..minOf(state.queue.lastIndex, state.queueIndex + MUSIC_RETENTION_AHEAD)).toList()
         }
-        LazyTrackRegistry.prioritize(current.key, keep)
+        return indices.mapTo(HashSet(indices.size)) { state.queue[it].key }
     }
 
     /** A provider row (bot result or service track) whose file is not complete yet. */
@@ -4369,7 +4520,11 @@ object PlaybackEngine {
     private fun prefetchItem(context: Context, source: PlaybackQueueSource?, item: PlaybackItem, playbackNext: Boolean = false) {
         run {
             val lazySource = LazyTrackRegistry.sourceFor(item.key)
-            if (lazySource != null && item.path.isBlank()) {
+            if (lazySource != null) {
+                // A provider row is fetched only by its resolver. Its queue path may be stale after a cache eviction,
+                // so only a copy the resolver itself can still read counts as ready.
+                if (item.growing != null || lazySource.resolvedPath(item.key) != null) return@run
+                if (item.hasReadyLocalCopy) return@run
                 // A row without a file (bot result or provider track) is fetched ahead like a file. Nothing is remembered per
                 // key: the source keeps one fetch per key and retries a failed one after its cooldown.
                 val allowed = runCatching {
@@ -4399,9 +4554,14 @@ object PlaybackEngine {
             // Speculative traffic must use the repository automatic path; the manual callback is reserved for
             // the track playback actually opens, so Data Saver/network cancellation can track prefetch downloads.
             if (source.autoDownload == null) return@run
-            if (item.key in prefetchedKeys) return@run
+            // The row's own path may be a stale claim after a cache eviction: only an existing copy skips the download.
+            if (item.hasReadyLocalCopy) return@run
             val fileState = runCatching { source.observeFile(fileId).value }.getOrNull() ?: return@run
-            if (fileState.localPath != null || fileState.isDownloading) return@run
+            if (fileState.isDownloading) return@run
+            val observedCopy = fileState.localPath
+            if (observedCopy != null && localCopyReady(observedCopy)) return@run
+            // The remembered request no longer produced a copy (the file was removed from the device cache): ask again.
+            if (item.key in prefetchedKeys) prefetchedKeys.remove(item.key)
             val request = AutoDownloadRequest(
                 fileId = fileId,
                 kind = item.kind,
