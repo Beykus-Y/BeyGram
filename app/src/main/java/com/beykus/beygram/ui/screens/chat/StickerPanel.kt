@@ -72,7 +72,6 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Text
 import com.beykus.beygram.ui.components.TextButton
-import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -113,6 +112,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.beykus.beygram.ui.components.BeyGramSheet
+import com.beykus.beygram.ui.components.rememberBeyGramSheetState
 import com.beykus.beygram.R
 import com.beykus.beygram.domain.model.StickerShelfVersions
 import com.beykus.beygram.domain.model.CustomEmoji
@@ -1992,7 +1992,7 @@ private fun StickerPanelOverlayContent(
     onOpenPack: (Long) -> Unit
 ) {
     val palette = beyGramPalette()
-    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    val sheetState = rememberBeyGramSheetState(skipPartiallyExpanded = true)
     BeyGramSheet(onDismissRequest = onDismiss, sheetState = sheetState, scrollableContent = false) {
         when (overlay) {
             is StickerPanelOverlay.Sticker -> StickerPreviewContent(

@@ -29,9 +29,7 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.SheetValue
 import androidx.compose.material3.Text
-import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -62,6 +60,7 @@ import com.beykus.beygram.domain.model.ForumTopicCreationColors
 import com.beykus.beygram.domain.model.MediaFileState
 import com.beykus.beygram.ui.accessibility.errorAnnouncement
 import com.beykus.beygram.ui.components.BeyGramSheet
+import com.beykus.beygram.ui.components.rememberBeyGramSheetState
 import com.beykus.beygram.ui.components.Button
 import com.beykus.beygram.ui.components.TextButton
 import com.beykus.beygram.ui.components.beyGramPalette
@@ -235,10 +234,10 @@ internal fun ForumTopicEditorSheet(
     val canSave = !busyNow && isForumTopicNameValid(name)
     // The swipe veto below runs outside composition, so it reads the latest value through this delegate.
     val currentSubmitting by rememberUpdatedState(submitting)
-    val sheetState = rememberModalBottomSheetState(
+    val sheetState = rememberBeyGramSheetState(
         skipPartiallyExpanded = true,
         // A swipe must not hide the editor while the server still owns the save.
-        confirmValueChange = { next -> next != SheetValue.Hidden || !currentSubmitting }
+        canDismiss = { !currentSubmitting }
     )
     var iconsState by remember { mutableStateOf<ForumIconsState>(ForumIconsState.Loading) }
     var iconsAttempt by remember { mutableIntStateOf(0) }

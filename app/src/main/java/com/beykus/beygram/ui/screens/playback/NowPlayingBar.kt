@@ -64,8 +64,8 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Text
 import com.beykus.beygram.ui.components.BeyGramSheet
+import com.beykus.beygram.ui.components.rememberBeyGramSheetState
 import com.beykus.beygram.ui.components.TextButton
-import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
@@ -886,7 +886,7 @@ private fun VoiceNowPlayingSheet(onDismiss: () -> Unit) {
     val item = state.item ?: return
     BeyGramSheet(
         onDismissRequest = onDismiss,
-        sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
+        sheetState = rememberBeyGramSheetState(skipPartiallyExpanded = true),
         // The controls scroll on their own, so the sheet must not add a second scroll around them.
         scrollableContent = false
     ) {

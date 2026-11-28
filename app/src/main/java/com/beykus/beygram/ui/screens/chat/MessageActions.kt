@@ -84,6 +84,7 @@ import com.beykus.beygram.ui.components.SystemEmojiFont
 import com.beykus.beygram.ui.components.emojiPresentation
 import com.beykus.beygram.ui.design.GlassPanel
 import com.beykus.beygram.ui.design.LocalDesignSystem
+import com.beykus.beygram.ui.design.LocalGlassBackdrop
 import com.beykus.beygram.ui.design.SurfaceTreatment
 import com.beykus.beygram.ui.design.styledShape
 import com.beykus.beygram.ui.design.styledTopShape
@@ -102,6 +103,7 @@ import androidx.compose.material3.Text
 import com.beykus.beygram.ui.components.TextButton
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.setValue
@@ -401,6 +403,10 @@ internal fun MessageContextPopover(
         onDismissRequest = { if (selectedText != null) selection?.clear() else dismiss() },
         properties = PopupProperties(focusable = true, clippingEnabled = false)
     ) {
+        // A popup is a window of its own: the backdrop recorded in the activity window is not part of it and its
+        // positionInWindow() belongs to another coordinate space. The card therefore draws its own dense material
+        // instead of sampling a layer that cannot be addressed from here (see BeyGramPopover for the same rule).
+        CompositionLocalProvider(LocalGlassBackdrop provides null) {
         Box(
             Modifier
                 .fillMaxSize()
@@ -717,6 +723,7 @@ internal fun MessageContextPopover(
                 }
             )
             MessageContextSurface(cardModifier, shape, cardContent)
+        }
         }
     }
 }
