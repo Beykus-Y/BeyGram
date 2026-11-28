@@ -15,6 +15,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shape
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
 import com.beykus.beygram.ui.design.GlassPanel
 import com.beykus.beygram.ui.design.LocalDesignSystem
@@ -54,6 +55,12 @@ fun GlassNotice(
     tone: NoticeTone = NoticeTone.Warning,
     shape: Shape = styledShape(14.dp),
     contentPadding: PaddingValues = PaddingValues(horizontal = 12.dp, vertical = 8.dp),
+    /**
+     * True when the notice already sits on a glass pane it does not own (the chat header or the shared composer). A
+     * second pane there would sample the same backdrop twice and stack two tints and blurs on one surface, so the
+     * notice becomes a tone wash over the pane it is drawn on instead.
+     */
+    onGlassPlane: Boolean = false,
     content: @Composable RowScope.() -> Unit
 ) {
     val design = LocalDesignSystem.current
@@ -70,7 +77,7 @@ fun GlassNotice(
         NoticeTone.Danger -> palette.danger
     }
     val rim = palette.textSecondary
-    if (design.usesGlassPanels && backdrop != null) {
+    if (design.usesGlassPanels && !onGlassPlane && backdrop != null) {
         GlassPanel(
             design = design,
             tint = tint,
@@ -78,7 +85,7 @@ fun GlassNotice(
             // A recorded list may leave gaps; the pane starts from the screen colour, never from sharp content.
             backdropBase = palette.screen,
             shape = shape,
-            modifier = modifier,
+            modifier = modifier.testTag("glassNoticePanel"),
             contentPadding = contentPadding
         ) {
             CompositionLocalProvider(LocalContentColor provides tintText) {
@@ -90,6 +97,7 @@ fun GlassNotice(
     val wash = if (design.usesGlassPanels) tint.copy(alpha = NoticeOnSharedGlassAlpha) else tint
     Box(
         modifier
+            .testTag("glassNoticeWash")
             .clip(shape)
             .background(wash)
             .then(

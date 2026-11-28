@@ -2070,6 +2070,7 @@ fun ChatScreen(
         if (queueStorageCorrupt) GlassNotice(
             tone = NoticeTone.Warning,
             shape = styledShape(0.dp),
+            onGlassPlane = LocalComposerOnGlassPlane.current || LocalChatChromeOnGlass.current,
             modifier = Modifier.fillMaxWidth(),
             contentPadding = androidx.compose.foundation.layout.PaddingValues(start = 12.dp, end = 4.dp, top = 4.dp, bottom = 4.dp)
         ) {
@@ -2090,6 +2091,7 @@ fun ChatScreen(
         error?.let { failure -> GlassNotice(
             tone = NoticeTone.Danger,
             shape = styledShape(0.dp),
+            onGlassPlane = LocalComposerOnGlassPlane.current || LocalChatChromeOnGlass.current,
             modifier = Modifier.fillMaxWidth(),
             contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 12.dp, vertical = 6.dp)
         ) {

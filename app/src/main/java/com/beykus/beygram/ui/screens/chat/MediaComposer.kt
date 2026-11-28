@@ -1410,6 +1410,7 @@ internal fun AttachmentPanel(
         state.error?.let { message ->
             GlassNotice(
                 tone = NoticeTone.Danger,
+                onGlassPlane = onSharedGlass,
                 modifier = Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 4.dp)
             ) {
                 Column(Modifier.fillMaxWidth()) {
@@ -1432,6 +1433,7 @@ internal fun AttachmentPanel(
             if (state.canRetryCapture && !state.importing) {
                 GlassNotice(
                     tone = NoticeTone.Info,
+                    onGlassPlane = onSharedGlass,
                     modifier = Modifier.fillMaxWidth().padding(end = 14.dp, bottom = 2.dp)
                 ) {
                     Text(
@@ -1446,6 +1448,7 @@ internal fun AttachmentPanel(
             state.notice?.let { message ->
                 GlassNotice(
                     tone = NoticeTone.Info,
+                    onGlassPlane = onSharedGlass,
                     modifier = Modifier.fillMaxWidth().padding(end = 14.dp, bottom = 4.dp)
                 ) {
                     Text(

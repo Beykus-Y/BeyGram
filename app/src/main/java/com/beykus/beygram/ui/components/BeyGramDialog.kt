@@ -81,7 +81,7 @@ fun BeyGramDialog(
     }
     val palette = beyGramPalette()
     val maxHeight = (LocalConfiguration.current.screenHeightDp * 0.8f).dp
-    val design = com.beykus.beygram.ui.design.LocalDesignSystem.current
+    val design = LocalDesignSystem.current
     val host = LocalBeyGramModalHost.current
     // A secure dialog must keep its own window: FLAG_SECURE belongs to the window, and a snapshot of the app must not
     // show the key or the code it displays. Such a dialog keeps the plain fill, which is the safe fallback.

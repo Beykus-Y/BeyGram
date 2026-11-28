@@ -100,6 +100,7 @@ private fun ConnectionBannerRow(status: ChatsConnectionStatus) {
     GlassNotice(
         tone = tone,
         shape = styledShape(0.dp),
+        onGlassPlane = LocalChatChromeOnGlass.current,
         modifier = Modifier.fillMaxWidth().semantics(mergeDescendants = true) {
             // Строка появляется без действия пользователя: сообщаем её, не уводя фокус с сообщений.
             liveRegion = LiveRegionMode.Polite
