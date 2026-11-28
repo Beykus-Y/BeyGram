@@ -1,6 +1,5 @@
 package com.beykus.beygram.ui.screens.chat
 
-import android.media.MediaPlayer
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Column
@@ -15,9 +14,7 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
@@ -25,7 +22,9 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.beykus.beygram.R
+import com.beykus.beygram.playback.PlaybackEngine
 import com.beykus.beygram.domain.model.MediaKind
 import com.beykus.beygram.domain.model.OutgoingMedia
 import com.beykus.beygram.ui.accessibility.errorAnnouncement
@@ -47,27 +46,12 @@ internal fun RecordingPreviewDialog(
     val safeIndex = selectedIndex.coerceIn(0, mediaList.lastIndex.coerceAtLeast(0))
     val media = mediaList[safeIndex]
     val context = LocalContext.current
-    var prepared by remember(media.path) { mutableStateOf(false) }
-    var playing by remember(media.path) { mutableStateOf(false) }
-    // Why the recording could not be prepared, when the media layer reports it: a silent "Play" that does nothing is
-    // exactly the behaviour this dialog must not have.
-    var prepareFailure by remember(media.path) { mutableStateOf<Throwable?>(null) }
-    val player = remember(media.path) {
-        if (media.kind != MediaKind.Voice) null else runCatching {
-            MediaPlayer().apply {
-                setDataSource(media.path)
-                setOnPreparedListener { prepared = true }
-                setOnCompletionListener { playing = false; seekTo(0) }
-                setOnErrorListener { _, what, extra ->
-                    prepareFailure = IllegalStateException("MediaPlayer error $what/$extra")
-                    prepared = false
-                    true
-                }
-                prepareAsync()
-            }
-        }.getOrNull()
+    val previewKey = remember(media.path) { java.util.UUID.randomUUID().toString() }
+    val speech by PlaybackEngine.speechState.collectAsStateWithLifecycle()
+    val preview = speech.takeIf { it.item?.key == previewKey }
+    DisposableEffect(previewKey) {
+        onDispose { PlaybackEngine.stopPrivateSpeech(previewKey) }
     }
-    DisposableEffect(player) { onDispose { player?.release() } }
     BeyGramDialog(
         onDismissRequest = {},
         title = stringResource(R.string.recorder_preview_title),
@@ -86,11 +70,12 @@ internal fun RecordingPreviewDialog(
                             .semantics { contentDescription = context.getString(R.string.a11y_video_note_preview) }
                     )
                 } else {
-                    Button(enabled = prepared && prepareFailure == null, onClick = {
-                        if (playing) { player?.pause(); playing = false }
-                        else { player?.start(); playing = true }
+                    val playing = preview?.intentPlaying == true
+                    val canPlay = java.io.File(media.path).isFile
+                    Button(enabled = canPlay, onClick = {
+                        PlaybackEngine.toggleSpeechPreview(context, previewKey, MediaKind.Voice, media.path, media.durationSeconds)
                     }) { Text(stringResource(if (playing) R.string.recorder_preview_pause else R.string.recorder_preview_play)) }
-                    if (prepareFailure != null) {
+                    if (!canPlay || preview?.failed == true) {
                         // A "Play" that does nothing is the same dead-button problem as a silent "Send".
                         Text(
                             text = stringResource(R.string.recorder_preview_unavailable),

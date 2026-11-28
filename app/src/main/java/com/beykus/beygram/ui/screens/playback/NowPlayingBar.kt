@@ -177,12 +177,13 @@ val LocalOpenMyMusic = compositionLocalOf<(() -> Unit)?> { null }
 @Composable
 internal fun rememberBottomPlayerBarVisible(hideWhenImeVisible: Boolean = true): Boolean {
     val mini = rememberMiniPlayerUi()?.takeUnless { it.isVideoNote }
+    val speech by PlaybackEngine.speechState.collectAsStateWithLifecycle()
     val keyboardVisible = WindowInsets.ime.getBottom(LocalDensity.current) > 0
     val undoAvailable by PlaybackEngine.undoClose.collectAsStateWithLifecycle()
     val wave by BgWaveHub.controller.state.collectAsStateWithLifecycle()
     val waveListening = wave?.role == BgWaveRole.Listener && wave?.phase == BgWavePhase.Live
     return resolveNowPlayingBarSlot(
-        hasItem = mini != null,
+        hasItem = mini != null || speech.visibleSpeech(),
         undoAvailable = undoAvailable,
         hideWhenImeVisible = hideWhenImeVisible,
         keyboardVisible = keyboardVisible,
@@ -205,6 +206,7 @@ fun NowPlayingBar(
     val mini = rememberMiniPlayerUi()?.takeUnless { it.isVideoNote }
     // Root and tab bars yield their space to the keyboard; the chat-integrated bar
     // keeps its own composer layout. Playback and the full-player sheet stay alive.
+    val speech by PlaybackEngine.speechState.collectAsStateWithLifecycle()
     val keyboardVisible = WindowInsets.ime.getBottom(LocalDensity.current) > 0
     val undoAvailable by PlaybackEngine.undoClose.collectAsStateWithLifecycle()
     // A listener in a live wave gets this bar when no track is playing; a track in the player always wins the slot.
@@ -212,6 +214,7 @@ fun NowPlayingBar(
     val waveListening = wave?.role == BgWaveRole.Listener && wave?.phase == BgWavePhase.Live
     NowPlayingBarHost(
         mini = mini,
+        speech = speech,
         keyboardVisible = keyboardVisible,
         undoAvailable = undoAvailable,
         waveListening = waveListening,
@@ -235,7 +238,8 @@ internal fun NowPlayingBarHost(
     onOpenEqualizer: (() -> Unit)? = null,
     floatingDock: Boolean = false,
     railCover: Boolean = false,
-    compact: Boolean = false
+    compact: Boolean = false,
+    speech: PlaybackState = PlaybackState(),
 ) {
     val openMyMusic = LocalOpenMyMusic.current
     val hiddenForIme = hideWhenImeVisible && keyboardVisible
@@ -264,7 +268,7 @@ internal fun NowPlayingBarHost(
         }
     }
 
-    if (railCover) {
+    if (railCover && !speech.visibleSpeech()) {
         // The slim rail spends no height on a bar: a tap pauses or resumes, a long press opens the full player.
         val shown = mini ?: lastMini
         val railInstant = hiddenForIme || enterSpec.isInstant || exitSpec.isInstant
@@ -277,7 +281,7 @@ internal fun NowPlayingBarHost(
         }
     } else {
         val slot = resolveNowPlayingBarSlot(
-            hasItem = mini != null,
+            hasItem = mini != null || speech.visibleSpeech(),
             undoAvailable = undoAvailable,
             hideWhenImeVisible = hideWhenImeVisible,
             keyboardVisible = keyboardVisible,
@@ -312,7 +316,20 @@ internal fun NowPlayingBarHost(
                 NowPlayingBarSlot.Hidden -> Box(Modifier.fillMaxWidth())
                 NowPlayingBarSlot.MiniPlayer -> {
                     val shown = mini ?: lastMini
-                    if (mini == null && waveListening) {
+                    if (speech.visibleSpeech()) {
+                        val musicState by PlaybackEngine.state.collectAsStateWithLifecycle()
+                        SpeechTransportBar(
+                            music = musicState.takeIf { mini?.isMusic == true },
+                            speech = speech,
+                            bottomInset = bottomInset,
+                            floatingDock = floatingDock,
+                            compact = compact,
+                            onOpenMusic = { PlayerExpansion.open(null) },
+                            onToggleMusic = PlaybackEngine::togglePlayPause,
+                            onToggleSpeech = { key -> PlaybackEngine.toggleSpeech(key) },
+                            onOpenSpeech = PlaybackEngine::requestShowInChat,
+                        )
+                    } else if (mini == null && waveListening) {
                         WaveListenerBar(bottomInset = bottomInset, floatingDock = floatingDock, compact = compact)
                     } else if (shown != null) {
                         MiniPlayerBar(
@@ -340,6 +357,113 @@ internal fun NowPlayingBarHost(
     // Music is shown by PlayerExpansionHost; this sheet is for voice and video notes only.
     if (fullPlayerOpen && mini?.isMusic != true) {
         VoiceNowPlayingSheet(onDismiss = { fullPlayerOpen = false })
+    }
+}
+
+private fun PlaybackState.visibleSpeech(): Boolean = item?.systemPrivate == false && !ended && !failed
+
+@Composable
+internal fun SpeechTransportBar(
+    music: PlaybackState?,
+    speech: PlaybackState,
+    bottomInset: Boolean,
+    floatingDock: Boolean,
+    compact: Boolean,
+    onOpenMusic: () -> Unit,
+    onToggleMusic: () -> Unit,
+    onToggleSpeech: (String) -> Unit,
+    onOpenSpeech: (com.beykus.beygram.playback.PlaybackOrigin) -> Unit,
+) {
+    val item = speech.item ?: return
+    val palette = beyGramPalette()
+    val speechTitle = stringResource(
+        if (item.kind == MediaKind.VideoNote) R.string.coexistence_play_circle else R.string.media_kind_voice
+    )
+    val content: @Composable () -> Unit = {
+        Row(
+            modifier = miniPlayerChromeModifier(bottomInset, floatingDock).heightIn(min = if (compact) 48.dp else 54.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            if (music != null) {
+                LaneTransport(
+                    title = music.item?.trackTitle.orEmpty(),
+                    subtitle = music.item?.performer.orEmpty(),
+                    progress = music.fraction,
+                    playing = music.intentPlaying,
+                    controlLabel = stringResource(R.string.coexistence_internal),
+                    onToggle = onToggleMusic,
+                    onOpen = onOpenMusic,
+                    modifier = Modifier.weight(1f),
+                    artwork = music.item?.takeUnless { it.systemPrivate },
+                )
+                Spacer(Modifier.width(1.dp).height(30.dp).background(palette.divider))
+            }
+            val origin = item.origin?.takeUnless { item.systemPrivate }
+            LaneTransport(
+                title = speechTitle,
+                subtitle = duration((speech.positionMs / 1000).toInt()) + " / " +
+                    duration(totalSeconds(speech)),
+                progress = speech.fraction,
+                playing = speech.intentPlaying,
+                controlLabel = speechTitle,
+                onToggle = { onToggleSpeech(item.key) },
+                onOpen = origin?.let { { onOpenSpeech(it) } },
+                modifier = Modifier.weight(1f),
+            )
+        }
+    }
+    if (floatingDock) MiniDockCard(content) else content()
+}
+
+@Composable
+private fun LaneTransport(
+    title: String,
+    subtitle: String,
+    progress: Float,
+    playing: Boolean,
+    controlLabel: String,
+    onToggle: () -> Unit,
+    onOpen: (() -> Unit)?,
+    modifier: Modifier = Modifier,
+    artwork: PlaybackItem? = null,
+) {
+    val palette = beyGramPalette()
+    Column(modifier) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            if (artwork != null && LocalDensity.current.fontScale <= 1.3f) {
+                TrackArtwork(
+                    artworkPath = artwork.artworkPath,
+                    audioPath = artwork.path,
+                    modifier = Modifier.padding(start = 6.dp).size(28.dp),
+                    background = palette.accentSoft,
+                    tint = palette.accentInk,
+                    symbolSize = 16.dp,
+                )
+            }
+            Column(
+                Modifier.weight(1f)
+                    .then(if (onOpen != null) Modifier.clickable(onClick = onOpen) else Modifier)
+                    .padding(start = 10.dp),
+            ) {
+                Text(title, color = palette.textPrimary, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                if (subtitle.isNotBlank()) {
+                    Text(subtitle, fontSize = 11.sp, color = palette.textSecondary, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                }
+            }
+            IconButton(onClick = onToggle, modifier = Modifier.size(48.dp)) {
+                Icon(
+                    if (playing) Icons.Rounded.Pause else Icons.Rounded.PlayArrow,
+                    contentDescription = stringResource(
+                        if (playing) R.string.coexistence_pause_lane else R.string.coexistence_play_lane,
+                        controlLabel,
+                    ),
+                    tint = palette.textPrimary,
+                )
+            }
+        }
+        Box(Modifier.fillMaxWidth().height(2.dp).background(palette.divider)) {
+            Box(Modifier.fillMaxWidth(progress).height(2.dp).background(palette.textPrimary))
+        }
     }
 }
 
@@ -942,7 +1066,13 @@ internal fun NowPlayingControls(
             value = dragFraction ?: state.fraction,
             onValueChange = { dragFraction = it },
             onValueChangeFinished = {
-                dragFraction?.let { PlaybackEngine.seekTo(it, fallbackDurationMs = item.durationSeconds * 1000L) }
+                dragFraction?.let {
+                    if (item.kind == MediaKind.Voice || item.kind == MediaKind.VideoNote) {
+                        PlaybackEngine.seekSpeech(item.key, (it * totalMs).toLong())
+                    } else {
+                        PlaybackEngine.seekTo(it, fallbackDurationMs = item.durationSeconds * 1000L)
+                    }
+                }
                 dragFraction = null
             },
             enabled = enabled && (state.durationMs > 0L || item.durationSeconds > 0),

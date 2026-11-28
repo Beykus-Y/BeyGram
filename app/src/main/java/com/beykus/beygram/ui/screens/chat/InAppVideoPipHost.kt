@@ -120,11 +120,12 @@ internal fun InAppVideoPipHost(accountId: String) {
         FloatingVideoPip(active)
         return
     }
-    val playback by PlaybackEngine.state.collectAsStateWithLifecycle()
+    val playback by PlaybackEngine.speechState.collectAsStateWithLifecycle()
     val inlineOwners by VideoNoteInlineSurfaceRegistry.owners.collectAsStateWithLifecycle()
     val item = playback.item
     val showVideoNotePip = item != null &&
         item.kind == MediaKind.VideoNote &&
+        item.accountId == accountId &&
         !item.systemPrivate &&
         !playback.ended &&
         !playback.failed &&
@@ -266,7 +267,7 @@ private fun FloatingVideoNotePip(playback: PlaybackState) {
     val itemKey = playback.item?.key ?: return
 
     DisposableEffect(pipOwner) {
-        onDispose { PlaybackEngine.detachVideo(pipOwner) }
+        onDispose { PlaybackEngine.detachSpeechVideo(pipOwner) }
     }
 
     BoxWithConstraints(Modifier.fillMaxSize()) {
@@ -296,14 +297,14 @@ private fun FloatingVideoNotePip(playback: PlaybackState) {
                     .clip(CircleShape)
                     .background(VideoNoteBackground)
                     .clickable(role = Role.Button) {
-                        if (playback.playing) PlaybackEngine.pause() else PlaybackEngine.resume(itemKey) {}
+                        PlaybackEngine.toggleSpeech(itemKey)
                     },
                 contentAlignment = Alignment.Center
             ) {
                 AndroidView(
                     factory = { TextureView(it).apply { setOpaque(false) } },
-                    update = { PlaybackEngine.attachVideo(pipOwner, it) },
-                    onRelease = { PlaybackEngine.detachVideo(pipOwner) },
+                    update = { PlaybackEngine.attachSpeechVideo(itemKey, pipOwner, it) },
+                    onRelease = { PlaybackEngine.detachSpeechVideo(pipOwner) },
                     modifier = Modifier.fillMaxSize()
                 )
                 Canvas(Modifier.fillMaxSize()) {
@@ -320,7 +321,7 @@ private fun FloatingVideoNotePip(playback: PlaybackState) {
                         style = Stroke(width = stroke, cap = StrokeCap.Round)
                     )
                 }
-                if (!playback.playing) {
+                if (!playback.intentPlaying) {
                     Box(
                         Modifier
                             .size(40.dp)
@@ -345,7 +346,7 @@ private fun FloatingVideoNotePip(playback: PlaybackState) {
                     .clip(CircleShape)
                     .background(Color.Black.copy(alpha = 0.72f))
                     .border(1.dp, Color.White.copy(alpha = 0.25f), CircleShape)
-                    .clickable(role = Role.Button) { PlaybackEngine.stop() },
+                    .clickable(role = Role.Button) { PlaybackEngine.stopSpeech(itemKey) },
                 contentAlignment = Alignment.Center
             ) {
                 Icon(

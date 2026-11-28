@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="coexistence_title">Musique et messages</string>
+    <string name="coexistence_music_volume">Volume de la musique</string>
+    <string name="coexistence_speech_volume">Volume des messages</string>
+    <string name="coexistence_hide_actions">Masquer les réglages par action</string>
+    <string name="coexistence_show_actions">Configurer chaque action</string>
+    <string name="coexistence_external_note">Android et le lecteur externe déterminent la réponse à la demande.</string>
+    <string name="coexistence_recording_note">Le micro peut capter le son du haut-parleur.</string>
+    <string name="coexistence_reset">Réinitialiser les réglages</string>
+    <string name="coexistence_record_voice">Enregistrer un message vocal</string>
+    <string name="coexistence_record_circle">Enregistrer un message vidéo</string>
+    <string name="coexistence_play_voice">Lire un message vocal</string>
+    <string name="coexistence_play_circle">Lire un message vidéo</string>
+    <string name="coexistence_internal">Musique dans BeyGram</string>
+    <string name="coexistence_external">Audio externe</string>
+    <string name="coexistence_continue">Continuer la lecture</string>
+    <string name="coexistence_duck">Baisser le volume</string>
+    <string name="coexistence_pause">Mettre en pause</string>
+    <string name="coexistence_request_duck">Demander une baisse du volume</string>
+    <string name="coexistence_request_pause">Demander une pause</string>
+    <string name="coexistence_duck_volume">Volume de la musique atténuée</string>
+    <string name="coexistence_pause_lane">Mettre %1$s en pause</string>
+    <string name="coexistence_play_lane">Lire %1$s</string>
+    <string name="coexistence_selection">%1$s · %2$s</string>
+    <string name="coexistence_percent">%1$s · %2$d%%</string>
+</resources>

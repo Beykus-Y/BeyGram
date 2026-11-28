@@ -39,6 +39,8 @@ internal class TrackCrossfader(
     private val trailingMs: (mediaId: String) -> Long?,
     private val nextAfter: (primary: ExoPlayer, mediaId: String) -> CrossfadeNext?,
     private val overlapMs: () -> Long = { CROSSFADE_MS },
+    private val setEnvelope: (ExoPlayer, Float) -> Unit = { player, gain -> player.volume = gain },
+    private val releaseTail: (ExoPlayer) -> Unit = { it.release() },
 ) {
     private enum class Outcome { GaveUp, Interrupted, Finished }
 
@@ -108,11 +110,11 @@ internal class TrackCrossfader(
     }
 
     private fun release(primary: ExoPlayer?, watch: Watch) {
-        watch.tail?.release()
+        watch.tail?.let(releaseTail)
         watch.tail = null
         if (watch.volumeTouched) {
             watch.volumeTouched = false
-            primary?.volume = 1f
+            primary?.let { setEnvelope(it, 1f) }
         }
     }
 
@@ -147,7 +149,7 @@ internal class TrackCrossfader(
             // A seek back shows as a drop in position between two checks. Forward playback never does.
             if (isBackwardSeek(lastPosition, position)) {
                 // The prepared tail is out of step with the new position, so it is prepared again later.
-                watch.tail?.release()
+                watch.tail?.let(releaseTail)
                 watch.tail = null
                 lockedSwitch = null
                 lockedNext = null
@@ -192,7 +194,7 @@ internal class TrackCrossfader(
         // The equalizer is attached to the primary's audio session. Sharing it lets the tail go through the same effects.
         val sessionId = primary.audioSessionId
         if (sessionId > 0) player.setAudioSessionId(sessionId)
-        player.volume = 0f
+        setEnvelope(player, 0f)
         player.setMediaItem(outgoing)
         player.setPlaybackParameters(primary.playbackParameters)
         player.prepare()
@@ -212,7 +214,7 @@ internal class TrackCrossfader(
 
         // Pre-roll: the tail joins the same track in step with the primary, silent, so it is already running when it is
         // needed. Nothing about the primary changes yet, so a failure here leaves a plain, uncut transition.
-        tail.volume = 0f
+        setEnvelope(tail, 0f)
         tail.seekTo(primary.currentPosition + CROSSFADE_TAIL_START_COMPENSATION_MS)
         tail.play()
         var settled = 0L
@@ -233,8 +235,8 @@ internal class TrackCrossfader(
             if (lostOwnership(primary, watch.mediaId)) return Outcome.Interrupted
             val elapsedMs = (System.nanoTime() - handoffStart) / 1_000_000L
             val progress = (elapsedMs.toFloat() / CROSSFADE_HANDOFF_MS).coerceIn(0f, 1f)
-            primary.volume = handoffPrimaryGain(progress)
-            tail.volume = handoffTailGain(progress)
+            setEnvelope(primary, handoffPrimaryGain(progress))
+            setEnvelope(tail, handoffTailGain(progress))
             if (progress >= 1f) break
             delay(CROSSFADE_ARM_STEP_MS)
         }
@@ -243,7 +245,7 @@ internal class TrackCrossfader(
         if (fresh == null || fresh.mediaId != target.mediaId) return Outcome.Interrupted
         // The switch itself must not happen after another owner took the primary: it would move its occurrence.
         if (lostOwnership(primary, watch.mediaId)) return Outcome.Interrupted
-        primary.volume = 0f
+        setEnvelope(primary, 0f)
         primary.seekTo(fresh.index, fresh.startMs)
         val startedAt = System.nanoTime()
         while (true) {
@@ -252,8 +254,8 @@ internal class TrackCrossfader(
             // The primary now plays the incoming track, so ownership is checked against it.
             if (lostOwnership(primary, target.mediaId)) return Outcome.Interrupted
             val progress = crossfadeProgress(mediaElapsedMs, overlap)
-            primary.volume = incomingGain(progress)
-            tail.volume = outgoingGain(progress)
+            setEnvelope(primary, incomingGain(progress))
+            setEnvelope(tail, outgoingGain(progress))
             delay(CROSSFADE_STEP_MS)
         }
     }
