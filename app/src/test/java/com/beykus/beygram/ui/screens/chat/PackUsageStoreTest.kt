@@ -20,6 +20,7 @@ class PackUsageStoreTest {
     @Before
     fun setUp() {
         context = RuntimeEnvironment.getApplication()
+        PackUsageStore.clearMemoryCache()
         context.getSharedPreferences("emoji_panel", Context.MODE_PRIVATE).edit().clear().commit()
     }
 

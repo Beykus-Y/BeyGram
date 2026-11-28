@@ -20,6 +20,7 @@ class RecentEmojiStoreTest {
     @Before
     fun setUp() {
         context = RuntimeEnvironment.getApplication()
+        RecentEmojiStore.clearMemoryCache()
         context.getSharedPreferences("emoji_panel", Context.MODE_PRIVATE).edit().clear().commit()
     }
 

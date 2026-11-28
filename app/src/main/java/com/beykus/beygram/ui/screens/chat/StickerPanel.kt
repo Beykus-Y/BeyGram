@@ -362,15 +362,24 @@ private fun StickerPanel(
     var overlay by remember { mutableStateOf<StickerPanelOverlay?>(null) }
     val accountId = LocalPlaybackAccountId.current
     val emojiUsage = remember(context, accountId) { PackUsageStore(context, accountId, PackKind.CustomEmoji) }
-    var dynamicPacks by remember { mutableStateOf(stickerUsage.isDynamic()) }
+    var dynamicPacks by remember(stickerUsage) { mutableStateOf(stickerUsage.peekDynamic() ?: true) }
     var packOrderDialog by remember { mutableStateOf(false) }
     val emojiStore = remember(context, accountId) { RecentEmojiStore(context, accountId) }
     val shelfVersions by remember(conversation) { conversation.observeStickerShelfVersions() }
         .collectAsStateWithLifecycle(StickerShelfVersions())
-    var recentEmoji by remember(emojiStore) { mutableStateOf(emojiStore.load()) }
-    var recentCustomEmoji by remember(emojiStore) { mutableStateOf(emojiStore.loadCustom()) }
+    var recentEmoji by remember(emojiStore) { mutableStateOf(emojiStore.peekUnicode().orEmpty()) }
+    var recentCustomEmoji by remember(emojiStore) { mutableStateOf(emojiStore.peekCustom().orEmpty()) }
     var emojiClearGeneration by remember(emojiStore) { mutableIntStateOf(0) }
     var confirmClearEmoji by remember { mutableStateOf(false) }
+
+    LaunchedEffect(stickerUsage, emojiUsage, emojiStore) {
+        stickerUsage.warmUp()
+        emojiUsage.warmUp()
+        dynamicPacks = stickerUsage.isDynamic()
+        val (unicode, custom) = emojiStore.warmUp()
+        recentEmoji = unicode
+        recentCustomEmoji = custom
+    }
 
     val premiumNotice = stringResource(R.string.sticker_panel_premium_locked)
     val favoriteKeys: Set<String> = remember(favoritesState) {

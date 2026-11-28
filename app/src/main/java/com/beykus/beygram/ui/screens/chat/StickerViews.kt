@@ -207,19 +207,14 @@ internal fun CustomEmojiImage(
     fallback: @Composable () -> Unit
 ) {
     val file by remember(emoji.fileId) { observeFile(emoji.fileId) }.collectAsStateWithLifecycle()
-    val context = LocalContext.current
-    val accountId = LocalPlaybackAccountId.current
-    val policySettings by remember(context, accountId) {
-        AutoDownloadSettingsStore.getInstance(context.applicationContext, accountId).settings
-    }.collectAsStateWithLifecycle()
-    val policyNetwork by AutoDownloadNetworkStatus.network.collectAsStateWithLifecycle()
-    LaunchedEffect(context) { AutoDownloadNetworkStatus.ensureStarted(context) }
-    val autoDownload = LocalAutoDownloadFile.current
-    LaunchedEffect(emoji.fileId, file.size, file.localPath, policySettings, policyNetwork) {
-        if (emoji.mimeType != WEBM_MIME && !file.isDownloading && file.localPath == null) {
-            val request = AutoDownloadRequest(fileId = emoji.fileId, kind = MediaKind.Sticker, sizeBytes = file.size)
-            if (autoDownload != null) autoDownload(request) else downloadFile(emoji.fileId)
-        }
+    val path = file.localPath
+    if (path == null && emoji.mimeType != WEBM_MIME) {
+        CustomEmojiAutoDownload(
+            fileId = emoji.fileId,
+            fileSize = file.size,
+            isDownloading = file.isDownloading,
+            downloadFile = downloadFile
+        )
     }
     val animPolicy = LocalEmojiAnimationPolicy.current
     // A custom emoji animates only after it has been on screen for the autoplay dwell time; until then its first frame shows.
@@ -228,7 +223,6 @@ internal fun CustomEmojiImage(
     val maxDimensionPx = with(androidx.compose.ui.platform.LocalDensity.current) {
         (size.roundToPx() * 2).coerceIn(48, 256)
     }
-    val path = file.localPath
     val modifier = Modifier.size(size).then(autoplay.modifier)
     when {
         path != null && emoji.mimeType == TGS_MIME -> SharedTgsEmoji(
@@ -241,6 +235,29 @@ internal fun CustomEmojiImage(
         )
         path != null && emoji.mimeType == WEBP_MIME -> LocalMediaImage(path, modifier, fit = true, maxDimension = maxDimensionPx, animate = playing)
         else -> fallback()
+    }
+}
+
+@Composable
+private fun CustomEmojiAutoDownload(
+    fileId: Int,
+    fileSize: Long,
+    isDownloading: Boolean,
+    downloadFile: (Int) -> Unit
+) {
+    val context = LocalContext.current
+    val accountId = LocalPlaybackAccountId.current
+    val policySettings by remember(context, accountId) {
+        AutoDownloadSettingsStore.getInstance(context.applicationContext, accountId).settings
+    }.collectAsStateWithLifecycle()
+    val policyNetwork by AutoDownloadNetworkStatus.network.collectAsStateWithLifecycle()
+    LaunchedEffect(context) { AutoDownloadNetworkStatus.ensureStarted(context) }
+    val autoDownload = LocalAutoDownloadFile.current
+    LaunchedEffect(fileId, fileSize, isDownloading, policySettings, policyNetwork) {
+        if (!isDownloading) {
+            val request = AutoDownloadRequest(fileId = fileId, kind = MediaKind.Sticker, sizeBytes = fileSize)
+            if (autoDownload != null) autoDownload(request) else downloadFile(fileId)
+        }
     }
 }
 
@@ -258,22 +275,30 @@ private fun SharedTgsEmoji(
     val density = androidx.compose.ui.platform.LocalDensity.current
     val sizePx = remember(density, size) { bucketEmojiSizePx(with(density) { size.roundToPx() }) }
     val renderer = remember(context) { SharedTgsEmojiRenderer.default(context) }
-    val target = remember(renderer, accountId, path, sizePx) {
-        renderer.attach(accountId = accountId, path = path, sizePx = sizePx, playing = playing, priority = priority)
+    val initialFrame = remember(renderer, accountId, path, sizePx) {
+        renderer.peekFirstFrame(accountId, path, sizePx)
     }
-    androidx.compose.runtime.DisposableEffect(renderer, target) {
-        onDispose { renderer.detach(target) }
+    val targetState = remember(renderer, accountId, path, sizePx) {
+        androidx.compose.runtime.mutableStateOf<com.beykus.beygram.data.media.EmojiRenderTarget?>(null)
     }
-    LaunchedEffect(renderer, target, playing, priority) {
-        renderer.updateTarget(target, playing = playing, priority = priority)
+    androidx.compose.runtime.DisposableEffect(renderer, accountId, path, sizePx) {
+        val attached = renderer.attach(accountId = accountId, path = path, sizePx = sizePx, playing = playing, priority = priority)
+        targetState.value = attached
+        onDispose {
+            targetState.value = null
+            renderer.detach(attached)
+        }
     }
-    val failed = target.failedState.value
+    LaunchedEffect(renderer, targetState.value, playing, priority) {
+        targetState.value?.let { renderer.updateTarget(it, playing = playing, priority = priority) }
+    }
+    val failed = targetState.value?.failedState?.value == true
     if (failed) {
         Box(modifier, contentAlignment = Alignment.Center) { fallback() }
         return
     }
     androidx.compose.foundation.Canvas(modifier) {
-        val frame = target.frameState.value ?: return@Canvas
+        val frame = targetState.value?.frameState?.value ?: initialFrame ?: return@Canvas
         drawImage(
             image = frame,
             dstSize = androidx.compose.ui.unit.IntSize(
