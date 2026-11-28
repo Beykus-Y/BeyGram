@@ -1140,8 +1140,9 @@ locked = customEmojiLocked(premium, savedMessages),
         }
     } else {
         Column(
-            if (design.usesGlassPanels) panelBaseModifier.background(palette.surface.copy(alpha = 0.25f))
-            else panelBaseModifier.glassSheet(design, palette.surface, palette.textSecondary),
+            // On the shared composer plane the dock adds no fill at all: the pane behind it is the material, and a
+            // wash of its own would hide it. Only the styles without glass draw the dense sheet fill.
+            if (design.usesGlassPanels) panelBaseModifier else panelBaseModifier.glassSheet(design, palette.surface, palette.textSecondary),
             content = panelBody
         )
     }
@@ -1340,10 +1341,14 @@ private fun StickerPanelSearchHeader(
 @Composable
 private fun StickerPanelTabs(selected: StickerPanelTab, onSelect: (StickerPanelTab) -> Unit, modifier: Modifier) {
     val palette = beyGramPalette()
+    val design = LocalDesignSystem.current
+    // The segmented control is a control, not a pane: in Liquid Glass it is a translucent wash so the material behind
+    // it stays visible, and the selected tab keeps the accent. Other styles keep the opaque tonal strip.
+    val track = if (design.usesGlassPanels) palette.surface2.copy(alpha = 0.42f) else palette.surface2
     Row(
         modifier.padding(vertical = 2.dp)
             .clip(styledShape(14.dp))
-            .background(palette.surface2)
+            .background(track)
             .padding(2.dp)
     ) {
         PanelTab(

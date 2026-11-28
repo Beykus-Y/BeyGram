@@ -55,6 +55,10 @@ import com.beykus.beygram.ui.design.TopBarVariant
 import com.beykus.beygram.ui.design.GlassEdge
 import com.beykus.beygram.ui.design.GlassPanel
 import com.beykus.beygram.ui.design.LocalGlassBackdrop
+import com.beykus.beygram.ui.design.styledShape
+import com.beykus.beygram.ui.components.noticeIconTint
+import com.beykus.beygram.ui.components.NoticeTone
+import com.beykus.beygram.ui.components.GlassNotice
 import com.beykus.beygram.ui.design.glassBackdropSource
 import com.beykus.beygram.ui.design.rememberGlassBackdrop
 import com.beykus.beygram.ui.design.recordsGlassBackdrop
@@ -2063,11 +2067,13 @@ fun ChatScreen(
         if (videoNote.active) VideoNoteRecordingOverlay(videoNote)
         }
         ChatChromeHost(chatGlass, GlassEdge.TopHairline, chatBackdrop, { bottomChromePx = it }, floatingComposer = floatingComposer, paneContent = {
-        if (queueStorageCorrupt) Row(
-            Modifier.fillMaxWidth().background(palette.warningSurface).errorAnnouncement().padding(start = 12.dp, end = 4.dp, top = 4.dp, bottom = 4.dp),
-            verticalAlignment = Alignment.CenterVertically
+        if (queueStorageCorrupt) GlassNotice(
+            tone = NoticeTone.Warning,
+            shape = styledShape(0.dp),
+            modifier = Modifier.fillMaxWidth(),
+            contentPadding = androidx.compose.foundation.layout.PaddingValues(start = 12.dp, end = 4.dp, top = 4.dp, bottom = 4.dp)
         ) {
-            Text(stringResource(R.string.chat_send_queue_corrupt_notice), color = palette.warningText, fontSize = 12.sp, modifier = Modifier.weight(1f))
+            Text(stringResource(R.string.chat_send_queue_corrupt_notice), fontSize = 12.sp, modifier = Modifier.weight(1f).errorAnnouncement())
             TextButton(onClick = {
                 textSendQueue.launchMutation {
                     try {
@@ -2081,9 +2087,14 @@ fun ChatScreen(
                 Text(stringResource(R.string.chat_send_queue_reset_action), color = palette.accent, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
             }
         }
-        error?.let { failure -> Row(Modifier.fillMaxWidth().background(palette.warningSurface).errorAnnouncement().padding(horizontal = 12.dp), verticalAlignment = Alignment.CenterVertically) {
-            Text(failure, color = palette.warningText, fontSize = 12.sp, modifier = Modifier.weight(1f))
-            IconButton(onClick = { error = null }) { Icon(Icons.Rounded.Close, stringResource(R.string.common_close), tint = palette.warningText) }
+        error?.let { failure -> GlassNotice(
+            tone = NoticeTone.Danger,
+            shape = styledShape(0.dp),
+            modifier = Modifier.fillMaxWidth(),
+            contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 12.dp, vertical = 6.dp)
+        ) {
+            Text(failure, fontSize = 12.sp, modifier = Modifier.weight(1f).errorAnnouncement())
+            IconButton(onClick = { error = null }) { Icon(Icons.Rounded.Close, stringResource(R.string.common_close), tint = noticeIconTint(NoticeTone.Danger)) }
         } }
         forwardCopyConfirmId?.let { id ->
             BeyGramDialog(

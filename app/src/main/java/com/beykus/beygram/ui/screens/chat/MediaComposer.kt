@@ -1,6 +1,14 @@
 package com.beykus.beygram.ui.screens.chat
 
 import android.content.Context
+import androidx.compose.foundation.layout.ColumnScope
+import com.beykus.beygram.ui.components.GlassNotice
+import com.beykus.beygram.ui.components.NoticeTone
+import com.beykus.beygram.ui.design.GlassEdge
+import com.beykus.beygram.ui.design.GlassPanel
+import com.beykus.beygram.ui.design.styledTopShape
+import com.beykus.beygram.ui.design.LocalGlassBackdrop
+import com.beykus.beygram.ui.design.usesGlassPanels
 import com.beykus.beygram.ui.components.BeyGramDialog
 import com.beykus.beygram.ui.components.BeyGramPopover
 import com.beykus.beygram.ui.components.BeyGramPopoverItem
@@ -1359,8 +1367,19 @@ internal fun AttachmentPanel(
             shrinkVertically(shrinkTowards = Alignment.Bottom, animationSpec = exitSpec.animationSpec()) +
                 fadeOut(animationSpec = exitSpec.animationSpec())
     ) {
-    val sheetModifier = if (embedded || (!visible && exitPreview.isNotEmpty() && !exitMenuOpen)) Modifier else Modifier.glassSheet(LocalDesignSystem.current, palette.surface, palette.textSecondary)
-    Column(Modifier.fillMaxWidth().then(sheetModifier)) {
+    val design = LocalDesignSystem.current
+    val onSharedGlass = LocalComposerOnGlassPlane.current || LocalChatChromeOnGlass.current
+    val drawsOwnSheet = !embedded && (visible || exitPreview.isEmpty() || exitMenuOpen)
+    // One plane of material per surface. On the shared composer plane the panel stays transparent so the pane behind it
+    // shows; with a backdrop of its own it becomes a real glass pane; the dense fill is only the fallback when neither
+    // is possible, so the imitation never stands in for the material.
+    val drawsGlassPanel = drawsOwnSheet && design.usesGlassPanels && !onSharedGlass && LocalGlassBackdrop.current != null
+    val containerModifier = if (drawsOwnSheet && !drawsGlassPanel && !onSharedGlass) {
+        Modifier.glassSheet(design, palette.surface, palette.textSecondary)
+    } else {
+        Modifier
+    }
+    AttachmentPanelSurface(glass = drawsGlassPanel, modifier = containerModifier) {
         when {
             state.menuOpen || (!visible && exitMenuOpen) -> AttachmentMenu(
                 allowsPolls = state.allowsPolls,
@@ -1389,16 +1408,21 @@ internal fun AttachmentPanel(
             )
         }
         state.error?.let { message ->
-            Column(Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 4.dp)) {
-                Text(message, color = palette.danger, fontSize = 13.sp, modifier = Modifier.errorAnnouncement())
-                if (state.extraSendFailed) {
-                    Text(stringResource(R.string.poll_send_retained), color = palette.textSecondary, fontSize = 12.sp)
-                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
-                        TextButton(onClick = state::discardFailedExtra, modifier = Modifier.defaultMinSize(minHeight = 48.dp)) {
-                            Text(stringResource(R.string.common_cancel), color = palette.textSecondary)
-                        }
-                        TextButton(onClick = state::retryExtra, modifier = Modifier.defaultMinSize(minHeight = 48.dp)) {
-                            Text(stringResource(R.string.common_retry), color = palette.accent)
+            GlassNotice(
+                tone = NoticeTone.Danger,
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 4.dp)
+            ) {
+                Column(Modifier.fillMaxWidth()) {
+                    Text(message, fontSize = 13.sp, modifier = Modifier.errorAnnouncement())
+                    if (state.extraSendFailed) {
+                        Text(stringResource(R.string.poll_send_retained), color = palette.textSecondary, fontSize = 12.sp)
+                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+                            TextButton(onClick = state::discardFailedExtra, modifier = Modifier.defaultMinSize(minHeight = 48.dp)) {
+                                Text(stringResource(R.string.common_cancel), color = palette.textSecondary)
+                            }
+                            TextButton(onClick = state::retryExtra, modifier = Modifier.defaultMinSize(minHeight = 48.dp)) {
+                                Text(stringResource(R.string.common_retry), color = palette.accent)
+                            }
                         }
                     }
                 }
@@ -1406,9 +1430,12 @@ internal fun AttachmentPanel(
         }
         Column(Modifier.padding(start = 14.dp)) {
             if (state.canRetryCapture && !state.importing) {
-                Row(Modifier.fillMaxWidth().padding(end = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+                GlassNotice(
+                    tone = NoticeTone.Info,
+                    modifier = Modifier.fillMaxWidth().padding(end = 14.dp, bottom = 2.dp)
+                ) {
                     Text(
-                        stringResource(R.string.capture_retry_hint), color = palette.textSecondary, fontSize = 12.sp,
+                        stringResource(R.string.capture_retry_hint), fontSize = 12.sp,
                         modifier = Modifier.weight(1f)
                     )
                     IconButton(onClick = { state.retryCapture() }, enabled = !state.importing && !state.sending, modifier = Modifier.size(48.dp)) {
@@ -1417,9 +1444,12 @@ internal fun AttachmentPanel(
                 }
             }
             state.notice?.let { message ->
-                Row(Modifier.fillMaxWidth().padding(end = 6.dp, bottom = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+                GlassNotice(
+                    tone = NoticeTone.Info,
+                    modifier = Modifier.fillMaxWidth().padding(end = 14.dp, bottom = 4.dp)
+                ) {
                     Text(
-                        message, color = palette.textSecondary, fontSize = 12.sp,
+                        message, fontSize = 12.sp,
                         modifier = Modifier.weight(1f).errorAnnouncement()
                     )
                     IconButton(onClick = { state.dismissNotice() }, modifier = Modifier.size(48.dp)) {
@@ -1447,6 +1477,37 @@ internal fun AttachmentPanel(
             dismissText = stringResource(R.string.composer_attachments_clear_keep),
             onDismiss = { discardConfirm = false }
         )
+    }
+}
+
+/**
+ * The container of the attachment panel: a real [GlassPanel] when the panel owns its plane, otherwise the column with
+ * the fill the caller selected. Keeping it in one composable is what makes "one material plane per surface" true for
+ * the panel, the action menu inside it and the staged files alike.
+ */
+@Composable
+private fun AttachmentPanelSurface(
+    glass: Boolean,
+    modifier: Modifier,
+    content: @Composable ColumnScope.() -> Unit
+) {
+    val palette = beyGramPalette()
+    val design = LocalDesignSystem.current
+    if (glass) {
+        GlassPanel(
+            design = design,
+            tint = palette.surface,
+            rim = palette.textSecondary,
+            backdropBase = palette.screen,
+            shape = styledTopShape(20.dp),
+            edge = GlassEdge.TopHairline,
+            lensOnFreeEdge = true,
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Column(Modifier.fillMaxWidth(), content = content)
+        }
+    } else {
+        Column(Modifier.fillMaxWidth().then(modifier), content = content)
     }
 }
 

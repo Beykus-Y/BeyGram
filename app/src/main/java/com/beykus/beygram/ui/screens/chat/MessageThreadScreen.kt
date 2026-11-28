@@ -4,6 +4,10 @@ import androidx.activity.compose.BackHandler
 import com.beykus.beygram.ui.components.topAppBarSurface
 import com.beykus.beygram.ui.design.LocalDesignSystem
 import com.beykus.beygram.ui.design.styledShape
+import com.beykus.beygram.ui.accessibility.errorAnnouncement
+import com.beykus.beygram.ui.components.noticeIconTint
+import com.beykus.beygram.ui.components.NoticeTone
+import com.beykus.beygram.ui.components.GlassNotice
 import com.beykus.beygram.ui.motion.MotionToken
 import com.beykus.beygram.ui.motion.rememberMotionInstant
 import com.beykus.beygram.ui.motion.scrollToItemRespectingMotion
@@ -675,11 +679,13 @@ internal fun MessageThreadScreen(
                 }
             )
         }
-        if (queueStorageCorrupt) Row(
-            Modifier.fillMaxWidth().background(palette.warningSurface).padding(start = 12.dp, end = 4.dp, top = 4.dp, bottom = 4.dp),
-            verticalAlignment = Alignment.CenterVertically
+        if (queueStorageCorrupt) GlassNotice(
+            tone = NoticeTone.Warning,
+            shape = styledShape(0.dp),
+            modifier = Modifier.fillMaxWidth(),
+            contentPadding = PaddingValues(start = 12.dp, end = 4.dp, top = 4.dp, bottom = 4.dp)
         ) {
-            Text(stringResource(R.string.chat_send_queue_corrupt_notice), color = palette.warningText, fontSize = 12.sp, modifier = Modifier.weight(1f))
+            Text(stringResource(R.string.chat_send_queue_corrupt_notice), fontSize = 12.sp, modifier = Modifier.weight(1f).errorAnnouncement())
             TextButton(onClick = {
                 sendQueue.launchMutation {
                     try {
@@ -694,9 +700,14 @@ internal fun MessageThreadScreen(
             }
         }
         sendError?.let { message ->
-            Row(Modifier.fillMaxWidth().background(palette.warningSurface).padding(horizontal = 12.dp, vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
-                Text(message, color = palette.warningText, fontSize = 12.sp, modifier = Modifier.weight(1f))
-                IconButton(onClick = { sendError = null }) { Icon(Icons.Rounded.Close, stringResource(R.string.common_close), tint = palette.warningText) }
+            GlassNotice(
+                tone = NoticeTone.Danger,
+                shape = styledShape(0.dp),
+                modifier = Modifier.fillMaxWidth(),
+                contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp)
+            ) {
+                Text(message, fontSize = 12.sp, modifier = Modifier.weight(1f).errorAnnouncement())
+                IconButton(onClick = { sendError = null }) { Icon(Icons.Rounded.Close, stringResource(R.string.common_close), tint = noticeIconTint(NoticeTone.Danger)) }
             }
         }
         val currentThread = thread
