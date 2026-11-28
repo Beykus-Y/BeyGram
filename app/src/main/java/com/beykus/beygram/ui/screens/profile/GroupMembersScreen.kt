@@ -50,6 +50,9 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.launch
+import com.beykus.beygram.ui.components.GlassScreenScaffold
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.height
 
 private const val MEMBERS_PAGE = 50
 private const val MEMBERS_PREFETCH = 8
@@ -228,15 +231,19 @@ internal fun GroupMembersScreen(
     // Обработчик остаётся зарегистрированным и во время запроса, иначе системный Back уйдёт из приложения.
     BackHandler { if (!busy) onBack() }
 
-    Column(Modifier.fillMaxSize().background(palette.screen).windowInsetsPadding(WindowInsets.safeDrawing)) {
-        ProfileToolbar(stringResource(R.string.group_members_title), { if (!busy) onBack() }) {
-            IconButton(onClick = { reload() }, enabled = !loading) {
-                Icon(Icons.Rounded.Refresh, stringResource(R.string.group_manage_refresh), tint = palette.textPrimary)
-            }
-            if (showAddMembers(rights)) IconButton(onClick = { adding = true }, enabled = !busy) {
-                Icon(Icons.Rounded.PersonAdd, stringResource(R.string.group_members_add), tint = palette.textPrimary)
+    GlassScreenScaffold(
+        modifier = Modifier.fillMaxSize().background(palette.screen).windowInsetsPadding(WindowInsets.safeDrawing),
+        toolbar = {
+            ProfileToolbar(stringResource(R.string.group_members_title), { if (!busy) onBack() }) {
+                IconButton(onClick = { reload() }, enabled = !loading) {
+                    Icon(Icons.Rounded.Refresh, stringResource(R.string.group_manage_refresh), tint = palette.textPrimary)
+                }
+                if (showAddMembers(rights)) IconButton(onClick = { adding = true }, enabled = !busy) {
+                    Icon(Icons.Rounded.PersonAdd, stringResource(R.string.group_members_add), tint = palette.textPrimary)
+                }
             }
         }
+    ) { chrome ->
         Row(
             Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(horizontal = 16.dp),
             horizontalArrangement = Arrangement.spacedBy(8.dp)
@@ -507,23 +514,28 @@ private fun GroupAddMembersScreen(
         loading = false
     }
     BackHandler { if (!busy) onBack() }
-    Column(Modifier.fillMaxSize().background(palette.screen).windowInsetsPadding(WindowInsets.safeDrawing).imePadding()) {
-        ProfileToolbar(stringResource(R.string.group_members_add_title), { if (!busy) onBack() }) {
-            TextButton(
-                enabled = selected.isNotEmpty() && !busy && !loading,
-                onClick = {
-                    scope.launch {
-                        busy = true
-                        error = null
-                        add(selected.toList())
-                            .onSuccess(onAdded)
-                            .onFailure { error = it.userMessage(context, R.string.err_group_action_failed) }
-                        busy = false
+    GlassScreenScaffold(
+        modifier = Modifier.fillMaxSize().background(palette.screen).windowInsetsPadding(WindowInsets.safeDrawing).imePadding(),
+        toolbar = {
+            ProfileToolbar(stringResource(R.string.group_members_add_title), { if (!busy) onBack() }) {
+                TextButton(
+                    enabled = selected.isNotEmpty() && !busy && !loading,
+                    onClick = {
+                        scope.launch {
+                            busy = true
+                            error = null
+                            add(selected.toList())
+                                .onSuccess(onAdded)
+                                .onFailure { error = it.userMessage(context, R.string.err_group_action_failed) }
+                            busy = false
+                        }
                     }
-                }
-            ) { Text(stringResource(if (busy) R.string.common_saving else R.string.group_members_add_action)) }
+                ) { Text(stringResource(if (busy) R.string.common_saving else R.string.group_members_add_action)) }
+            }
+            if (busy) LinearProgressIndicator(Modifier.fillMaxWidth(), color = palette.accent)
         }
-        if (busy) LinearProgressIndicator(Modifier.fillMaxWidth(), color = palette.accent)
+    ) { chrome ->
+        Spacer(Modifier.height(chrome.top))
         Text(
             stringResource(R.string.group_members_add_selected, selected.size),
             color = palette.textSecondary, fontSize = 13.sp,

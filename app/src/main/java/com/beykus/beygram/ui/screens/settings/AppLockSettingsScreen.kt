@@ -75,6 +75,7 @@ import com.beykus.beygram.ui.design.glassCard
 import com.beykus.beygram.ui.screens.profile.ProfileToolbar
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import com.beykus.beygram.ui.components.GlassScreenScaffold
 
 /**
  * Settings for the optional local lock. Every action that weakens protection (turning the
@@ -116,16 +117,19 @@ internal fun AppLockSettingsScreen(onBack: () -> Unit) {
 
     BackHandler(onBack = onBack)
 
-    Column(
-        Modifier.fillMaxSize().glassScreenBackground(design, palette.screen)
-            .windowInsetsPadding(WindowInsets.safeDrawing).imePadding()
-    ) {
-        ProfileToolbar(stringResource(R.string.app_lock_title), onBack)
+    GlassScreenScaffold(
+        modifier = Modifier.fillMaxSize().glassScreenBackground(design, palette.screen)
+            .windowInsetsPadding(WindowInsets.safeDrawing).imePadding(),
+        toolbar = {
+            ProfileToolbar(stringResource(R.string.app_lock_title), onBack)
+        }
+    ) { chrome ->
         Column(
             Modifier.fillMaxWidth().weight(1f).verticalScroll(rememberScrollState())
                 .padding(horizontal = 16.dp, vertical = 8.dp),
             verticalArrangement = Arrangement.spacedBy(14.dp),
         ) {
+            Spacer(Modifier.height(chrome.top))
             Text(
                 stringResource(R.string.app_lock_intro),
                 color = palette.textSecondary,

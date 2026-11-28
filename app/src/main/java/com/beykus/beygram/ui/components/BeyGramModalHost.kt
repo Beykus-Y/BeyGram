@@ -126,6 +126,12 @@ class BeyGramModalHost {
 /** The host of the current window. Null in previews and wherever no host is provided. */
 val LocalBeyGramModalHost = staticCompositionLocalOf<BeyGramModalHost?> { null }
 
+/**
+ * True for the content of a sheet that is drawn on the hosted Liquid Glass pane. Such a content must not paint an
+ * opaque container of its own, and the sheet already handles the keyboard, so it must not pad the IME a second time.
+ */
+val LocalSheetOnGlass = staticCompositionLocalOf { false }
+
 /** Creates the host of one window. */
 @Composable
 fun rememberBeyGramModalHost(): BeyGramModalHost = remember { BeyGramModalHost() }
@@ -468,7 +474,7 @@ private fun SheetBody(
             )
         }
         val columnScope = this
-        CompositionLocalProvider(LocalContentColor provides route.tint.value) {
+        CompositionLocalProvider(LocalContentColor provides route.tint.value, LocalSheetOnGlass provides true) {
             val body = route.content.value
             body(columnScope)
         }

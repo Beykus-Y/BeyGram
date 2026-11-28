@@ -18,6 +18,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.windowInsetsPadding
+import com.beykus.beygram.ui.components.GlassScreenScaffold
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
@@ -225,15 +226,20 @@ fun PrivacySettingsScreen(
         }
     }
 
-    Column(Modifier.fillMaxSize().glassScreenBackground(design, palette.screen).windowInsetsPadding(WindowInsets.safeDrawing)) {
-        ProfileToolbar(stringResource(R.string.privacy_title), onBack)
-        if (loading) LinearProgressIndicator(Modifier.fillMaxWidth(), color = palette.accent)
+    GlassScreenScaffold(
+        modifier = Modifier.fillMaxSize().glassScreenBackground(design, palette.screen).windowInsetsPadding(WindowInsets.safeDrawing),
+        toolbar = {
+            ProfileToolbar(stringResource(R.string.privacy_title), onBack)
+            if (loading) LinearProgressIndicator(Modifier.fillMaxWidth(), color = palette.accent)
+        }
+    ) { chrome ->
         Column(
             Modifier.fillMaxWidth().weight(1f)
                 .verticalScroll(rememberScrollState())
                 .padding(horizontal = 16.dp, vertical = 8.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
+            Spacer(Modifier.height(chrome.top))
             Text(stringResource(R.string.privacy_intro), color = palette.textSecondary, fontSize = 14.sp, modifier = Modifier.padding(horizontal = 4.dp))
             StealthModeLink(active = stealthActive, onClick = onStealth)
             loadError?.let { message ->

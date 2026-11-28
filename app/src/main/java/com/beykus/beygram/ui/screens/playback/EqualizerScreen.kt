@@ -78,6 +78,7 @@ import java.util.Locale
 import kotlin.math.abs
 import kotlin.math.ln
 import kotlin.math.roundToInt
+import com.beykus.beygram.ui.components.GlassScreenScaffold
 
 /**
  * Real equalizer control for the shared music player. The screen only draws bands that the platform effect currently
@@ -107,13 +108,18 @@ fun EqualizerScreen(
     val latestLevelsByFrequency = rememberUpdatedState(levelsByFrequency)
     val waitingForMusic = capabilities == null && runtime.connection == EqualizerConnection.Idle
 
-    Column(Modifier.fillMaxSize().background(palette.screen).windowInsetsPadding(WindowInsets.safeDrawing)) {
-        ProfileToolbar(stringResource(R.string.equalizer_title), onBack)
+    GlassScreenScaffold(
+        modifier = Modifier.fillMaxSize().background(palette.screen).windowInsetsPadding(WindowInsets.safeDrawing),
+        toolbar = {
+            ProfileToolbar(stringResource(R.string.equalizer_title), onBack)
+        }
+    ) { chrome ->
         Column(
             Modifier.fillMaxWidth().weight(1f).verticalScroll(rememberScrollState())
                 .padding(horizontal = 16.dp, vertical = 4.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
+            Spacer(Modifier.height(chrome.top))
             Text(
                 stringResource(R.string.equalizer_intro),
                 color = palette.textSecondary,

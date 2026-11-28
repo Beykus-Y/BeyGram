@@ -44,6 +44,9 @@ import com.beykus.beygram.security.AppLockManager
 import com.beykus.beygram.ui.components.beyGramPalette
 import com.beykus.beygram.ui.screens.profile.ProfileToolbar
 import com.beykus.beygram.ui.text.resolve
+import com.beykus.beygram.ui.components.GlassScreenScaffold
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.height
 
 @Composable
 internal fun NotificationPermissionCoordinator(runtime: NotificationRuntime) {
@@ -112,9 +115,14 @@ fun NotificationSettingsScreen(
     }
     BackHandler(onBack = onBack)
     fun open(intent: Intent) { runCatching { context.startActivity(intent) } }
-    Column(Modifier.fillMaxSize().background(palette.screen).windowInsetsPadding(WindowInsets.safeDrawing)) {
-        ProfileToolbar(stringResource(R.string.notif_title), onBack)
+    GlassScreenScaffold(
+        modifier = Modifier.fillMaxSize().background(palette.screen).windowInsetsPadding(WindowInsets.safeDrawing),
+        toolbar = {
+            ProfileToolbar(stringResource(R.string.notif_title), onBack)
+        }
+    ) { chrome ->
         Column(Modifier.verticalScroll(rememberScrollState()).padding(20.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
+        Spacer(Modifier.height(chrome.top))
             Text(stringResource(R.string.notif_no_google_title), color = palette.textPrimary, fontSize = 24.sp, fontWeight = FontWeight.Bold)
             Text(stringResource(R.string.notif_no_google_body), color = palette.textSecondary)
             Text(stringResource(R.string.settings_autosave_note), color = palette.textSecondary, fontSize = 13.sp)

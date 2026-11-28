@@ -75,6 +75,7 @@ import com.beykus.beygram.ui.design.glassScreenBackground
 import com.beykus.beygram.ui.design.styledShape
 import com.beykus.beygram.ui.text.userMessage
 import kotlinx.coroutines.launch
+import com.beykus.beygram.ui.components.GlassScreenScaffold
 
 /** Two headline figures side by side need this width; below it, or with large fonts, the figures stack. */
 private val KpiTwoColumnMinWidth: Dp = 340.dp
@@ -174,16 +175,18 @@ fun ChannelStatisticsScreen(
     // TDLib returns the log newest first; entries of one day form one group. Computed here, outside the list builder.
     val dayGroups = remember(events) { events.groupBy { formatDayTitle(it.date) }.toList() }
 
-    Column(
-        Modifier.fillMaxSize()
+    GlassScreenScaffold(
+        modifier = Modifier.fillMaxSize()
             .glassScreenBackground(design, palette.screen)
-            .windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Top + WindowInsetsSides.Horizontal))
-    ) {
-        ProfileToolbar(stringResource(headerTitle), onBack)
+            .windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Top + WindowInsetsSides.Horizontal)),
+        toolbar = {
+            ProfileToolbar(stringResource(headerTitle), onBack)
+        }
+    ) { chrome ->
         // One scroll container: statistics, filters and the log remain reachable with large fonts and in landscape.
         LazyColumn(
             modifier = Modifier.weight(1f),
-            contentPadding = PaddingValues(horizontal = 16.dp, vertical = 4.dp)
+            contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = chrome.top + 4.dp, bottom = 4.dp)
         ) {
             item("statistics") {
                 Column(Modifier.fillMaxWidth()) {

@@ -28,6 +28,9 @@ import com.beykus.beygram.ui.text.userMessage
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.launch
+import com.beykus.beygram.ui.components.GlassScreenScaffold
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.height
 
 private const val MEMBERS_PAGE = 50
 /** Сколько строк до конца списка запускают загрузку следующей страницы. */
@@ -74,8 +77,12 @@ fun ChatMembersScreen(
         }
     }
     BackHandler(onBack = onBack)
-    Column(Modifier.fillMaxSize().background(palette.screen).windowInsetsPadding(WindowInsets.safeDrawing)) {
-        ProfileToolbar(stringResource(R.string.profile_members_title), onBack)
+    GlassScreenScaffold(
+        modifier = Modifier.fillMaxSize().background(palette.screen).windowInsetsPadding(WindowInsets.safeDrawing),
+        toolbar = {
+            ProfileToolbar(stringResource(R.string.profile_members_title), onBack)
+        }
+    ) { chrome ->
         total?.let { count -> Text(stringResource(R.string.profile_group_members_count, count), color = palette.textSecondary, fontSize = 13.sp, modifier = Modifier.padding(horizontal = 36.dp, vertical = 2.dp)) }
         if (loading) LinearProgressIndicator(Modifier.fillMaxWidth(), color = palette.accent)
         error?.let { message ->

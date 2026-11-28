@@ -68,6 +68,9 @@ import com.beykus.beygram.ui.design.glassScreenBackground
 import com.beykus.beygram.ui.design.glassCard
 import com.beykus.beygram.ui.screens.profile.ProfileToolbar
 import kotlinx.coroutines.flow.MutableStateFlow
+import com.beykus.beygram.ui.components.GlassScreenScaffold
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.height
 
 /**
  * Stealth mode for the open account: the status, the protection levels and the switches behind them, what the mode
@@ -91,8 +94,12 @@ fun StealthSettingsScreen(
     val palette = beyGramPalette()
     val design = LocalDesignSystem.current
     BackHandler(onBack = onBack)
-    Column(Modifier.fillMaxSize().glassScreenBackground(design, palette.screen).windowInsetsPadding(WindowInsets.safeDrawing)) {
-        ProfileToolbar(stringResource(R.string.stealth_title), onBack)
+    GlassScreenScaffold(
+        modifier = Modifier.fillMaxSize().glassScreenBackground(design, palette.screen).windowInsetsPadding(WindowInsets.safeDrawing),
+        toolbar = {
+            ProfileToolbar(stringResource(R.string.stealth_title), onBack)
+        }
+    ) { chrome ->
         if (store == null) {
             Text(
                 stringResource(R.string.stealth_unavailable),

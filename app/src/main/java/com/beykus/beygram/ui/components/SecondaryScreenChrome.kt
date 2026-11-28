@@ -27,6 +27,7 @@ import androidx.compose.ui.graphics.RectangleShape
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.zIndex
@@ -39,6 +40,7 @@ import com.beykus.beygram.ui.design.glassScreenBackground
 import com.beykus.beygram.ui.design.recordsGlassBackdrop
 import com.beykus.beygram.ui.design.rememberGlassBackdrop
 import com.beykus.beygram.ui.design.usesGlassPanels
+import com.beykus.beygram.ui.components.GlassScreenScaffold
 
 /**
  * True while a toolbar or a composer is drawn inside the glass pane of a screen. The bar then skips its own opaque
@@ -81,7 +83,9 @@ fun GlassScreenScaffold(
         // The structure of every other style: bars in the flow, the body between them. No recording, no extra layout.
         Column(modifier.fillMaxSize()) {
             ChromeSurface(edge = GlassEdge.BottomHairline, onGlass = false, content = toolbar)
-            content(ScreenChromeInsets.None)
+            Column(Modifier.fillMaxWidth().weight(1f)) {
+                content(ScreenChromeInsets.None)
+            }
             if (bottomBar != null) {
                 ChromeSurface(
                     edge = GlassEdge.TopHairline,
@@ -120,6 +124,7 @@ fun GlassScreenScaffold(
         ChromeSurface(
             edge = GlassEdge.BottomHairline,
             onGlass = true,
+            tag = "screenChromeTopPane",
             backdrop = backdrop,
             tint = palette.surface,
             base = palette.screen,
@@ -134,6 +139,7 @@ fun GlassScreenScaffold(
             ChromeSurface(
                 edge = GlassEdge.TopHairline,
                 onGlass = true,
+                tag = "screenChromeBottomPane",
                 backdrop = backdrop,
                 tint = palette.surface,
                 base = palette.screen,
@@ -159,6 +165,7 @@ private fun ChromeSurface(
     onGlass: Boolean,
     content: @Composable () -> Unit,
     modifier: Modifier = Modifier,
+    tag: String = "",
     backdrop: com.beykus.beygram.ui.design.GlassBackdrop? = null,
     tint: androidx.compose.ui.graphics.Color = androidx.compose.ui.graphics.Color.Unspecified,
     base: androidx.compose.ui.graphics.Color = androidx.compose.ui.graphics.Color.Unspecified
@@ -180,7 +187,10 @@ private fun ChromeSurface(
             shape = RectangleShape,
             edge = edge,
             lensOnFreeEdge = backdrop != null,
-            modifier = modifier.fillMaxWidth().zIndex(1f)
+            modifier = modifier
+                .fillMaxWidth()
+                .zIndex(1f)
+                .then(if (tag.isEmpty()) Modifier else Modifier.testTag(tag))
         ) {
             content()
         }

@@ -45,6 +45,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
@@ -55,6 +56,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.beykus.beygram.ui.components.BeyGramSheet
+import com.beykus.beygram.ui.components.LocalSheetOnGlass
 import com.beykus.beygram.ui.components.BeyGramSheetValue
 import com.beykus.beygram.ui.components.rememberBeyGramSheetState
 import com.beykus.beygram.ui.components.Switch
@@ -282,20 +284,20 @@ internal fun ForwardChatDialog(
     }
     val paneLabel = if (chat != null) stringResource(R.string.forward_choose_topic, chat.title)
         else titleOverride ?: stringResource(if (asCopy) R.string.forward_title_copy else R.string.forward_title)
+    // On the hosted glass pane the sheet is the material and already handles the keyboard; this content must not paint
+    // a second container or pad the IME twice. In Material's own window it keeps both, exactly as before.
+    val onGlass = LocalSheetOnGlass.current
     BeyGramSheet(
         onDismissRequest = { if (!locked) onClose() },
         modifier = Modifier.semantics { paneTitle = paneLabel },
         sheetState = sheetState,
         scrollableContent = false,
-        bottomPadding = 0.dp,
-        // This sheet is its own full-height Scaffold with its own IME padding; a hosted sheet would pad the keyboard
-        // twice. It keeps Material's window until its insets are reworked together with the forward flow.
-        glassEligible = false
+        bottomPadding = 0.dp
     ) {
         BackHandler(enabled = chat != null || locked) { if (!locked) backFromTopics() }
         Scaffold(
-            modifier = Modifier.fillMaxSize().imePadding(),
-            containerColor = sheetSurfaceColor(),
+            modifier = Modifier.fillMaxSize().then(if (onGlass) Modifier else Modifier.imePadding()),
+            containerColor = if (onGlass) Color.Transparent else sheetSurfaceColor(),
             topBar = {
                 TopAppBar(
                     modifier = Modifier.topAppBarSurface(),
@@ -331,12 +333,16 @@ internal fun ForwardChatDialog(
                             Icon(Icons.Rounded.KeyboardArrowUp, stringResource(R.string.share_expand_picker), tint = palette.textPrimary)
                         }
                     },
-                    colors = TopAppBarDefaults.topAppBarColors(containerColor = sheetSurfaceColor())
+                    colors = TopAppBarDefaults.topAppBarColors(
+                        containerColor = if (onGlass) Color.Transparent else sheetSurfaceColor()
+                    )
                 )
             },
             bottomBar = {
                 Column(
-                    Modifier.fillMaxWidth().background(sheetSurfaceColor()).padding(horizontal = 16.dp, vertical = 12.dp)
+                    Modifier.fillMaxWidth()
+                        .then(if (onGlass) Modifier else Modifier.background(sheetSurfaceColor()))
+                        .padding(horizontal = 16.dp, vertical = 12.dp)
                 ) {
                     if (targets.isNotEmpty()) {
                         LazyRow(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {

@@ -59,6 +59,9 @@ import com.beykus.beygram.ui.design.groupCardShape
 import com.beykus.beygram.ui.design.styledShape
 import com.beykus.beygram.ui.text.userMessage
 import kotlinx.coroutines.launch
+import com.beykus.beygram.ui.components.GlassScreenScaffold
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.height
 
 /** Форма: [InviteEditor.link] = null — новая ссылка; иначе изменение или переименование существующей. */
 private data class InviteEditor(val link: GroupInviteLink?)
@@ -130,20 +133,22 @@ internal fun GroupInvitesScreen(
     }
 
     BackHandler { if (!dialogBusy && !revokeBusy) onBack() }
-    Column(
-        Modifier.fillMaxSize()
+    GlassScreenScaffold(
+        modifier = Modifier.fillMaxSize()
             .glassScreenBackground(design, palette.screen)
-            .windowInsetsPadding(WindowInsets.safeDrawing)
-    ) {
-        ProfileToolbar(stringResource(R.string.group_invites_title), { if (!dialogBusy && !revokeBusy) onBack() }) {
-            IconButton(onClick = ::reload, enabled = !loading) {
-                Icon(Icons.Rounded.Refresh, stringResource(R.string.group_manage_refresh), tint = palette.textPrimary)
+            .windowInsetsPadding(WindowInsets.safeDrawing),
+        toolbar = {
+            ProfileToolbar(stringResource(R.string.group_invites_title), { if (!dialogBusy && !revokeBusy) onBack() }) {
+                IconButton(onClick = ::reload, enabled = !loading) {
+                    Icon(Icons.Rounded.Refresh, stringResource(R.string.group_manage_refresh), tint = palette.textPrimary)
+                }
+                if (rights.canManageInviteLinks) IconButton(onClick = { dialogError = null; editor = InviteEditor(null) }, enabled = !dialogBusy) {
+                    Icon(Icons.Rounded.AddLink, stringResource(R.string.group_invites_create), tint = palette.textPrimary)
+                }
             }
-            if (rights.canManageInviteLinks) IconButton(onClick = { dialogError = null; editor = InviteEditor(null) }, enabled = !dialogBusy) {
-                Icon(Icons.Rounded.AddLink, stringResource(R.string.group_invites_create), tint = palette.textPrimary)
-            }
+            if (loading) LinearProgressIndicator(Modifier.fillMaxWidth(), color = palette.accent)
         }
-        if (loading) LinearProgressIndicator(Modifier.fillMaxWidth(), color = palette.accent)
+    ) { chrome ->
         GroupManagementMessage(error, error = true)
         GroupManagementMessage(notice)
         if (error != null && links.isEmpty() && !loading) TextButton(
@@ -159,7 +164,7 @@ internal fun GroupInvitesScreen(
         } else {
             LazyColumn(
                 Modifier.fillMaxWidth().weight(1f),
-                contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 4.dp, bottom = 24.dp),
+                contentPadding = PaddingValues(top = chrome.top + 4.dp, start = 16.dp, end = 16.dp, bottom = 24.dp),
                 verticalArrangement = Arrangement.spacedBy(10.dp)
             ) {
                 sections.forEach { (section, sectionLinks) ->

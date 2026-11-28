@@ -49,6 +49,7 @@ import com.beykus.beygram.ui.design.glassCard
 import com.beykus.beygram.ui.design.glassScreenBackground
 import com.beykus.beygram.ui.design.groupCardShape
 import com.beykus.beygram.ui.screens.profile.ProfileToolbar
+import com.beykus.beygram.ui.components.GlassScreenScaffold
 
 private enum class ExceptionFilter(val label: Int) {
     All(R.string.stealth_exceptions_all),
@@ -92,11 +93,15 @@ internal fun StealthExceptionsScreen(store: StealthSettingsStore, chats: List<Ch
     }
 
     BackHandler(onBack = onBack)
-    Column(Modifier.fillMaxSize().glassScreenBackground(design, palette.screen).windowInsetsPadding(WindowInsets.safeDrawing)) {
-        ProfileToolbar(stringResource(R.string.stealth_exceptions_title), onBack)
+    GlassScreenScaffold(
+        modifier = Modifier.fillMaxSize().glassScreenBackground(design, palette.screen).windowInsetsPadding(WindowInsets.safeDrawing),
+        toolbar = {
+            ProfileToolbar(stringResource(R.string.stealth_exceptions_title), onBack)
+        }
+    ) { chrome ->
         LazyColumn(
             modifier = Modifier.fillMaxWidth().weight(1f),
-            contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
+            contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = chrome.top + 8.dp, bottom = 8.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
             item {

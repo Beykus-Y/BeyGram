@@ -32,6 +32,9 @@ import com.beykus.beygram.ui.design.LocalDesignSystem
 import com.beykus.beygram.ui.design.glassScreenBackground
 import com.beykus.beygram.ui.design.glassCard
 import com.beykus.beygram.ui.screens.profile.ProfileToolbar
+import com.beykus.beygram.ui.components.GlassScreenScaffold
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.height
 
 /** Только формат времени последнего визита. Кто видит это время, настраивается в «Приватности и безопасности» и хранится в TDLib. */
 @Composable
@@ -39,9 +42,14 @@ fun LastSeenSettingsScreen(style: LastSeenStyle, onStyleChange: (LastSeenStyle) 
     val palette = beyGramPalette()
     val design = LocalDesignSystem.current
     BackHandler(onBack = onBack)
-    Column(Modifier.fillMaxSize().glassScreenBackground(design, palette.screen).windowInsetsPadding(WindowInsets.safeDrawing)) {
-        ProfileToolbar(stringResource(R.string.settings_last_seen_title), onBack)
+    GlassScreenScaffold(
+        modifier = Modifier.fillMaxSize().glassScreenBackground(design, palette.screen).windowInsetsPadding(WindowInsets.safeDrawing),
+        toolbar = {
+            ProfileToolbar(stringResource(R.string.settings_last_seen_title), onBack)
+        }
+    ) { chrome ->
         Column(Modifier.fillMaxWidth().weight(1f).verticalScroll(rememberScrollState()).padding(horizontal = 16.dp, vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            Spacer(Modifier.height(chrome.top))
             Text(stringResource(R.string.settings_last_seen_intro), color = palette.textSecondary, fontSize = 14.sp, modifier = Modifier.padding(horizontal = 4.dp))
             Column(Modifier.fillMaxWidth().glassCard(design, groupSurfaceColor(), palette.textSecondary, listGroupShape()).padding(vertical = 4.dp)) {
                 StyleRow(LastSeenStyle.Relative, style, stringResource(R.string.settings_last_seen_relative_title), stringResource(R.string.settings_last_seen_relative_detail)) { onStyleChange(LastSeenStyle.Relative) }

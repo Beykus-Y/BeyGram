@@ -111,6 +111,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
 import java.text.DateFormat
 import java.util.Date
+import com.beykus.beygram.ui.components.GlassScreenScaffold
 
 private const val SEARCH_DEBOUNCE_MILLIS = 400L
 
@@ -391,11 +392,13 @@ fun GlobalSearchScreen(
         scope.launch { session.listState.scrollToItem(0) }
     }
 
-    Column(
-        Modifier.fillMaxSize().glassScreenBackground(design, palette.screen)
-            .windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Top + WindowInsetsSides.Horizontal + WindowInsetsSides.Bottom))
-    ) {
-        ProfileToolbar(stringResource(R.string.global_search_title), onBack)
+    GlassScreenScaffold(
+        modifier = Modifier.fillMaxSize().glassScreenBackground(design, palette.screen)
+            .windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Top + WindowInsetsSides.Horizontal + WindowInsetsSides.Bottom)),
+        toolbar = {
+            ProfileToolbar(stringResource(R.string.global_search_title), onBack)
+        }
+    ) { chrome ->
         SearchField(
             query = query,
             onChange = { updated ->
@@ -524,7 +527,7 @@ fun GlobalSearchScreen(
             LazyColumn(
                 Modifier.fillMaxSize(),
                 state = session.listState,
-                contentPadding = PaddingValues(vertical = 4.dp)
+                contentPadding = PaddingValues(top = chrome.top + 4.dp, bottom = 4.dp)
             ) {
                 if (query.isBlank()) {
                     item("recent-heading") {

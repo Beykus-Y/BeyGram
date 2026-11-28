@@ -97,6 +97,7 @@ import com.beykus.beygram.ui.screens.profile.ProfileToolbar
 import com.beykus.beygram.ui.text.userMessage
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
+import com.beykus.beygram.ui.components.GlassScreenScaffold
 
 /** Where a divider between two entries starts: the row padding, the 40 dp icon tile and its 12 dp gap. */
 private val NewChatRowDividerInset = 68.dp
@@ -222,16 +223,19 @@ internal fun NewChatScreen(
         }
     }
 
-    Column(
-        Modifier.fillMaxSize().glassScreenBackground(design, palette.screen)
+    GlassScreenScaffold(
+        modifier = Modifier.fillMaxSize().glassScreenBackground(design, palette.screen)
             .windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Top + WindowInsetsSides.Horizontal + WindowInsetsSides.Bottom))
-            .imePadding()
-    ) {
-        ProfileToolbar(stringResource(R.string.new_chat_title), onBack) {
-            IconButton(onClick = onAddContact) {
-                Icon(Icons.Rounded.PersonAdd, stringResource(R.string.new_chat_add_contact), tint = palette.accent)
+            .imePadding(),
+        toolbar = {
+            ProfileToolbar(stringResource(R.string.new_chat_title), onBack) {
+                IconButton(onClick = onAddContact) {
+                    Icon(Icons.Rounded.PersonAdd, stringResource(R.string.new_chat_add_contact), tint = palette.accent)
+                }
             }
         }
+    ) { chrome ->
+        Spacer(Modifier.height(chrome.top))
         Text(
             stringResource(R.string.new_chat_subtitle),
             color = palette.textSecondary,
@@ -569,21 +573,23 @@ internal fun CreateGroupScreen(
     val hasCreationFeedback = creationState is GroupCreationState.NeedsVerification ||
         creationState == GroupCreationState.Failed || creationError != null
 
-    Column(
-        Modifier.fillMaxSize().glassScreenBackground(design, palette.screen)
+    GlassScreenScaffold(
+        modifier = Modifier.fillMaxSize().glassScreenBackground(design, palette.screen)
             .windowInsetsPadding(
-                WindowInsets.safeDrawing.only(
-                    WindowInsetsSides.Top + WindowInsetsSides.Horizontal + WindowInsetsSides.Bottom
-                )
+            WindowInsets.safeDrawing.only(
+            WindowInsetsSides.Top + WindowInsetsSides.Horizontal + WindowInsetsSides.Bottom
             )
-            .imePadding()
-    ) {
-        ProfileToolbar(stringResource(R.string.new_chat_group), onBack)
+            )
+            .imePadding(),
+        toolbar = {
+            ProfileToolbar(stringResource(R.string.new_chat_group), onBack)
+        }
+    ) { chrome ->
         // Only the form and contacts scroll. The primary action must remain visible
         // independently of the length of the Telegram contact list.
         LazyColumn(
             modifier = Modifier.weight(1f).fillMaxWidth(),
-            contentPadding = PaddingValues(start = 16.dp, end = 16.dp, bottom = 16.dp)
+            contentPadding = PaddingValues(top = chrome.top, start = 16.dp, end = 16.dp, bottom = 16.dp)
         ) {
             item(key = "group_name") {
                 OutlinedTextField(

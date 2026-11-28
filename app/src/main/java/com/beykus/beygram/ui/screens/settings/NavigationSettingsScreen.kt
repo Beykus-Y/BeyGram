@@ -41,6 +41,9 @@ import com.beykus.beygram.ui.design.glassCard
 import com.beykus.beygram.ui.components.icon
 import com.beykus.beygram.ui.components.title
 import com.beykus.beygram.ui.screens.profile.ProfileToolbar
+import com.beykus.beygram.ui.components.GlassScreenScaffold
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.height
 
 /** Настройка навигации: какие разделы показывать. Чаты показываются всегда; на широком экране разделы стоят рейкой. */
 @Composable
@@ -50,9 +53,14 @@ fun NavigationSettingsScreen(visibility: TabVisibility, onVisibilityChange: (Tab
     BackHandler(onBack = onBack)
     val optional = listOf(MainTab.Calls, MainTab.Contacts, MainTab.Settings)
     val hiddenCount = optional.count { !visibility.isVisible(it) }
-    Column(Modifier.fillMaxSize().glassScreenBackground(design, palette.screen).windowInsetsPadding(WindowInsets.safeDrawing)) {
-        ProfileToolbar(stringResource(R.string.nav_title), onBack)
+    GlassScreenScaffold(
+        modifier = Modifier.fillMaxSize().glassScreenBackground(design, palette.screen).windowInsetsPadding(WindowInsets.safeDrawing),
+        toolbar = {
+            ProfileToolbar(stringResource(R.string.nav_title), onBack)
+        }
+    ) { chrome ->
         Column(Modifier.verticalScroll(rememberScrollState()).padding(bottom = 24.dp)) {
+            Spacer(Modifier.height(chrome.top))
             Text(
                 stringResource(R.string.nav_intro),
                 color = palette.textSecondary, fontSize = 14.sp,
