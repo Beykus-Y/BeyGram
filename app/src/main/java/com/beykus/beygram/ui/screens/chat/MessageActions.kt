@@ -699,6 +699,7 @@ internal fun MessageContextPopover(
             }
 
             val cardScale = if (motionSpec.isInstant) 1f else 0.94f + 0.06f * progress
+            val paneWidth = with(density) { sceneViewport.width.coerceAtLeast(0f).toDp() }
             val cardModifier = (if (placement.useBottomSheetFallback) {
                 Modifier
                     .align(Alignment.BottomCenter)
@@ -717,7 +718,10 @@ internal fun MessageContextPopover(
                         } else placement.y.toFloat()
                         IntOffset((placement.x - rootLeft).roundToInt(), (y - rootTop).roundToInt())
                     }
-                    .widthIn(min = 236.dp, max = 296.dp)
+                    .widthIn(
+                        min = minOf(236.dp, paneWidth),
+                        max = minOf(296.dp, paneWidth)
+                    )
             }).heightIn(max = maxCardHeightDp)
                 .onSizeChanged { menuSize = it }
                 .graphicsLayer {
