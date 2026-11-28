@@ -98,7 +98,8 @@ internal fun MessageBubble(message: ChatMessage, observeFile: (Int) -> StateFlow
     paneInset: Boolean = true,
     hideForContextScene: Boolean = false,
     contextTextSelection: MessageContextTextSelection? = null,
-    contextScenePassive: Boolean = false
+    contextScenePassive: Boolean = false,
+    protectedSpeech: Boolean = false
 ) {
     val palette = beyGramPalette()
     val metrics = LocalBubbleMetrics.current
@@ -193,7 +194,7 @@ internal fun MessageBubble(message: ChatMessage, observeFile: (Int) -> StateFlow
                                 if (selectionState != null) stateDescription = selectionState
                             }
                         }
-                        .combinedClickable(
+                        .then(if (contextScenePassive) Modifier else Modifier.combinedClickable(
                             onClickLabel = when {
                                 selectionMode -> selectionLabel
                                 sticker -> openStickerSetLabel
@@ -203,21 +204,19 @@ internal fun MessageBubble(message: ChatMessage, observeFile: (Int) -> StateFlow
                             },
                             onLongClickLabel = if (selectionMode) selectionLabel else longPressLabel,
                             onClick = {
-                                if (!contextScenePassive) {
-                                    when {
-                                        selectionMode -> onToggleSelection()
-                                        sticker -> stickerMedia?.let { onStickerOpen?.invoke(it) }
-                                        // A tap on the caption of a track, such as a shared timecode, plays it in the music player.
-                                        message.media?.kind == MediaKind.Audio ->
-                                            captionPlay = AudioPlayRequest(parseShareTimecodeMs(message.text, message.media.durationSeconds))
-                                        message.media != null && !message.media.kind.playsInline() -> onOpen()
-                                    }
+                                when {
+                                    selectionMode -> onToggleSelection()
+                                    sticker -> stickerMedia?.let { onStickerOpen?.invoke(it) }
+                                    // A tap on the caption of a track, such as a shared timecode, plays it in the music player.
+                                    message.media?.kind == MediaKind.Audio ->
+                                        captionPlay = AudioPlayRequest(parseShareTimecodeMs(message.text, message.media.durationSeconds))
+                                    message.media != null && !message.media.kind.playsInline() -> onOpen()
                                 }
                             },
                             // Media and other interactive content need an immediate single tap.
-                            onDoubleClick = quickReaction.takeIf { !contextScenePassive && message.media == null && message.special == null },
-                            onLongClick = if (contextScenePassive) ({}) else if (selectionMode) onToggleSelection else onActions
-                        ),
+                            onDoubleClick = quickReaction.takeIf { message.media == null && message.special == null },
+                            onLongClick = if (selectionMode) onToggleSelection else onActions
+                        )),
                     overlayMeta = overlayMeta,
                     body = {
                     Column {
@@ -231,7 +230,11 @@ internal fun MessageBubble(message: ChatMessage, observeFile: (Int) -> StateFlow
                         )
                         ForwardedMessageHeader(message)
                         // Media sits flush against the bubble's top and side edges; text keeps its own padding.
-                        message.media?.let { media ->
+                        message.media?.let { original ->
+                            val isSpeech = original.kind == MediaKind.Voice || original.kind == MediaKind.VideoNote
+                            val media = if (isSpeech && (protectedSpeech || message.isViewOnce)) {
+                                original.copy(isSecret = true)
+                            } else original
                             if (media.kind == MediaKind.VideoNote) VideoNoteBubble(media, observeFile, onDownloadFile,
                                 onPlayed = onPlayed,
                                 onLongPress = if (selectionMode) onToggleSelection else onActions,
@@ -248,7 +251,7 @@ internal fun MessageBubble(message: ChatMessage, observeFile: (Int) -> StateFlow
                                 onTranscribe = onTranscribe,
                                 onRateTranscription = onRateTranscription,
                                 speechRecognitionUi = speechRecognitionUi,
-                                autoDownloadFile = onAutoDownloadFile, outgoing = message.isOutgoing)
+                                autoDownloadFile = onAutoDownloadFile, outgoing = message.isOutgoing, viewOnce = message.isViewOnce)
                             else MediaPreview(media, observeFile, onDownloadFile,
                                 onOpen = if (selectionMode) onToggleSelection else onOpen,
                                 onLongPress = if (selectionMode) onToggleSelection else onActions,

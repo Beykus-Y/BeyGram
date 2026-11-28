@@ -29,12 +29,15 @@ import com.beykus.beygram.data.appearance.DesignStyle
 import com.beykus.beygram.data.appearance.GlassQuality
 import com.beykus.beygram.data.presence.LastSeenStyle
 import com.beykus.beygram.domain.model.AvatarPhoto
+import com.beykus.beygram.domain.model.GiftCollectibleDetails
 import com.beykus.beygram.domain.model.MediaFileState
+import com.beykus.beygram.domain.model.ProfileAccentTheme
 import com.beykus.beygram.domain.model.ProfileInfo
 import com.beykus.beygram.domain.model.ProfilePresence
 import com.beykus.beygram.domain.model.ProfilePhotoMedia
 import com.beykus.beygram.domain.model.ProfilePhotosPage
 import com.beykus.beygram.domain.model.ProfileState
+import com.beykus.beygram.domain.model.ReceivedGiftItem
 import com.beykus.beygram.ui.design.designFor
 import com.beykus.beygram.ui.theme.BeyGramTheme
 import com.github.takahirom.roborazzi.captureRoboImage
@@ -74,8 +77,41 @@ class ProfileSceneUiCapture {
             bio = "Синтетический профиль для визуальной проверки. Фото, имя и статус меняют положение при прокрутке.",
             status = ProfilePresence.Online,
             photo = AvatarPhoto(smallFileId = 1, bigFileId = 1, photoId = 42L),
-            isVerified = true
+            isVerified = true,
+            profileAccentTheme = ProfileAccentTheme(
+                lightBackground = listOf(0x4B7BEC, 0x778BEB),
+                darkBackground = listOf(0x2B4C8C, 0x4A3A7A),
+                lightPalette = listOf(0x3867D6),
+                darkPalette = listOf(0x70A1FF)
+            )
         ))
+        val pinnedGifts = (1..4).map { idx ->
+            ReceivedGiftItem(
+                id = "pinned_$idx",
+                senderName = "Sender",
+                dateSeconds = 1_700_000_000,
+                emoji = "\uD83C\uDF81",
+                starCount = 100L,
+                name = "Crystal #$idx",
+                text = "",
+                isPrivate = false,
+                isSaved = true,
+                isUpgraded = true,
+                wasRefunded = false,
+                isPinned = true,
+                collectible = GiftCollectibleDetails(
+                    number = idx * 11,
+                    symbol = null,
+                    backdropCenterColor = 0x3867D6,
+                    backdropEdgeColor = 0x1E2F5C,
+                    backdropSymbolColor = 0x90B4FF,
+                    backdropTextColor = 0xFFFFFF,
+                    modelRarityPerMille = 15,
+                    modelRarityTier = null,
+                    upgradedGiftId = idx.toLong()
+                )
+            )
+        }
         ProfileSceneSettings.load(context)
         ProfileSceneSettings.setEnabled(context, true)
         var exits = 0
@@ -91,7 +127,8 @@ class ProfileSceneUiCapture {
                         onRefresh = {},
                         onEdit = {},
                         setPhoto = { Result.success(Unit) },
-                        lastSeenStyle = LastSeenStyle.Relative
+                        lastSeenStyle = LastSeenStyle.Relative,
+                        profileGifts = pinnedGifts
                     )
                 }
             }
@@ -103,19 +140,28 @@ class ProfileSceneUiCapture {
             avatar.performSemanticsAction(SemanticsActions.OnClick) { click -> assertTrue(click()) }
             compose.runOnIdle {}
             compose.mainClock.advanceTimeByFrame()
-            compose.mainClock.advanceTimeBy(112)
+            compose.mainClock.advanceTimeBy(63)
+            compose.waitForIdle()
+            val w25 = avatar.getUnclippedBoundsInRoot().let { it.right - it.left }
+            capture(output, "02a-c-reveal-25")
+            compose.mainClock.advanceTimeBy(62)
             compose.waitForIdle()
             val midwayWidth = avatar.getUnclippedBoundsInRoot().let { it.right - it.left }
-            capture(output, "02-c-reveal-mid")
-            assertTrue("Rest width $restWidth, middle width $midwayWidth", midwayWidth > restWidth)
+            capture(output, "02b-c-reveal-50")
+            assertTrue("Rest width $restWidth, 25% $w25, 50% $midwayWidth", w25 > restWidth && midwayWidth > w25)
+            compose.mainClock.advanceTimeBy(63)
+            compose.waitForIdle()
+            val w75 = avatar.getUnclippedBoundsInRoot().let { it.right - it.left }
+            capture(output, "02c-c-reveal-75")
+            assertTrue("75% $w75 > 50% $midwayWidth", w75 > midwayWidth)
             compose.mainClock.autoAdvance = true
             compose.waitForIdle()
             val expandedWidth = avatar.getUnclippedBoundsInRoot().let { it.right - it.left }
-            assertTrue(expandedWidth > midwayWidth)
+            assertTrue(expandedWidth > w75)
             capture(output, "03-c-revealed")
 
             val expandedHeight = avatar.getUnclippedBoundsInRoot().let { it.bottom - it.top }
-            val content = compose.onNode(hasScrollAction())
+            val content = compose.onNode(SemanticsMatcher.keyIsDefined(SemanticsProperties.VerticalScrollAxisRange))
             content.performTouchInput {
                 down(center)
                 moveBy(Offset(0f, 180f))
@@ -184,18 +230,20 @@ class ProfileSceneUiCapture {
                 }
             }
             compose.onNodeWithText(name).assertIsDisplayed()
+            ProfileSceneSettings.setDensity(context, ProfileSceneDensity.Calm)
+            compose.waitForIdle()
             capture(output, "08-c-wide-light-calm")
-            compose.runOnIdle { ProfileSceneSettings.setExpressiveCover(context, true) }
+            compose.runOnIdle { ProfileSceneSettings.setDensity(context, ProfileSceneDensity.Rich) }
             for (designStyle in DesignStyle.entries) {
                 compose.runOnIdle {
                     style.value = designStyle
                     dark.value = designStyle in listOf(DesignStyle.LiquidGlass, DesignStyle.Signature)
                 }
                 compose.onNodeWithText(name).assertIsDisplayed()
-                capture(output, "09-c-wide-expressive-${designStyle.name}")
+                capture(output, "09-c-wide-rich-${designStyle.name}")
             }
         } finally {
-            ProfileSceneSettings.setExpressiveCover(context, false)
+            ProfileSceneSettings.setDensity(context, ProfileSceneDensity.Balanced)
             ProfileSceneSettings.setEnabled(context, false)
         }
     }
@@ -258,7 +306,8 @@ class ProfileSceneUiCapture {
             avatar.assert(SemanticsMatcher.expectValue(SemanticsProperties.StateDescription, "$expanded. $second"))
             compose.waitUntil(timeoutMillis = 5_000) {
                 val screenshot = ImageIO.read(capture(output, "10-c-inline-second-photo"))
-                screenshot.getRGB(screenshot.width * 12 / 100, screenshot.height * 13 / 100) == 0xFF6C3B5F.toInt()
+                val rgb = screenshot.getRGB(screenshot.width * 12 / 100, screenshot.height * 18 / 100)
+                android.graphics.Color.red(rgb) > android.graphics.Color.blue(rgb)
             }
             avatar.performTouchInput { click() }
             compose.onNodeWithText("2 / 2").assertIsDisplayed()

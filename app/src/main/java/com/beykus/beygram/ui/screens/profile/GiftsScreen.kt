@@ -8,6 +8,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
@@ -27,12 +28,15 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.ui.draw.clip
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.selection.toggleable
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.CardGiftcard
+import androidx.compose.material.icons.rounded.PushPin
 import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.material.icons.rounded.Star
+import androidx.compose.material.icons.rounded.VisibilityOff
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
@@ -66,6 +70,8 @@ import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.beykus.beygram.R
@@ -84,9 +90,12 @@ import com.beykus.beygram.domain.model.GiftSendOutcome
 import com.beykus.beygram.domain.model.GiftSendStep
 import com.beykus.beygram.domain.model.GiftTextValidation
 import com.beykus.beygram.domain.model.GiftsInfo
+import com.beykus.beygram.domain.model.GiftsScreenTab
 import com.beykus.beygram.domain.model.MonetizationUnavailableException
 import com.beykus.beygram.domain.model.GiftRarityTier
+import com.beykus.beygram.domain.model.ReceivedGiftFilter
 import com.beykus.beygram.domain.model.ReceivedGiftItem
+import com.beykus.beygram.domain.model.ReceivedGiftSort
 import com.beykus.beygram.domain.model.ReceivedGiftsPage
 import com.beykus.beygram.domain.model.ResaleGiftItem
 import com.beykus.beygram.domain.model.ResaleGiftsPage
@@ -142,7 +151,10 @@ fun GiftsScreen(
     loadResale: suspend (Long, String) -> Result<ResaleGiftsPage> = { _, _ -> Result.failure(UnsupportedOperationException()) },
     buyResale: suspend (Long, String, Long) -> GiftSendOutcome = { _, _, _ -> GiftSendOutcome.Blocked(com.beykus.beygram.domain.UiText.Res(R.string.err_gift_unavailable)) },
     toggleGiftSaved: suspend (String, Boolean) -> Result<Unit> = { _, _ -> Result.failure(UnsupportedOperationException()) },
-    setPinnedGifts: suspend (List<String>) -> Result<Unit> = { Result.failure(UnsupportedOperationException()) }
+    setPinnedGifts: suspend (List<String>) -> Result<Unit> = { Result.failure(UnsupportedOperationException()) },
+    initialTab: GiftsScreenTab = GiftsScreenTab.Received,
+    loadReceivedPage: suspend (collectionId: Int, filter: ReceivedGiftFilter, sort: ReceivedGiftSort, offset: String) -> Result<ReceivedGiftsPage> =
+        { _, _, _, offset -> loadMoreReceived(offset) }
 ) {
     val palette = beyGramPalette()
     val design = LocalDesignSystem.current
@@ -154,6 +166,12 @@ fun GiftsScreen(
     var detailError by remember { mutableStateOf<String?>(null) }
     var catalogFilter by rememberSaveable { mutableStateOf(GiftCatalogFilter.All) }
     var catalogQuery by rememberSaveable { mutableStateOf("") }
+    var activeTab by rememberSaveable(accountId, profileId, isSelf, initialTab) { mutableStateOf(initialTab) }
+    var selectedCollectionId by rememberSaveable(accountId, profileId, isSelf) { mutableIntStateOf(0) }
+    var receivedFilter by rememberSaveable(accountId, profileId, isSelf) { mutableStateOf(ReceivedGiftFilter.All) }
+    var receivedSort by rememberSaveable(accountId, profileId, isSelf) { mutableStateOf(ReceivedGiftSort.Date) }
+    var loadingReceivedFilter by remember { mutableStateOf(false) }
+    var receivedFilterError by remember { mutableStateOf<String?>(null) }
     val listingState by GiftListingStore.state.collectAsState()
     val listingOperation = listingState[accountId]
     var info by remember { mutableStateOf<GiftsInfo?>(null) }
@@ -326,16 +344,60 @@ fun GiftsScreen(
         pendingGiftId = gift.id
     }
 
+    fun applyReceivedQuery(
+        collectionId: Int = selectedCollectionId,
+        filter: ReceivedGiftFilter = receivedFilter,
+        sort: ReceivedGiftSort = receivedSort
+    ) {
+        selectedCollectionId = collectionId
+        receivedFilter = filter
+        receivedSort = sort
+        generation++
+        val currentGeneration = generation
+        loadingMore = false
+        moreError = null
+        receivedFilterError = null
+        receivedNextOffset = ""
+        scope.launch {
+            loadingReceivedFilter = true
+            try {
+                loadReceivedPage(collectionId, filter, sort, "")
+                    .onSuccess { page ->
+                        if (generation != currentGeneration) return@onSuccess
+                        info = info?.copy(received = page.gifts)
+                        receivedNextOffset = page.nextOffset
+                    }
+                    .onFailure { failure ->
+                        if (generation == currentGeneration) {
+                            receivedFilterError = failure.userMessage(context, R.string.gifts_received_error)
+                        }
+                    }
+            } catch (_: TimeoutCancellationException) {
+                if (generation == currentGeneration) {
+                    receivedFilterError = context.getString(R.string.err_monetization_timeout)
+                }
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (_: Exception) {
+                if (generation == currentGeneration) {
+                    receivedFilterError = context.getString(R.string.gifts_received_error)
+                }
+            } finally {
+                if (generation == currentGeneration) loadingReceivedFilter = false
+            }
+        }
+    }
+
     fun requestMoreReceived() {
         // A refresh may still show the previous page; never page from its stale offset.
-        if (loading || loadingMore || !isSelf || receivedNextOffset.isBlank()) return
+        if (loading || loadingMore || loadingReceivedFilter || receivedNextOffset.isBlank()) return
         val requestedOffset = receivedNextOffset
         val currentGeneration = generation
         scope.launch {
             loadingMore = true
             moreError = null
             try {
-                loadMoreReceived(requestedOffset)
+                loadReceivedPage(selectedCollectionId, receivedFilter, receivedSort, requestedOffset)
                     .onSuccess { page ->
                         if (generation != currentGeneration) return@onSuccess
                         info = info?.copy(received = mergeReceivedGifts(info?.received.orEmpty(), page.gifts))
@@ -449,8 +511,27 @@ fun GiftsScreen(
                             onOpenStars = onOpenStars
                         )
                     }
-                    if (isSelf) {
-                        if (listingGift == null && listingOperation != null) item("listing_status") {
+                    item("tab_switcher") {
+                        Row(
+                            Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 6.dp),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            FilterChip(
+                                selected = activeTab == GiftsScreenTab.Received,
+                                onClick = { activeTab = GiftsScreenTab.Received },
+                                label = { Text(stringResource(R.string.gifts_tab_received)) },
+                                modifier = Modifier.weight(1f).heightIn(min = 48.dp)
+                            )
+                            FilterChip(
+                                selected = activeTab == GiftsScreenTab.Shop,
+                                onClick = { activeTab = GiftsScreenTab.Shop },
+                                label = { Text(stringResource(R.string.gifts_tab_shop)) },
+                                modifier = Modifier.weight(1f).heightIn(min = 48.dp)
+                            )
+                        }
+                    }
+                    if (activeTab == GiftsScreenTab.Received) {
+                        if (isSelf && listingGift == null && listingOperation != null) item("listing_status") {
                             val result = listingOperation?.outcome
                             Column(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 8.dp)) {
                                 Text(
@@ -468,8 +549,97 @@ fun GiftsScreen(
                                 }
                             }
                         }
-                        item("received_header") {
-                            MonetizationSectionHeader(stringResource(R.string.gifts_received_title))
+                        if (gifts.collections.isNotEmpty()) {
+                            item("collections_chips") {
+                                LazyRow(
+                                    contentPadding = PaddingValues(horizontal = 16.dp, vertical = 4.dp),
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                ) {
+                                    item("collection_all") {
+                                        FilterChip(
+                                            selected = selectedCollectionId == 0,
+                                            onClick = { applyReceivedQuery(collectionId = 0) },
+                                            label = { Text(stringResource(R.string.gifts_filter_all)) }
+                                        )
+                                    }
+                                    items(gifts.collections, key = { it.id }) { collection ->
+                                        val labelText = buildString {
+                                            if (collection.emoji.isNotBlank()) {
+                                                append(collection.emoji)
+                                                append(' ')
+                                            }
+                                            append(collection.name.ifBlank { stringResource(R.string.gifts_collections_title) })
+                                            if (collection.giftCount > 0) {
+                                                append(" (")
+                                                append(collection.giftCount)
+                                                append(')')
+                                            }
+                                        }
+                                        FilterChip(
+                                            selected = selectedCollectionId == collection.id,
+                                            onClick = { applyReceivedQuery(collectionId = collection.id) },
+                                            label = { Text(labelText) }
+                                        )
+                                    }
+                                }
+                            }
+                        } else if (gifts.collectionsUnavailable) {
+                            item("collections_error") {
+                                Text(
+                                    stringResource(R.string.gifts_collections_error),
+                                    color = palette.danger,
+                                    fontSize = 13.sp,
+                                    modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 4.dp)
+                                        .errorAnnouncement()
+                                )
+                            }
+                        }
+                        item("received_filters") {
+                            @OptIn(ExperimentalLayoutApi::class)
+                            FlowRow(
+                                Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
+                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                verticalArrangement = Arrangement.spacedBy(4.dp)
+                            ) {
+                                val filterOptions = buildList {
+                                    add(ReceivedGiftFilter.All to R.string.gifts_filter_all)
+                                    add(ReceivedGiftFilter.Collectible to R.string.gifts_received_filter_collectible)
+                                    add(ReceivedGiftFilter.Regular to R.string.gifts_received_filter_regular)
+                                    if (isSelf) {
+                                        add(ReceivedGiftFilter.Saved to R.string.gifts_received_filter_saved)
+                                        add(ReceivedGiftFilter.Unsaved to R.string.gifts_received_filter_unsaved)
+                                    }
+                                }
+                                filterOptions.forEach { (option, labelRes) ->
+                                    FilterChip(
+                                        selected = receivedFilter == option,
+                                        onClick = { applyReceivedQuery(filter = option) },
+                                        label = { Text(stringResource(labelRes)) }
+                                    )
+                                }
+                                FilterChip(
+                                    selected = receivedSort == ReceivedGiftSort.Price,
+                                    onClick = {
+                                        val nextSort = if (receivedSort == ReceivedGiftSort.Price) ReceivedGiftSort.Date else ReceivedGiftSort.Price
+                                        applyReceivedQuery(sort = nextSort)
+                                    },
+                                    label = { Text(stringResource(R.string.gifts_received_sort_price)) }
+                                )
+                            }
+                        }
+                        if (loadingReceivedFilter) item("received_filter_loading") {
+                            LinearProgressIndicator(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp), color = palette.accent)
+                        }
+                        receivedFilterError?.let { message ->
+                            item("received_filter_error") {
+                                Text(
+                                    message,
+                                    color = palette.danger,
+                                    fontSize = 14.sp,
+                                    modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 6.dp)
+                                        .errorAnnouncement()
+                                )
+                            }
                         }
                         if (gifts.receivedUnavailable) {
                             item("received_error") {
@@ -481,30 +651,48 @@ fun GiftsScreen(
                                         .errorAnnouncement()
                                 )
                             }
-                        } else if (gifts.received.isEmpty()) {
+                        } else if (gifts.received.isEmpty() && !loadingReceivedFilter) {
                             item("received_empty") {
                                 Text(
                                     stringResource(R.string.gifts_received_empty),
                                     color = palette.textSecondary,
                                     fontSize = 14.sp,
-                                    modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 6.dp)
+                                    modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 12.dp)
                                 )
                             }
-                        } else {
-                            items(gifts.received, key = { it.id }) { gift ->
-                                ReceivedGiftRow(gift, onClick = { detailTarget = GiftDetailTarget.Received(gift) })
-                                if (gift.isUpgraded && !gift.wasRefunded && gift.id.isNotBlank()) {
-                                    TextButton(
-                                        onClick = { listingGift = gift },
-                                        enabled = !sending && pendingGiftId == 0L && listingOperation?.inFlight != true,
-                                        modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)
-                                    ) { Text(stringResource(R.string.gift_listing_manage)) }
+                        } else if (gifts.received.isNotEmpty()) {
+                            item("received_grid") {
+                                BoxWithConstraints(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 6.dp)) {
+                                    val columns = (maxWidth / 112.dp).toInt().coerceIn(2, 5)
+                                    val rows = gifts.received.chunked(columns)
+                                    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                                        rows.forEach { rowGifts ->
+                                            Row(
+                                                Modifier.fillMaxWidth(),
+                                                horizontalArrangement = Arrangement.spacedBy(10.dp)
+                                            ) {
+                                                rowGifts.forEach { gift ->
+                                                    ReceivedGiftGridTile(
+                                                        gift = gift,
+                                                        isSelf = isSelf,
+                                                        sending = sending || pendingGiftId != 0L || listingOperation?.inFlight == true,
+                                                        onClick = { detailTarget = GiftDetailTarget.Received(gift) },
+                                                        onManageListing = { listingGift = gift },
+                                                        modifier = Modifier.weight(1f)
+                                                    )
+                                                }
+                                                repeat(columns - rowGifts.size) {
+                                                    Spacer(Modifier.weight(1f))
+                                                }
+                                            }
+                                        }
+                                    }
                                 }
                             }
                             if (receivedNextOffset.isNotBlank()) item("received_more") {
                                 TextButton(
                                     onClick = ::requestMoreReceived,
-                                    enabled = !loadingMore && !loading,
+                                    enabled = !loadingMore && !loading && !loadingReceivedFilter,
                                     modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)
                                 ) {
                                     Text(stringResource(R.string.gifts_received_more))
@@ -523,84 +711,6 @@ fun GiftsScreen(
                                         fontSize = 14.sp,
                                         modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 8.dp)
                                             .errorAnnouncement()
-                                    )
-                                }
-                            }
-                        }
-                        item("collections_header") {
-                            MonetizationSectionHeader(stringResource(R.string.gifts_collections_title))
-                        }
-                        if (gifts.collectionsUnavailable) {
-                            item("collections_error") {
-                                Text(
-                                    stringResource(R.string.gifts_collections_error),
-                                    color = palette.danger,
-                                    fontSize = 14.sp,
-                                    modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 6.dp)
-                                        .errorAnnouncement()
-                                )
-                            }
-                        } else if (gifts.collections.isEmpty()) {
-                            item("collections_empty") {
-                                Text(
-                                    stringResource(R.string.gifts_collections_empty),
-                                    color = palette.textSecondary,
-                                    fontSize = 14.sp,
-                                    modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 6.dp)
-                                )
-                            }
-                        } else {
-                            items(gifts.collections, key = { it.id }) { collection -> GiftCollectionRow(collection) }
-                        }
-                        item("catalog_header") {
-                            MonetizationSectionHeader(stringResource(R.string.gifts_catalog_title))
-                        }
-                        item("catalog_own_hint") {
-                            Text(
-                                stringResource(R.string.gifts_catalog_own_hint),
-                                color = palette.textSecondary,
-                                fontSize = 13.sp,
-                                modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 6.dp)
-                            )
-                        }
-                        if (gifts.catalog.isEmpty()) {
-                            item("catalog_empty") {
-                                Text(
-                                    stringResource(R.string.gifts_catalog_empty),
-                                    color = palette.textSecondary,
-                                    fontSize = 14.sp,
-                                    modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 6.dp)
-                                )
-                            }
-                        } else {
-                            item("catalog_filter_own") {
-                                GiftCatalogFilterBar(
-                                    filter = catalogFilter,
-                                    query = catalogQuery,
-                                    onFilter = { catalogFilter = it },
-                                    onQuery = { catalogQuery = it }
-                                )
-                            }
-                            val filteredCatalog = filterGiftCatalog(gifts.catalog, catalogFilter, catalogQuery)
-                            if (filteredCatalog.isEmpty()) {
-                                item("catalog_filtered_empty") {
-                                    Text(
-                                        stringResource(R.string.gifts_catalog_empty),
-                                        color = palette.textSecondary,
-                                        fontSize = 14.sp,
-                                        modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 6.dp)
-                                    )
-                                }
-                            } else {
-                                items(filteredCatalog, key = { it.id }) { gift ->
-                                    GiftCatalogRow(
-                                        gift = gift,
-                                        blockReason = null,
-                                        enabled = false,
-                                        showSend = false,
-                                        onSend = {},
-                                        onAuction = { if (!sending && pendingGiftId == 0L) auctionGift = gift },
-                                        onResale = { resaleCatalog = gift }
                                     )
                                 }
                             }
@@ -805,8 +915,15 @@ fun GiftsScreen(
                     scope.launch {
                         toggleGiftSaved(g.id, !g.isSaved).fold(
                             onSuccess = {
+                                val nextSaved = !g.isSaved
+                                info = info?.let { current ->
+                                    current.copy(
+                                        received = current.received.map { item ->
+                                            if (item.id == g.id) item.copy(isSaved = nextSaved) else item
+                                        }
+                                    )
+                                }
                                 detailTarget = null
-                                reload++
                             },
                             onFailure = { detailError = it.userMessage(context, R.string.feature_action_failed) }
                         )
@@ -823,8 +940,15 @@ fun GiftsScreen(
                     scope.launch {
                         setPinnedGifts(nextPinned).fold(
                             onSuccess = {
+                                val pinnedSet = nextPinned.toSet()
+                                info = info?.let { current ->
+                                    current.copy(
+                                        received = current.received.map { item ->
+                                            item.copy(isPinned = item.id in pinnedSet)
+                                        }
+                                    )
+                                }
                                 detailTarget = null
-                                reload++
                             },
                             onFailure = { detailError = it.userMessage(context, R.string.feature_action_failed) }
                         )
@@ -1016,6 +1140,85 @@ private fun GiftCatalogRow(
             )
             TextButton(onClick = onResale, modifier = Modifier.heightIn(min = 48.dp)) {
                 Text(stringResource(R.string.gifts_resale_title))
+            }
+        }
+    }
+}
+
+@Composable
+internal fun ReceivedGiftGridTile(
+    gift: ReceivedGiftItem,
+    isSelf: Boolean,
+    sending: Boolean,
+    onClick: () -> Unit,
+    onManageListing: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val palette = beyGramPalette()
+    Column(
+        modifier
+            .clip(RoundedCornerShape(14.dp))
+            .background(palette.surface2.copy(alpha = 0.65f))
+            .clickable(role = Role.Button, onClick = onClick)
+            .padding(8.dp)
+            .semantics(mergeDescendants = true) {},
+        horizontalAlignment = Alignment.CenterHorizontally
+    ) {
+        Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
+            GiftArtworkFrame(
+                visual = gift.visual,
+                emoji = gift.emoji,
+                collectible = gift.collectible,
+                frameSize = 68.dp,
+                stickerSize = 48.dp,
+                symbolSize = 18.dp,
+                cornerRadius = 14.dp
+            )
+            if (gift.isPinned) {
+                Icon(
+                    Icons.Rounded.PushPin,
+                    contentDescription = stringResource(R.string.gifts_pinned),
+                    tint = palette.accentInk,
+                    modifier = Modifier.align(Alignment.TopEnd).size(15.dp)
+                )
+            }
+            if (isSelf && !gift.isSaved) {
+                Icon(
+                    Icons.Rounded.VisibilityOff,
+                    contentDescription = stringResource(R.string.gifts_received_filter_unsaved),
+                    tint = palette.textSecondary,
+                    modifier = Modifier.align(Alignment.TopStart).size(15.dp)
+                )
+            }
+        }
+        Spacer(Modifier.height(6.dp))
+        val title = gift.collectible?.let { "#${it.number}" }
+            ?: gift.name.ifBlank { stringResource(R.string.gifts_gift_generic) }
+        Text(
+            title,
+            color = palette.textPrimary,
+            fontSize = 12.sp,
+            fontWeight = FontWeight.SemiBold,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            textAlign = TextAlign.Center
+        )
+        gift.starCount?.let { stars ->
+            Text(
+                stringResource(R.string.gifts_cost, formatStarAmount(stars)),
+                color = palette.accentInk,
+                fontSize = 11.sp,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+        }
+        if (isSelf && gift.isUpgraded && !gift.wasRefunded && gift.id.isNotBlank()) {
+            TextButton(
+                onClick = onManageListing,
+                enabled = !sending,
+                modifier = Modifier.heightIn(min = 36.dp)
+            ) {
+                Text(stringResource(R.string.gift_listing_manage), fontSize = 11.sp, maxLines = 1)
             }
         }
     }

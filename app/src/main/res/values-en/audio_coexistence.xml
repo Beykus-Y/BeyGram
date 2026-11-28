@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="coexistence_title">Play music with messages</string>
+    <string name="coexistence_music_volume">Music volume</string>
+    <string name="coexistence_speech_volume">Message volume</string>
+    <string name="coexistence_hide_actions">Hide action settings</string>
+    <string name="coexistence_show_actions">Configure each action</string>
+    <string name="coexistence_external_note">Android and the external player determine how the request is handled.</string>
+    <string name="coexistence_recording_note">Sound from the speaker may be picked up by the microphone.</string>
+    <string name="coexistence_reset">Reset settings</string>
+    <string name="coexistence_record_voice">Record voice message</string>
+    <string name="coexistence_record_circle">Record video message</string>
+    <string name="coexistence_play_voice">Play voice message</string>
+    <string name="coexistence_play_circle">Play video message</string>
+    <string name="coexistence_internal">BeyGram music</string>
+    <string name="coexistence_external">External audio</string>
+    <string name="coexistence_continue">Keep playing</string>
+    <string name="coexistence_duck">Duck</string>
+    <string name="coexistence_pause">Pause</string>
+    <string name="coexistence_request_duck">Request ducking</string>
+    <string name="coexistence_request_pause">Request pause</string>
+    <string name="coexistence_duck_volume">Ducked music volume</string>
+    <string name="coexistence_selection">%1$s · %2$s</string>
+    <string name="coexistence_percent">%1$s · %2$d%%</string>
+    <string name="coexistence_pause_lane">Pause %1$s</string>
+    <string name="coexistence_play_lane">Play %1$s</string>
+</resources>

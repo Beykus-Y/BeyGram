@@ -11,6 +11,7 @@ import com.beykus.beygram.ui.components.BeyGramDialog
 import com.beykus.beygram.ui.components.BeyGramPopover
 import com.beykus.beygram.ui.components.BeyGramPopoverItem
 import androidx.compose.runtime.*
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import com.beykus.beygram.R
@@ -28,9 +29,11 @@ internal fun ChatInfoMenu(
     onSetBlocked: suspend (Boolean) -> Result<Unit>,
     onReportSpam: suspend () -> Result<Unit>,
     onDelete: suspend () -> Result<Unit>,
-    onDeleted: () -> Unit
+    onDeleted: () -> Unit,
+    iconTint: Color? = null
 ) {
     val palette = beyGramPalette()
+    val resolvedIconTint = iconTint ?: palette.textPrimary
     val scope = rememberCoroutineScope()
     var expanded by remember { mutableStateOf(false) }
     var confirmation by remember { mutableStateOf<String?>(null) }
@@ -39,7 +42,7 @@ internal fun ChatInfoMenu(
     var error by remember { mutableStateOf<String?>(null) }
     Box {
         IconButton(onClick = { expanded = true }) {
-            Icon(Icons.Rounded.MoreVert, stringResource(R.string.feature_more_actions), tint = palette.textPrimary)
+            Icon(Icons.Rounded.MoreVert, stringResource(R.string.feature_more_actions), tint = resolvedIconTint)
         }
         BeyGramPopover(expanded = expanded, onDismissRequest = { expanded = false }) {
             if (canBlock) BeyGramPopoverItem(

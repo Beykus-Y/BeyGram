@@ -33,6 +33,7 @@ import androidx.compose.material.icons.rounded.Lock
 import androidx.compose.material.icons.rounded.Notifications
 import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.material.icons.rounded.Star
+import androidx.compose.material.icons.rounded.Verified
 import androidx.compose.material.icons.rounded.WorkspacePremium
 import androidx.compose.material3.*
 import com.beykus.beygram.ui.components.Button
@@ -51,8 +52,10 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalWindowInfo
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalLayoutDirection
@@ -138,6 +141,7 @@ fun ProfileScreen(
     onContentOpened: (Long) -> Unit = {}, onOpenMessage: (messageId: Long, forumTopicId: Long) -> Unit = { _, _ -> },
     onPremium: () -> Unit = {}, onStars: () -> Unit = {},
     onGifts: (profileId: Long, isSelf: Boolean, title: String) -> Unit = { _, _, _ -> },
+    onSendGift: ((profileId: Long, title: String) -> Unit)? = null,
     /** Repository-backed automatic download for shared media and profile galleries. */
     autoDownloadFile: ((AutoDownloadRequest) -> Unit)? = null,
     /** Creates a device-specific E2E chat for a regular user; null hides the profile entry. */
@@ -169,7 +173,7 @@ fun ProfileScreen(
     remember(context) { ProfileSceneSettings.load(context) }
     val sceneEnabled by ProfileSceneSettings.enabled.collectAsState()
     val sceneC = ProfileSceneSettings.variantFor(sceneEnabled) == ProfileVariant.C
-    val expressiveCover = sceneC && ProfileSceneSettings.expressiveCover.collectAsState().value
+    val scenePreset by ProfileSceneSettings.density.collectAsState()
     var pendingPhoto by rememberSaveable { mutableStateOf<OutgoingMedia?>(null) }
     var preparing by remember { mutableStateOf(false) }
     var saving by remember { mutableStateOf(false) }
@@ -261,6 +265,7 @@ fun ProfileScreen(
                         scrollPx = scrollState.value.toFloat(),
                         stageTopPx = sceneHeights.stageTopPx.toFloat(),
                         toolbarBottomPx = sceneHeights.toolbarBottomPx.toFloat(),
+                        windowTopPx = sceneHeights.windowTopPx.toFloat(),
                         titleHeightPx = sceneHeights.titleHeightPx.toFloat(),
                         statusHeightPx = sceneHeights.statusHeightPx.toFloat(),
                         badgesHeightPx = sceneHeights.badgesHeightPx.toFloat(),
@@ -290,11 +295,25 @@ fun ProfileScreen(
         }
         val revealActive by remember(reveal) { derivedStateOf { reveal.value > 0f || photoExpanded } }
         var foldingPhoto by remember(reveal) { mutableStateOf(false) }
-        val stretchEnabled by remember(sceneC, sceneReduceMotion, state.info?.id, sceneDensity, sceneWindow, scenePhoto) {
-            derivedStateOf { sceneC && !sceneReduceMotion && revealAvailable && reveal.value >= 1f && !foldingPhoto }
+        val immersiveMix by remember(sceneC, revealAvailable, reveal, collapse) {
+            derivedStateOf {
+                if (sceneC && revealAvailable) (reveal.value * (1f - collapse.value)).coerceIn(0f, 1f)
+                else 0f
+            }
+        }
+        val canPullReveal by remember(sceneC, revealAvailable, foldingPhoto, showPhoto) {
+            derivedStateOf { sceneC && revealAvailable && !foldingPhoto && !showPhoto }
         }
         val stretchConnection = rememberProfilePhotoStretch(
-            stretch, scrollState, stretchEnabled, with(LocalDensity.current) { 56.dp.toPx() }
+            state = stretch,
+            reveal = reveal,
+            scroll = scrollState,
+            canReveal = canPullReveal,
+            reduceMotion = sceneReduceMotion,
+            revealDragPx = with(LocalDensity.current) { 180.dp.toPx() },
+            maxDistancePx = with(LocalDensity.current) { 56.dp.toPx() },
+            scope = scope,
+            onSettled = { expanded -> photoExpanded = expanded }
         )
         suspend fun animateReveal(target: Float) {
             if (sceneReduceMotion) reveal.snapTo(target)
@@ -366,47 +385,73 @@ fun ProfileScreen(
         }
         val compactTitle = state.info?.profileTitleText()
         val compactStatus = state.info?.let { info -> info.profileSubtitleLine(lastSeenStyle) }
-        Box(Modifier.fillMaxSize().glassScreenBackground(design, palette.screen).windowInsetsPadding(WindowInsets.safeDrawing)) {
-        Column(Modifier.fillMaxSize()) {
-        ProfileToolbar(
-            if (isOwnProfile) stringResource(R.string.profile_title_own) else stringResource(R.string.profile_title_chat),
-            {
-                if (!saving && !preparing) {
-                    if (sceneC && revealActive) closeProfilePhoto()
-                    else profileTransition?.back() ?: onBack()
-                }
-            },
-            collapse = if (state.info != null) collapse else null,
-            compactTitle = compactTitle,
-            compactStatus = compactStatus,
-            compactAvatar = state.info?.let { info ->
+        val toolbarComposable: @Composable () -> Unit = {
+            val toolbarTint = if (sceneC) lerp(palette.textPrimary, Color.White, immersiveMix) else palette.textPrimary
+            ProfileToolbar(
+                if (isOwnProfile) stringResource(R.string.profile_title_own) else stringResource(R.string.profile_title_chat),
                 {
-                    if (sceneC) Spacer(Modifier.size(40.dp))
-                    else TelegramAvatar(info.initials, palette.accent, 40.dp, info.photo, observeFile, downloadFile,
-                        Modifier.clearAndSetSemantics {})
-                }
-            },
-            collapseGeometry = collapseGeometry,
-            transition = profileTransition
-        ) {
-            if (!isOwnProfile) ChatInfoMenu(
-                canBlock = state.info?.kind in listOf(ProfileKind.Person, ProfileKind.Bot) && state.info?.isSelf != true,
-                canReport = state.info?.kind in listOf(ProfileKind.Person, ProfileKind.Bot) && state.info?.isSelf != true,
-                isBlocked = state.info?.isBlocked == true,
-                canDelete = true, onSetBlocked = onSetBlocked, onReportSpam = onReportSpam, onDelete = onDelete, onDeleted = onDeleted
-            )
+                    if (!saving && !preparing) {
+                        if (sceneC && revealActive) closeProfilePhoto()
+                        else profileTransition?.back() ?: onBack()
+                    }
+                },
+                collapse = if (state.info != null) collapse else null,
+                compactTitle = compactTitle,
+                compactStatus = compactStatus,
+                compactAvatar = state.info?.let { info ->
+                    {
+                        if (sceneC) {
+                            TelegramAvatar(
+                                info.initials,
+                                palette.accent,
+                                40.dp,
+                                info.photo,
+                                observeFile,
+                                downloadFile,
+                                Modifier.clearAndSetSemantics {}
+                            )
+                        } else {
+                            TelegramAvatar(
+                                info.initials,
+                                palette.accent,
+                                40.dp,
+                                info.photo,
+                                observeFile,
+                                downloadFile,
+                                Modifier.clearAndSetSemantics {}
+                            )
+                        }
+                    }
+                },
+                collapseGeometry = collapseGeometry,
+                transition = profileTransition,
+                immersiveFraction = if (sceneC) ({ immersiveMix }) else null
+            ) {
+                if (!isOwnProfile) ChatInfoMenu(
+                    canBlock = state.info?.kind in listOf(ProfileKind.Person, ProfileKind.Bot) && state.info?.isSelf != true,
+                    canReport = state.info?.kind in listOf(ProfileKind.Person, ProfileKind.Bot) && state.info?.isSelf != true,
+                    isBlocked = state.info?.isBlocked == true,
+                    canDelete = true,
+                    onSetBlocked = onSetBlocked,
+                    onReportSpam = onReportSpam,
+                    onDelete = onDelete,
+                    onDeleted = onDeleted,
+                    iconTint = toolbarTint
+                )
+            }
         }
-        if (state.isLoading) LinearProgressIndicator(Modifier.fillMaxWidth().semantics { contentDescription = loadingText })
-        state.error?.let { ProfileLoadError(it.resolve(), state.isLoading, onRefresh) }
+        Box(
+            Modifier.fillMaxSize().glassScreenBackground(design, palette.screen).windowInsetsPadding(WindowInsets.safeDrawing)
+                .onGloballyPositioned { sceneHeights.windowTopPx = it.boundsInWindow().top.toInt() }
+        ) {
+        var toolbarHeightPx by remember { mutableIntStateOf(0) }
         val scrollBody: @Composable () -> Unit = {
             state.info?.let { info ->
                 val identityModifier = if (sceneC) {
-                    Modifier.fillMaxWidth().wrapContentWidth().widthIn(max = 560.dp).fillMaxWidth()
-                        .clip(styledShape(24.dp))
-                        .profileSceneCover(palette, expressiveCover)
-                } else Modifier.fillMaxWidth()
+                    Modifier.fillMaxWidth()
+                } else Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 12.dp)
                 Column(
-                    identityModifier.padding(start = 20.dp, end = 20.dp, top = 12.dp, bottom = 16.dp),
+                    identityModifier,
                     horizontalAlignment = Alignment.CenterHorizontally
                 ) {
                     val avatarAtRest by remember { derivedStateOf { collapse.value <= 0f } }
@@ -508,8 +553,12 @@ fun ProfileScreen(
                     }
                     }
                     val titleSlot: @Composable () -> Unit = {
-                        Text(info.profileTitleText(), color = palette.textPrimary, fontSize = 26.sp, fontWeight = FontWeight.Bold, textAlign = TextAlign.Center,
-                        modifier = Modifier
+                        val titleColor = if (sceneC) lerp(palette.textPrimary, Color.White, immersiveMix) else palette.textPrimary
+                        val verifiedColor = if (sceneC) lerp(palette.accent, Color.White, immersiveMix) else palette.accent
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.Center,
+                            modifier = Modifier
                             .graphicsLayer {
                                 alpha = expandedHeaderIdentityAlpha(collapse.value, collapseGeometry.overlayReady) *
                                     (profileTransition?.headerVisibility() ?: 1f)
@@ -525,36 +574,67 @@ fun ProfileScreen(
                                     profileTransition.reportTitle(visualBounds, transitionFingerprint)
                                 }
                             }
-                            .semantics { heading() })
+                            .semantics(mergeDescendants = true) { heading() }
+                        ) {
+                            Text(
+                                info.profileTitleText(),
+                                color = titleColor,
+                                fontSize = 26.sp,
+                                fontWeight = FontWeight.Bold,
+                                textAlign = TextAlign.Center,
+                                maxLines = 3,
+                                overflow = TextOverflow.Ellipsis,
+                                modifier = Modifier.weight(1f, fill = false)
+                            )
+                            if (sceneC && info.isVerified) {
+                                Spacer(Modifier.width(6.dp))
+                                Icon(
+                                    Icons.Rounded.Verified,
+                                    contentDescription = stringResource(R.string.profile_badge_verified),
+                                    tint = verifiedColor,
+                                    modifier = Modifier.size(20.dp)
+                                )
+                            }
+                            if (sceneC && info.isPremium) {
+                                Spacer(Modifier.width(6.dp))
+                                Icon(
+                                    Icons.Rounded.Star,
+                                    contentDescription = stringResource(R.string.profile_badge_premium),
+                                    tint = verifiedColor,
+                                    modifier = Modifier.size(20.dp)
+                                )
+                            }
+                        }
                     }
                     val statusSlot: @Composable () -> Unit = {
-                    Box(
-                        Modifier
-                            .graphicsLayer {
-                                alpha = expandedHeaderIdentityAlpha(collapse.value, collapseGeometry.overlayReady) *
-                                    (profileTransition?.headerVisibility() ?: 1f)
-                            }
-                            .onGloballyPositioned { coordinates ->
-                                val bounds = coordinates.boundsInWindow()
-                                val zeroBounds = bounds.translate(0f, scrollState.value.toFloat())
-                                collapseGeometry.expandedStatusAtZero = zeroBounds
-                                if (profileTransition != null && transitionFingerprint != null && (!sceneC || sceneHeights.measured)) {
-                                    val visualBounds = collapseGeometry.compactStatus?.let { compact ->
-                                        if (collapse.value > 0f) lerpRect(zeroBounds, compact, collapse.value) else bounds
-                                    } ?: bounds
-                                    profileTransition.reportStatus(visualBounds, transitionFingerprint)
+                        val statusColor = if (sceneC) lerp(palette.textSecondary, Color.White.copy(alpha = 0.88f), immersiveMix) else palette.textSecondary
+                        Box(
+                            Modifier
+                                .graphicsLayer {
+                                    alpha = expandedHeaderIdentityAlpha(collapse.value, collapseGeometry.overlayReady) *
+                                        (profileTransition?.headerVisibility() ?: 1f)
                                 }
-                            }
-                    ) {
-                        ProfileSubtitle(info, lastSeenStyle)
-                    }
+                                .onGloballyPositioned { coordinates ->
+                                    val bounds = coordinates.boundsInWindow()
+                                    val zeroBounds = bounds.translate(0f, scrollState.value.toFloat())
+                                    collapseGeometry.expandedStatusAtZero = zeroBounds
+                                    if (profileTransition != null && transitionFingerprint != null && (!sceneC || sceneHeights.measured)) {
+                                        val visualBounds = collapseGeometry.compactStatus?.let { compact ->
+                                            if (collapse.value > 0f) lerpRect(zeroBounds, compact, collapse.value) else bounds
+                                        } ?: bounds
+                                        profileTransition.reportStatus(visualBounds, transitionFingerprint)
+                                    }
+                                }
+                        ) {
+                            ProfileSubtitle(info, lastSeenStyle, textColor = statusColor)
+                        }
                     }
                     val badgesSlot: @Composable () -> Unit = {
-                    Box(Modifier.graphicsLayer {
-                        alpha = expandedBadgesAlpha(collapse.value) * (profileTransition?.headerVisibility() ?: 1f)
-                    }) {
-                        ProfileBadges(info)
-                    }
+                        Box(Modifier.graphicsLayer {
+                            alpha = expandedBadgesAlpha(collapse.value) * (profileTransition?.headerVisibility() ?: 1f)
+                        }) {
+                            ProfileBadges(info, includeVerified = !sceneC, includePremium = !sceneC)
+                        }
                     }
                     if (sceneC) {
                         ProfileSceneStage(
@@ -576,11 +656,22 @@ fun ProfileScreen(
                             avatarSlot()
                             Spacer(Modifier.height(16.dp))
                             titleSlot()
-                            Spacer(Modifier.height(4.dp))
-                            statusSlot()
+                            if (!compactStatus.isNullOrBlank()) {
+                                Spacer(Modifier.height(4.dp))
+                                statusSlot()
+                            }
                         }
-                        badgesSlot()
+                        if (info.isVerified || info.isPremium) {
+                            badgesSlot()
+                        }
                     }
+                    Column(
+                        Modifier.fillMaxWidth().then(
+                            if (sceneC) Modifier.padding(horizontal = 20.dp, vertical = 8.dp)
+                            else Modifier
+                        ),
+                        horizontalAlignment = Alignment.CenterHorizontally
+                    ) {
                     if (info.profileAudios.isNotEmpty()) {
                         Spacer(Modifier.height(14.dp))
                         ProfileMusicBar(
@@ -648,7 +739,7 @@ fun ProfileScreen(
                     } else if (info.kind == ProfileKind.Person || info.kind == ProfileKind.Secret) {
                         Spacer(Modifier.height(14.dp))
                         FilledTonalButton(
-                            onClick = { onGifts(info.id, false, info.title) },
+                            onClick = { onSendGift?.invoke(info.id, info.title) ?: onGifts(info.id, false, info.title) },
                             shape = styledShape(14.dp),
                             modifier = Modifier.heightIn(min = 48.dp),
                             colors = ButtonDefaults.filledTonalButtonColors(containerColor = palette.accentSoft, contentColor = palette.accentInk)
@@ -674,6 +765,7 @@ fun ProfileScreen(
                             Spacer(Modifier.size(8.dp))
                             Text(stringResource(R.string.secret_chat_start_from_profile), color = palette.accentInk, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
                         }
+                    }
                     }
                 }
                 if (isOwnProfile) ProfileMonetizationLinks(
@@ -723,53 +815,104 @@ fun ProfileScreen(
             photoError?.let { Text(it, color = palette.danger, modifier = Modifier.padding(20.dp).errorAnnouncement()) }
                 }
         if (sceneC) {
-            // Fixed viewport: this node does not scroll, so its window top is the toolbar bottom at every scroll offset.
-            Column(
-                Modifier.fillMaxSize().nestedScroll(stretchConnection).onGloballyPositioned {
-                    sceneHeights.toolbarBottomPx = it.boundsInWindow().top.toInt()
-                    sceneHeights.viewportHeightPx = it.size.height
+            state.info?.let { info ->
+                val coverHeightDp = with(LocalDensity.current) {
+                    val h = (sceneFrame?.stageBottomPx ?: (toolbarHeightPx + sceneHeights.stageHeightPx)).toFloat()
+                        .coerceAtLeast(0f)
+                    h.toDp()
                 }
-            ) {
-                Column(Modifier.fillMaxWidth().verticalScroll(scrollState).padding(bottom = 28.dp)) {
-                    // The content is at least the viewport plus the stage travel, so short profiles can still reach full collapse.
-                    Column(Modifier.fillMaxWidth().heightIn(min = with(LocalDensity.current) {
-                        profileSceneMinContentHeightPx(
-                            sceneHeights.viewportHeightPx.toFloat(),
-                            (sceneHeights.stageHeightPx + sceneHeights.stageTopPx - sceneHeights.toolbarBottomPx).toFloat()
-                        ).toDp()
-                    })) {
-                        scrollBody()
-                    }
-                }
-            }
-        } else {
-            Column(Modifier.fillMaxSize().verticalScroll(scrollState).padding(bottom = 28.dp)) {
-                scrollBody()
-            }
-        }
-
-        }
-        state.info?.let { info ->
-            if (sceneC) {
+                Box(
+                    Modifier
+                        .fillMaxWidth()
+                        .height(coverHeightDp)
+                        .profileSceneCover(
+                            palette = palette,
+                            accentTheme = info.profileAccentTheme,
+                            density = scenePreset,
+                            collapse = { collapse.value },
+                            reveal = { if (revealAvailable) reveal.value else 0f },
+                            reduceMotion = sceneReduceMotion
+                        )
+                )
                 ProfileSceneAvatarLayer(
                     initials = info.initials,
                     color = palette.accent,
                     photo = inlineHistory?.selected?.takeIf { revealActive }?.let {
                         AvatarPhoto(it.smallFileId, it.bigFileId, it.photoId)
                     } ?: info.photo,
-                    pageLabel = photoPosition.takeIf { pagingReady },
                     frame = { sceneFrame },
                     reveal = { if (revealAvailable) reveal.value else 0f },
                     visibility = {
-                        if (profileTransition?.flightActive() == true) 0f
+                        val base = if (profileTransition?.flightActive() == true) 0f
                         else profileTransition?.headerVisibility() ?: 1f
+                        base * (1f - windowProgress(collapse.value, 0.80f, 0.96f))
                     },
                     loadLargePhoto = revealActive && revealAvailable,
                     observeFile = observeFile,
                     downloadFile = downloadFile,
+                    surfaceFadeColor = palette.screen,
+                    photoCount = if (pagingReady && (inlineHistory?.totalCount ?: 0) > 1) inlineHistory!!.totalCount else 0,
+                    photoIndex = inlineHistory?.selectedIndex ?: 0,
                     modifier = Modifier.matchParentSize()
                 )
             }
+            // Fixed viewport: this node does not scroll, so its size is the full profile viewport height.
+            Column(
+                Modifier.fillMaxSize().nestedScroll(stretchConnection).onGloballyPositioned {
+                    sceneHeights.viewportHeightPx = it.size.height
+                }
+            ) {
+                Column(Modifier.fillMaxWidth().verticalScroll(scrollState).padding(bottom = 28.dp)) {
+                    // The content is at least the viewport plus the stage travel, so short profiles can still reach full collapse.
+                    val topOffsetDp = with(LocalDensity.current) { toolbarHeightPx.toDp() } + 12.dp
+                    Column(Modifier.fillMaxWidth().heightIn(min = with(LocalDensity.current) {
+                        profileSceneMinContentHeightPx(
+                            sceneHeights.viewportHeightPx.toFloat(),
+                            (sceneHeights.stageHeightPx + sceneHeights.stageTopPx - sceneHeights.toolbarBottomPx).toFloat()
+                        ).toDp()
+                    })) {
+                        Spacer(Modifier.height(topOffsetDp))
+                        if (state.isLoading) LinearProgressIndicator(Modifier.fillMaxWidth().semantics { contentDescription = loadingText })
+                        state.error?.let { ProfileLoadError(it.resolve(), state.isLoading, onRefresh) }
+                        scrollBody()
+                    }
+                }
+            }
+            Box(
+                Modifier.align(Alignment.TopCenter).fillMaxWidth()
+                    .onGloballyPositioned { sceneHeights.toolbarBottomPx = it.boundsInWindow().bottom.toInt() }
+                    .onSizeChanged { toolbarHeightPx = it.height }
+            ) {
+                toolbarComposable()
+            }
+            state.info?.let { info ->
+                if (profileGifts.isNotEmpty() && info.kind != ProfileKind.Group && info.kind != ProfileKind.Channel) {
+                    ProvideGiftFileAccess(GiftFileAccess(observeFile, downloadFile)) {
+                        ProfileHeaderPinnedGifts(
+                            gifts = profileGifts,
+                            emojiStatusUpgradedGiftId = info.emojiStatusUpgradedGiftId,
+                            frame = { sceneFrame },
+                            reveal = { if (revealAvailable) reveal.value else 0f },
+                            preset = scenePreset,
+                            reduceMotion = sceneReduceMotion,
+                            stageTopLocalPx = (sceneHeights.stageTopPx - sceneHeights.windowTopPx).toFloat().coerceAtLeast(0f),
+                            toolbarBottomLocalPx = (sceneHeights.toolbarBottomPx - sceneHeights.windowTopPx).toFloat().coerceAtLeast(0f),
+                            modifier = Modifier.matchParentSize()
+                        )
+                    }
+                }
+            }
+        } else {
+            Column(Modifier.fillMaxSize()) {
+                toolbarComposable()
+                if (state.isLoading) LinearProgressIndicator(Modifier.fillMaxWidth().semantics { contentDescription = loadingText })
+                state.error?.let { ProfileLoadError(it.resolve(), state.isLoading, onRefresh) }
+                Column(Modifier.fillMaxSize().verticalScroll(scrollState).padding(bottom = 28.dp)) {
+                    scrollBody()
+                }
+            }
+        }
+        state.info?.let { info ->
             val overlayActive by remember(collapse) { derivedStateOf { collapsingOverlayActive(collapse.value) } }
             if (overlayActive && collapseGeometry.overlayReady &&
                 (profileTransition == null || !profileTransition.flightActive())
@@ -888,11 +1031,14 @@ internal fun ProfileLoadError(message: String, loading: Boolean, onRetry: () -> 
     }
 }
 
-@Composable internal fun ProfileSubtitle(info: ProfileInfo, lastSeenStyle: LastSeenStyle) {
-    val palette = beyGramPalette()
+@Composable internal fun ProfileSubtitle(
+    info: ProfileInfo,
+    lastSeenStyle: LastSeenStyle,
+    textColor: Color = beyGramPalette().textSecondary
+) {
     // Тик времени перерисовывает только подпись, а не весь экран профиля.
     val now by rememberPresenceClock(info.status is ProfilePresence.LastSeen)
-    Text(info.subtitle(lastSeenStyle, now), color = palette.textSecondary, fontSize = 14.sp, textAlign = TextAlign.Center)
+    Text(info.subtitle(lastSeenStyle, now), color = textColor, fontSize = 14.sp, textAlign = TextAlign.Center)
 }
 
 /** The presence line for the compact toolbar identity (#999); the text the big subtitle shows. */
@@ -969,10 +1115,14 @@ internal fun ProfileRowsCard(rows: List<Pair<String, String>>) {
 
 /** Значки подтверждения и Premium под названием. */
 @Composable
-internal fun ProfileBadges(info: ProfileInfo) {
+internal fun ProfileBadges(info: ProfileInfo, includeVerified: Boolean = true, includePremium: Boolean = true) {
     val palette = beyGramPalette()
-    if (info.isVerified || info.isPremium) Text(
-        listOfNotNull(if (info.isVerified) stringResource(R.string.profile_badge_verified) else null, if (info.isPremium) stringResource(R.string.profile_badge_premium) else null).joinToString(" · "),
+    val items = listOfNotNull(
+        if (includeVerified && info.isVerified) stringResource(R.string.profile_badge_verified) else null,
+        if (includePremium && info.isPremium) stringResource(R.string.profile_badge_premium) else null
+    )
+    if (items.isNotEmpty()) Text(
+        items.joinToString(" · "),
         color = palette.accentInk, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, textAlign = TextAlign.Center, modifier = Modifier.padding(top = 8.dp)
     )
 }
@@ -1238,6 +1388,8 @@ internal fun ProfileToolbar(
     collapseGeometry: ProfileCollapseGeometry? = null,
     /** The shared-element transition back to the chat (#999); reports the compact identity bounds. */
     transition: com.beykus.beygram.ui.motion.ChatProfileHeaderTarget? = null,
+    /** 0 = opaque standard toolbar, 1 = transparent toolbar overlaid on immersive full-bleed cover. */
+    immersiveFraction: (() -> Float)? = null,
     actions: @Composable RowScope.() -> Unit = {}
 ) {
     val palette = beyGramPalette()
@@ -1271,16 +1423,20 @@ internal fun ProfileToolbar(
                 compactToolbarIdentityAlpha(collapseValue.value, collapseGeometry?.overlayReady == true) > 0f
         }
     }
-    Row(container.padding(start = 8.dp, end = 8.dp, top = 6.dp, bottom = 10.dp), verticalAlignment = Alignment.CenterVertically) {
-        IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, stringResource(R.string.common_back), tint = palette.textPrimary) }
-        if (collapseValue != null && compactTitle != null && compactAvatar != null) {
-            // One title slot: the static label ("Chat Info") fades out before the collapsing
-            // identity enters, and the compact two-line ChatTopBar-style identity is always
-            // measured in place so bounds are ready from frame 1 without layout jumps.
-            Box(Modifier.weight(1f).heightIn(min = 48.dp), contentAlignment = Alignment.CenterStart) {
-                if (staticShown) Text(
-                    title,
-                    color = palette.textPrimary,
+    val im = (immersiveFraction?.invoke() ?: 0f).coerceIn(0f, 1f)
+    val iconColor = lerp(palette.textPrimary, Color.White, im)
+    Box(Modifier.fillMaxWidth()) {
+        Box(Modifier.matchParentSize().graphicsLayer { alpha = 1f - im }.then(container))
+        Row(Modifier.fillMaxWidth().padding(start = 8.dp, end = 8.dp, top = 6.dp, bottom = 10.dp), verticalAlignment = Alignment.CenterVertically) {
+            IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, stringResource(R.string.common_back), tint = iconColor) }
+            if (collapseValue != null && compactTitle != null && compactAvatar != null) {
+                // One title slot: the static label ("Chat Info") fades out before the collapsing
+                // identity enters, and the compact two-line ChatTopBar-style identity is always
+                // measured in place so bounds are ready from frame 1 without layout jumps.
+                Box(Modifier.weight(1f).heightIn(min = 48.dp), contentAlignment = Alignment.CenterStart) {
+                    if (staticShown) Text(
+                        title,
+                        color = iconColor,
                     fontSize = if (design.style == DesignStyle.Default) 18.sp else 19.sp,
                     fontWeight = when (design.style) {
                         DesignStyle.Material2 -> FontWeight.Medium
@@ -1362,7 +1518,7 @@ internal fun ProfileToolbar(
         } else {
             Text(
                 title,
-                color = palette.textPrimary,
+                color = iconColor,
                 fontSize = if (design.style == DesignStyle.Default) 18.sp else 19.sp,
                 fontWeight = when (design.style) {
                     DesignStyle.Material2 -> FontWeight.Medium
@@ -1372,6 +1528,7 @@ internal fun ProfileToolbar(
                 modifier = Modifier.weight(1f).semantics { heading() }
             )
             actions()
+        }
         }
     }
 }

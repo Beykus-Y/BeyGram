@@ -44,7 +44,7 @@ class AppLockActivity : FragmentActivity() {
         super.onCreate(savedInstanceState)
         window.addFlags(WindowManager.LayoutParams.FLAG_SECURE)
         // Secret audio/video must not keep playing behind the gate.
-        PlaybackEngine.stopSecret()
+        PlaybackEngine.onAppLocked()
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             setRecentsScreenshotEnabled(false)
         }

@@ -21,6 +21,8 @@ import com.beykus.beygram.domain.model.GiftAuctionOutcome
 import com.beykus.beygram.domain.model.GiftListingQuote
 import com.beykus.beygram.domain.model.GiftListingOutcome
 import com.beykus.beygram.domain.model.GiftsInfo
+import com.beykus.beygram.domain.model.ReceivedGiftFilter
+import com.beykus.beygram.domain.model.ReceivedGiftSort
 import com.beykus.beygram.domain.model.ReceivedGiftsPage
 import com.beykus.beygram.domain.model.ResaleGiftsPage
 import com.beykus.beygram.domain.model.PremiumCheckoutOutcome
@@ -214,6 +216,17 @@ interface TelegramRepository : ConversationRepository, NotificationRepository, R
     /** Read-only received gifts for any user profile (#1144). */
     suspend fun receivedGiftsForUser(userId: Long, offset: String): Result<ReceivedGiftsPage> =
         Result.failure(UnsupportedOperationException())
+
+    /** Filtered, sorted, collection-scoped received gifts page for self or another profile (#1144). */
+    suspend fun receivedGiftsForOwner(
+        profileId: Long,
+        isSelf: Boolean,
+        collectionId: Int = 0,
+        filter: ReceivedGiftFilter = ReceivedGiftFilter.All,
+        sort: ReceivedGiftSort = ReceivedGiftSort.Date,
+        offset: String = ""
+    ): Result<ReceivedGiftsPage> =
+        if (isSelf) receivedGifts(offset) else receivedGiftsForUser(profileId, offset)
 
     /** Safe non-monetary toggle for whether a received gift is shown on the current user's profile (#1145). */
     suspend fun toggleGiftSaved(receivedGiftId: String, isSaved: Boolean): Result<Unit> =

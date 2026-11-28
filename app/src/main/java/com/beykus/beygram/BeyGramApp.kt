@@ -137,8 +137,8 @@ import com.beykus.beygram.ui.components.MainTabsHost
 import com.beykus.beygram.ui.components.LocalMainTabTransitionOrigin
 import com.beykus.beygram.ui.components.LocalBackgroundMediaDownload
 import com.beykus.beygram.ui.components.BeyGramDialog
+import com.beykus.beygram.ui.components.BeyGramModalHost
 import com.beykus.beygram.ui.components.BeyGramModalHostProvider
-import com.beykus.beygram.ui.components.rememberBeyGramModalHost
 import com.beykus.beygram.ui.components.beyGramPalette
 import com.beykus.beygram.ui.screens.auth.LoginCodeScreen
 import com.beykus.beygram.ui.screens.auth.LoginPasswordScreen
@@ -791,7 +791,7 @@ internal fun BeyGramAppContent(
     }
 
     fun resetAccountScopedState() {
-        PlaybackEngine.stop()
+        PlaybackEngine.stopAll()
         selectedChatId = 0L
         linkReturnChatId = 0L
         threadChannelChatId = 0L
@@ -910,7 +910,7 @@ internal fun BeyGramAppContent(
     // «Показать в чате» из мини-плеера открывает сообщение, из которого запущен файл. Назад из чата: из архива — в архив, из контактов — в контакты, иначе — в список чатов.
     val currentAuthState by rememberUpdatedState(authState)
     // Выход из аккаунта останавливает общий плеер: его файл и «Показать в чате» относятся к прошлой сессии.
-    LaunchedEffect(authState) { if (authState != AuthState.Ready) PlaybackEngine.stop() }
+    LaunchedEffect(authState) { if (authState != AuthState.Ready) PlaybackEngine.stopAll() }
     val readyAccountsForLyricsCleanup = remember { mutableSetOf<String>() }
     LaunchedEffect(selectedAccountId, authState) {
         when (authState) {
@@ -1063,6 +1063,7 @@ internal fun BeyGramAppContent(
     var giftsProfileId by rememberSaveable { mutableStateOf(0L) }
     var giftsProfileSelf by rememberSaveable { mutableStateOf(false) }
     var giftsProfileTitle by rememberSaveable { mutableStateOf("") }
+    var giftsInitialTab by rememberSaveable { mutableStateOf(com.beykus.beygram.domain.model.GiftsScreenTab.Received) }
     val openPremium: (AppRoute) -> Unit = { returnTo ->
         monetizationReturnRouteName = returnTo.name
         routeName = AppRoute.Premium.name
@@ -1075,6 +1076,15 @@ internal fun BeyGramAppContent(
         giftsProfileId = profileId
         giftsProfileSelf = self
         giftsProfileTitle = title
+        giftsInitialTab = com.beykus.beygram.domain.model.GiftsScreenTab.Received
+        giftsReturnRouteName = returnTo.name
+        routeName = AppRoute.Gifts.name
+    }
+    val openGiftShop: (Long, String, AppRoute) -> Unit = { profileId, title, returnTo ->
+        giftsProfileId = profileId
+        giftsProfileSelf = false
+        giftsProfileTitle = title
+        giftsInitialTab = com.beykus.beygram.domain.model.GiftsScreenTab.Shop
         giftsReturnRouteName = returnTo.name
         routeName = AppRoute.Gifts.name
     }
@@ -2728,6 +2738,17 @@ internal fun BeyGramAppContent(
                 navigate = { routeName = AppRoute.Chat.name }
             ))
         }
+        var chatShowcaseGifts by remember(selectedAccountId, selectedChatId) {
+            mutableStateOf(emptyList<com.beykus.beygram.domain.model.ReceivedGiftItem>())
+        }
+        LaunchedEffect(selectedAccountId, selectedChatId, info.info?.kind) {
+            val targetInfo = info.info
+            if (targetInfo != null && (targetInfo.kind == com.beykus.beygram.domain.model.ProfileKind.Person || targetInfo.kind == com.beykus.beygram.domain.model.ProfileKind.Bot)) {
+                chatShowcaseGifts = loadProfileShowcaseGifts(repository, targetInfo.id)
+            } else {
+                chatShowcaseGifts = emptyList()
+            }
+        }
         ProfileScreen(info, false, repository::observeFile, repository::downloadFile, onOpenMessageEntity = openMessageEntity,
             onBack = { routeName = AppRoute.Chat.name }, onRefresh = { repository.refreshChatInfo(selectedChatId) },
             profileTransition = chatProfileTarget,
@@ -2780,6 +2801,7 @@ internal fun BeyGramAppContent(
                 routeName = AppRoute.Chat.name
             },
             onGifts = { profileId, self, title -> openGifts(profileId, self, title, AppRoute.ChatInfo) },
+            onSendGift = { profileId, title -> openGiftShop(profileId, title, AppRoute.ChatInfo) },
             autoDownloadFile = repository::autoDownloadFile,
             protectedContent = chatInfoSecure,
             startSecretChat = repository::createSecretChat,
@@ -2787,7 +2809,8 @@ internal fun BeyGramAppContent(
                 selectedChatId = chatId
                 chatBackRouteName = AppRoute.Chats.name
                 routeName = AppRoute.Chat.name
-            })
+            },
+            profileGifts = chatShowcaseGifts)
     }
 
     val chatMembersRoute: @Composable () -> Unit = {
@@ -2814,6 +2837,17 @@ internal fun BeyGramAppContent(
         val infoFlow = remember(repository, memberChatId) { repository.observeChatInfo(memberChatId) }
         val info by infoFlow.collectAsStateWithLifecycle()
         LaunchedEffect(repository, memberChatId) { repository.refreshChatInfo(memberChatId) }
+        var memberShowcaseGifts by remember(selectedAccountId, memberChatId) {
+            mutableStateOf(emptyList<com.beykus.beygram.domain.model.ReceivedGiftItem>())
+        }
+        LaunchedEffect(selectedAccountId, memberChatId, info.info?.kind) {
+            val targetInfo = info.info
+            if (targetInfo != null && (targetInfo.kind == com.beykus.beygram.domain.model.ProfileKind.Person || targetInfo.kind == com.beykus.beygram.domain.model.ProfileKind.Bot)) {
+                memberShowcaseGifts = loadProfileShowcaseGifts(repository, targetInfo.id)
+            } else {
+                memberShowcaseGifts = emptyList()
+            }
+        }
         ProfileScreen(info, false, repository::observeFile, repository::downloadFile, onOpenMessageEntity = openMessageEntity,
             onBack = { routeName = memberReturnRouteName }, onRefresh = { repository.refreshChatInfo(memberChatId) },
             onEdit = {}, setPhoto = repository::setMyProfilePhoto,
@@ -2831,13 +2865,15 @@ internal fun BeyGramAppContent(
             },
             lastSeenStyle = lastSeenStyle,
             onGifts = { profileId, self, title -> openGifts(profileId, self, title, AppRoute.MemberProfile) },
+            onSendGift = { profileId, title -> openGiftShop(profileId, title, AppRoute.MemberProfile) },
             autoDownloadFile = repository::autoDownloadFile,
             startSecretChat = repository::createSecretChat,
             onSecretChatOpened = { chatId ->
                 selectedChatId = chatId
                 chatBackRouteName = AppRoute.Chats.name
                 routeName = AppRoute.Chat.name
-            })
+            },
+            profileGifts = memberShowcaseGifts)
     }
 
     CompositionLocalProvider(
@@ -3000,6 +3036,13 @@ GlobalSearchScreen(
     }
     Box(Modifier.fillMaxSize()) {
         PlayerModalUnderlay {
+            // Modal sheets and dialogs are drawn inside this window so their glass samples the screen behind them; a
+            // Material sheet or Dialog window cannot read a backdrop recorded here. The provider wraps the whole
+            // column, the mini player included: a bar left outside it would keep drawing above the scrim and take
+            // taps while a sheet is open (#1363 m-2). The host is per account, so an account switch drops the routes
+            // of the previous one instead of drawing them with the new account's state.
+            val modalHost = remember(selectedAccountId) { BeyGramModalHost() }
+            BeyGramModalHostProvider(host = modalHost) {
             Column(Modifier.fillMaxSize()) {
                 val externalPlayerBar = route !in playerBarHostRoutes
                 val externalPlayerBarVisible = externalPlayerBar &&
@@ -3151,11 +3194,7 @@ GlobalSearchScreen(
                         val lastMountedMainTab = MainTab.entries.firstOrNull { it.name == lastMountedMainTabName } ?: MainTab.Chats
                         val keepPhoneTabsMounted = shouldKeepPhoneTabsMounted(currentFrame, phoneTabsVisited)
                         val phoneTabsCovered = keepPhoneTabsMounted && !usesSharedPhoneTabs(currentFrame)
-                        // Modal sheets and dialogs are drawn inside this window so their glass samples the screen
-                        // behind them; a Material sheet or Dialog window cannot read a backdrop recorded here.
-                        val modalHost = rememberBeyGramModalHost()
                         Box(Modifier.fillMaxSize()) {
-                        BeyGramModalHostProvider(host = modalHost) {
                         if (keepPhoneTabsMounted) {
                             PersistentPhoneTabsBackdrop(covered = phoneTabsCovered) {
                                 MainTabsHost(
@@ -3403,9 +3442,7 @@ GlobalSearchScreen(
                             }
                             LaunchedEffect(selectedAccountId, myProfile.info?.id) {
                                 val id = myProfile.info?.id ?: return@LaunchedEffect
-                                repository.receivedGiftsForUser(id, "").onSuccess { page ->
-                                    myShowcaseGifts = page.gifts
-                                }
+                                myShowcaseGifts = loadProfileShowcaseGifts(repository, id)
                             }
                             ProfileScreen(myProfile, true, repository::observeFile, repository::downloadFile, onOpenMessageEntity = openMessageEntity,
                                 onBack = { routeName = AppRoute.Chats.name }, onRefresh = repository::refreshMyProfile,
@@ -3453,8 +3490,19 @@ GlobalSearchScreen(
                                 profileId = giftsProfileId,
                                 profileTitle = giftsProfileTitle,
                                 isSelf = giftsProfileSelf,
+                                initialTab = giftsInitialTab,
                                 load = { repository.giftsInfo(giftsProfileId, giftsProfileSelf) },
                                 loadMoreReceived = repository::receivedGifts,
+                                loadReceivedPage = { collectionId, filter, sort, offset ->
+                                    repository.receivedGiftsForOwner(
+                                        profileId = giftsProfileId,
+                                        isSelf = giftsProfileSelf,
+                                        collectionId = collectionId,
+                                        filter = filter,
+                                        sort = sort,
+                                        offset = offset
+                                    )
+                                },
                                 loadAuction = repository::giftAuctionQuote,
                                 loadAuctionHistory = repository::giftAuctionHistory,
                                 submitBid = repository::submitGiftAuctionBid,
@@ -3847,8 +3895,8 @@ GlobalSearchScreen(
                     }
                     }
                     }
-                }
                 if (route !in playerBarHostRoutes) NowPlayingBar(bottomInset = true)
+            }
             }
         }
         PlayerExpansionHost()
@@ -4195,3 +4243,15 @@ internal fun chatProfilePairRoutes(initial: AppRoute, target: AppRoute): Boolean
  */
 internal fun chatProfilePairFades(initial: AppRoute, target: AppRoute, motionEnabled: Boolean, flightEngaged: Boolean): Boolean =
     motionEnabled && flightEngaged && chatProfilePairRoutes(initial, target)
+
+/** Loads up to 2 pages of received gifts so pinned collectible gifts on page 2 are not missed (#1135). */
+private suspend fun loadProfileShowcaseGifts(
+    repository: TelegramRepository,
+    profileId: Long
+): List<com.beykus.beygram.domain.model.ReceivedGiftItem> {
+    val page1 = repository.receivedGiftsForUser(profileId, "").getOrNull() ?: return emptyList()
+    val pinnedCount = page1.gifts.count { it.isPinned && !it.wasRefunded && it.collectible != null }
+    if (pinnedCount >= 6 || page1.nextOffset.isBlank()) return page1.gifts
+    val page2 = repository.receivedGiftsForUser(profileId, page1.nextOffset).getOrNull() ?: return page1.gifts
+    return com.beykus.beygram.domain.model.mergeReceivedGifts(page1.gifts, page2.gifts)
+}

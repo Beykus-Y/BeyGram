@@ -501,6 +501,7 @@ private fun MusicPlaybackSettingsPage(
                 CrossfadeLengthRow(seconds = crossfadeSeconds, onChange = onCrossfadeSecondsChange)
             }
         }
+        AudioCoexistenceSettingsGroup()
         SettingsGroup(stringResource(R.string.player_equalizer)) {
             SettingsLink(
                 icon = Icons.Rounded.Equalizer,

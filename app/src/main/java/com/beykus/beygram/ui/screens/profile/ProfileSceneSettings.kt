@@ -8,6 +8,9 @@ import kotlinx.coroutines.flow.asStateFlow
 /** Which profile layout is shown. A is the stable default; C is the experimental adaptive scene (#1138). */
 enum class ProfileVariant { A, C }
 
+/** Visual intensity preset for Profile 2.0 C (#1138, #1235). */
+enum class ProfileSceneDensity { Calm, Balanced, Rich }
+
 /** Result of tapping the profile avatar. */
 enum class AvatarTap { RevealPhoto, OpenGallery }
 
@@ -18,10 +21,13 @@ enum class AvatarTap { RevealPhoto, OpenGallery }
 object ProfileSceneSettings {
     const val PREFS_NAME = "profile_scene_settings"
     const val KEY_ENABLED = "scene_enabled"
+    const val KEY_SCENE_DENSITY = "scene_density"
     private const val KEY_EXPRESSIVE_COVER = "expressive_cover"
 
     private val _enabled = MutableStateFlow(false)
     val enabled: StateFlow<Boolean> = _enabled.asStateFlow()
+    private val _density = MutableStateFlow(ProfileSceneDensity.Balanced)
+    val density: StateFlow<ProfileSceneDensity> = _density.asStateFlow()
     private val _expressiveCover = MutableStateFlow(false)
     val expressiveCover: StateFlow<Boolean> = _expressiveCover.asStateFlow()
 
@@ -33,7 +39,10 @@ object ProfileSceneSettings {
         synchronized(this) {
             if (loaded) return
             _enabled.value = readBoolean(context, KEY_ENABLED)
-            _expressiveCover.value = readBoolean(context, KEY_EXPRESSIVE_COVER)
+            val legacyExpressive = readBoolean(context, KEY_EXPRESSIVE_COVER)
+            val storedDensity = readDensity(context, legacyExpressive)
+            _density.value = storedDensity
+            _expressiveCover.value = storedDensity == ProfileSceneDensity.Rich
             loaded = true
         }
     }
@@ -43,15 +52,30 @@ object ProfileSceneSettings {
         writeBoolean(context, KEY_ENABLED, value)
     }
 
+    fun setDensity(context: Context, value: ProfileSceneDensity) {
+        _density.value = value
+        _expressiveCover.value = value == ProfileSceneDensity.Rich
+        writeString(context, KEY_SCENE_DENSITY, value.name)
+        writeBoolean(context, KEY_EXPRESSIVE_COVER, value == ProfileSceneDensity.Rich)
+    }
+
     fun setExpressiveCover(context: Context, value: Boolean) {
-        _expressiveCover.value = value
-        writeBoolean(context, KEY_EXPRESSIVE_COVER, value)
+        setDensity(context, if (value) ProfileSceneDensity.Rich else ProfileSceneDensity.Balanced)
     }
 
     private fun writeBoolean(context: Context, key: String, value: Boolean) {
         try {
             context.applicationContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
                 .edit().putBoolean(key, value).apply()
+        } catch (_: RuntimeException) {
+            // The in-memory value still applies for this process.
+        }
+    }
+
+    private fun writeString(context: Context, key: String, value: String) {
+        try {
+            context.applicationContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+                .edit().putString(key, value).apply()
         } catch (_: RuntimeException) {
             // The in-memory value still applies for this process.
         }
@@ -73,4 +97,16 @@ object ProfileSceneSettings {
     } catch (_: RuntimeException) {
         false
     }
+
+    private fun readDensity(context: Context, legacyExpressive: Boolean): ProfileSceneDensity = try {
+        val raw = context.applicationContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+            .getString(KEY_SCENE_DENSITY, null)
+        parseDensity(raw, legacyExpressive)
+    } catch (_: RuntimeException) {
+        parseDensity(null, legacyExpressive)
+    }
+
+    internal fun parseDensity(raw: String?, legacyExpressive: Boolean): ProfileSceneDensity =
+        ProfileSceneDensity.entries.firstOrNull { it.name == raw }
+            ?: if (legacyExpressive) ProfileSceneDensity.Rich else ProfileSceneDensity.Balanced
 }

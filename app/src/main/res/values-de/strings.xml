@@ -945,6 +945,13 @@
     <string name="settings_profile_scene_desc">Experimentelle Profilansicht mit geschichteter Szene. Standardmäßig aus; ausschalten stellt das Standardprofil wieder her.</string>
     <string name="settings_profile_cover_title">Ausdrucksstarkes Titelbild</string>
     <string name="settings_profile_cover_desc">Mehr Farbe und Tiefe in der Profilansicht</string>
+    <string name="settings_profile_density_title">Szenen-Intensität</string>
+    <string name="settings_profile_density_calm">Ruhig</string>
+    <string name="settings_profile_density_calm_desc">Dezenter Themenfarbton ohne Muster oder zusätzliche Bewegung</string>
+    <string name="settings_profile_density_balanced">Ausgewogen</string>
+    <string name="settings_profile_density_balanced_desc">Adaptives Titelbild mit Profilfarben und sanfter Raumtiefe</string>
+    <string name="settings_profile_density_rich">Intensiv</string>
+    <string name="settings_profile_density_rich_desc">Kräftige Palette, dekoratives Muster und volle Parallaxe</string>
     <string name="lyrics_show">Text anzeigen</string>
     <string name="lyrics_hide">Text ausblenden</string>
     <string name="lyrics_none_for_track">Für diesen Titel gibt es keinen Text</string>

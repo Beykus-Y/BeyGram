@@ -54,6 +54,14 @@ data class ProfileAdmin(val userId: Long, val name: String, val isOwner: Boolean
 /** Число сообщений с медиа, файлами, ссылками, голосовыми и музыкой в чате; null, если TDLib не ответил по этому типу. */
 data class SharedCounts(val media: Int?, val files: Int?, val links: Int?, val voice: Int?, val music: Int? = null)
 
+/** Real TDLib profile cover palette (from `ProfileAccentColors` or `UpgradedGiftColors`). */
+data class ProfileAccentTheme(
+    val lightBackground: List<Int> = emptyList(),
+    val darkBackground: List<Int> = emptyList(),
+    val lightPalette: List<Int> = emptyList(),
+    val darkPalette: List<Int> = emptyList()
+)
+
 data class ProfileInfo(
     val id: Long,
     val title: String,
@@ -96,7 +104,13 @@ data class ProfileInfo(
     /** TDLib's main block list contains this user; the profile menu must offer Unblock, not Block. */
     val isBlocked: Boolean = false,
     /** Profile music from TDLib, in the owner's order; empty when hidden by privacy, absent, or for groups and channels. */
-    val profileAudios: List<ProfileAudio> = emptyList()
+    val profileAudios: List<ProfileAudio> = emptyList(),
+    /** Real TDLib profile cover palette; null when the profile uses the default theme accent. */
+    val profileAccentTheme: ProfileAccentTheme? = null,
+    /** Custom emoji pattern id for the profile background when provided by TDLib; 0 when absent. */
+    val profileBackgroundCustomEmojiId: Long = 0L,
+    /** Upgraded gift id when the user's emoji status is an upgraded collectible gift. */
+    val emojiStatusUpgradedGiftId: Long? = null
 ) {
     val initials: String get() = initialsOf(title)
 }

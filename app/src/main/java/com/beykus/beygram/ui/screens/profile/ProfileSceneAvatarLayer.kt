@@ -3,11 +3,14 @@ package com.beykus.beygram.ui.screens.profile
 import android.graphics.ImageDecoder
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.material3.Text
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -20,13 +23,17 @@ import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.RoundRect
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ImageBitmap
-import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.clipPath
 import androidx.compose.ui.graphics.drawscope.clipRect
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.layout
 import androidx.compose.ui.layout.onGloballyPositioned
@@ -36,7 +43,6 @@ import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.unit.constrainHeight
 import androidx.compose.ui.unit.constrainWidth
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.beykus.beygram.domain.model.AvatarPhoto
 import com.beykus.beygram.domain.model.MediaFileState
@@ -44,11 +50,11 @@ import com.beykus.beygram.ui.components.Avatar
 import com.beykus.beygram.ui.components.LocalBackgroundMediaDownload
 import java.io.File
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.withContext
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.withContext
 import kotlin.math.roundToInt
 
-/** One square image layer covers the changing avatar mask from the profile stage to the toolbar. */
+/** One square image layer morphs continuously from circular avatar to edge-to-edge full-bleed cover and into toolbar. */
 @Composable
 internal fun ProfileSceneAvatarLayer(
     initials: String,
@@ -61,10 +67,13 @@ internal fun ProfileSceneAvatarLayer(
     observeFile: (Int) -> StateFlow<MediaFileState>,
     downloadFile: (Int) -> Unit,
     modifier: Modifier = Modifier,
-    pageLabel: String? = null
+    surfaceFadeColor: Color = Color.Black,
+    photoCount: Int = 0,
+    photoIndex: Int = 0
 ) {
     var origin by remember { mutableStateOf(Offset.Zero) }
     val mask = remember { Path() }
+
     Box(
         modifier
             .onGloballyPositioned { origin = it.positionInWindow() }
@@ -77,15 +86,52 @@ internal fun ProfileSceneAvatarLayer(
                 val right = rect.right - origin.x
                 val bottom = rect.bottom - origin.y
                 val circleRadius = minOf(rect.width, rect.height) / 2f
-                val photoRadius = minOf(24.dp.toPx(), circleRadius)
                 val morph = reveal() * (1f - scene.collapse)
-                val radius = circleRadius + (photoRadius - circleRadius) * morph
+                val radius = circleRadius * (1f - morph)
                 val clipTop = (scene.clipTopPx - origin.y).coerceAtLeast(0f)
                 if (bottom <= clipTop || right <= left || bottom <= top) return@drawWithContent
                 mask.rewind()
                 mask.addRoundRect(RoundRect(left, top, right, bottom, CornerRadius(radius)))
                 clipRect(top = clipTop) {
-                    clipPath(mask) { this@drawWithContent.drawContent() }
+                    clipPath(mask) {
+                        this@drawWithContent.drawContent()
+                        if (morph > 0.01f) {
+                            val coverHeight = (bottom - top).coerceAtLeast(1f)
+                            val coverWidth = (right - left).coerceAtLeast(1f)
+                            // Top scrim keeps overlaid back button & menu readable.
+                            drawRect(
+                                brush = Brush.verticalGradient(
+                                    colors = listOf(Color.Black.copy(alpha = 0.44f * morph), Color.Transparent),
+                                    startY = top,
+                                    endY = top + coverHeight * 0.28f
+                                ),
+                                topLeft = Offset(left, top),
+                                size = Size(coverWidth, coverHeight * 0.28f)
+                            )
+                            // Multi-stop bottom gradient preserves white text contrast and blends naturally into palette.screen.
+                            val scrimStartY = bottom - coverHeight * 0.52f
+                            drawRect(
+                                brush = Brush.verticalGradient(
+                                    0.00f to Color.Transparent,
+                                    0.42f to Color.Black.copy(alpha = 0.34f * morph),
+                                    0.78f to lerp(Color.Black, surfaceFadeColor, 0.45f).copy(alpha = 0.72f * morph),
+                                    1.00f to surfaceFadeColor.copy(alpha = 0.98f * morph),
+                                    startY = scrimStartY,
+                                    endY = bottom
+                                ),
+                                topLeft = Offset(left, scrimStartY),
+                                size = Size(coverWidth, coverHeight * 0.52f)
+                            )
+                        }
+                    }
+                    val haloAlpha = ((1f - reveal()) * (1f - scene.collapse) * visibility()).coerceIn(0f, 1f)
+                    if (haloAlpha > 0.01f) {
+                        drawPath(
+                            path = mask,
+                            color = Color.White.copy(alpha = 0.22f * haloAlpha),
+                            style = Stroke(width = 2.dp.toPx())
+                        )
+                    }
                 }
             }
     ) {
@@ -133,29 +179,38 @@ internal fun ProfileSceneAvatarLayer(
                 Avatar(initials, color, 112.dp)
             }
         }
-        pageLabel?.let {
-            Text(
-                text = it,
-                color = Color.White,
-                fontSize = 13.sp,
-                modifier = Modifier.align(Alignment.TopStart).graphicsLayer {
-                    val scene = frame()
-                    val rect = scene?.avatarRect
-                    if (rect == null) {
-                        alpha = 0f
-                    } else {
-                        translationX = (rect.left + rect.right - size.width) / 2f - origin.x
-                        translationY = rect.bottom - origin.y - size.height - 12.dp.toPx()
-                        alpha = (1f - scene.collapse * 4f).coerceAtLeast(0f) * visibility()
-                    }
-                }.background(Color.Black.copy(alpha = 0.74f), CircleShape)
-                    .padding(horizontal = 10.dp, vertical = 4.dp)
-            )
+        if (photoCount > 1) {
+            Row(
+                Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp)
+                    .graphicsLayer {
+                        val scene = frame()
+                        if (scene == null) {
+                            alpha = 0f
+                        } else {
+                            translationY = (scene.clipTopPx - origin.y) + 6.dp.toPx()
+                            alpha = (1f - scene.collapse * 4f).coerceAtLeast(0f) * visibility()
+                        }
+                    },
+                horizontalArrangement = Arrangement.spacedBy(4.dp)
+            ) {
+                for (index in 0 until photoCount) {
+                    Box(
+                        Modifier
+                            .weight(1f)
+                            .height(2.5.dp)
+                            .background(
+                                color = Color.White.copy(alpha = if (index == photoIndex) 0.95f else 0.32f),
+                                shape = RoundedCornerShape(2.dp)
+                            )
+                    )
+                }
+            }
         }
     }
 }
 
-// An AndroidView over the scroll content would intercept taps before they reach the avatar's in-flow control.
 @Composable
 private fun rememberProfileSceneBitmap(path: String?, maxDimension: Int): ImageBitmap? {
     if (path == null) return null

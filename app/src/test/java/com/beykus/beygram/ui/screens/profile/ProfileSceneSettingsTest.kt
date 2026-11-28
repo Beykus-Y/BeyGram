@@ -35,4 +35,14 @@ class ProfileSceneSettingsTest {
         assertFalse(ProfileSceneSettings.backClosesExpansion(sceneC = false, photoExpanded = true))
         assertFalse(ProfileSceneSettings.backClosesExpansion(sceneC = false, photoExpanded = false))
     }
+
+    @Test
+    fun densityDefaultsAndMigratesLegacyExpressiveFlag() {
+        assertEquals(ProfileSceneDensity.Balanced, ProfileSceneSettings.parseDensity(null, legacyExpressive = false))
+        assertEquals(ProfileSceneDensity.Rich, ProfileSceneSettings.parseDensity(null, legacyExpressive = true))
+        assertEquals(ProfileSceneDensity.Calm, ProfileSceneSettings.parseDensity("Calm", legacyExpressive = true))
+        assertEquals(ProfileSceneDensity.Balanced, ProfileSceneSettings.parseDensity("Balanced", legacyExpressive = false))
+        assertEquals(ProfileSceneDensity.Rich, ProfileSceneSettings.parseDensity("Rich", legacyExpressive = false))
+        assertEquals(ProfileSceneDensity.Balanced, ProfileSceneSettings.parseDensity("Unknown", legacyExpressive = false))
+    }
 }

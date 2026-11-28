@@ -180,7 +180,7 @@ class MainActivity : FragmentActivity() {
             }
             // The chat composition survives the lock so in-flight sends keep their scope.
             // Stop only secret audio/video; ordinary music may continue like in a media app.
-            LaunchedEffect(gateLocked) { if (gateLocked) PlaybackEngine.stopSecret() }
+            LaunchedEffect(gateLocked) { if (gateLocked) PlaybackEngine.onAppLocked() }
             val appearance: AppearanceViewModel = viewModel()
             // Reading the revision makes Compose reveal the window again after onStart hid
             // it for a locked foreground transition.

@@ -727,7 +727,7 @@ internal fun MediaPreview(
             onTranscribe = onTranscribe,
             onRateTranscription = onRateTranscription,
             speechRecognitionUi = speechRecognitionUi,
-            growing = partialGrowing)
+            growing = partialGrowing, viewOnce = viewOnce)
         return
     }
     if (media.kind == MediaKind.VideoNote) {
@@ -738,7 +738,7 @@ internal fun MediaPreview(
             onTranscribe = onTranscribe,
             onRateTranscription = onRateTranscription,
             speechRecognitionUi = speechRecognitionUi,
-            autoDownloadFile = autoDownload)
+            autoDownloadFile = autoDownload, viewOnce = viewOnce)
         return
     }
     if (media.kind == MediaKind.Sticker) {
@@ -1662,6 +1662,20 @@ private fun MediaViewerPage(
                     if (!file.isDownloading) TextButton(onClick = { downloadFile(media.fileId) }) { Text(stringResource(R.string.common_download)) }
                 }
             }
+            media.kind == MediaKind.VideoNote && path != null -> VideoNotePreview(
+                path = path,
+                posterPath = thumb.localPath,
+                modifier = Modifier.fillMaxSize(),
+                item = media.playbackItem(
+                    path,
+                    media.kind.label(context),
+                    origin = messagePlaybackOrigin(item.chatId, item.messageId, accountId),
+                    accountId = accountId,
+                    viewOnce = item.viewOnce,
+                ).let { if (forceSecure) it.copy(secret = true) else it },
+                active = active,
+                onStarted = { currentOnViewed(item.messageId) },
+            )
             streamSource != null -> LocalVideo(
                 streamSource.path, loop = media.kind == MediaKind.Animation, active = active,
                 onStarted = { currentOnViewed(item.messageId) }, progressive = streamSource,
@@ -1685,7 +1699,7 @@ private fun MediaViewerPage(
             }
             (media.kind == MediaKind.Audio || media.kind == MediaKind.Voice) && audioPath != null ->
                 AudioInPlayer(
-                    media,
+                    if (forceSecure && media.kind == MediaKind.Voice) media.copy(isSecret = true) else media,
                     audioPath,
                     if (previewId != null) thumb.localPath else null,
                     active,
@@ -2478,13 +2492,23 @@ private fun AudioInPlayer(
         accountId = accountId,
         viewOnce = viewOnce
     )
-    val state by PlaybackEngine.state.collectAsStateWithLifecycle()
+    val speech = item.kind == MediaKind.Voice
+    val state by (if (speech) PlaybackEngine.speechState else PlaybackEngine.state).collectAsStateWithLifecycle()
+    DisposableEffect(item.key, active) {
+        onDispose {
+            if (speech && active && item.systemPrivate) PlaybackEngine.stopPrivateSpeech(item.key)
+        }
+    }
     val currentOnViewed by rememberUpdatedState(onViewed)
+    var consumed by remember(item.key) { mutableStateOf(false) }
     // Файл отмечается просмотренным, когда начинает играть: открытие просмотрщика само по себе ничего не запускает.
     val playingHere = state.item?.key == item.key && state.playing
     val startedHere = state.item?.key == item.key && state.started
     LaunchedEffect(playingHere, startedHere, active) {
-        if (active && playingHere && startedHere) currentOnViewed()
+        if (active && playingHere && startedHere && !consumed) {
+            if (item.viewOnce) consumed = true
+            currentOnViewed()
+        }
     }
     // Пока файл не играет в общем плеере, его перемотка и скорость относятся к другому файлу, поэтому выключены.
     val current = state.item?.key == item.key
@@ -2493,7 +2517,7 @@ private fun AudioInPlayer(
         item = item,
         colors = ViewerNowPlayingColors,
         enabled = current,
-        onPlayPause = { startAudio(context, item) }
+        onPlayPause = { if (active && (!consumed || current)) startAudio(context, item) }
     )
 }
 
