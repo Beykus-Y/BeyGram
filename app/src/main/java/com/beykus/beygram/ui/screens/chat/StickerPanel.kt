@@ -1646,14 +1646,22 @@ private fun StickerUnifiedFeed(
         }
         return
     }
-    LazyVerticalGrid(
-        columns = GridCells.Adaptive(StickerPickerMetrics.columnMin),
-        modifier = Modifier.fillMaxSize(),
-        state = gridState,
-        contentPadding = PaddingValues(StickerPickerMetrics.contentPadding),
-        horizontalArrangement = Arrangement.spacedBy(StickerPickerMetrics.gap),
-        verticalArrangement = Arrangement.spacedBy(StickerPickerMetrics.gap)
+    val scrolling by remember(gridState) { derivedStateOf { gridState.isScrollInProgress } }
+    val parentPolicy = LocalEmojiAnimationPolicy.current
+    androidx.compose.runtime.CompositionLocalProvider(
+        LocalEmojiAnimationPolicy provides parentPolicy.copy(
+            paused = parentPolicy.paused || scrolling,
+            priority = EmojiAnimationPolicy.PRIORITY_GRID
+        )
     ) {
+        LazyVerticalGrid(
+            columns = GridCells.Adaptive(StickerPickerMetrics.columnMin),
+            modifier = Modifier.fillMaxSize(),
+            state = gridState,
+            contentPadding = PaddingValues(StickerPickerMetrics.contentPadding),
+            horizontalArrangement = Arrangement.spacedBy(StickerPickerMetrics.gap),
+            verticalArrangement = Arrangement.spacedBy(StickerPickerMetrics.gap)
+        ) {
         if (favorites.isNotEmpty()) {
             item(key = "header-favorites", span = { GridItemSpan(maxLineSpan) }) {
                 EmojiGroupHeader(stringResource(R.string.sticker_panel_favorites))
@@ -1717,6 +1725,7 @@ private fun StickerUnifiedFeed(
                 }
             }
         }
+        }
     }
 }
 
@@ -1740,19 +1749,28 @@ private fun StickerGrid(
             previousFirst = firstKey
         }
     }
-    LazyVerticalGrid(
-        columns = GridCells.Adaptive(StickerPickerMetrics.columnMin),
-        modifier = Modifier.fillMaxSize(),
-        state = gridState,
-        contentPadding = PaddingValues(StickerPickerMetrics.contentPadding),
-        horizontalArrangement = Arrangement.spacedBy(StickerPickerMetrics.gap),
-        verticalArrangement = Arrangement.spacedBy(StickerPickerMetrics.gap)
+    val scrolling by remember(gridState) { derivedStateOf { gridState.isScrollInProgress } }
+    val parentPolicy = LocalEmojiAnimationPolicy.current
+    androidx.compose.runtime.CompositionLocalProvider(
+        LocalEmojiAnimationPolicy provides parentPolicy.copy(
+            paused = parentPolicy.paused || scrolling,
+            priority = EmojiAnimationPolicy.PRIORITY_GRID
+        )
     ) {
+        LazyVerticalGrid(
+            columns = GridCells.Adaptive(StickerPickerMetrics.columnMin),
+            modifier = Modifier.fillMaxSize(),
+            state = gridState,
+            contentPadding = PaddingValues(StickerPickerMetrics.contentPadding),
+            horizontalArrangement = Arrangement.spacedBy(StickerPickerMetrics.gap),
+            verticalArrangement = Arrangement.spacedBy(StickerPickerMetrics.gap)
+        ) {
         gridItems(uniqueStickers, key = { it.key }) { item ->
             StickerPanelCell(item, observeFile, downloadFile, onSend = { onSend(item) }, onOptions = { onOptions(item) })
         }
         if (footer != null) {
             item(span = { GridItemSpan(maxLineSpan) }, key = "footer") { footer() }
+        }
         }
     }
 }
@@ -1807,8 +1825,12 @@ private fun StickerPanelArtwork(
     thumbnailOnly: Boolean = false
 ) {
     val palette = beyGramPalette()
+    val animPolicy = LocalEmojiAnimationPolicy.current
+    val canAnimate = !thumbnailOnly && !animPolicy.paused && item.format != StickerFileFormat.Webm
     // Animated stickers play only after they have been on screen for the autoplay dwell time.
-    val autoplay = rememberAutoplayEligible(enabled = item.format != StickerFileFormat.Webm)
+    val autoplay = rememberAutoplayEligible(enabled = canAnimate)
+    val playing = canAnimate && autoplay.eligible.value
+    val effectivePriority = if (thumbnailOnly) EmojiAnimationPolicy.PRIORITY_COVER else animPolicy.priority
     val file by remember(item.fileId) { observeFile(item.fileId) }.collectAsStateWithLifecycle()
     val thumbnail = rememberPanelFile(item.thumbnailFileId, observeFile)
     LaunchedEffect(item.fileId, item.thumbnailFileId, item.format, thumbnailOnly) {
@@ -1826,12 +1848,16 @@ private fun StickerPanelArtwork(
         }
         when {
             fullPath != null && item.format == StickerFileFormat.Tgs ->
-                TgsSticker(
-                    fullPath, Modifier.fillMaxSize(), playing = autoplay.eligible.value,
-                    poster = if (thumbnailPath != null) fallback else null, fallback = fallback
+                SharedTgsMedia(
+                    path = fullPath,
+                    sizePx = maxDimension.coerceIn(64, 256),
+                    playing = playing,
+                    priority = effectivePriority,
+                    modifier = Modifier.fillMaxSize(),
+                    fallback = if (thumbnailPath != null) fallback else fallback
                 )
             fullPath != null && item.format != StickerFileFormat.Webm ->
-                LocalMediaImage(fullPath, Modifier.fillMaxSize(), fit = true, maxDimension = maxDimension, animate = autoplay.eligible.value)
+                LocalMediaImage(fullPath, Modifier.fillMaxSize(), fit = true, maxDimension = maxDimension, animate = playing)
             thumbnailPath != null ->
                 LocalMediaImage(thumbnailPath, Modifier.fillMaxSize(), fit = true, maxDimension = maxDimension)
             file.isDownloading || thumbnail.isDownloading ->

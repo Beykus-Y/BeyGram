@@ -189,6 +189,7 @@ internal data class EmojiAnimationPolicy(
     val priority: Int = PRIORITY_DEFAULT
 ) {
     companion object {
+        const val PRIORITY_COVER = -1
         const val PRIORITY_GRID = 0
         const val PRIORITY_DEFAULT = 1
         const val PRIORITY_PREVIEW = 10
@@ -270,19 +271,45 @@ private fun SharedTgsEmoji(
     modifier: Modifier,
     fallback: @Composable () -> Unit
 ) {
-    val context = LocalContext.current
-    val accountId = LocalPlaybackAccountId.current
     val density = androidx.compose.ui.platform.LocalDensity.current
     val sizePx = remember(density, size) { bucketEmojiSizePx(with(density) { size.roundToPx() }) }
+    SharedTgsMedia(
+        path = path,
+        sizePx = sizePx,
+        playing = playing,
+        priority = priority,
+        modifier = modifier,
+        fallback = fallback
+    )
+}
+
+@Composable
+internal fun SharedTgsMedia(
+    path: String,
+    sizePx: Int,
+    playing: Boolean,
+    priority: Int = EmojiAnimationPolicy.PRIORITY_DEFAULT,
+    modifier: Modifier,
+    fallback: @Composable () -> Unit
+) {
+    val context = LocalContext.current
+    val accountId = LocalPlaybackAccountId.current
+    val normalizedSizePx = remember(sizePx) { bucketEmojiSizePx(sizePx) }
     val renderer = remember(context) { SharedTgsEmojiRenderer.default(context) }
-    val initialFrame = remember(renderer, accountId, path, sizePx) {
-        renderer.peekFirstFrame(accountId, path, sizePx)
+    val initialFrame = remember(renderer, accountId, path, normalizedSizePx) {
+        renderer.peekFirstFrame(accountId, path, normalizedSizePx)
     }
-    val targetState = remember(renderer, accountId, path, sizePx) {
+    val targetState = remember(renderer, accountId, path, normalizedSizePx) {
         androidx.compose.runtime.mutableStateOf<com.beykus.beygram.data.media.EmojiRenderTarget?>(null)
     }
-    androidx.compose.runtime.DisposableEffect(renderer, accountId, path, sizePx) {
-        val attached = renderer.attach(accountId = accountId, path = path, sizePx = sizePx, playing = playing, priority = priority)
+    androidx.compose.runtime.DisposableEffect(renderer, accountId, path, normalizedSizePx) {
+        val attached = renderer.attach(
+            accountId = accountId,
+            path = path,
+            sizePx = normalizedSizePx,
+            playing = playing,
+            priority = priority
+        )
         targetState.value = attached
         onDispose {
             targetState.value = null
