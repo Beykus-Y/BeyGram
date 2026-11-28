@@ -3851,7 +3851,7 @@ GlobalSearchScreen(
                     }
                     }
                 if (route !in playerBarHostRoutes) NowPlayingBar(bottomInset = true)
-                }
+            }
             }
         }
         PlayerExpansionHost()
