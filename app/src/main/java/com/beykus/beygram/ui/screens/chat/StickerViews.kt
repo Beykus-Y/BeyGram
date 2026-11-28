@@ -184,6 +184,19 @@ private fun LottieSticker(
  * Пользовательский эмодзи как стикер: TGS играет анимацией, WebP показывается картинкой. Другие форматы и стикер, которого ещё
  * нет на устройстве, показывают [fallback], обычно текст эмодзи. WebM не рисуется, поэтому его не скачиваем.
  */
+internal data class EmojiAnimationPolicy(
+    val paused: Boolean = false,
+    val priority: Int = PRIORITY_DEFAULT
+) {
+    companion object {
+        const val PRIORITY_GRID = 0
+        const val PRIORITY_DEFAULT = 1
+        const val PRIORITY_PREVIEW = 10
+    }
+}
+
+internal val LocalEmojiAnimationPolicy = androidx.compose.runtime.compositionLocalOf { EmojiAnimationPolicy() }
+
 @Composable
 internal fun CustomEmojiImage(
     emoji: CustomEmoji,
@@ -208,16 +221,24 @@ internal fun CustomEmojiImage(
             if (autoDownload != null) autoDownload(request) else downloadFile(emoji.fileId)
         }
     }
+    val animPolicy = LocalEmojiAnimationPolicy.current
     // A custom emoji animates only after it has been on screen for the autoplay dwell time; until then its first frame shows.
-    val autoplay = rememberAutoplayEligible(enabled = animated && (emoji.mimeType == TGS_MIME || emoji.mimeType == WEBP_MIME))
-    val playing = animated && autoplay.eligible.value
+    val autoplay = rememberAutoplayEligible(enabled = animated && !animPolicy.paused && (emoji.mimeType == TGS_MIME || emoji.mimeType == WEBP_MIME))
+    val playing = animated && !animPolicy.paused && autoplay.eligible.value
     val maxDimensionPx = with(androidx.compose.ui.platform.LocalDensity.current) {
         (size.roundToPx() * 2).coerceIn(48, 256)
     }
     val path = file.localPath
     val modifier = Modifier.size(size).then(autoplay.modifier)
     when {
-        path != null && emoji.mimeType == TGS_MIME -> SharedTgsEmoji(path, size, playing = playing, modifier = modifier, fallback = fallback)
+        path != null && emoji.mimeType == TGS_MIME -> SharedTgsEmoji(
+            path = path,
+            size = size,
+            playing = playing,
+            priority = animPolicy.priority,
+            modifier = modifier,
+            fallback = fallback
+        )
         path != null && emoji.mimeType == WEBP_MIME -> LocalMediaImage(path, modifier, fit = true, maxDimension = maxDimensionPx, animate = playing)
         else -> fallback()
     }
@@ -228,6 +249,7 @@ private fun SharedTgsEmoji(
     path: String,
     size: Dp,
     playing: Boolean,
+    priority: Int = EmojiAnimationPolicy.PRIORITY_DEFAULT,
     modifier: Modifier,
     fallback: @Composable () -> Unit
 ) {
@@ -237,13 +259,13 @@ private fun SharedTgsEmoji(
     val sizePx = remember(density, size) { bucketEmojiSizePx(with(density) { size.roundToPx() }) }
     val renderer = remember(context) { SharedTgsEmojiRenderer.default(context) }
     val target = remember(renderer, accountId, path, sizePx) {
-        renderer.attach(accountId = accountId, path = path, sizePx = sizePx, playing = playing)
+        renderer.attach(accountId = accountId, path = path, sizePx = sizePx, playing = playing, priority = priority)
     }
     androidx.compose.runtime.DisposableEffect(renderer, target) {
         onDispose { renderer.detach(target) }
     }
-    LaunchedEffect(renderer, target, playing) {
-        renderer.updateTarget(target, playing = playing)
+    LaunchedEffect(renderer, target, playing, priority) {
+        renderer.updateTarget(target, playing = playing, priority = priority)
     }
     val failed = target.failedState.value
     if (failed) {
