@@ -360,7 +360,7 @@ internal fun NowPlayingBarHost(
     }
 }
 
-private fun PlaybackState.visibleSpeech(): Boolean = item != null && !ended && !failed
+private fun PlaybackState.visibleSpeech(): Boolean = item?.systemPrivate == false && !ended && !failed
 
 @Composable
 internal fun SpeechTransportBar(

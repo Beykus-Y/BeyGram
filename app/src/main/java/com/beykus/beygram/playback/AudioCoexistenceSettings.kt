@@ -36,6 +36,17 @@ internal data class AudioCoexistencePreferences(
         )
 }
 
+internal fun coexistenceAttenuation(policies: Collection<CoexistencePolicy>): Float =
+    policies.minOfOrNull(CoexistencePolicy::musicAttenuation) ?: 1f
+
+internal fun musicOutputGain(
+    base: Float,
+    coexistence: Float,
+    focus: Float,
+    sleep: Float,
+    envelope: Float = 1f,
+): Float = base * coexistence * focus * sleep * envelope
+
 /** Device-local audio choices. Call load and update on the main thread. */
 internal object AudioCoexistenceSettings {
     private const val PREFS_NAME = "audio_coexistence"

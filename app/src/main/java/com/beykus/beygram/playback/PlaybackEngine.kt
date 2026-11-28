@@ -548,7 +548,7 @@ object PlaybackEngine {
         if (preferencesJob != null) return
         preferencesJob = scope.launch {
             AudioCoexistenceSettings.state.collect {
-                speech.setGain(it.speechPercent / 100f)
+                applySpeechGain()
                 refreshCoexistence()
                 applyMusicGain()
             }
@@ -562,7 +562,7 @@ object PlaybackEngine {
         else endInterruption(coexistencePauseOwner)
         val external = policies.maxOfOrNull { it.external } ?: ExternalAudioInterference.Continue
         reconcileFocus(external)
-        val target = policies.minOfOrNull { it.musicAttenuation } ?: 1f
+        val target = coexistenceAttenuation(policies)
         if (target == coexistenceTarget) return
         coexistenceTarget = target
         gainRamp?.cancel()
@@ -587,40 +587,75 @@ object PlaybackEngine {
         refreshCoexistence()
     }
 
-    private fun musicGain(): Float =
-        AudioCoexistenceSettings.state.value.musicPercent / 100f * coexistenceGain * sleepGain * systemFocusGain
+    private fun musicGain(envelope: Float): Float = musicOutputGain(
+        base = AudioCoexistenceSettings.state.value.musicPercent / 100f,
+        coexistence = coexistenceGain,
+        focus = systemFocusGain,
+        sleep = sleepGain,
+        envelope = envelope,
+    )
 
     private var bgEnvelope = 1f
 
+    private fun applySpeechGain() {
+        speech.setGain(AudioCoexistenceSettings.state.value.speechPercent / 100f * systemFocusGain)
+    }
+
     private fun applyMusicGain() {
-        for ((renderer, envelope) in musicEnvelopes) renderer.volume = envelope * musicGain()
+        for ((renderer, envelope) in musicEnvelopes) renderer.volume = musicGain(envelope)
         bgMix?.let(::applyBgGain)
     }
 
     private fun applyBgGain(driver: BgMixQueueDriver) {
-        driver.setVolume(bgEnvelope * musicGain())
+        driver.setVolume(musicGain(bgEnvelope))
     }
 
     private fun setMusicEnvelope(renderer: ExoPlayer, envelope: Float) {
         musicEnvelopes[renderer] = envelope
-        renderer.volume = envelope * musicGain()
+        renderer.volume = musicGain(envelope)
     }
 
-    private fun startSpeech(context: Context, item: PlaybackItem, positionMs: Long, onStarted: (() -> Unit)?) {
+    private fun startSpeech(
+        context: Context,
+        item: PlaybackItem,
+        positionMs: Long,
+        onStarted: (() -> Unit)?,
+        preview: Boolean = false,
+    ) {
         ensureCoexistence(context)
         if (activeAccountId != null && item.accountId != activeAccountId) return
         if (recordingOwners.isNotEmpty()) return
+        resumeSpeechOnFocus = null
         val media = mediaItemFor(item)
-        speech.start(context, item, media, positionMs, _state.value.voiceSpeed, onStarted) {
+        speech.start(context, item, media, positionMs, if (preview) 1f else _state.value.voiceSpeed, onStarted, preview) {
             PlaybackSources.register(item.systemMediaId, PlaybackSourceHandle(item, null))
         }
+        applySpeechGain()
     }
 
+    internal fun toggleSpeechPreview(context: Context, key: String, kind: MediaKind, path: String, seconds: Int) {
+        val item = PlaybackItem(
+            key = key,
+            kind = kind,
+            path = path,
+            title = "",
+            durationSeconds = seconds,
+            accountId = activeAccountId ?: LEGACY_PLAYBACK_ACCOUNT_ID,
+            secret = true,
+        )
+        if (!toggleSpeech(key)) startSpeech(context, item, 0L, null, preview = true)
+    }
     internal fun toggleSpeech(key: String): Boolean {
         if (recordingOwners.isNotEmpty()) return false
         resumeSpeechOnFocus = null
         return speech.toggle(key)
     }
+    fun onAppLocked() {
+        resumeSpeechOnFocus = null
+        speech.pause()
+        stopSecret()
+    }
+
     internal fun seekSpeech(key: String, positionMs: Long) = speech.seek(key, positionMs)
     internal fun attachSpeechVideo(key: String, owner: Any, view: TextureView) = speech.attach(key, owner, view)
     internal fun detachSpeechVideo(owner: Any) = speech.detach(owner)
@@ -749,9 +784,9 @@ object PlaybackEngine {
 
             override fun pause() {
                 invalidateInterruptionResume()
-                releasePrimaryFocus()
                 if (bgMixActive()) {
                     pauseBgMix()
+                    releasePrimaryFocus()
                     return
                 }
                 // System/lock-screen/headset pause must cancel a pending deferred resume as well.
@@ -760,6 +795,7 @@ object PlaybackEngine {
                 progress?.cancel()
                 progress = null
                 super.pause()
+                releasePrimaryFocus()
             }
 
             override fun setPlayWhenReady(playWhenReady: Boolean) {
@@ -1185,6 +1221,12 @@ object PlaybackEngine {
         if (accountId.isBlank()) return
         val previous = activeAccountId
         activeAccountId = accountId
+        if (previous != null && previous != accountId) {
+            recordingOwners.clear()
+            resumeSpeechOnFocus = null
+            interruption = null
+            refreshCoexistence()
+        }
         if (speechState.value.item?.accountId?.let { it != accountId } == true) {
             interruption = null
             speech.stop()
@@ -1793,7 +1835,7 @@ object PlaybackEngine {
         // intentPlaying=true; calling togglePlayPause() here would pause it instead of letting it continue.
         _state.update { it.copy(failed = false, intentPlaying = true) }
         if (_state.value.item?.systemPrivate != true) startPlaybackService()
-        playPrimary(target)
+        target.play()
         prefetchNext()
     }
 
@@ -1823,7 +1865,7 @@ object PlaybackEngine {
             }
             _state.update { it.copy(failed = false, intentPlaying = true) }
             if (_state.value.item?.systemPrivate != true) startPlaybackService()
-            playPrimary(target)
+            target.play()
             prefetchNext()
             return
         }
@@ -1834,7 +1876,7 @@ object PlaybackEngine {
         }
         _state.update { it.copy(failed = false, ended = false, intentPlaying = true) }
         if (_state.value.item?.systemPrivate != true) startPlaybackService()
-        playPrimary(target)
+        target.play()
         prefetchNext()
         loadNextQueuePage()
     }
@@ -1842,8 +1884,8 @@ object PlaybackEngine {
     /** Пауза без сброса файла: так голосовое или кружок могут остановить музыку, не теряя её места. Состояние меняем сразу: если файл ещё буферизуется, плеер не пришлёт событие о паузе. */
     fun pause() {
         invalidateInterruptionResume()
-        releasePrimaryFocus()
         pauseMusicForInterruption()
+        releasePrimaryFocus()
     }
 
     private fun pauseMusicForInterruption() {
@@ -1881,7 +1923,9 @@ object PlaybackEngine {
     fun beginInterruption(owner: Any) {
         val now = SystemClock.elapsedRealtime()
         val existing = interruption
-        if (existing != null && now - existing.startedAt < INTERRUPTION_STALE_MS) {
+        if (existing != null &&
+            (coexistencePauseOwner in existing.owners || now - existing.startedAt < INTERRUPTION_STALE_MS)
+        ) {
             existing.owners += owner
             return
         }
@@ -1900,7 +1944,7 @@ object PlaybackEngine {
         if (!current.wasPlaying) return
         val state = _state.value
         val longBreak = SystemClock.elapsedRealtime() - current.startedAt > INTERRUPTION_RESUME_LIMIT_MS
-        if (longBreak || state.item?.key != current.itemKey || state.intentPlaying || state.playing) return
+        if ((longBreak && owner !== coexistencePauseOwner) || state.item?.key != current.itemKey || state.intentPlaying || state.playing) return
         if (bgMixActive()) {
             bgMixPlay()
             return
@@ -1947,6 +1991,7 @@ object PlaybackEngine {
         focusGranted = false
         systemFocusGain = 1f
         applyMusicGain()
+        applySpeechGain()
         if (gain == 0) return true
         val request = AudioFocusRequest.Builder(gain)
             .setAudioAttributes(
@@ -1974,6 +2019,7 @@ object PlaybackEngine {
                 focusSuspended = false
                 systemFocusGain = 1f
                 applyMusicGain()
+                applySpeechGain()
                 val restoreMusic = resumeMusicOnFocus
                 val restoreSpeech = resumeSpeechOnFocus
                 resumeMusicOnFocus = false
@@ -1988,6 +2034,7 @@ object PlaybackEngine {
                 // On Android versions that apply automatic ducking this callback is suppressed.
                 systemFocusGain = BG_DUCK_VOLUME
                 applyMusicGain()
+                applySpeechGain()
             }
             AudioManager.AUDIOFOCUS_LOSS_TRANSIENT, AudioManager.AUDIOFOCUS_LOSS -> {
                 val transient = change == AudioManager.AUDIOFOCUS_LOSS_TRANSIENT
@@ -2263,7 +2310,11 @@ object PlaybackEngine {
 
     private val bgNoisyReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context, intent: Intent) {
-            if (bgMixActive()) pause()
+            if (bgMixActive()) {
+                resumeSpeechOnFocus = null
+                speech.pause()
+                pause()
+            }
         }
     }
 
@@ -2690,6 +2741,7 @@ object PlaybackEngine {
         bgEnvelope = 0f
         if (!driver.commitStaged()) {
             bgMixHandoverFading = false
+            bgEnvelope = 1f
             driver.discardStaged()
             unregisterBgNoisyReceiver()
             return false
@@ -3053,7 +3105,7 @@ object PlaybackEngine {
 
     private fun toggleBgMix() {
         val state = _state.value
-        if (!state.ended && (state.intentPlaying || state.playing)) pauseBgMix() else bgMixPlay()
+        if (!state.ended && (state.intentPlaying || state.playing)) pause() else bgMixPlay()
     }
 
     /** Resumes BG Mix, or restarts the queue from its current index when it has ended. */
@@ -3139,7 +3191,7 @@ object PlaybackEngine {
     }
 
     private fun haltPlayer() {
-        releasePrimaryFocus()
+        invalidateInterruptionResume()
         stopBgMix()
         endlessRecovery = null
         endlessWaitingForRecovery = false
@@ -3161,6 +3213,7 @@ object PlaybackEngine {
             it.stop()
             it.clearMediaItems()
         }
+        releasePrimaryFocus()
         _audioSessionId.value = null
         val previous = _state.value
         _state.value = PlaybackState(

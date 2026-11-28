@@ -1,6 +1,6 @@
 # Audio Coexistence 1.0
 
-Status: proposed for #1323. Baseline: DEV aed8413887ab7c2917263eec6dfc6758d9e2354a, Media3 1.11.1, target SDK 36.
+Status: implementation under review in PR #1364. Baseline: DEV aed8413887ab7c2917263eec6dfc6758d9e2354a, Media3 1.11.1, target SDK 36.
 
 ## Current ownership
 
@@ -18,7 +18,7 @@ Speech owns one lazily created ExoPlayer. Reuse the growing Ogg data source and 
 
 ## Policy and gain
 
-Store a local policy per action (record voice, record circle, play voice, play circle), with separate internal and external selections. Proposed first-run defaults for review are continue for recording, 20% duck for message playback and unity speech gain. External defaults require review. Store bounded gains independently of Android stream volume, with reset and a migration from absent keys.
+Store a local policy per action (record voice, record circle, play voice, play circle), with separate internal and external selections. The approved defaults are continue for recording, 20% duck for message playback, 100% speech gain, and no extra request for external audio. Store bounded gains independently of Android stream volume, with reset and a migration from absent keys.
 
 Give each recording or speech occurrence an identity-bound lease. Acquire only after confirmed start eligibility, hold through buffering while play is requested and release on pause, stop, completion, failure or disposal. Transfer leases atomically when replacing speech. Release all on account change. Recording can stop speech without granting any stale callback authority over the new capture. Preview acquires playback policy only when explicitly played.
 
@@ -26,7 +26,7 @@ An active pause lease takes priority. Resume only if music intended to play befo
 
 ## Audio Focus
 
-Migrate Exo automatic focus and BG manual focus in one integration change. A main-thread coordinator owns the Android request and callback generation. Music normally uses GAIN, and an external preference maps to no additional request, TRANSIENT_MAY_DUCK or TRANSIENT. Retain owned music focus during local mixing. When no lane owns focus, continue-mode speech is a deliberate no-request policy and requires testing during calls, background and device routing changes. Decide the replacement strategy for owners with different focus strengths through platform integration tests before enabling it. Reject delayed grants initially and handle denial without starting focus-dependent output.
+Migrate Exo automatic focus and BG manual focus in one integration change. A main-thread coordinator owns the Android request and callback generation. Music normally uses GAIN, and an external preference maps to no additional request, TRANSIENT_MAY_DUCK or TRANSIENT. Retain owned music focus during local mixing. When no lane owns focus, continue-mode speech is a deliberate no-request policy and requires testing during calls, background and device routing changes. The coordinator uses GAIN during primary playback and selects the strongest requested action policy when the primary lane is silent. It ignores stale callbacks by request generation. The handover between Exo and BG uses the same request. Reject delayed grants initially and handle denial without starting focus-dependent output.
 
 Use system automatic ducking where applicable and avoid multiplying a second attenuation for the same event. For delivered loss callbacks, suspend affected lanes with a separate focus reason. A permanent loss clears auto-resume intent. A transient gain resumes only current, still-requested playback. Explicit pause, logout and becoming noisy cancel resume intent. Validate focus acquisition from top app or eligible foreground service on SDK 36.
 
@@ -37,3 +37,12 @@ Merge policy data only when behavior remains compatible with DEV. Ship renderer,
 Before enabling the integration, verify lease overlap, user pause during interruption, focus denial and stale callbacks, crossfade and both BG handover directions, progressive seek, secret/view-once teardown, system transport and three chat top-panel styles. Use synthetic states and Roborazzi for the visual suite. Samsung M21 acceptance must measure recording continuity, gains and clipping on speaker, wired and Bluetooth routes, then verify external-player focus behavior, calls, lockscreen and disconnection.
 
 References: [Issue #1323](https://github.com/Beykus-Y/BeyGram/issues/1323), [Android Audio Focus](https://developer.android.com/media/optimize/audio-focus).
+
+## Device acceptance
+
+- Confirm the Dev package and signing certificate, install in place with `adb install -r`, and verify the existing Telegram session opens with its chats.
+- On Samsung M21, record voice and circles over a track using the speaker, wired output and Bluetooth. Repeat with cancel, locked capture, preview, re-record and a denied permission.
+- Compare music at 0%, 20% and 100% using a fixed reference level. Check clipping, audio dropouts and preserved transition ratios during both Exo and BG Mix handover and crossfade. Confirm that recorded audio contains only the microphone input.
+- Start a voice note and then a circle during music. Exercise both pause controls, seek the circle, switch tracks, change volume and trigger the sleep timer. Check that each position and the music queue remain independent.
+- Exercise calls, VoIP, transient notifications, route disconnection, lockscreen and headset transport. Repeat external focus policies in multiple players and record the observed treatment per app.
+- Check logout, account switch, app lock, secret chat, view-once and protected content. Verify no speech metadata reaches notification or lockscreen controls.

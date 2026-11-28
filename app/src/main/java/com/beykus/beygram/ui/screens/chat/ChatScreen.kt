@@ -793,7 +793,7 @@ fun ChatScreen(
     }
     val recordingOwner = remember(chat.id) { Any() }
     val recordingAction = when {
-        videoNote.active -> CoexistenceAction.RecordVideoNote
+        videoNote.active && videoNote.started -> CoexistenceAction.RecordVideoNote
         audioNote.active -> CoexistenceAction.RecordVoice
         else -> null
     }

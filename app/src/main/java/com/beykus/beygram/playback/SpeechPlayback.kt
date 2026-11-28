@@ -39,6 +39,7 @@ internal class SpeechPlayback(
         positionMs: Long,
         speed: Float,
         onStarted: (() -> Unit)?,
+        preview: Boolean,
         registerSource: () -> Unit,
     ) {
         stop(releasePolicy = false)
@@ -63,7 +64,7 @@ internal class SpeechPlayback(
                     val failed = target.playerError != null
                     val snapshot = current.value
                     stop()
-                    if (!item.systemPrivate) current.value = snapshot.copy(
+                    if (!item.systemPrivate || (preview && failed)) current.value = snapshot.copy(
                         playing = false, intentPlaying = false, isBuffering = false, ended = !failed, failed = failed,
                     )
                     return

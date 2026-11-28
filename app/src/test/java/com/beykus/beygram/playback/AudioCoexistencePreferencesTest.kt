@@ -42,4 +42,23 @@ class AudioCoexistencePreferencesTest {
             }
         }
     }
+
+    @Test
+    fun transitionRenderersKeepTheirRatioAcrossIndependentGainChanges() {
+        val voice = CoexistencePolicy(MusicInterference.Duck, 20)
+        val recording = CoexistencePolicy(MusicInterference.Duck, 65)
+        val envelopes = listOf(0.8f, 0.6f)
+        fun render(base: Float, policies: List<CoexistencePolicy>, focus: Float, sleep: Float) =
+            envelopes.map { musicOutputGain(base, coexistenceAttenuation(policies), focus, sleep, it) }
+
+        val both = render(0.5f, listOf(voice, recording), 0.25f, 0.5f)
+        assertEquals(0.01f, both[0], 0.00001f)
+        assertEquals(0.0075f, both[1], 0.00001f)
+        val one = render(0.4f, listOf(recording), 1f, 1f)
+        assertEquals(0.208f, one[0], 0.00001f)
+        assertEquals(0.156f, one[1], 0.00001f)
+        val restored = render(0.4f, emptyList(), 1f, 1f)
+        assertEquals(0.32f, restored[0], 0.00001f)
+        assertEquals(0.24f, restored[1], 0.00001f)
+    }
 }

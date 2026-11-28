@@ -1,6 +1,5 @@
 package com.beykus.beygram.ui.screens.chat
 
-import android.net.Uri
 import android.view.TextureView
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -19,9 +18,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
-import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -32,16 +29,9 @@ import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
-import androidx.lifecycle.Lifecycle
-import androidx.lifecycle.LifecycleEventObserver
-import androidx.lifecycle.compose.LocalLifecycleOwner
-import androidx.media3.common.AudioAttributes
-import androidx.media3.common.C
-import androidx.media3.common.MediaItem
-import androidx.media3.common.PlaybackException
-import androidx.media3.common.Player
-import androidx.media3.exoplayer.ExoPlayer
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.beykus.beygram.R
+import com.beykus.beygram.domain.model.MediaKind
 import com.beykus.beygram.playback.PlaybackEngine
 import java.io.File
 
@@ -58,8 +48,7 @@ import java.io.File
  * box.
  *
  * The preview starts paused, exactly like the 0.0.6.3 `VideoView`: opening the dialog must not start talking over music.
- * Tap anywhere or the corner button to play; leaving the app pauses it; while it plays the shared player is interrupted
- * and released when the preview closes.
+ * The preview acquires message playback policy on an explicit tap and releases it when playback stops.
  */
 @Composable
 internal fun VideoNotePreview(
@@ -67,72 +56,37 @@ internal fun VideoNotePreview(
     posterPath: String?,
     modifier: Modifier = Modifier
 ) {
-    var playbackError by remember(path) { mutableStateOf<String?>(null) }
-    var ready by remember(path) { mutableStateOf(false) }
-    var playing by remember(path) { mutableStateOf(false) }
     val context = LocalContext.current
-    val lifecycle = LocalLifecycleOwner.current.lifecycle
-    val player = remember(path, context) {
-        ExoPlayer.Builder(context)
-            .setAudioAttributes(
-                AudioAttributes.Builder()
-                    .setUsage(C.USAGE_MEDIA)
-                    .setContentType(C.AUDIO_CONTENT_TYPE_MOVIE)
-                    .build(),
-                true
-            )
-            .setHandleAudioBecomingNoisy(true)
-            .build()
-            .apply {
-                setMediaItem(MediaItem.fromUri(Uri.fromFile(File(path))))
-                repeatMode = Player.REPEAT_MODE_ONE
-                playWhenReady = false
-                addListener(object : Player.Listener {
-                    override fun onPlaybackStateChanged(playbackState: Int) {
-                        if (playbackState == Player.STATE_READY) ready = true
-                    }
-
-                    override fun onIsPlayingChanged(isPlaying: Boolean) {
-                        playing = isPlaying
-                    }
-
-                    override fun onPlayerError(error: PlaybackException) {
-                        playbackError = error.errorCodeName
-                    }
-                })
-                prepare()
-            }
-    }
-    DisposableEffect(player) { onDispose { player.release() } }
-    // A preview with sound is a media session of its own: music stays paused while it talks and resumes when it closes.
-    DisposableEffect(player, playing) {
-        if (playing) PlaybackEngine.beginInterruption(player)
-        onDispose { if (playing) PlaybackEngine.endInterruption(player) }
-    }
-    DisposableEffect(player, lifecycle) {
-        val observer = LifecycleEventObserver { _, event ->
-            if (event == Lifecycle.Event.ON_STOP) player.pause()
+    val previewKey = remember(path) { java.util.UUID.randomUUID().toString() }
+    val owner = remember(previewKey) { Any() }
+    val speech by PlaybackEngine.speechState.collectAsStateWithLifecycle()
+    val preview = speech.takeIf { it.item?.key == previewKey }
+    val playing = preview?.intentPlaying == true
+    val ready = preview?.started == true
+    val playbackError = preview?.failed == true || !remember(path) { File(path).isFile }
+    DisposableEffect(previewKey, owner) {
+        onDispose {
+            PlaybackEngine.detachSpeechVideo(owner)
+            PlaybackEngine.stopPrivateSpeech(previewKey)
         }
-        lifecycle.addObserver(observer)
-        onDispose { lifecycle.removeObserver(observer) }
     }
     Box(modifier.background(Color.Black), contentAlignment = Alignment.Center) {
-        if (playbackError == null) {
+        if (!playbackError && preview != null) {
             // `key(path)` rebuilds the view for another segment, and `update` re-attaches the surface when the player
             // itself is recreated: an AndroidView keeps its view across recompositions, so without both a second
             // segment would play with sound and a black picture (Codex review of #1231).
             key(path) {
                 AndroidView(
                     factory = { context ->
-                        TextureView(context).also { view -> player.setVideoTextureView(view) }
+                        TextureView(context).also { view -> PlaybackEngine.attachSpeechVideo(previewKey, owner, view) }
                     },
-                    update = { view -> player.setVideoTextureView(view) },
+                    update = { view -> PlaybackEngine.attachSpeechVideo(previewKey, owner, view) },
                     modifier = Modifier.fillMaxSize()
                 )
             }
         }
         // Until the first decoded frame (and forever, if the file is unreadable) the poster stands in for the video.
-        if (playbackError != null || !ready) {
+        if (playbackError || !ready) {
             val poster = posterPath?.takeIf { File(it).isFile }
             if (poster != null) {
                 LocalMediaImage(poster, Modifier.fillMaxSize(), fit = true, animate = false)
@@ -140,7 +94,7 @@ internal fun VideoNotePreview(
                 Box(Modifier.fillMaxSize().background(Color.Black))
             }
         }
-        if (playbackError != null) {
+        if (playbackError) {
             Text(
                 text = stringResource(R.string.recorder_preview_unavailable),
                 style = MaterialTheme.typography.bodySmall,
@@ -149,9 +103,11 @@ internal fun VideoNotePreview(
                 modifier = Modifier.padding(12.dp)
             )
         }
-        if (playbackError == null) VideoNotePlaybackControl(
+        if (!playbackError) VideoNotePlaybackControl(
             playing = playing,
-            onToggle = { if (playing) player.pause() else player.play() },
+            onToggle = {
+                PlaybackEngine.toggleSpeechPreview(context, previewKey, MediaKind.VideoNote, path, 0)
+            },
             modifier = Modifier.matchParentSize()
         )
     }
