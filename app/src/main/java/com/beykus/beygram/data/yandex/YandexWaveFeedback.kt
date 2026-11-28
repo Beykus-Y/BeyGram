@@ -174,6 +174,62 @@ internal class WaveListenTracker(
     }
 }
 
+/** A queued feedback request: the event and the session and batch of the track it belongs to. */
+internal data class WaveOutgoing(
+    /** The session that gave the track; null when the wave was restored from a save and no session is open yet. */
+    val sessionId: String?,
+    val batchId: String?,
+    val event: YandexWaveEvent,
+)
+
+/** One request ready to send, addressed to the session the event belongs to. */
+internal data class WaveFeedbackRequest(
+    val sessionId: String,
+    val batchId: String?,
+    val event: YandexWaveEvent,
+)
+
+/**
+ * Addresses the queued feedback: every request goes to the session of its track, and the first request of a session
+ * announces the radio start for it. A session opened later (a settings change, or recovery from a forgotten one) is
+ * then reported as a new listening instead of missing its start event or taking the events of the previous session.
+ */
+internal class WaveFeedbackPlan(private val clock: () -> Long = System::currentTimeMillis) {
+    private val announced = HashSet<String>()
+
+    /** The requests to send for [outgoing]: the session's radio start first, when it is still unknown to the service. */
+    fun requests(outgoing: WaveOutgoing, currentSessionId: String?): List<WaveFeedbackRequest> {
+        // A track restored from a save has no session of its own: it goes to the one serving the wave now, if any.
+        val sessionId = outgoing.sessionId ?: currentSessionId ?: return emptyList()
+        val first = announced.add(sessionId)
+        if (outgoing.event.type == YandexWaveEvent.RADIO_STARTED) {
+            // A session is announced once; a start that arrives late for an announced session is a duplicate.
+            return if (first) listOf(WaveFeedbackRequest(sessionId, null, outgoing.event)) else emptyList()
+        }
+        val requests = ArrayList<WaveFeedbackRequest>(2)
+        if (first) {
+            requests += WaveFeedbackRequest(
+                sessionId,
+                null,
+                YandexWaveEvent(YandexWaveEvent.RADIO_STARTED, clock()),
+            )
+        }
+        requests += WaveFeedbackRequest(sessionId, outgoing.batchId, outgoing.event)
+        return requests
+    }
+}
+
+/** The feedback of one listening fact, addressed to the session and batch that gave its track. */
+internal fun waveOutgoing(session: YandexWaveSession, event: WaveListenEvent, now: Long): WaveOutgoing? {
+    val origin = session.originOf(event.key) ?: return null
+    val (type, seconds) = when (event) {
+        is WaveListenEvent.Started -> YandexWaveEvent.TRACK_STARTED to null
+        is WaveListenEvent.Finished -> YandexWaveEvent.TRACK_FINISHED to event.playedSeconds
+        is WaveListenEvent.Skipped -> YandexWaveEvent.SKIP to event.playedSeconds
+    }
+    return WaveOutgoing(origin.sessionId, origin.batchId, YandexWaveEvent(type, now, origin.queueId, seconds))
+}
+
 /**
  * Sends the listening of the playing radio to the service: radio started, each track started, finished or skipped,
  * and likes changed while it plays. One radio at a time; a new one replaces the previous tracker. Failures are
@@ -211,17 +267,26 @@ internal object YandexWaveFeedback {
      * only under [generation], the sign-in the radio started under; the provider checks it under its lock.
      */
     fun start(provider: YandexMusicProvider, generation: Long, sessionOf: () -> YandexWaveSession, radio: PlaybackRadio) {
-        val outbox = Channel<YandexWaveEvent>(Channel.UNLIMITED)
+        val outbox = Channel<WaveOutgoing>(Channel.UNLIMITED)
         val sender = scope.launch(Dispatchers.IO) {
-            for (event in outbox) {
-                val sessionId = sessionOf().currentSessionId ?: continue
-                val batch = event.trackId?.let { id -> sessionOf().batchOfTrack(id) }
-                // An event queued under one sign-in never goes out through another: it is dropped.
-                val result = provider.waveFeedback(generation, sessionId, event, batch)
-                if (result is ProviderResult.Failure) Log.i(TAG, "feedback ${event.type} failed: ${result.failure}")
+            val plan = WaveFeedbackPlan()
+            for (outgoing in outbox) {
+                // The session and batch are fixed when the event is queued: a later settings change or a replacement
+                // session must not re-address the feedback of a track another session gave.
+                for (request in plan.requests(outgoing, sessionOf().currentSessionId)) {
+                    // An event queued under one sign-in never goes out through another: it is dropped.
+                    val result = provider.waveFeedback(generation, request.sessionId, request.event, request.batchId)
+                    if (result is ProviderResult.Failure) Log.i(TAG, "feedback ${request.event.type} failed: ${result.failure}")
+                }
             }
         }
-        outbox.trySend(YandexWaveEvent(YandexWaveEvent.RADIO_STARTED, System.currentTimeMillis()))
+        outbox.trySend(
+            WaveOutgoing(
+                sessionOf().currentSessionId,
+                null,
+                YandexWaveEvent(YandexWaveEvent.RADIO_STARTED, System.currentTimeMillis()),
+            )
+        )
         val tracker = WaveListenTracker { key -> sessionOf().trackOf(key) != null }
         val follower = scope.launch {
             try {
@@ -242,27 +307,24 @@ internal object YandexWaveFeedback {
                     // The state that closes the tracker is still handled; nothing after it is.
                     .transformWhile { emit(it); !tracker.closed }
                     .collect { (snapshot, liked) ->
+                        val session = sessionOf()
                         for (event in tracker.onState(snapshot)) {
-                            val (trackId, _) = sessionOf().trackOf(event.key) ?: continue
-                            val now = System.currentTimeMillis()
-                            outbox.trySend(
-                                when (event) {
-                                    is WaveListenEvent.Started -> YandexWaveEvent(YandexWaveEvent.TRACK_STARTED, now, trackId)
-                                    is WaveListenEvent.Finished ->
-                                        YandexWaveEvent(YandexWaveEvent.TRACK_FINISHED, now, trackId, event.playedSeconds)
-                                    is WaveListenEvent.Skipped ->
-                                        YandexWaveEvent(YandexWaveEvent.SKIP, now, trackId, event.playedSeconds)
-                                }
-                            )
+                            waveOutgoing(session, event, System.currentTimeMillis())?.let(outbox::trySend)
                         }
                         if (liked !== likes && snapshot.radioActive) {
                             for ((id, value) in liked) {
                                 // A like the app only learned now (a new batch) is not a change made by the user.
                                 val before = likes[id] ?: continue
                                 if (before == value) continue
-                                val trackId = sessionOf().trackIdOf(id) ?: continue
+                                val origin = session.originOfTrackId(id) ?: continue
                                 val type = if (value) YandexWaveEvent.LIKE else YandexWaveEvent.UNLIKE
-                                outbox.trySend(YandexWaveEvent(type, System.currentTimeMillis(), trackId))
+                                outbox.trySend(
+                                    WaveOutgoing(
+                                        origin.sessionId,
+                                        origin.batchId,
+                                        YandexWaveEvent(type, System.currentTimeMillis(), origin.queueId),
+                                    )
+                                )
                             }
                         }
                         likes = liked

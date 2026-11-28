@@ -88,6 +88,20 @@ internal data class YandexWaveEvent(
 internal class YandexWaveException(val failure: MusicProviderFailure) : IOException("wave batch failed: $failure")
 
 /**
+ * Where a track of the radio came from: the session and the batch that gave it. The feedback of the track belongs to
+ * that session even after the radio moved on to another one, so a settings change or a replaced session does not
+ * re-address it.
+ */
+internal data class WaveTrackOrigin(
+    /** The radio's `id:albumId`, as the feedback names the track. */
+    val queueId: String,
+    /** The session that gave the track; null when it is unknown (a wave restored from a save) or already gone. */
+    val sessionId: String?,
+    /** The batch that gave the track, when the session reported one. */
+    val batchId: String?,
+)
+
+/**
  * One listening of a radio: the first batch, then the next ones on request. When the service forgets the session or
  * ends it, a new session with the same seeds continues from the tracks already given, so the queue never breaks.
  * Requests are serialized; the player never asks for two batches at once, but a stale caller must not interleave.
@@ -98,6 +112,11 @@ internal class YandexWaveSession(
     private val next: suspend (sessionId: String, queue: List<String>) -> ProviderResult<YandexWaveBatch>,
     /** Tracks given before a restart, as `id:albumId`, so the wave does not repeat them. */
     initialGiven: Collection<String> = emptyList(),
+    /**
+     * The tracks a previous session of the same radio gave, with the session and batch of each: their feedback keeps
+     * going to the session that gave them after the radio is swapped to new seeds.
+     */
+    initialOrigins: Map<String, WaveTrackOrigin> = emptyMap(),
 ) {
     private val lock = Mutex()
     private var sessionId: String? = null
@@ -105,32 +124,41 @@ internal class YandexWaveSession(
     /** Tracks the session gave, as `id:albumId`, oldest first. Also used to drop repeats. */
     private val given = LinkedHashSet<String>(initialGiven)
 
-    /** Per player key: the track as `id:albumId` and the batch it came in, for feedback. */
-    private val byKey = java.util.concurrent.ConcurrentHashMap<String, Pair<String, String?>>()
+    /** Per player key: the track, the session that gave it and its batch, for feedback. */
+    private val byKey = java.util.concurrent.ConcurrentHashMap<String, WaveTrackOrigin>(initialOrigins)
 
-    /** The session feedback goes to; changes when a forgotten session is replaced. */
+    /**
+     * The session feedback goes to: the session currently serving the queue. Null while no session is open (a wave
+     * restored from a save) or when the service forgot or ended the last one; a missing target drops the feedback.
+     */
     @Volatile
     var currentSessionId: String? = null
         private set
 
     /** The radio's `id:albumId` and batch of a player key, or null when this session did not give that track. */
-    fun trackOf(key: String): Pair<String, String?>? = byKey[key]
+    fun trackOf(key: String): Pair<String, String?>? = byKey[key]?.let { it.queueId to it.batchId }
 
-    /** The batch the track `id:albumId` came in. */
-    fun batchOfTrack(queueId: String): String? = byKey.values.firstOrNull { it.first == queueId }?.second
+    /** The session and batch a player key came from, or null when this wave did not give that track. */
+    fun originOf(key: String): WaveTrackOrigin? = byKey[key]
 
-    /** The radio's `id:albumId` of a track id the session gave, for like events. */
-    fun trackIdOf(trackId: String): String? =
-        byKey.values.firstOrNull { it.first == trackId || it.first.startsWith("$trackId:") }?.first
+    /** The session and batch of a track id the wave gave, for like events. */
+    fun originOfTrackId(trackId: String): WaveTrackOrigin? =
+        byKey.values.firstOrNull { it.queueId == trackId || it.queueId.startsWith("$trackId:") }
+
+    /** The tracks given so far with their sessions and batches, for the next session of the same radio. */
+    fun origins(): Map<String, WaveTrackOrigin> = byKey.toMap()
 
     /** Opens the session. The tracks of the first batch, or the failure the UI shows. */
     suspend fun first(): ProviderResult<List<ProviderTrack>> = lock.withLock {
         when (val batch = start(seeds, emptyList())) {
             is ProviderResult.Failure -> batch
             is ProviderResult.Success -> {
-                sessionId = batch.value.sessionId
-                currentSessionId = batch.value.sessionId
-                ProviderResult.Success(accept(batch.value.tracks, batch.value.batchId))
+                // A session the service already ended or does not know can take neither a next request nor feedback.
+                val live = batch.value.sessionId.takeIf { !batch.value.unknownSession && !batch.value.terminated }
+                sessionId = live
+                currentSessionId = live
+                // Without a session its batch cannot be named in feedback either.
+                ProviderResult.Success(accept(batch.value.tracks, batch.value.batchId.takeIf { live != null }, live))
             }
         }
     }
@@ -149,15 +177,18 @@ internal class YandexWaveSession(
                 is ProviderResult.Success -> result.value
             }
             if (batch.unknownSession || batch.terminated) {
-                // The tracks of an ended session may still be fine, but the next request needs a new session.
+                // The tracks of an ended session may still be fine, but neither the next request nor feedback may go to
+                // a session the service forgot or ended: the next request opens a new one.
                 sessionId = null
-                val fresh = accept(batch.tracks, batch.batchId)
+                currentSessionId = null
+                // Its batch cannot be named in feedback to another session either.
+                val fresh = accept(batch.tracks, batchId = null, sessionId = null)
                 if (fresh.isNotEmpty()) return@withLock fresh
                 return@repeat
             }
             sessionId = batch.sessionId
             currentSessionId = batch.sessionId
-            val fresh = accept(batch.tracks, batch.batchId)
+            val fresh = accept(batch.tracks, batch.batchId, batch.sessionId)
             if (fresh.isNotEmpty()) return@withLock fresh
         }
         // Reset the exhausted session so the next recovery attempt opens a fresh session with the latest queue hint.
@@ -177,14 +208,17 @@ internal class YandexWaveSession(
     fun seed(track: ProviderTrack) {
         val id = queueId(track)
         synchronized(given) { given.add(id) }
-        byKey[track.key] = id to null
+        // The session that gave it ended with the previous process, so nothing may be reported to a new one on its behalf.
+        byKey[track.key] = WaveTrackOrigin(id, sessionId = null, batchId = null)
     }
 
-    /** Keeps the tracks the session has not given before, and remembers them. */
-    private fun accept(tracks: List<ProviderTrack>, batchId: String?): List<ProviderTrack> =
+    /** Keeps the tracks the session has not given before, and remembers them with the session and batch that gave them. */
+    private fun accept(tracks: List<ProviderTrack>, batchId: String?, sessionId: String?): List<ProviderTrack> =
         tracks.filter { track ->
             val id = queueId(track)
-            synchronized(given) { given.add(id) }.also { fresh -> if (fresh) byKey[track.key] = id to batchId }
+            synchronized(given) { given.add(id) }.also { fresh ->
+                if (fresh) byKey[track.key] = WaveTrackOrigin(id, sessionId, batchId)
+            }
         }
 
     companion object {
