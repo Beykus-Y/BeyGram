@@ -599,6 +599,8 @@ internal class TdSecondaryAccountController private constructor(
         DelayedSendQueue.forAccount(app, accountId).clear()
         DelayedSendQueue.releaseAccount(accountId)
         com.beykus.beygram.ui.screens.chat.PendingTextSendSessions.signedOutAndPurge(app, accountId)
+        runCatching { com.beykus.beygram.ui.screens.chat.RecentEmojiStore.clearAccount(app, accountId) }
+        runCatching { com.beykus.beygram.ui.screens.chat.PackUsageStore.clearAccount(app, accountId) }
         DelayedSendSettingsStore.releaseAccount(accountId)
         com.beykus.beygram.data.archive.ArchiveSettingsStore.releaseAccount(accountId)
         StealthSettingsStore.releaseAccount(accountId)

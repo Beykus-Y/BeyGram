@@ -98,7 +98,7 @@ internal class PackUsageStore(
         raw.split(ENTRY_SEPARATOR).forEach { entry ->
             val id = entry.substringBefore(VALUE_SEPARATOR).toLongOrNull() ?: return@forEach
             val value = entry.substringAfter(VALUE_SEPARATOR, "").toLongOrNull() ?: return@forEach
-            if (id > 0L && value >= 0L) result[id] = value
+            if (id != 0L && value >= 0L) result[id] = value
         }
         return result
     }
@@ -106,11 +106,22 @@ internal class PackUsageStore(
     private fun encode(values: Map<Long, Long>): String =
         values.entries.joinToString(ENTRY_SEPARATOR.toString()) { "${it.key}$VALUE_SEPARATOR${it.value}" }
 
-    private companion object {
-        const val PREFERENCES = "emoji_panel"
-        const val ENTRY_SEPARATOR = ','
-        const val VALUE_SEPARATOR = ':'
-        const val MAX_TRACKED_PACKS = 200
+    companion object {
+        private const val PREFERENCES = "emoji_panel"
+        private const val ENTRY_SEPARATOR = ','
+        private const val VALUE_SEPARATOR = ':'
+        private const val MAX_TRACKED_PACKS = 200
+
+        fun clearAccount(context: Context, accountId: String) {
+            val prefs = context.applicationContext.getSharedPreferences(PREFERENCES, Context.MODE_PRIVATE)
+            prefs.edit().apply {
+                remove("pack_order_dynamic_$accountId")
+                remove("pack_usage_${PackKind.Sticker.storageKey}_$accountId")
+                remove("pack_used_at_${PackKind.Sticker.storageKey}_$accountId")
+                remove("pack_usage_${PackKind.CustomEmoji.storageKey}_$accountId")
+                remove("pack_used_at_${PackKind.CustomEmoji.storageKey}_$accountId")
+            }.apply()
+        }
     }
 }
 

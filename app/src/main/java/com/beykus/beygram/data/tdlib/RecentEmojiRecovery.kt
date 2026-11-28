@@ -79,35 +79,53 @@ internal class RecentEmojiRecovery(
     ): RecentEmojiHistory = withContext(Dispatchers.IO) {
         if (unicodeLimit <= 0 && customLimit <= 0) return@withContext RecentEmojiHistory()
         val deadline = clock() + TOTAL_BUDGET_MS
-        val unicode = LinkedHashSet<String>()
-        val custom = LinkedHashSet<Long>()
-        val me = attempt { source.meId() } ?: return@withContext RecentEmojiHistory()
-        val chatIds = attempt { source.chatIds(MAX_CHATS) }.orEmpty()
+        val me = source.meId()
+        val chatIds = source.chatIds(MAX_CHATS)
+        var succeededChats = 0
+        var lastFailure: Exception? = null
+        val collected = ArrayList<TdApi.Message>()
         for (chatId in chatIds.take(MAX_CHATS)) {
             currentCoroutineContext().ensureActive()
             if (clock() >= deadline) break
-            // A secret chat must never be read for this, even though only emoji are extracted.
-            if (attempt { source.chatIsSecret(chatId) } != false) continue
-            val messages = attempt { source.ownMessages(chatId, me, MESSAGES_PER_CHAT) }.orEmpty()
-            for (message in messages) {
-                if (!message.isOutgoing) continue
-                val extracted = extractRecentEmoji(message.content)
-                extracted.unicode.forEach { if (unicode.size < unicodeLimit) unicode.add(it) }
-                extracted.customEmojiIds.forEach { if (custom.size < customLimit) custom.add(it) }
-                if (unicode.size >= unicodeLimit && custom.size >= customLimit) break
+            val secret = try {
+                source.chatIsSecret(chatId)
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (failure: Exception) {
+                lastFailure = failure
+                continue
             }
+            // A secret chat must never be read for this, even though only emoji are extracted.
+            if (secret) {
+                succeededChats++
+                continue
+            }
+            val messages = try {
+                source.ownMessages(chatId, me, MESSAGES_PER_CHAT)
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (failure: Exception) {
+                lastFailure = failure
+                continue
+            }
+            succeededChats++
+            for (message in messages) {
+                if (message.isOutgoing) collected += message
+            }
+        }
+        if (chatIds.isNotEmpty() && succeededChats == 0) {
+            throw lastFailure ?: IllegalStateException("Recent emoji recovery did not complete for any chat")
+        }
+        collected.sortWith(compareByDescending<TdApi.Message> { it.date }.thenByDescending { it.id })
+        val unicode = LinkedHashSet<String>()
+        val custom = LinkedHashSet<Long>()
+        for (message in collected) {
+            val extracted = extractRecentEmoji(message.content)
+            extracted.unicode.forEach { if (unicode.size < unicodeLimit) unicode.add(it) }
+            extracted.customEmojiIds.forEach { if (custom.size < customLimit) custom.add(it) }
             if (unicode.size >= unicodeLimit && custom.size >= customLimit) break
         }
         RecentEmojiHistory(unicode.toList(), custom.toList())
-    }
-
-    /** A TDLib failure is a verdict for this attempt; cancellation must always propagate. */
-    private suspend fun <T> attempt(block: suspend () -> T): T? = try {
-        block()
-    } catch (cancelled: CancellationException) {
-        throw cancelled
-    } catch (_: Exception) {
-        null
     }
 
     private companion object {

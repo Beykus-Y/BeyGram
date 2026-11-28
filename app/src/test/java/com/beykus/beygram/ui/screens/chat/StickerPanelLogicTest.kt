@@ -183,6 +183,9 @@ class StickerPanelLogicTest {
         assertEquals(PickerLoad.Loading, loading)
         assertEquals(1, (ready as PickerLoad.Ready<List<StickerItem>>).value.size)
         assertEquals("offline", (failed as PickerLoad.Failed).message)
+        assertEquals(ready, ready.beginRefresh())
+        assertEquals(ready, ready.failRefresh("offline"))
+        assertEquals(PickerLoad.Loading, failed.beginRefresh())
     }
 
     @Test

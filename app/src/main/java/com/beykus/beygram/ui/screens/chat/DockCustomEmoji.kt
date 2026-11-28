@@ -42,6 +42,7 @@ import com.beykus.beygram.domain.repository.ConversationRepository
 import com.beykus.beygram.ui.components.SystemEmojiFont
 import com.beykus.beygram.ui.components.beyGramPalette
 import com.beykus.beygram.ui.components.emojiPresentation
+import com.beykus.beygram.ui.text.userMessage
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
@@ -50,7 +51,7 @@ import kotlinx.coroutines.launch
  * per-document free flag the official MTProto clients use, so this is the safe approximation. Server refusal still wins.
  */
 internal fun customEmojiAllowed(premium: Boolean?, savedMessages: Boolean): Boolean =
-    savedMessages || premium == true
+    savedMessages || premium != false
 
 /**
  * Locked marks require a known non-Premium account: before the profile arrives [premium] is null and the picker must not
@@ -94,9 +95,11 @@ internal fun rememberDockCustomEmoji(
     packUsage: PackUsageStore,
     dynamicOrder: Boolean,
     onPackOrder: () -> Unit,
+    onReorderError: (String) -> Unit = {},
     onPick: (CustomEmoji) -> Boolean,
     onPicked: (Long) -> Unit,
 ): DockCustomEmoji {
+    val context = LocalContext.current
     var installed by remember(conversation) { mutableStateOf<List<CustomEmojiSetBrief>>(emptyList()) }
     var recommended by remember(conversation) { mutableStateOf<List<CustomEmojiSetBrief>>(emptyList()) }
     var busyPacks by remember(conversation) { mutableStateOf<Set<Long>>(emptySet()) }
@@ -159,7 +162,7 @@ internal fun rememberDockCustomEmoji(
                     try {
                         conversation.reorderStickerSets(customEmoji = true, orderedIds = order)
                             .onSuccess { attempt++ }
-                            .onFailure { failed = true }
+                            .onFailure { onReorderError(it.userMessage(context, R.string.sticker_panel_load_failed)) }
                     } finally {
                         reorderBusy = false
                     }
