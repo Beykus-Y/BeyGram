@@ -1050,6 +1050,7 @@
     <string name="chat_read_all_reactions_message">Todas las reacciones a tus mensajes de este chat se marcarán como leídas.</string>
     <string name="chat_read_all_confirm">Marcar como leído</string>
     <string name="chat_read_all_failed">No se pudo marcar todo como leído</string>
+    <string name="chat_jump_unread_empty">No hay menciones ni reacciones sin leer</string>
     <string name="chat_swipe_secondary_title">Deslizamiento inverso</string>
     <string name="chat_swipe_secondary_reaction">Reacción rápida</string>
     <string name="chat_swipe_secondary_saved">Guardar en Guardados</string>

@@ -2800,6 +2800,7 @@
     <string name="chat_read_all_reactions_message">Все реакции на ваши сообщения в этом чате будут отмечены прочитанными.</string>
     <string name="chat_read_all_confirm">Прочитать</string>
     <string name="chat_read_all_failed">Не удалось отметить все прочитанными</string>
+    <string name="chat_jump_unread_empty">Нет непрочитанных упоминаний и реакций</string>
     <string name="chat_swipe_secondary_title">Свайп в обратную сторону</string>
     <string name="chat_swipe_secondary_reaction">Быстрая реакция</string>
     <string name="chat_swipe_secondary_saved">В Избранное</string>
