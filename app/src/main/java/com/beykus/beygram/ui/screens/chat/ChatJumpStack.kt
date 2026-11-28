@@ -314,7 +314,7 @@ internal fun BoxScope.ChatTimelineJumpOverlays(
         conversation = conversation,
         onJumpToMessage = onJumpToMessage,
         onReadAllFailed = { onError(context.getString(R.string.chat_read_all_failed)) },
-        onJumpEmpty = { onError(context.getString(R.string.global_search_empty)) },
+        onJumpEmpty = { onError(context.getString(R.string.chat_jump_unread_empty)) },
         onJumpFailed = { failure ->
             onError(failure?.userMessage(context, R.string.chat_search_failed)
                 ?: context.getString(R.string.err_tdlib_request_timeout))

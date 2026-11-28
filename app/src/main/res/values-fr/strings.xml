@@ -1076,6 +1076,7 @@
     <string name="chat_read_all_reactions_message">Toutes les réactions à vos messages de ce chat seront marquées comme lues.</string>
     <string name="chat_read_all_confirm">Marquer comme lu</string>
     <string name="chat_read_all_failed">Impossible de tout marquer comme lu</string>
+    <string name="chat_jump_unread_empty">Aucune mention ni réaction non lue</string>
     <string name="chat_swipe_secondary_title">Glissement inversé</string>
     <string name="chat_swipe_secondary_reaction">Réaction rapide</string>
     <string name="chat_swipe_secondary_saved">Enregistrer dans Favoris</string>

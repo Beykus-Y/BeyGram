@@ -101,6 +101,8 @@ internal fun DesignShapes.toMaterialShapes(): Shapes = Shapes(
  * defaults to the Warm set for that brightness. [design] picks the design style; it defaults to the original BeyGram
  * design, so a caller that does not pass one keeps exactly the old look.
  */
+val LocalBeyGramDarkTheme = androidx.compose.runtime.staticCompositionLocalOf { false }
+
 @Composable
 fun BeyGramTheme(
     darkTheme: Boolean = isSystemInDarkTheme(),
@@ -117,6 +119,7 @@ fun BeyGramTheme(
     val typography = remember(design.style) { typographyFor(design.style) }
 
     CompositionLocalProvider(
+        LocalBeyGramDarkTheme provides darkTheme,
         LocalBeyGramTokens provides tokens,
         LocalDesignSystem provides design,
         LocalMessageTextSize provides messageTextSizeSp.coerceIn(12, 22).sp,

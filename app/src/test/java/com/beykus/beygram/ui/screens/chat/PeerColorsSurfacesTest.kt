@@ -17,7 +17,9 @@ import com.beykus.beygram.domain.model.ProfileMemberRole
 import com.beykus.beygram.ui.components.ChatAvatar
 import com.beykus.beygram.ui.screens.profile.MemberRow
 import com.beykus.beygram.ui.theme.BeyGramTheme
+import com.beykus.beygram.ui.theme.LocalBeyGramDarkTheme
 import kotlinx.coroutines.flow.MutableStateFlow
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
@@ -74,6 +76,28 @@ class PeerColorsSurfacesTest {
         rule.onNodeWithText("Peer Reply").assertExists()
         rule.onNodeWithText("Public Channel", substring = true).assertExists()
         rule.onNodeWithText("Hidden Sender", substring = true).assertExists()
+    }
+
+    @Test
+    fun peerColorsFollowAppThemeRegardlessOfSystemTheme() {
+        val accent = PeerAccentColor(builtInId = 4, lightRgb = listOf(0x267181), darkRgb = listOf(0x83C8D5))
+        val reply = MessageReply(10L, 1L, UiText.Raw("Quoted"), senderName = "Peer Reply", senderAccentColor = accent)
+        var observedDark: Boolean? = null
+        val useDark = androidx.compose.runtime.mutableStateOf(true)
+
+        rule.setContent {
+            BeyGramTheme(darkTheme = useDark.value) {
+                observedDark = LocalBeyGramDarkTheme.current
+                ReplyQuote(reply, onClick = {})
+            }
+        }
+        rule.runOnIdle {
+            assertEquals(true, observedDark)
+            useDark.value = false
+        }
+        rule.runOnIdle {
+            assertEquals(false, observedDark)
+        }
     }
 
     private fun contrastRatio(a: Color, b: Color): Float {

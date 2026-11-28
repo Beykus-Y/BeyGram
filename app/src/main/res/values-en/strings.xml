@@ -1050,6 +1050,7 @@
     <string name="chat_read_all_reactions_message">All reactions to your messages in this chat will be marked as read.</string>
     <string name="chat_read_all_confirm">Mark read</string>
     <string name="chat_read_all_failed">Could not mark everything as read</string>
+    <string name="chat_jump_unread_empty">No unread mentions or reactions</string>
     <string name="chat_swipe_secondary_title">Opposite swipe action</string>
     <string name="chat_swipe_secondary_reaction">Quick reaction</string>
     <string name="chat_swipe_secondary_saved">Save to Saved Messages</string>

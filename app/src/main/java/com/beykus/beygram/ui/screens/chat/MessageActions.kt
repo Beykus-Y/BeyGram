@@ -1,5 +1,7 @@
 package com.beykus.beygram.ui.screens.chat
 
+import androidx.compose.ui.input.pointer.PointerEventPass
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.background
@@ -320,7 +322,11 @@ internal fun MessageContextPopover(
             close()
         }
     }
-    val dismiss = { if (foreground == null || motionSpec.isInstant) close() else closing = true }
+    val dismiss = {
+        if (!closing) {
+            if (foreground == null || motionSpec.isInstant) close() else closing = true
+        }
+    }
 
     val progress by animateFloatAsState(
         targetValue = if (visible) 1f else 0f,
@@ -399,6 +405,16 @@ internal fun MessageContextPopover(
             Modifier
                 .fillMaxSize()
                 .onGloballyPositioned { rootBounds = it.boundsInWindow() }
+                .pointerInput(closing) {
+                    if (closing) {
+                        awaitPointerEventScope {
+                            while (true) {
+                                awaitPointerEvent(PointerEventPass.Initial)
+                                    .changes.forEach { it.consume() }
+                            }
+                        }
+                    }
+                }
                 .background(Color.Black.copy(alpha = (if (showForeground) 0.62f else 0.28f) * progress))
                 .clickable(
                     interactionSource = remember { MutableInteractionSource() },

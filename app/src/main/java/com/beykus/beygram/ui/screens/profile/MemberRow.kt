@@ -53,7 +53,7 @@ internal fun MemberRow(
     onClick: () -> Unit
 ) {
     val palette = beyGramPalette()
-    val dark = androidx.compose.foundation.isSystemInDarkTheme()
+    val dark = com.beykus.beygram.ui.theme.LocalBeyGramDarkTheme.current
     val avatarColor = member.accentColor?.avatarColor(dark)
         ?: Color(member.avatarColorArgb)
     val nameColor = member.accentColor?.authorColor(dark, palette.surface, palette.textPrimary)
