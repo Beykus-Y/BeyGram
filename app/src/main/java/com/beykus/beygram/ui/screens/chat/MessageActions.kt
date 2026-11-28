@@ -361,13 +361,22 @@ internal fun MessageContextPopover(
     val reactionCount = freeReactions.size + if (onReactions != null) 1 else 0
     val reactionWidth = if (showReactionStrip) with(density) { (16 + reactionCount * 44).dp.roundToPx() } else 0
     val reactionHeight = if (showReactionStrip) with(density) { 56.dp.roundToPx() } else 0
-    val scene = if (foreground != null && anchorBounds != null) {
+    val sceneViewport = viewportBounds.deflate(marginPx.toFloat())
+    val anchoredScene = if (foreground != null && anchorBounds != null) {
         computeMessageContextScene(
-            anchorBounds, viewportBounds.deflate(marginPx.toFloat()), preferredSceneMenuHeight,
+            anchorBounds, sceneViewport, preferredSceneMenuHeight,
             minPopoverHeightPx, menuWidth, gapPx, isOutgoing, reactionWidth, reactionHeight
         )
     } else null
-    val showForeground = scene != null && foreground != null
+    val scrollForeground = anchoredScene == null && foreground != null &&
+        foregroundText != null && capabilities?.canCopy == true
+    val scene = anchoredScene ?: if (scrollForeground) {
+        computeScrollableMessageContextScene(
+            anchorBounds, sceneViewport, preferredSceneMenuHeight, minPopoverHeightPx,
+            menuWidth, gapPx, isOutgoing, reactionWidth, reactionHeight
+        )
+    } else null
+    val showForeground = scene != null
     val selection = if (showForeground && foregroundText != null && capabilities?.canCopy == true) {
         remember(foregroundText, foregroundEntities) { MessageContextTextSelection(foregroundText, foregroundEntities) }
     } else null
@@ -422,22 +431,27 @@ internal fun MessageContextPopover(
                     }
                 }
                 .background(Color.Black.copy(alpha = (if (showForeground) 0.62f else 0.28f) * progress))
-                .clickable(
+        ) {
+            Box(
+                Modifier.fillMaxSize().clickable(
                     interactionSource = remember { MutableInteractionSource() },
                     indication = null,
-                    onClick = { if (selectedText != null) selection?.clear() else dismiss() }
+                    onClick = dismiss
                 )
-        ) {
-            if (scene != null && foreground != null && anchorBounds != null) {
+            )
+            if (scene != null && foreground != null) {
                 val root = rootBounds ?: Rect.Zero
                 val target = scene.messageBounds
+                val origin = if (scrollForeground) target else anchorBounds ?: target
                 Box(
                     Modifier.absoluteOffset {
                         IntOffset(
-                            (anchorBounds.left + (target.left - anchorBounds.left) * progress - root.left).roundToInt(),
-                            (anchorBounds.top + (target.top - anchorBounds.top) * progress - root.top).roundToInt()
+                            (origin.left + (target.left - origin.left) * progress - root.left).roundToInt(),
+                            (origin.top + (target.top - origin.top) * progress - root.top).roundToInt()
                         )
                     }.size(with(density) { target.width.toDp() }, with(density) { target.height.toDp() }).clipToBounds()
+                        .contextSurfaceHitTarget()
+                        .then(if (selection != null) Modifier.verticalScroll(rememberScrollState()) else Modifier)
                 ) { foreground(selection) }
             }
             val reactionStrip: @Composable () -> Unit = {
@@ -500,7 +514,7 @@ internal fun MessageContextPopover(
                     IntOffset((bounds.left - root.left).roundToInt(), (bounds.top - root.top).roundToInt())
                 }.width(with(density) { bounds.width.toDp() })
                     .graphicsLayer { alpha = progress }
-                    .clickable(interactionSource = remember { MutableInteractionSource() }, indication = null) {}
+                    .contextSurfaceHitTarget()
                 MessageContextSurface(reactionModifier, CircleShape, reactionStrip)
             }
             val cardContent: @Composable () -> Unit = {
@@ -711,8 +725,7 @@ internal fun MessageContextPopover(
                     scaleX = cardScale
                     scaleY = cardScale
                 }
-                // Consume clicks inside the card so tapping non-interactive padding doesn't dismiss the scrim.
-                .clickable(interactionSource = remember { MutableInteractionSource() }, indication = null) {}
+                .contextSurfaceHitTarget()
 
             val shape = if (placement.useBottomSheetFallback) styledTopShape(20.dp) else styledShape(
                 when (design.style) {
@@ -725,6 +738,13 @@ internal fun MessageContextPopover(
             MessageContextSurface(cardModifier, shape, cardContent)
         }
         }
+    }
+}
+
+// Participate in sibling hit testing without taking gestures away from descendant controls.
+private fun Modifier.contextSurfaceHitTarget() = pointerInput(Unit) {
+    awaitPointerEventScope {
+        while (true) awaitPointerEvent()
     }
 }
 
