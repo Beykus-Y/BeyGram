@@ -203,7 +203,25 @@ different window from the host backdrop».
 | **R4** | `SelectionMenuProvider` (панель выделения текста) | Отдельное окно `Popup` с Material `Surface`; не семплирует backdrop и не притворяется стеклом | Решение владельца: это системоподобный контрол, оставлен как есть |
 | **R5** | Контент sheet/dialog компонуется в корне окна | Иначе модал не может семплировать экран | Наследуются локальные значения окна, но не чат-скоупные (`LocalChatChromeOnGlass`, `LocalComposerOnGlassPlane`) — для модала читаются как `false`, что корректно |
 
-## 9. Что этот документ не утверждает
+## 9. Проверки E4, которые выполнены и которые остались
+
+### Выполнено (локально, Windows, JDK 17, offline)
+
+- `:app:compileDevDebugKotlin` — чисто.
+- Полный `:app:testDevDebugUnitTest`: **4641 тест, 137 падений, 19 пропущено**. Все 137 — известный baseline этой машины, воспроизводится на чистом `origin/DEV`:
+  - Roborazzi-эталоны (85): `StyleMatrixScreenshotTest` 30, `WideLayoutScreenshotTest` 30, `StylePreviewScreenshotTest` 15, `MusicHomeScreenshotTest` 10 — сравнение с эталонами, снятыми в Linux CI;
+  - TDLib (48): `TdSecondarySessionCoordinatorTest`, `TdAccountRegistryTest`, `TdAccountUpdateRoutingTest`, `TdAccountNativeClientOwnerTest`, `TdAccountStorageLayoutTest`, `TdAccountSessionStateTest` — временные каталоги Windows;
+  - `ChatMemoryRecorderLifecycleTest` 3 и `TextSendCorruptRecoveryTest` 1 — тот же класс проблем окружения.
+- Ни один тест стекла, модалов, скрепки, уведомлений или медиадока не падает.
+- `git diff --check` — чисто.
+
+### Не выполнено и почему
+
+- **Реальный blur/AGSL, IME, predictive back, drag, frame time, PSS** — нужен Samsung M21 владельца; эмулятор и CI этого не показывают. CI зелёного статуса здесь недостаточно.
+- **Матрица тем × качества × light/dark × ориентация × font scale** — частично покрыта Roborazzi-набором, но эталоны на этой машине не совпадают; сравнение валидно только в CI/Linux. Владельцу нужен проход глазами на устройстве.
+- **Сравнение производительности с актуальной сборкой после D4** — требует инструментированного замера на устройстве (open latency, p95/p99 frame time/jank, PSS/GC, GraphicsLayer и RenderEffect counts, 20–50 циклов открытия/закрытия).
+
+## 10. Что этот документ не утверждает
 
 - Он не подтверждает визуальную корректность: рендер на устройстве не выполнялся.
 - Он не подтверждает производительность: замеров нет.
