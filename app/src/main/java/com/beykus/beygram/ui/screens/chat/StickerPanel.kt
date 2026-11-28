@@ -204,6 +204,7 @@ internal fun StickerPanelHost(
     scope: CoroutineScope,
     composerReserve: androidx.compose.ui.unit.Dp,
     keyboardHeightHint: androidx.compose.ui.unit.Dp,
+    isTransitioning: Boolean = false,
     onReplyConsumed: (Long?) -> Unit,
     onAnimationAttach: (AnimationItem) -> Unit,
     onStickerOptions: (StickerItem) -> Unit,
@@ -229,6 +230,7 @@ internal fun StickerPanelHost(
             scope = scope,
             composerReserve = composerReserve,
             keyboardHeightHint = keyboardHeightHint,
+            isTransitioning = isTransitioning,
             stickerUsage = packUsage,
             onSendSticker = { item ->
                 if (!sending) {
@@ -304,6 +306,7 @@ private fun StickerPanel(
     scope: CoroutineScope,
     composerReserve: androidx.compose.ui.unit.Dp,
     keyboardHeightHint: androidx.compose.ui.unit.Dp,
+    isTransitioning: Boolean = false,
     stickerUsage: PackUsageStore,
     onSendSticker: (StickerItem) -> Unit,
     onStickerOptions: (StickerItem) -> Unit,
@@ -323,36 +326,99 @@ private fun StickerPanel(
     val tabState = rememberSaveableStateHolder()
     var view by rememberSaveable(stateSaver = StickerPanelViewSaver) { mutableStateOf(StickerPanelView()) }
 
-    var recentState by remember { mutableStateOf<PickerLoad<List<StickerItem>>>(PickerLoad.Loading) }
+    val accountId = LocalPlaybackAccountId.current
+    val cachedRecentStickers = remember(accountId, conversation) {
+        MediaPickerSessionCache.getRecentStickers(accountId, conversation)
+    }
+    var recentState by remember(accountId, conversation) {
+        mutableStateOf<PickerLoad<List<StickerItem>>>(
+            cachedRecentStickers?.let { PickerLoad.Ready(it.value) } ?: PickerLoad.Loading
+        )
+    }
+    var recentLoadedVersion by remember(accountId, conversation) {
+        mutableStateOf(cachedRecentStickers?.version)
+    }
     var recentRetry by remember { mutableIntStateOf(0) }
-    var favoritesState by remember { mutableStateOf<PickerLoad<List<StickerItem>>>(PickerLoad.Loading) }
+    val cachedFavoriteStickers = remember(accountId, conversation) {
+        MediaPickerSessionCache.getFavoriteStickers(accountId, conversation)
+    }
+    var favoritesState by remember(accountId, conversation) {
+        mutableStateOf<PickerLoad<List<StickerItem>>>(
+            cachedFavoriteStickers?.let { PickerLoad.Ready(it.value) } ?: PickerLoad.Loading
+        )
+    }
+    var favoritesLoadedVersion by remember(accountId, conversation) {
+        mutableStateOf(cachedFavoriteStickers?.version)
+    }
     var favoritesRetry by remember { mutableIntStateOf(0) }
-    var setsState by remember { mutableStateOf<PickerLoad<List<StickerSetSummary>>>(PickerLoad.Loading) }
+    val cachedSets = remember(accountId, conversation) {
+        MediaPickerSessionCache.getInstalledStickerSets(accountId, conversation)
+    }
+    var setsState by remember(accountId, conversation) {
+        mutableStateOf<PickerLoad<List<StickerSetSummary>>>(
+            cachedSets?.let { PickerLoad.Ready(it.value) } ?: PickerLoad.Loading
+        )
+    }
+    var setsLoadedVersion by remember(accountId, conversation) {
+        mutableStateOf(cachedSets?.version)
+    }
     var setsRetry by remember { mutableIntStateOf(0) }
-    val packContents = remember(conversation) { androidx.compose.runtime.mutableStateMapOf<Long, PickerLoad<StickerSetContent>>() }
+    val packContents = remember(accountId, conversation) {
+        androidx.compose.runtime.mutableStateMapOf<Long, PickerLoad<StickerSetContent>>().apply {
+            MediaPickerSessionCache.snapshotStickerPacks(accountId, conversation).forEach { (id, pack) ->
+                put(id, PickerLoad.Ready(pack))
+            }
+        }
+    }
     var packState by remember { mutableStateOf<PickerLoad<StickerSetContent>>(PickerLoad.Loading) }
     var packRetry by remember { mutableIntStateOf(0) }
     var stickerSearchState by remember { mutableStateOf<PickerLoad<StickerSearchPage>>(PickerLoad.Ready(StickerSearchPage())) }
     var stickerSearchRetry by remember { mutableIntStateOf(0) }
     var stickerSearchLoadingMore by remember { mutableStateOf(false) }
     var stickerSearchMoreError by remember { mutableStateOf<String?>(null) }
-    var gifRecentState by remember { mutableStateOf<PickerLoad<AnimationPage>>(PickerLoad.Loading) }
+    val cachedGifRecent = remember(accountId, conversation) {
+        MediaPickerSessionCache.getGifRecent(accountId, conversation)
+    }
+    var gifRecentState by remember(accountId, conversation) {
+        mutableStateOf<PickerLoad<AnimationPage>>(
+            cachedGifRecent?.let { PickerLoad.Ready(it) } ?: PickerLoad.Loading
+        )
+    }
     var gifRecentRetry by remember { mutableIntStateOf(0) }
-    var gifRecentLoadedRetry by remember { mutableIntStateOf(-1) }
-    var gifRecentLoadedConversation by remember { mutableStateOf<ConversationRepository?>(null) }
+    var gifRecentLoadedRetry by remember(accountId, conversation) {
+        mutableIntStateOf(if (cachedGifRecent != null) 0 else -1)
+    }
+    var gifRecentLoadedConversation by remember(accountId, conversation) {
+        mutableStateOf<ConversationRepository?>(if (cachedGifRecent != null) conversation else null)
+    }
     var gifRecentGeneration by remember { mutableIntStateOf(0) }
     var gifRecentLoadingMore by remember { mutableStateOf(false) }
     var gifRecentMoreError by remember { mutableStateOf<String?>(null) }
-    var gifSavedState by remember { mutableStateOf<PickerLoad<List<AnimationItem>>>(PickerLoad.Loading) }
+    val cachedGifSaved = remember(accountId, conversation) {
+        MediaPickerSessionCache.getGifSaved(accountId, conversation)
+    }
+    var gifSavedState by remember(accountId, conversation) {
+        mutableStateOf<PickerLoad<List<AnimationItem>>>(
+            cachedGifSaved?.let { PickerLoad.Ready(it.value) } ?: PickerLoad.Loading
+        )
+    }
     var gifSavedRetry by remember { mutableIntStateOf(0) }
-    var gifSavedLoadedRetry by remember { mutableIntStateOf(-1) }
-    var gifSavedLoadedVersion by remember { mutableStateOf(-1L) }
-    var gifSavedLoadedConversation by remember { mutableStateOf<ConversationRepository?>(null) }
+    var gifSavedLoadedRetry by remember(accountId, conversation) {
+        mutableIntStateOf(if (cachedGifSaved != null) 0 else -1)
+    }
+    var gifSavedLoadedVersion by remember(accountId, conversation) {
+        mutableStateOf(cachedGifSaved?.version ?: -1L)
+    }
+    var gifSavedLoadedConversation by remember(accountId, conversation) {
+        mutableStateOf<ConversationRepository?>(if (cachedGifSaved != null) conversation else null)
+    }
     var gifSearchState by remember { mutableStateOf<PickerLoad<AnimationPage>>(PickerLoad.Ready(AnimationPage())) }
     var gifSearchRetry by remember { mutableIntStateOf(0) }
     var gifSearchLoadingMore by remember { mutableStateOf(false) }
     var gifSearchMoreError by remember { mutableStateOf<String?>(null) }
-    var premium by remember { mutableStateOf<Boolean?>(null) }
+    var premium by remember(accountId, conversation) {
+        mutableStateOf(MediaPickerSessionCache.getIsPremium(accountId, conversation))
+    }
     var notice by remember { mutableStateOf<String?>(null) }
     var reorderingStickers by remember { mutableStateOf(false) }
     var savingGifKeys by remember { mutableStateOf<Set<String>>(emptySet()) }
@@ -360,7 +426,6 @@ private fun StickerPanel(
     var favoriteBusyKeys by remember { mutableStateOf<Set<String>>(emptySet()) }
     var searchGeneration by remember { mutableIntStateOf(0) }
     var overlay by remember { mutableStateOf<StickerPanelOverlay?>(null) }
-    val accountId = LocalPlaybackAccountId.current
     val emojiUsage = remember(context, accountId) { PackUsageStore(context, accountId, PackKind.CustomEmoji) }
     var dynamicPacks by remember(stickerUsage) { mutableStateOf(stickerUsage.peekDynamic() ?: true) }
     var packOrderDialog by remember { mutableStateOf(false) }
@@ -410,30 +475,59 @@ private fun StickerPanel(
         overlay = null
         favoriteBusyKeys = emptySet()
     }
-    LaunchedEffect(conversation, recentRetry, shelfVersions.recentStickers) {
+    LaunchedEffect(conversation, view.tab, recentRetry, shelfVersions.recentStickers) {
+        if (view.tab != StickerPanelTab.Stickers) return@LaunchedEffect
+        val targetVersion = shelfVersions.recentStickers
+        if (recentRetry == 0 && recentLoadedVersion == targetVersion && recentState is PickerLoad.Ready) {
+            return@LaunchedEffect
+        }
         recentState = recentState.beginRefresh()
         conversation.recentStickers().fold(
-            onSuccess = { recentState = PickerLoad.Ready(it.distinctBy { sticker -> sticker.key }) },
+            onSuccess = {
+                val deduped = it.distinctBy { sticker -> sticker.key }
+                recentState = PickerLoad.Ready(deduped)
+                recentLoadedVersion = targetVersion
+                MediaPickerSessionCache.putRecentStickers(accountId, conversation, deduped, targetVersion)
+            },
             onFailure = {
                 val msg = it.userMessage(context, R.string.sticker_panel_load_failed)
                 if (recentState is PickerLoad.Ready) notice = msg else recentState = PickerLoad.Failed(msg)
             }
         )
     }
-    LaunchedEffect(conversation, favoritesRetry, shelfVersions.favoriteStickers) {
+    LaunchedEffect(conversation, view.tab, favoritesRetry, shelfVersions.favoriteStickers) {
+        if (view.tab != StickerPanelTab.Stickers) return@LaunchedEffect
+        val targetVersion = shelfVersions.favoriteStickers
+        if (favoritesRetry == 0 && favoritesLoadedVersion == targetVersion && favoritesState is PickerLoad.Ready) {
+            return@LaunchedEffect
+        }
         favoritesState = favoritesState.beginRefresh()
         conversation.favoriteStickers().fold(
-            onSuccess = { favoritesState = PickerLoad.Ready(it.distinctBy { sticker -> sticker.key }) },
+            onSuccess = {
+                val deduped = it.distinctBy { sticker -> sticker.key }
+                favoritesState = PickerLoad.Ready(deduped)
+                favoritesLoadedVersion = targetVersion
+                MediaPickerSessionCache.putFavoriteStickers(accountId, conversation, deduped, targetVersion)
+            },
             onFailure = {
                 val msg = it.userMessage(context, R.string.sticker_panel_load_failed)
                 if (favoritesState is PickerLoad.Ready) notice = msg else favoritesState = PickerLoad.Failed(msg)
             }
         )
     }
-    LaunchedEffect(conversation, setsRetry, shelfVersions.stickerPacks) {
+    LaunchedEffect(conversation, view.tab, setsRetry, shelfVersions.stickerPacks) {
+        if (view.tab != StickerPanelTab.Stickers) return@LaunchedEffect
+        val targetVersion = shelfVersions.stickerPacks
+        if (setsRetry == 0 && setsLoadedVersion == targetVersion && setsState is PickerLoad.Ready) {
+            return@LaunchedEffect
+        }
         setsState = setsState.beginRefresh()
         conversation.installedStickerSets().fold(
-            onSuccess = { setsState = PickerLoad.Ready(it) },
+            onSuccess = {
+                setsState = PickerLoad.Ready(it)
+                setsLoadedVersion = targetVersion
+                MediaPickerSessionCache.putInstalledStickerSets(accountId, conversation, it, targetVersion)
+            },
             onFailure = {
                 val msg = it.userMessage(context, R.string.sticker_panel_load_failed)
                 if (setsState is PickerLoad.Ready) notice = msg else setsState = PickerLoad.Failed(msg)
@@ -443,8 +537,18 @@ private fun StickerPanel(
     LaunchedEffect(conversation) {
         // The one-shot resolves the state even before the profile screen has loaded it; the flow then keeps locked
         // marks correct when Premium is bought or expires in another client.
-        conversation.isPremiumAccount().onSuccess { premium = it }
-        conversation.observeIsPremium().collect { observed -> if (observed != null) premium = observed }
+        if (premium == null) {
+            conversation.isPremiumAccount().onSuccess {
+                premium = it
+                MediaPickerSessionCache.putIsPremium(accountId, conversation, it)
+            }
+        }
+        conversation.observeIsPremium().collect { observed ->
+            if (observed != null) {
+                premium = observed
+                MediaPickerSessionCache.putIsPremium(accountId, conversation, observed)
+            }
+        }
     }
     // Telegram keeps recent emoji locally, so a fresh install can only rebuild them from own sent messages. The scan
     // starts only when the Emoji tab is actually opened, is bounded in the repository, and is suppressed for good by
@@ -464,11 +568,25 @@ private fun StickerPanel(
     }
     LaunchedEffect(conversation, view.selectedSetId, packRetry) {
         val setId = view.selectedSetId ?: return@LaunchedEffect
+        val cachedPack = if (packRetry == 0) {
+            (packContents[setId] as? PickerLoad.Ready)?.value
+                ?: MediaPickerSessionCache.getStickerPack(accountId, conversation, setId)
+        } else null
+        if (cachedPack != null) {
+            packState = PickerLoad.Ready(cachedPack)
+            packContents[setId] = PickerLoad.Ready(cachedPack)
+            return@LaunchedEffect
+        }
         if (packState.readyValue()?.id != setId) {
             packState = PickerLoad.Loading
         }
         conversation.stickerSet(setId).fold(
-            onSuccess = { packState = PickerLoad.Ready(it.copy(stickers = it.stickers.distinctBy { sticker -> sticker.key })) },
+            onSuccess = {
+                val clean = it.copy(stickers = it.stickers.distinctBy { sticker -> sticker.key })
+                packState = PickerLoad.Ready(clean)
+                packContents[setId] = PickerLoad.Ready(clean)
+                MediaPickerSessionCache.putStickerPack(accountId, conversation, clean)
+            },
             onFailure = {
                 val msg = it.userMessage(context, R.string.sticker_panel_load_failed)
                 if (packState.readyValue()?.id == setId) notice = msg else packState = PickerLoad.Failed(msg)
@@ -484,9 +602,11 @@ private fun StickerPanel(
         gifRecentState = PickerLoad.Loading
         conversation.recentAnimations().fold(
             onSuccess = {
-                gifRecentState = PickerLoad.Ready(it.copy(animations = it.animations.distinctBy { animation -> animation.key }))
+                val page = it.copy(animations = it.animations.distinctBy { animation -> animation.key })
+                gifRecentState = PickerLoad.Ready(page)
                 gifRecentLoadedRetry = gifRecentRetry
                 gifRecentLoadedConversation = conversation
+                MediaPickerSessionCache.putGifRecent(accountId, conversation, page)
             },
             onFailure = { gifRecentState = PickerLoad.Failed(it.userMessage(context, R.string.gif_panel_load_failed)) }
         )
@@ -500,10 +620,12 @@ private fun StickerPanel(
         gifSavedState = PickerLoad.Loading
         conversation.savedAnimations().fold(
             onSuccess = {
-                gifSavedState = PickerLoad.Ready(it.distinctBy { animation -> animation.key })
+                val deduped = it.distinctBy { animation -> animation.key }
+                gifSavedState = PickerLoad.Ready(deduped)
                 gifSavedLoadedRetry = gifSavedRetry
                 gifSavedLoadedVersion = savedVersion
                 gifSavedLoadedConversation = conversation
+                MediaPickerSessionCache.putGifSaved(accountId, conversation, deduped, savedVersion)
             },
             onFailure = { gifSavedState = PickerLoad.Failed(it.userMessage(context, R.string.gif_panel_load_failed)) }
         )
@@ -597,7 +719,14 @@ private fun StickerPanel(
                 .onSuccess {
                     val current = favoritesState.readyValue()
                     if (current != null) {
-                        favoritesState = PickerLoad.Ready(updateFavoriteStickers(current, item, favorite))
+                        val updated = updateFavoriteStickers(current, item, favorite)
+                        favoritesState = PickerLoad.Ready(updated)
+                        MediaPickerSessionCache.putFavoriteStickers(
+                            accountId,
+                            conversation,
+                            updated,
+                            shelfVersions.favoriteStickers
+                        )
                     } else {
                         // The initial list was unavailable; reconcile from TDLib so the preview can offer removal.
                         favoritesRetry++
@@ -617,6 +746,7 @@ private fun StickerPanel(
                 onSuccess = {
                     val clean = it.copy(stickers = it.stickers.distinctBy { sticker -> sticker.key })
                     packContents[setId] = PickerLoad.Ready(clean)
+                    MediaPickerSessionCache.putStickerPack(accountId, conversation, clean)
                 },
                 onFailure = {
                     packContents[setId] = PickerLoad.Failed(it.userMessage(context, R.string.sticker_panel_load_failed))
@@ -737,8 +867,10 @@ private fun StickerPanel(
     val panelBaseModifier = Modifier
         .fillMaxWidth()
         .onGloballyPositioned { coordinates ->
-            val below = (windowHeightPx - coordinates.boundsInWindow().bottom).roundToInt().coerceAtLeast(0)
-            if (below != belowPanelPx) belowPanelPx = below
+            if (!isTransitioning) {
+                val below = (windowHeightPx - coordinates.boundsInWindow().bottom).roundToInt().coerceAtLeast(0)
+                if (below != belowPanelPx) belowPanelPx = below
+            }
         }
         .heightIn(max = panelHeight)
     val panelBody: @Composable ColumnScope.() -> Unit = {

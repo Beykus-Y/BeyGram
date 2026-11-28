@@ -602,6 +602,7 @@ internal class TdSecondaryAccountController private constructor(
         runCatching { com.beykus.beygram.ui.screens.chat.RecentEmojiStore.clearAccount(app, accountId) }
         runCatching { com.beykus.beygram.ui.screens.chat.PackUsageStore.clearAccount(app, accountId) }
         runCatching { com.beykus.beygram.data.media.SharedTgsEmojiRenderer.clearAccount(accountId) }
+        runCatching { com.beykus.beygram.ui.screens.chat.MediaPickerSessionCache.clearAccount(accountId) }
         DelayedSendSettingsStore.releaseAccount(accountId)
         com.beykus.beygram.data.archive.ArchiveSettingsStore.releaseAccount(accountId)
         StealthSettingsStore.releaseAccount(accountId)
