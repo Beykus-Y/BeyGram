@@ -24,6 +24,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.clipPath
 import androidx.compose.ui.graphics.drawscope.clipRect
 import androidx.compose.ui.graphics.graphicsLayer
@@ -86,6 +87,14 @@ internal fun ProfileSceneAvatarLayer(
                 mask.addRoundRect(RoundRect(left, top, right, bottom, CornerRadius(radius)))
                 clipRect(top = clipTop) {
                     clipPath(mask) { this@drawWithContent.drawContent() }
+                    val haloAlpha = ((1f - reveal()) * (1f - scene.collapse) * visibility()).coerceIn(0f, 1f)
+                    if (haloAlpha > 0.01f) {
+                        drawPath(
+                            path = mask,
+                            color = Color.White.copy(alpha = 0.22f * haloAlpha),
+                            style = Stroke(width = 2.dp.toPx())
+                        )
+                    }
                 }
             }
     ) {

@@ -30,6 +30,7 @@ import com.beykus.beygram.data.appearance.GlassQuality
 import com.beykus.beygram.data.presence.LastSeenStyle
 import com.beykus.beygram.domain.model.AvatarPhoto
 import com.beykus.beygram.domain.model.MediaFileState
+import com.beykus.beygram.domain.model.ProfileAccentTheme
 import com.beykus.beygram.domain.model.ProfileInfo
 import com.beykus.beygram.domain.model.ProfilePresence
 import com.beykus.beygram.domain.model.ProfilePhotoMedia
@@ -74,7 +75,13 @@ class ProfileSceneUiCapture {
             bio = "Синтетический профиль для визуальной проверки. Фото, имя и статус меняют положение при прокрутке.",
             status = ProfilePresence.Online,
             photo = AvatarPhoto(smallFileId = 1, bigFileId = 1, photoId = 42L),
-            isVerified = true
+            isVerified = true,
+            profileAccentTheme = ProfileAccentTheme(
+                lightBackground = listOf(0x4B7BEC, 0x778BEB),
+                darkBackground = listOf(0x2B4C8C, 0x4A3A7A),
+                lightPalette = listOf(0x3867D6),
+                darkPalette = listOf(0x70A1FF)
+            )
         ))
         ProfileSceneSettings.load(context)
         ProfileSceneSettings.setEnabled(context, true)
@@ -184,18 +191,20 @@ class ProfileSceneUiCapture {
                 }
             }
             compose.onNodeWithText(name).assertIsDisplayed()
+            ProfileSceneSettings.setDensity(context, ProfileSceneDensity.Calm)
+            compose.waitForIdle()
             capture(output, "08-c-wide-light-calm")
-            compose.runOnIdle { ProfileSceneSettings.setExpressiveCover(context, true) }
+            compose.runOnIdle { ProfileSceneSettings.setDensity(context, ProfileSceneDensity.Rich) }
             for (designStyle in DesignStyle.entries) {
                 compose.runOnIdle {
                     style.value = designStyle
                     dark.value = designStyle in listOf(DesignStyle.LiquidGlass, DesignStyle.Signature)
                 }
                 compose.onNodeWithText(name).assertIsDisplayed()
-                capture(output, "09-c-wide-expressive-${designStyle.name}")
+                capture(output, "09-c-wide-rich-${designStyle.name}")
             }
         } finally {
-            ProfileSceneSettings.setExpressiveCover(context, false)
+            ProfileSceneSettings.setDensity(context, ProfileSceneDensity.Balanced)
             ProfileSceneSettings.setEnabled(context, false)
         }
     }

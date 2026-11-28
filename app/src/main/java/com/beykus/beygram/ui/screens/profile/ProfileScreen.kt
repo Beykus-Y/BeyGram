@@ -169,7 +169,7 @@ fun ProfileScreen(
     remember(context) { ProfileSceneSettings.load(context) }
     val sceneEnabled by ProfileSceneSettings.enabled.collectAsState()
     val sceneC = ProfileSceneSettings.variantFor(sceneEnabled) == ProfileVariant.C
-    val expressiveCover = sceneC && ProfileSceneSettings.expressiveCover.collectAsState().value
+    val scenePreset by ProfileSceneSettings.density.collectAsState()
     var pendingPhoto by rememberSaveable { mutableStateOf<OutgoingMedia?>(null) }
     var preparing by remember { mutableStateOf(false) }
     var saving by remember { mutableStateOf(false) }
@@ -403,7 +403,14 @@ fun ProfileScreen(
                 val identityModifier = if (sceneC) {
                     Modifier.fillMaxWidth().wrapContentWidth().widthIn(max = 560.dp).fillMaxWidth()
                         .clip(styledShape(24.dp))
-                        .profileSceneCover(palette, expressiveCover)
+                        .profileSceneCover(
+                            palette = palette,
+                            accentTheme = info.profileAccentTheme,
+                            density = scenePreset,
+                            collapse = { collapse.value },
+                            reveal = { if (revealAvailable) reveal.value else 0f },
+                            reduceMotion = sceneReduceMotion
+                        )
                 } else Modifier.fillMaxWidth()
                 Column(
                     identityModifier.padding(start = 20.dp, end = 20.dp, top = 12.dp, bottom = 16.dp),
@@ -508,8 +515,15 @@ fun ProfileScreen(
                     }
                     }
                     val titleSlot: @Composable () -> Unit = {
-                        Text(info.profileTitleText(), color = palette.textPrimary, fontSize = 26.sp, fontWeight = FontWeight.Bold, textAlign = TextAlign.Center,
-                        modifier = Modifier
+                        Text(
+                            info.profileTitleText(),
+                            color = palette.textPrimary,
+                            fontSize = 26.sp,
+                            fontWeight = FontWeight.Bold,
+                            textAlign = TextAlign.Center,
+                            maxLines = 3,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier
                             .graphicsLayer {
                                 alpha = expandedHeaderIdentityAlpha(collapse.value, collapseGeometry.overlayReady) *
                                     (profileTransition?.headerVisibility() ?: 1f)
@@ -576,10 +590,14 @@ fun ProfileScreen(
                             avatarSlot()
                             Spacer(Modifier.height(16.dp))
                             titleSlot()
-                            Spacer(Modifier.height(4.dp))
-                            statusSlot()
+                            if (!compactStatus.isNullOrBlank()) {
+                                Spacer(Modifier.height(4.dp))
+                                statusSlot()
+                            }
                         }
-                        badgesSlot()
+                        if (info.isVerified || info.isPremium) {
+                            badgesSlot()
+                        }
                     }
                     if (info.profileAudios.isNotEmpty()) {
                         Spacer(Modifier.height(14.dp))
