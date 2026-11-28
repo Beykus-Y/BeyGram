@@ -54,6 +54,9 @@ import com.beykus.beygram.ui.screens.profile.ProfileToolbar
 import com.beykus.beygram.ui.screens.settings.SettingsGroup
 import com.beykus.beygram.ui.screens.settings.SettingsRowDivider
 import java.util.UUID
+import com.beykus.beygram.ui.components.GlassScreenScaffold
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.height
 
 /** Trigger words: rules, alert scope and an entry into the mentions feed. */
 @Composable
@@ -83,9 +86,14 @@ fun TriggerWordsScreen(
     }
 
     BackHandler(onBack = onBack)
-    Column(Modifier.fillMaxSize().glassScreenBackground(design, palette.screen).windowInsetsPadding(WindowInsets.safeDrawing)) {
-        ProfileToolbar(stringResource(R.string.trigger_title), onBack)
+    GlassScreenScaffold(
+        modifier = Modifier.fillMaxSize().glassScreenBackground(design, palette.screen).windowInsetsPadding(WindowInsets.safeDrawing),
+        toolbar = {
+            ProfileToolbar(stringResource(R.string.trigger_title), onBack)
+        }
+    ) { chrome ->
         Column(Modifier.weight(1f).fillMaxWidth().verticalScroll(listScroll).padding(bottom = 24.dp)) {
+            Spacer(Modifier.height(chrome.top))
             Text(
                 stringResource(R.string.trigger_intro),
                 color = palette.textSecondary, fontSize = 14.sp, lineHeight = 20.sp,
@@ -281,12 +289,15 @@ private fun TriggerEditorScreen(ruleId: String, initial: TriggerRule?, store: Tr
     val canSave = pattern.isNotBlank() && problem == null
 
     BackHandler(onBack = onDismiss)
-    Column(
-        Modifier.fillMaxSize().glassScreenBackground(design, palette.screen)
-            .windowInsetsPadding(WindowInsets.safeDrawing).imePadding()
-    ) {
-        ProfileToolbar(stringResource(if (initial == null) R.string.trigger_editor_new else R.string.trigger_editor_edit), onDismiss)
+    GlassScreenScaffold(
+        modifier = Modifier.fillMaxSize().glassScreenBackground(design, palette.screen)
+            .windowInsetsPadding(WindowInsets.safeDrawing).imePadding(),
+        toolbar = {
+            ProfileToolbar(stringResource(if (initial == null) R.string.trigger_editor_new else R.string.trigger_editor_edit), onDismiss)
+        }
+    ) { chrome ->
         Column(Modifier.weight(1f).fillMaxWidth().verticalScroll(rememberScrollState()).padding(bottom = 16.dp)) {
+            Spacer(Modifier.height(chrome.top))
             OutlinedTextField(
                 value = pattern,
                 onValueChange = { pattern = it; rejected = null },

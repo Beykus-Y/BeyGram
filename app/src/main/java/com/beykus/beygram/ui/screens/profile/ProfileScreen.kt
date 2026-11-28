@@ -1251,7 +1251,9 @@ internal fun ProfileToolbar(
         }
     }
     val container = Modifier.fillMaxWidth().then(
-        when (design.components.topBar) {
+        // On the shared glass pane of a screen the pane is the material: the bar adds no fill of its own, only the
+        // layout of its row. Every other style keeps the surface it has always painted.
+        if (LocalScreenChromeOnGlass.current) Modifier else when (design.components.topBar) {
             TopBarVariant.Elevated -> Modifier.topAppBarSurface()
             TopBarVariant.Glass -> Modifier
                 .background(design.surfaces.panelFill(palette.surface, PanelFloor.Card))
@@ -1391,7 +1393,9 @@ fun EditProfileScreen(info: ProfileInfo, bioLimit: Int, onBack: () -> Unit, save
     val bioCount = bio.codePointCount(0, bio.length)
     fun back() { if (!saving) { if (changed && !discard) discard = true else onBack() } }
     BackHandler(onBack = ::back)
-    Column(Modifier.fillMaxSize().glassScreenBackground(design, palette.screen).windowInsetsPadding(WindowInsets.safeDrawing).imePadding()) {
+    GlassScreenScaffold(
+        modifier = Modifier.fillMaxSize().glassScreenBackground(design, palette.screen).windowInsetsPadding(WindowInsets.safeDrawing).imePadding(),
+        toolbar = {
         ProfileToolbar(stringResource(R.string.profile_title_own), ::back) {
             TextButton(enabled = !saving && changed && first.isNotBlank() && bioCount <= bioLimit, onClick = { scope.launch {
                 discard = false
@@ -1408,7 +1412,10 @@ fun EditProfileScreen(info: ProfileInfo, bioLimit: Int, onBack: () -> Unit, save
             Text(stringResource(R.string.profile_unsaved_changes), color = palette.warningText, fontSize = 14.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
             TextButton(onClick = onBack) { Text(stringResource(R.string.profile_discard_changes), color = palette.warningText, fontWeight = FontWeight.SemiBold) }
         }
+        }
+    ) { chrome ->
         Column(Modifier.verticalScroll(rememberScrollState()).padding(20.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
+            Spacer(Modifier.height(chrome.top))
             OutlinedTextField(first, { first = it.take(64) }, label = { Text(stringResource(R.string.profile_first_name)) }, singleLine = true, enabled = !saving, modifier = Modifier.fillMaxWidth(), keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Words), shape = styledShape(14.dp), colors = beyGramTextFieldColors())
             OutlinedTextField(last, { last = it.take(64) }, label = { Text(stringResource(R.string.profile_last_name)) }, singleLine = true, enabled = !saving, modifier = Modifier.fillMaxWidth(), keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Words), shape = styledShape(14.dp), colors = beyGramTextFieldColors())
             OutlinedTextField(username, { username = it.removePrefix("@").take(32) }, label = { Text(stringResource(R.string.profile_username)) }, prefix = { Text("@") }, supportingText = { Text(stringResource(R.string.profile_username_hint)) }, singleLine = true, enabled = !saving, modifier = Modifier.fillMaxWidth(), keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Ascii), shape = styledShape(14.dp), colors = beyGramTextFieldColors())

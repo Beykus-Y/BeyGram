@@ -64,6 +64,7 @@ import com.beykus.beygram.ui.screens.profile.ProfileToolbar
 import com.beykus.beygram.ui.text.userMessage
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
+import com.beykus.beygram.ui.components.GlassScreenScaffold
 
 private enum class AccountSecurityDialog {
     SetPassword,
@@ -357,17 +358,19 @@ fun AccountSecurityScreen(
         }
     }
 
-    Column(
-        Modifier.fillMaxSize().glassScreenBackground(design, palette.screen)
-            .windowInsetsPadding(WindowInsets.safeDrawing).imePadding()
-    ) {
-        ProfileToolbar(stringResource(R.string.account_security_title), onBack = {
-            if (!effectiveBusy) onBack()
-        })
-        if (loading || effectiveBusy) LinearProgressIndicator(Modifier.fillMaxWidth(), color = palette.accent)
+    GlassScreenScaffold(
+        modifier = Modifier.fillMaxSize().glassScreenBackground(design, palette.screen)
+            .windowInsetsPadding(WindowInsets.safeDrawing).imePadding(),
+        toolbar = {
+            ProfileToolbar(stringResource(R.string.account_security_title), onBack = {
+                if (!effectiveBusy) onBack()
+            })
+            if (loading || effectiveBusy) LinearProgressIndicator(Modifier.fillMaxWidth(), color = palette.accent)
+        }
+    ) { chrome ->
         LazyColumn(
             modifier = Modifier.fillMaxSize(),
-            contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 32.dp),
+            contentPadding = PaddingValues(top = chrome.top + 8.dp, start = 16.dp, end = 16.dp, bottom = 32.dp),
             verticalArrangement = Arrangement.spacedBy(14.dp)
         ) {
             item {

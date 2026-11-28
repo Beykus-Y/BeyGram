@@ -73,6 +73,8 @@ import com.beykus.beygram.domain.model.ChatMemoryStats
 import com.beykus.beygram.ui.screens.chat.SettingSwitch
 import androidx.compose.runtime.rememberCoroutineScope
 import kotlinx.coroutines.launch
+import com.beykus.beygram.ui.components.GlassScreenScaffold
+import androidx.compose.foundation.layout.Spacer
 
 private enum class ClearScope { Selected, All }
 
@@ -96,13 +98,18 @@ fun StorageSettingsScreen(
     var pendingClear by remember { mutableStateOf<ClearScope?>(null) }
     LaunchedEffect(Unit) { model.refresh() }
 
-    Column(Modifier.fillMaxSize().glassScreenBackground(design, palette.screen).windowInsetsPadding(WindowInsets.safeDrawing)) {
-        ProfileToolbar(stringResource(R.string.settings_storage_title), onBack)
-        if (model.applying) LinearProgressIndicator(modifier = Modifier.fillMaxWidth(), color = palette.accent)
+    GlassScreenScaffold(
+        modifier = Modifier.fillMaxSize().glassScreenBackground(design, palette.screen).windowInsetsPadding(WindowInsets.safeDrawing),
+        toolbar = {
+            ProfileToolbar(stringResource(R.string.settings_storage_title), onBack)
+            if (model.applying) LinearProgressIndicator(modifier = Modifier.fillMaxWidth(), color = palette.accent)
+        }
+    ) { chrome ->
         Column(
             Modifier.fillMaxWidth().weight(1f).verticalScroll(rememberScrollState()).padding(horizontal = 16.dp, vertical = 8.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
+            Spacer(Modifier.height(chrome.top))
             UsageCard(usage, model.loading, model.usageStale, model.selected, busy, onToggle = model::toggle, onRetry = model::refresh)
             ClearCard(
                 usage = usage,

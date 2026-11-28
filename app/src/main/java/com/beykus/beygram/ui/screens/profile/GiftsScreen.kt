@@ -117,6 +117,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import java.text.DateFormat
 import java.util.Date
+import com.beykus.beygram.ui.components.GlassScreenScaffold
 
 @Composable
 fun GiftsScreen(
@@ -362,12 +363,16 @@ fun GiftsScreen(
     }
 
     ProvideGiftAnimationBudget {
-        Column(Modifier.fillMaxSize().glassScreenBackground(design, palette.screen).windowInsetsPadding(WindowInsets.safeDrawing)) {
-        ProfileToolbar(title, onBack = { if (!sending) onBack() }) {
-            IconButton(onClick = { if (!loading && !sending) reload++ }, enabled = !loading && !sending) {
-                Icon(Icons.Rounded.Refresh, stringResource(R.string.common_retry), tint = palette.textPrimary)
+        GlassScreenScaffold(
+            modifier = Modifier.fillMaxSize().glassScreenBackground(design, palette.screen).windowInsetsPadding(WindowInsets.safeDrawing),
+            toolbar = {
+                ProfileToolbar(title, onBack = { if (!sending) onBack() }) {
+                    IconButton(onClick = { if (!loading && !sending) reload++ }, enabled = !loading && !sending) {
+                        Icon(Icons.Rounded.Refresh, stringResource(R.string.common_retry), tint = palette.textPrimary)
+                    }
+                }
             }
-        }
+        ) { chrome ->
         when {
             info == null && unsupported -> MonetizationCenteredState(
                 title = stringResource(R.string.monetization_unsupported_title),
@@ -387,7 +392,7 @@ fun GiftsScreen(
                 val gifts = info!!
                 LazyColumn(
                     Modifier.fillMaxSize(),
-                    contentPadding = PaddingValues(bottom = 24.dp),
+                    contentPadding = PaddingValues(top = chrome.top, bottom = 24.dp),
                     verticalArrangement = Arrangement.spacedBy(4.dp)
                 ) {
                     // A failed refresh keeps the page on screen and offers the same retry as the full-screen error.

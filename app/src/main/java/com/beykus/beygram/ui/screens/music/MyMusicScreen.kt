@@ -47,6 +47,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
@@ -75,6 +76,12 @@ import com.beykus.beygram.ui.motion.MotionToken
 import com.beykus.beygram.ui.motion.rememberMotionSpec
 import com.beykus.beygram.ui.screens.playback.TrackArtwork
 import kotlinx.coroutines.launch
+import com.beykus.beygram.ui.components.GlassScreenScaffold
+import com.beykus.beygram.ui.components.LocalScreenChromeOnGlass
+import com.beykus.beygram.ui.components.screenChromeBar
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.safeDrawing
+import androidx.compose.foundation.layout.windowInsetsPadding
 
 /**
  * The music screen: one home for music, opened by the note in Chats, Settings and the player. A search field on top
@@ -132,11 +139,14 @@ internal fun MyMusicScreen(
     // The source keeps its library fresh only while its tab is shown.
     val providerAccount = if (shownSource == MusicHomeSource.Provider) providerHost?.rememberLibraryAccount() else null
 
-    Scaffold(
-        containerColor = palette.screen,
-        topBar = {
+    // Liquid Glass: the toolbar is a real pane over the list, which scrolls under it. Every other style keeps the
+    // Material scaffold and its insets exactly as they were.
+    GlassScreenScaffold(
+        modifier = Modifier.fillMaxSize().background(palette.screen).windowInsetsPadding(WindowInsets.safeDrawing),
+        toolbar = {
             TopAppBar(
-                modifier = Modifier.topAppBarSurface(),
+                modifier = Modifier.topAppBarSurface().screenChromeBar(),
+                windowInsets = WindowInsets(0, 0, 0, 0),
                 title = {
                     Text(
                         stringResource(R.string.music_library_title),
@@ -162,10 +172,12 @@ internal fun MyMusicScreen(
                         )
                     }
                 },
-                colors = TopAppBarDefaults.topAppBarColors(containerColor = palette.surface)
+                colors = TopAppBarDefaults.topAppBarColors(
+                    containerColor = if (LocalScreenChromeOnGlass.current) Color.Transparent else palette.surface
+                )
             )
         }
-    ) { padding ->
+    ) { chrome ->
         // The source tab reloads its library with a pull; the Telegram library is local and needs none.
         val providerTab = shownSource == MusicHomeSource.Provider && providerHost != null
         val refreshing = providerHost?.isRefreshing() == true
@@ -173,13 +185,13 @@ internal fun MyMusicScreen(
             enabled = providerTab,
             refreshing = refreshing,
             onRefresh = { providerHost?.refresh() },
-            modifier = Modifier.fillMaxSize().padding(top = padding.calculateTopPadding())
+            modifier = Modifier.fillMaxSize()
         ) {
         BoxWithConstraints(Modifier.fillMaxSize()) {
             val gridColumns = coverColumns(maxWidth)
             LazyColumn(
                 Modifier.fillMaxSize(),
-                contentPadding = PaddingValues(bottom = 24.dp + padding.calculateBottomPadding())
+                contentPadding = PaddingValues(top = chrome.top, bottom = 24.dp)
             ) {
                 item(key = "search") {
                     Box(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp)) {

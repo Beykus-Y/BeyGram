@@ -67,6 +67,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
 import java.util.Locale
+import com.beykus.beygram.ui.components.GlassScreenScaffold
 
 /**
  * Экран «Ресурсы BeyGram». Опрос идёт только в состоянии RESUMED: при сворачивании
@@ -170,16 +171,19 @@ fun ResourcesScreen(onBack: () -> Unit) {
         )
     }
 
-    Column(
-        Modifier.fillMaxSize()
+    GlassScreenScaffold(
+        modifier = Modifier.fillMaxSize()
             .glassScreenBackground(design, palette.screen)
-            .windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Top + WindowInsetsSides.Horizontal + WindowInsetsSides.Bottom))
-    ) {
-        ProfileToolbar(stringResource(R.string.resources_title), onBack)
+            .windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Top + WindowInsetsSides.Horizontal + WindowInsetsSides.Bottom)),
+        toolbar = {
+            ProfileToolbar(stringResource(R.string.resources_title), onBack)
+        }
+    ) { chrome ->
         Column(
             Modifier.verticalScroll(rememberScrollState()).padding(horizontal = 16.dp, vertical = 8.dp),
             verticalArrangement = Arrangement.spacedBy(14.dp)
         ) {
+        Spacer(Modifier.height(chrome.top))
             Text(stringResource(R.string.resources_intro), color = palette.textSecondary, fontSize = 13.sp, lineHeight = 17.sp)
 
             Button(

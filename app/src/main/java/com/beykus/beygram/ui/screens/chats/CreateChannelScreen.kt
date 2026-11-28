@@ -18,6 +18,9 @@ import com.beykus.beygram.ui.screens.profile.ProfileToolbar
 import com.beykus.beygram.ui.components.beyGramPalette
 import com.beykus.beygram.ui.text.userMessage
 import kotlinx.coroutines.launch
+import com.beykus.beygram.ui.components.GlassScreenScaffold
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.height
 
 /** Creates a broadcast channel; never creates it until the explicit button is pressed. */
 @Composable
@@ -32,16 +35,19 @@ fun CreateChannelScreen(onBack: () -> Unit, create: suspend (String, String) -> 
     BackHandler(busy) { /* Keep creation request visible until the server responds. */ }
     // This full-screen route is outside MainTabsScaffold. Account for the system cutout,
     // gesture navigation and IME instead of relying on padding provided by the tab bar.
-    Column(
-        Modifier.fillMaxSize().background(palette.screen)
+    GlassScreenScaffold(
+        modifier = Modifier.fillMaxSize().background(palette.screen)
             .windowInsetsPadding(WindowInsets.safeDrawing)
-            .imePadding()
-    ) {
-        ProfileToolbar(stringResource(R.string.feature_create_channel), { if (!busy) onBack() })
+            .imePadding(),
+        toolbar = {
+            ProfileToolbar(stringResource(R.string.feature_create_channel), { if (!busy) onBack() })
+        }
+    ) { chrome ->
         Column(
             Modifier.fillMaxWidth().weight(1f).verticalScroll(rememberScrollState()).padding(20.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
+        Spacer(Modifier.height(chrome.top))
             OutlinedTextField(title, { title = it.take(128) }, label = { Text(stringResource(R.string.feature_channel_name)) },
                 singleLine = true, modifier = Modifier.fillMaxWidth(), enabled = !busy)
             OutlinedTextField(description, { description = it.take(255) }, label = { Text(stringResource(R.string.feature_channel_description)) },

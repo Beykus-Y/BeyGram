@@ -65,6 +65,9 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.flow.StateFlow
+import com.beykus.beygram.ui.components.GlassScreenScaffold
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.height
 
 private const val BLOCKED_PAGE_SIZE = 50
 private const val BLOCKED_PREFETCH = 8
@@ -141,8 +144,13 @@ fun BlockedSendersScreen(
     }
     BackHandler(onBack = onBack)
 
-    Column(Modifier.fillMaxSize().glassScreenBackground(design, palette.screen).windowInsetsPadding(WindowInsets.safeDrawing)) {
-        ProfileToolbar(stringResource(R.string.blocked_title), onBack)
+    GlassScreenScaffold(
+        modifier = Modifier.fillMaxSize().glassScreenBackground(design, palette.screen).windowInsetsPadding(WindowInsets.safeDrawing),
+        toolbar = {
+            ProfileToolbar(stringResource(R.string.blocked_title), onBack)
+        }
+    ) { chrome ->
+        Spacer(Modifier.height(chrome.top))
         Text(
             stringResource(R.string.blocked_intro),
             color = palette.textSecondary, fontSize = 13.sp,

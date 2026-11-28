@@ -92,6 +92,7 @@ import java.time.Instant
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 import java.util.Locale
+import com.beykus.beygram.ui.components.GlassScreenScaffold
 
 private val OVERVIEW_TIME = DateTimeFormatter.ofPattern("HH:mm", Locale.ROOT).withZone(ZoneId.systemDefault())
 
@@ -137,17 +138,20 @@ fun DiagnosticsScreen(
         }
     }
 
-    Column(
-        Modifier.fillMaxSize()
+    GlassScreenScaffold(
+        modifier = Modifier.fillMaxSize()
             .glassScreenBackground(design, palette.screen)
-            .windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Top + WindowInsetsSides.Horizontal))
-    ) {
-        ProfileToolbar(stringResource(R.string.diagnostics_title), onBack)
+            .windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Top + WindowInsetsSides.Horizontal)),
+        toolbar = {
+            ProfileToolbar(stringResource(R.string.diagnostics_title), onBack)
+        }
+    ) { chrome ->
         Column(
             Modifier.verticalScroll(rememberScrollState())
                 .windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Bottom))
                 .padding(horizontal = 16.dp, vertical = 8.dp)
         ) {
+        Spacer(Modifier.height(chrome.top))
             DiagnosticsOverview(connectionState = connectionState, route = route, failures = failures, memory = memory)
 
             SettingsGroup(stringResource(R.string.diag_network)) {

@@ -34,6 +34,9 @@ import com.beykus.beygram.ui.components.TelegramAvatar
 import com.beykus.beygram.ui.components.beyGramPalette
 import com.beykus.beygram.ui.text.userMessage
 import kotlinx.coroutines.flow.StateFlow
+import com.beykus.beygram.ui.components.GlassScreenScaffold
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.height
 
 private enum class GroupManagementPage { Overview, Members, Invites, Requests, Settings }
 
@@ -74,9 +77,14 @@ fun GroupManagementScreen(
 
     val loaded = info
     when {
-        loaded == null -> Column(Modifier.fillMaxSize().background(palette.screen).windowInsetsPadding(WindowInsets.safeDrawing)) {
-            ProfileToolbar(stringResource(R.string.group_manage_title_group), onBack)
-            if (loading) LinearProgressIndicator(Modifier.fillMaxWidth(), color = palette.accent)
+        loaded == null -> GlassScreenScaffold(
+            modifier = Modifier.fillMaxSize().background(palette.screen).windowInsetsPadding(WindowInsets.safeDrawing),
+            toolbar = {
+                ProfileToolbar(stringResource(R.string.group_manage_title_group), onBack)
+                if (loading) LinearProgressIndicator(Modifier.fillMaxWidth(), color = palette.accent)
+            }
+        ) { chrome ->
+            Spacer(Modifier.height(chrome.top))
             error?.let { message ->
                 Row(
                     Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 8.dp),

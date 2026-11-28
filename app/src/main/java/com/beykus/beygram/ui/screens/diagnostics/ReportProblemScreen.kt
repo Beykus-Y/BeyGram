@@ -68,6 +68,7 @@ import com.beykus.beygram.ui.design.glassScreenBackground
 import com.beykus.beygram.ui.design.groupCardShape
 import com.beykus.beygram.ui.screens.profile.ProfileToolbar
 import kotlinx.coroutines.launch
+import com.beykus.beygram.ui.components.GlassScreenScaffold
 
 /**
  * Отчёт о проблеме по шагам: описание, данные, предпросмотр приватности, отправка и результат.
@@ -100,14 +101,17 @@ fun ReportProblemScreen(
     // Экран покидается только явным «назад»; активная операция продолжается, статус сохраняется.
     BackHandler { onBack() }
 
-    Column(
-        Modifier.fillMaxSize().glassScreenBackground(design, palette.screen).windowInsetsPadding(WindowInsets.safeDrawing)
-    ) {
-        ProfileToolbar(stringResource(R.string.report_title), onBack)
+    GlassScreenScaffold(
+        modifier = Modifier.fillMaxSize().glassScreenBackground(design, palette.screen).windowInsetsPadding(WindowInsets.safeDrawing),
+        toolbar = {
+            ProfileToolbar(stringResource(R.string.report_title), onBack)
+        }
+    ) { chrome ->
         Column(
             Modifier.verticalScroll(rememberScrollState()).padding(20.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
+        Spacer(Modifier.height(chrome.top))
             // Once the report is sent the result is the fifth step; before that the form already shows it at the end.
             if (state !is ReportFlowState.Draft) {
                 ReportStepHeader(number = 5, title = stringResource(R.string.report_step_result))

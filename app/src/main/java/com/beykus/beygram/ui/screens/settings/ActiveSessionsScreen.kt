@@ -60,6 +60,9 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
 import java.text.DateFormat
 import java.util.Date
+import com.beykus.beygram.ui.components.GlassScreenScaffold
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.height
 
 /** Inactivity periods offered by the picker, in days: Telegram's usual choices. */
 private val inactiveTtlOptions = listOf(7, 30, 90, 180, 365)
@@ -268,23 +271,25 @@ fun ActiveSessionsScreen(
     val detail = sessions.firstOrNull { it.id == detailId }
     val chosen = sessions.firstOrNull { it.id == target }
 
-    Column(
-        Modifier.fillMaxSize()
+    GlassScreenScaffold(
+        modifier = Modifier.fillMaxSize()
             .glassScreenBackground(design, palette.screen)
-            .windowInsetsPadding(WindowInsets.safeDrawing)
-    ) {
-        ProfileToolbar(stringResource(R.string.feature_sessions), onBack) {
-            IconButton(enabled = !loading && !busy, onClick = { refresh++ }) {
-                Icon(Icons.Rounded.Refresh, contentDescription = stringResource(R.string.common_refresh), tint = palette.textPrimary)
+            .windowInsetsPadding(WindowInsets.safeDrawing),
+        toolbar = {
+            ProfileToolbar(stringResource(R.string.feature_sessions), onBack) {
+                IconButton(enabled = !loading && !busy, onClick = { refresh++ }) {
+                    Icon(Icons.Rounded.Refresh, contentDescription = stringResource(R.string.common_refresh), tint = palette.textPrimary)
+                }
             }
         }
+    ) { chrome ->
         // The bar always has its height, so it appears and disappears without moving the list.
         Box(Modifier.fillMaxWidth().height(4.dp)) {
             if (loading || busy) LinearProgressIndicator(Modifier.fillMaxWidth(), color = palette.accent)
         }
         LazyColumn(
             modifier = Modifier.fillMaxSize(),
-            contentPadding = PaddingValues(top = 4.dp, bottom = 32.dp)
+            contentPadding = PaddingValues(top = chrome.top + 4.dp, bottom = 32.dp)
         ) {
             item {
                 Text(

@@ -53,6 +53,9 @@ import com.beykus.beygram.ui.screens.settings.SettingsRowDivider
 import com.beykus.beygram.ui.screens.settings.SettingsToggle
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import com.beykus.beygram.ui.components.GlassScreenScaffold
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.height
 
 /** Settings UI of the optional Yandex Music source in both release channels. */
 class YandexSettingsHost : ProviderSettingsHost {
@@ -139,11 +142,14 @@ private fun YandexSignInScreen(onBack: () -> Unit) {
     val signedIn = state as? MusicProviderState.SignedIn
     val currentCode = code
 
-    Column(
-        Modifier.fillMaxSize().glassScreenBackground(design, palette.screen).windowInsetsPadding(WindowInsets.safeDrawing)
-    ) {
-        ProfileToolbar(stringResource(R.string.yandex_signin_title), onBack)
+    GlassScreenScaffold(
+        modifier = Modifier.fillMaxSize().glassScreenBackground(design, palette.screen).windowInsetsPadding(WindowInsets.safeDrawing),
+        toolbar = {
+            ProfileToolbar(stringResource(R.string.yandex_signin_title), onBack)
+        }
+    ) { chrome ->
         Column(Modifier.verticalScroll(rememberScrollState()).padding(bottom = 24.dp)) {
+            Spacer(Modifier.height(chrome.top))
             Text(
                 stringResource(R.string.yandex_signin_intro),
                 color = palette.textSecondary, fontSize = 14.sp,

@@ -22,6 +22,7 @@ import com.beykus.beygram.ui.components.TextButton
 import com.beykus.beygram.ui.components.beyGramPalette
 import com.beykus.beygram.ui.screens.profile.ProfileToolbar
 import com.beykus.beygram.ui.screens.profile.formatDateTime
+import com.beykus.beygram.ui.components.GlassScreenScaffold
 
 /** Messages that matched a trigger word, newest first. Clearing removes only this device's records. */
 @Composable
@@ -32,8 +33,12 @@ fun TriggerMentionsScreen(store: TriggerWordsStore, onBack: () -> Unit) {
     // Text kept while an account's previews were on stays hidden once they are turned off.
     val previews = remember(mentions) { mentions.map { it.accountId }.distinct().associateWith { store.previewsEnabled(it) } }
     BackHandler(onBack = onBack)
-    Column(Modifier.fillMaxSize().background(palette.screen).windowInsetsPadding(WindowInsets.safeDrawing)) {
-        ProfileToolbar(stringResource(R.string.trigger_mentions_title), onBack)
+    GlassScreenScaffold(
+        modifier = Modifier.fillMaxSize().background(palette.screen).windowInsetsPadding(WindowInsets.safeDrawing),
+        toolbar = {
+            ProfileToolbar(stringResource(R.string.trigger_mentions_title), onBack)
+        }
+    ) { chrome ->
         if (mentions.isEmpty()) {
             Text(
                 stringResource(R.string.trigger_mentions_empty),
@@ -43,7 +48,7 @@ fun TriggerMentionsScreen(store: TriggerWordsStore, onBack: () -> Unit) {
         } else {
             LazyColumn(
                 Modifier.weight(1f),
-                contentPadding = PaddingValues(horizontal = 20.dp, vertical = 12.dp),
+                contentPadding = PaddingValues(start = 20.dp, end = 20.dp, top = chrome.top + 12.dp, bottom = 12.dp),
                 verticalArrangement = Arrangement.spacedBy(14.dp)
             ) {
                 item {
