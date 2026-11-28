@@ -21,8 +21,14 @@ class YandexWaveTest {
         coverUrl = null, isAvailable = true, albumId = album,
     )
 
-    private fun batch(vararg ids: String, session: String = "s1", unknown: Boolean = false) = ProviderResult.Success(
-        YandexWaveBatch(session, "b", ids.map { track(it) }, unknownSession = unknown, terminated = false)
+    private fun batch(
+        vararg ids: String,
+        session: String = "s1",
+        batchId: String = "b",
+        unknown: Boolean = false,
+        terminated: Boolean = false,
+    ) = ProviderResult.Success(
+        YandexWaveBatch(session, batchId, ids.map { track(it) }, unknownSession = unknown, terminated = terminated)
     )
 
     @Test
@@ -167,5 +173,106 @@ class YandexWaveTest {
         assertEquals(listOf("2"), session.more().map { it.trackId })
         assertEquals(2, starts)
         assertEquals("s2", session.currentSessionId)
+    }
+
+    @Test
+    fun networkFailureKeepsTheLiveSessionForFeedback() = runTest {
+        val session = YandexWaveSession(
+            seeds = listOf(YandexWave.MY_WAVE_SEED),
+            start = { _, _ -> batch("1", session = "s1", batchId = "b1") },
+            next = { _, _ -> ProviderResult.Failure(MusicProviderFailure.Network) },
+        )
+        session.first()
+        try {
+            session.more()
+            fail("expected a failure")
+        } catch (e: YandexWaveException) {
+            assertEquals(MusicProviderFailure.Network, e.failure)
+        }
+        // A failed request does not end the session: the queued feedback of its tracks stays addressable.
+        assertEquals("s1", session.currentSessionId)
+        assertEquals(WaveTrackOrigin("1:a1", "s1", "b1"), session.originOf("ym:1"))
+    }
+
+    @Test
+    fun emptyBatchesKeepTheLiveSessionAsTheFeedbackTarget() = runTest {
+        var nextCalls = 0
+        val session = YandexWaveSession(
+            seeds = listOf(YandexWave.MY_WAVE_SEED),
+            start = { _, _ -> batch("1", session = "s1") },
+            next = { _, _ -> nextCalls++; batch(session = "s1") },
+        )
+        session.first()
+        assertTrue(session.more().isEmpty())
+        assertEquals(YandexWave.MAX_EMPTY_BATCHES, nextCalls)
+        // The session still exists, only the next request will open a fresh one; feedback may still go to it meanwhile.
+        assertEquals("s1", session.currentSessionId)
+        assertEquals("s1", session.originOf("ym:1")?.sessionId)
+    }
+
+    @Test
+    fun forgottenSessionStopsTakingFeedbackButItsTracksStillPlay() = runTest {
+        val session = YandexWaveSession(
+            seeds = listOf(YandexWave.MY_WAVE_SEED),
+            start = { _, _ -> batch("1", session = "s1") },
+            next = { _, _ -> batch("4", session = "s1", batchId = "b2", unknown = true) },
+        )
+        session.first()
+        assertEquals("s1", session.currentSessionId)
+        assertEquals(listOf("4"), session.more().map { it.trackId })
+        // The service does not know the session: neither its last batch nor a later like may be reported to it.
+        assertNull(session.currentSessionId)
+        assertEquals(WaveTrackOrigin("4:a4", null, null), session.originOf("ym:4"))
+        // The track is still known to the radio, so it is played and not taken for a foreign one.
+        assertEquals("4:a4" to null, session.trackOf("ym:4"))
+        assertEquals("4:a4", session.originOfTrackId("4")?.queueId)
+    }
+
+    @Test
+    fun terminatedSessionIsNeverTheFeedbackTargetAfterRecovery() = runTest {
+        var starts = 0
+        val session = YandexWaveSession(
+            seeds = listOf(YandexWave.MY_WAVE_SEED),
+            start = { _, _ ->
+                starts++
+                if (starts == 1) batch("1", session = "s1") else batch(session = "s3")
+            },
+            next = { _, _ -> batch(session = "s1", batchId = "b2", terminated = true) },
+        )
+        session.first()
+        assertTrue(session.more().isEmpty())
+        // The recovery opened a fresh session; the ended s1 is no longer the feedback target.
+        assertEquals("s3", session.currentSessionId)
+        assertEquals(2, starts)
+    }
+
+    @Test
+    fun terminatedFirstBatchLeavesNoFeedbackTargetAndOpensANewSessionLater() = runTest {
+        var starts = 0
+        val session = YandexWaveSession(
+            seeds = listOf(YandexWave.MY_WAVE_SEED),
+            start = { _, _ ->
+                starts++
+                if (starts == 1) batch("1", session = "s1", terminated = true) else batch("2", session = "s2")
+            },
+            next = { _, _ -> batch() },
+        )
+        assertEquals(listOf("1"), (session.first() as ProviderResult.Success).value.map { it.trackId })
+        assertNull(session.currentSessionId)
+        assertEquals(listOf("2"), session.more().map { it.trackId })
+        assertEquals("s2", session.currentSessionId)
+    }
+
+    @Test
+    fun restoredTrackHasNoSessionToReportTo() = runTest {
+        val session = YandexWaveSession(
+            seeds = listOf(YandexWave.MY_WAVE_SEED),
+            start = { _, _ -> batch("2") },
+            next = { _, _ -> batch() },
+            initialGiven = listOf("1:a1"),
+        )
+        session.seed(track("1"))
+        assertEquals("1:a1" to null, session.trackOf("ym:1"))
+        assertNull(session.originOf("ym:1")?.sessionId)
     }
 }

@@ -206,8 +206,80 @@ class YandexWaveFeedbackTest {
         session.more()
         assertEquals("s", session.currentSessionId)
         assertEquals("1:a1" to "b1", session.trackOf("ym:1"))
-        assertEquals("b2", session.batchOfTrack("2:a2"))
-        assertEquals("2:a2", session.trackIdOf("2"))
+        assertEquals("2:a2" to "b2", session.trackOf("ym:2"))
+        assertEquals("2:a2", session.originOfTrackId("2")?.queueId)
         assertNull(session.trackOf("ym:3"))
+    }
+
+    @Test
+    fun feedbackKeepsTheSessionAndBatchThatGaveTheTrackAfterASwap() = runTest {
+        fun track(id: String) = ProviderTrack(id, "t", emptyList(), null, 1L, null, true, albumId = "a$id")
+        val first = YandexWaveSession(
+            seeds = listOf(YandexWave.MY_WAVE_SEED),
+            start = { _, _ -> ProviderResult.Success(YandexWaveBatch("s1", "b1", listOf(track("1")), false, false)) },
+            next = { _, _ -> ProviderResult.Success(YandexWaveBatch("s1", "b1", emptyList(), false, false)) },
+        )
+        first.first()
+        val router = YandexWaveRouter(first) { seeds, given, origins ->
+            YandexWaveSession(
+                seeds = seeds,
+                start = { _, _ -> ProviderResult.Success(YandexWaveBatch("s2", "b2", listOf(track("2")), false, false)) },
+                next = { _, _ -> ProviderResult.Success(YandexWaveBatch("s2", "b2", emptyList(), false, false)) },
+                initialGiven = given,
+                initialOrigins = origins,
+            )
+        }
+        router.swap(listOf("settingDiversity:discover"))
+        // The settings change moved the radio to s2; the track s1 gave is still reported to s1 with its batch.
+        val heard = waveOutgoing(router.current, WaveListenEvent.Finished("ym:1", 12.0), 5L)!!
+        assertEquals("s1", heard.sessionId)
+        assertEquals("b1", heard.batchId)
+        assertEquals("1:a1", heard.event.trackId)
+        assertEquals(YandexWaveEvent.TRACK_FINISHED, heard.event.type)
+        assertEquals(12.0, heard.event.playedSeconds!!, 0.0)
+        // The session that serves the queue now gets the events of its own tracks.
+        val fresh = waveOutgoing(router.current, WaveListenEvent.Started("ym:2"), 6L)!!
+        assertEquals("s2", fresh.sessionId)
+        assertEquals("b2", fresh.batchId)
+        assertEquals(YandexWaveEvent.TRACK_STARTED, fresh.event.type)
+    }
+
+    @Test
+    fun everySessionIsAnnouncedOnceAndRequestsKeepTheirTarget() {
+        val plan = WaveFeedbackPlan { 7L }
+        val skip = YandexWaveEvent(YandexWaveEvent.SKIP, 1L, "1:a1", 3.0)
+        val oldTrack = WaveOutgoing("s1", "b1", skip)
+        // The radio already moved to s2, but the event of the track s1 gave is not re-addressed.
+        val first = plan.requests(oldTrack, currentSessionId = "s2")
+        assertEquals(listOf(YandexWaveEvent.RADIO_STARTED, YandexWaveEvent.SKIP), first.map { it.event.type })
+        assertEquals(listOf("s1", "s1"), first.map { it.sessionId })
+        assertEquals(listOf(null, "b1"), first.map { it.batchId })
+        assertEquals(7L, first.first().event.timestampMs)
+        // Its session is announced now: another event of the same session goes alone.
+        assertEquals(listOf(YandexWaveEvent.SKIP), plan.requests(oldTrack, "s9").map { it.event.type })
+        // The session now serving the radio is announced in turn.
+        val newTrack = WaveOutgoing("s2", "b2", skip)
+        assertEquals(
+            listOf(YandexWaveEvent.RADIO_STARTED, YandexWaveEvent.SKIP),
+            plan.requests(newTrack, currentSessionId = null).map { it.event.type },
+        )
+    }
+
+    @Test
+    fun restoredTrackUsesTheCurrentSessionAndIsDroppedWithoutOne() {
+        val plan = WaveFeedbackPlan { 0L }
+        val started = WaveOutgoing(null, null, YandexWaveEvent(YandexWaveEvent.TRACK_STARTED, 1L, "1:a1"))
+        assertEquals(listOf("s9", "s9"), plan.requests(started, "s9").map { it.sessionId })
+        assertTrue(plan.requests(started, null).isEmpty())
+    }
+
+    @Test
+    fun lateRadioStartedForAnAnnouncedSessionIsDropped() {
+        val plan = WaveFeedbackPlan { 0L }
+        val started = YandexWaveEvent(YandexWaveEvent.RADIO_STARTED, 1L)
+        assertEquals(1, plan.requests(WaveOutgoing("s1", null, started), null).size)
+        assertTrue(plan.requests(WaveOutgoing("s1", null, started), null).isEmpty())
+        // A queued start of an old session is not sent to the one that replaced it.
+        assertTrue(plan.requests(WaveOutgoing("s1", null, started), "s2").isEmpty())
     }
 }
