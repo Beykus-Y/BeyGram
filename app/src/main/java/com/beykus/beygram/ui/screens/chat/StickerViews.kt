@@ -183,7 +183,14 @@ private fun LottieSticker(
  * нет на устройстве, показывают [fallback], обычно текст эмодзи. WebM не рисуется, поэтому его не скачиваем.
  */
 @Composable
-internal fun CustomEmojiImage(emoji: CustomEmoji, size: Dp, observeFile: (Int) -> StateFlow<MediaFileState>, downloadFile: (Int) -> Unit, fallback: @Composable () -> Unit) {
+internal fun CustomEmojiImage(
+    emoji: CustomEmoji,
+    size: Dp,
+    observeFile: (Int) -> StateFlow<MediaFileState>,
+    downloadFile: (Int) -> Unit,
+    animated: Boolean = true,
+    fallback: @Composable () -> Unit
+) {
     val file by remember(emoji.fileId) { observeFile(emoji.fileId) }.collectAsStateWithLifecycle()
     val context = LocalContext.current
     val accountId = LocalPlaybackAccountId.current
@@ -200,12 +207,16 @@ internal fun CustomEmojiImage(emoji: CustomEmoji, size: Dp, observeFile: (Int) -
         }
     }
     // A custom emoji animates only after it has been on screen for the autoplay dwell time; until then its first frame shows.
-    val autoplay = rememberAutoplayEligible(enabled = emoji.mimeType == TGS_MIME || emoji.mimeType == WEBP_MIME)
+    val autoplay = rememberAutoplayEligible(enabled = animated && (emoji.mimeType == TGS_MIME || emoji.mimeType == WEBP_MIME))
+    val playing = animated && autoplay.eligible.value
+    val maxDimensionPx = with(androidx.compose.ui.platform.LocalDensity.current) {
+        (size.roundToPx() * 2).coerceIn(48, 256)
+    }
     val path = file.localPath
     val modifier = Modifier.size(size).then(autoplay.modifier)
     when {
-        path != null && emoji.mimeType == TGS_MIME -> TgsSticker(path, modifier, playing = autoplay.eligible.value, fallback = fallback)
-        path != null && emoji.mimeType == WEBP_MIME -> LocalMediaImage(path, modifier, fit = true, animate = autoplay.eligible.value)
+        path != null && emoji.mimeType == TGS_MIME -> TgsSticker(path, modifier, playing = playing, fallback = fallback)
+        path != null && emoji.mimeType == WEBP_MIME -> LocalMediaImage(path, modifier, fit = true, maxDimension = maxDimensionPx, animate = playing)
         else -> fallback()
     }
 }
