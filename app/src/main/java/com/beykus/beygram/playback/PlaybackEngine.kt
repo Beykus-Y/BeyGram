@@ -1939,6 +1939,7 @@ object PlaybackEngine {
             (coexistencePauseOwner in existing.owners || now - existing.startedAt < INTERRUPTION_STALE_MS)
         ) {
             existing.owners += owner
+            if (owner !== coexistencePauseOwner) yieldFocusToOtherMedia()
             return
         }
         val state = _state.value
@@ -1947,6 +1948,13 @@ object PlaybackEngine {
         val wasPlaying = music && (state.playing || state.intentPlaying) && !state.waitingForNetwork
         interruption = Interruption(mutableSetOf(owner), wasPlaying, now, item?.key)
         if (wasPlaying) pauseMusicForInterruption()
+        if (owner !== coexistencePauseOwner) yieldFocusToOtherMedia()
+    }
+
+    private fun yieldFocusToOtherMedia() {
+        resumeSpeechOnFocus = null
+        speech.pause()
+        releasePrimaryFocus()
     }
 
     fun endInterruption(owner: Any) {
@@ -1987,6 +1995,7 @@ object PlaybackEngine {
         val audio = coexistenceContext?.getSystemService(AudioManager::class.java) ?: return false
         val gain = when {
             musicWantsFocus -> AudioManager.AUDIOFOCUS_GAIN
+            interruption?.owners?.any { it !== coexistencePauseOwner } == true -> 0
             mode == ExternalAudioInterference.Pause -> AudioManager.AUDIOFOCUS_GAIN_TRANSIENT
             mode == ExternalAudioInterference.Duck -> AudioManager.AUDIOFOCUS_GAIN_TRANSIENT_MAY_DUCK
             else -> 0
