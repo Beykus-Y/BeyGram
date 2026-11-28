@@ -27,11 +27,18 @@ internal object YandexWaveLauncher {
     private var activeRadio: PlaybackRadio? = null
 
     /** A session whose requests run only under [generation], the sign-in the wave started under; the provider checks it under its lock. */
-    private fun openSession(provider: YandexMusicProvider, generation: Long, seeds: List<String>, given: Collection<String>) = YandexWaveSession(
+    private fun openSession(
+        provider: YandexMusicProvider,
+        generation: Long,
+        seeds: List<String>,
+        given: Collection<String>,
+        origins: Map<String, WaveTrackOrigin> = emptyMap(),
+    ) = YandexWaveSession(
         seeds = seeds,
         start = { s, queue -> provider.waveStart(generation, s, queue) },
         next = { id, queue -> provider.waveNext(generation, id, queue) },
         initialGiven = given,
+        initialOrigins = origins,
     )
 
     /**
@@ -111,7 +118,9 @@ internal object YandexWaveLauncher {
                             title = app.getString(R.string.yandex_wave_title),
                             subtitle = subtitle,
                         )
-                        val router = YandexWaveRouter(session) { s, given -> openSession(provider, generation, s, given) }
+                        val router = YandexWaveRouter(session) { s, given, origins ->
+                            openSession(provider, generation, s, given, origins)
+                        }
                         active = router
                         activeRadio = radio
                         ProviderArtwork.playTracks(app, leading, 0, { router.more() }, radio, keepPositionMs)
