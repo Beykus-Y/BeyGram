@@ -310,6 +310,9 @@ private object MinithumbnailCache {
     }
 }
 
+@OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
+private val MediaDecodeDispatcher = kotlinx.coroutines.Dispatchers.IO.limitedParallelism(4)
+
 /**
  * Decode still artwork normally. Telegram GIFs are often MP4 animations: their thumbnails can be
  * missing, stale or non-image files. Only animation/video callers opt in to a bounded frame fallback.
@@ -337,7 +340,7 @@ internal fun LocalMediaImage(
     val cached = remember(cacheKey) { if (cacheable) DecodedImageCache.get(cacheKey)?.let { BitmapDrawable(context.resources, it) } else null }
     val loaded by produceState<Drawable?>(cached, cacheKey) {
         if (cached != null) { failed = false; value = cached; return@produceState }
-        val result = withContext(Dispatchers.IO) {
+        val result = withContext(MediaDecodeDispatcher) {
             val still = runCatching {
                 val source = ImageDecoder.createSource(File(path))
                 val sizeListener = ImageDecoder.OnHeaderDecodedListener { decoder, info, _ ->
@@ -384,7 +387,15 @@ internal fun LocalMediaImage(
     val fading by remember(reveal) { derivedStateOf { reveal.value < 1f } }
     Box(modifier.clipToBounds(), contentAlignment = Alignment.Center) {
         if (placeholder != null && (drawable == null && !failed || drawable != null && fading)) placeholder()
-        if (drawable != null) AndroidView(
+        if (drawable is BitmapDrawable) {
+            val bitmap = remember(drawable) { drawable.bitmap.asImageBitmap() }
+            Image(
+                bitmap = bitmap,
+                contentDescription = contentDescriptionText,
+                contentScale = if (fit) ContentScale.Fit else ContentScale.Crop,
+                modifier = Modifier.fillMaxSize().graphicsLayer { alpha = reveal.value }
+            )
+        } else if (drawable != null) AndroidView(
             factory = { ImageView(it).apply { contentDescription = contentDescriptionText } },
             update = { view ->
                 view.contentDescription = contentDescriptionText

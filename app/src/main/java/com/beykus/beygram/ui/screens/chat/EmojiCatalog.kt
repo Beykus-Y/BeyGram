@@ -189,21 +189,29 @@ internal class RecentEmojiStore(context: Context, private val accountId: String)
     private val restoreAttemptKey = "restore_attempt_$accountId"
     private val preferences = context.applicationContext.getSharedPreferences(PREFERENCES, Context.MODE_PRIVATE)
 
-    init {
+    fun peekUnicode(): List<String>? = unicodeCache[accountId]
+
+    fun peekCustom(): List<Long>? = customCache[accountId]
+
+    suspend fun warmUp(): Pair<List<String>, List<Long>> = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
         migrateLegacyIfNeeded()
+        load() to loadCustom()
     }
 
-    fun load(): List<String> = try {
-        preferences.getString(recentKey, null).orEmpty()
-            .split(SEPARATOR)
-            .filter { it.isNotEmpty() }
-            .distinct()
-            .take(RECENT_EMOJI_LIMIT)
-    } catch (_: Exception) {
-        emptyList()
+    fun load(): List<String> = unicodeCache[accountId] ?: run {
+        migrateLegacyIfNeeded()
+        try {
+            preferences.getString(recentKey, null).orEmpty()
+                .split(SEPARATOR)
+                .filter { it.isNotEmpty() }
+                .distinct()
+                .take(RECENT_EMOJI_LIMIT)
+        } catch (_: Exception) {
+            emptyList()
+        }.also { unicodeCache[accountId] = it }
     }
 
-    fun loadCustom(): List<Long> = try {
+    fun loadCustom(): List<Long> = customCache[accountId] ?: try {
         preferences.getString(customKey, null).orEmpty()
             .split(SEPARATOR)
             .mapNotNull { it.toLongOrNull()?.takeIf { id -> id > 0L } }
@@ -211,11 +219,12 @@ internal class RecentEmojiStore(context: Context, private val accountId: String)
             .take(RECENT_CUSTOM_EMOJI_LIMIT)
     } catch (_: Exception) {
         emptyList()
-    }
+    }.also { customCache[accountId] = it }
 
     /** Stores [emoji] as the newest entry and returns the updated list so the picker can show it at once. */
     fun record(emoji: String): List<String> {
         val updated = load().withRecentEmoji(emoji)
+        unicodeCache[accountId] = updated
         persist(recentKey, updated.joinToString(SEPARATOR))
         return updated
     }
@@ -224,6 +233,7 @@ internal class RecentEmojiStore(context: Context, private val accountId: String)
         if (customEmojiId <= 0L) return loadCustom()
         val updated = (listOf(customEmojiId) + loadCustom().filterNot { it == customEmojiId })
             .take(RECENT_CUSTOM_EMOJI_LIMIT)
+        customCache[accountId] = updated
         persist(customKey, updated.joinToString(SEPARATOR))
         return updated
     }
@@ -236,6 +246,7 @@ internal class RecentEmojiStore(context: Context, private val accountId: String)
         if (restoreSuppressed()) return emptyList()
         if (history.unicode.isEmpty()) return load()
         val merged = (load() + history.unicode).distinct().take(RECENT_EMOJI_LIMIT)
+        unicodeCache[accountId] = merged
         persist(recentKey, merged.joinToString(SEPARATOR))
         return merged
     }
@@ -245,12 +256,15 @@ internal class RecentEmojiStore(context: Context, private val accountId: String)
         if (restoreSuppressed()) return emptyList()
         if (ids.isEmpty()) return loadCustom()
         val merged = (loadCustom() + ids.filter { it > 0L }).distinct().take(RECENT_CUSTOM_EMOJI_LIMIT)
+        customCache[accountId] = merged
         persist(customKey, merged.joinToString(SEPARATOR))
         return merged
     }
 
     /** Both lists are cleared by one explicit action; recovery must not bring the old entries back. */
     fun clearAll(): Pair<List<String>, List<Long>> {
+        unicodeCache[accountId] = emptyList()
+        customCache[accountId] = emptyList()
         preferences.edit()
             .putString(recentKey, "")
             .putString(customKey, "")
@@ -304,8 +318,12 @@ internal class RecentEmojiStore(context: Context, private val accountId: String)
         private const val RESTORE_RETRY_MS = 15 * 60_000L
         private const val LEGACY_ACCOUNT_ID = "legacy"
         private const val LEGACY_RECENT_KEY = "recent"
+        private val unicodeCache = java.util.concurrent.ConcurrentHashMap<String, List<String>>()
+        private val customCache = java.util.concurrent.ConcurrentHashMap<String, List<Long>>()
 
         fun clearAccount(context: Context, accountId: String) {
+            unicodeCache.remove(accountId)
+            customCache.remove(accountId)
             val prefs = context.applicationContext.getSharedPreferences(PREFERENCES, Context.MODE_PRIVATE)
             prefs.edit().apply {
                 remove("recent_$accountId")
@@ -315,6 +333,11 @@ internal class RecentEmojiStore(context: Context, private val accountId: String)
                 remove("restore_attempt_$accountId")
                 if (accountId == LEGACY_ACCOUNT_ID) remove(LEGACY_RECENT_KEY)
             }.apply()
+        }
+
+        internal fun clearMemoryCache() {
+            unicodeCache.clear()
+            customCache.clear()
         }
     }
 }

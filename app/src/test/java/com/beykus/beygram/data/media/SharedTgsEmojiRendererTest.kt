@@ -40,6 +40,8 @@ class SharedTgsEmojiRendererTest {
         try {
             val renderer = SharedTgsEmojiRenderer(
                 scope = scope,
+                mainDispatcher = dispatcher,
+                schedulerDispatcher = dispatcher,
                 workerDispatcher = dispatcher,
                 frameCache = EmojiFrameCache(),
                 rasterizer = object : EmojiFrameRasterizer {
@@ -88,6 +90,8 @@ class SharedTgsEmojiRendererTest {
         try {
             val renderer = SharedTgsEmojiRenderer(
                 scope = scope,
+                mainDispatcher = dispatcher,
+                schedulerDispatcher = dispatcher,
                 workerDispatcher = dispatcher,
                 rasterizer = object : EmojiFrameRasterizer {
                     override suspend fun prepare(path: String, sizePx: Int): Result<PreparedEmojiAnimation> =
@@ -112,6 +116,8 @@ class SharedTgsEmojiRendererTest {
         try {
             val renderer = SharedTgsEmojiRenderer(
                 scope = scope,
+                mainDispatcher = dispatcher,
+                schedulerDispatcher = dispatcher,
                 workerDispatcher = dispatcher,
                 rasterizer = object : EmojiFrameRasterizer {
                     override suspend fun prepare(path: String, sizePx: Int): Result<PreparedEmojiAnimation> =
@@ -187,6 +193,8 @@ class SharedTgsEmojiRendererTest {
         try {
             val renderer = SharedTgsEmojiRenderer(
                 scope = scope,
+                mainDispatcher = dispatcher,
+                schedulerDispatcher = dispatcher,
                 workerDispatcher = dispatcher,
                 rasterizer = object : EmojiFrameRasterizer {
                     override suspend fun prepare(path: String, sizePx: Int): Result<PreparedEmojiAnimation> =
@@ -220,6 +228,8 @@ class SharedTgsEmojiRendererTest {
         try {
             val renderer = SharedTgsEmojiRenderer(
                 scope = scope,
+                mainDispatcher = dispatcher,
+                schedulerDispatcher = dispatcher,
                 workerDispatcher = dispatcher,
                 lowRam = false,
                 rasterizer = object : EmojiFrameRasterizer {
@@ -256,6 +266,8 @@ class SharedTgsEmojiRendererTest {
         try {
             val renderer = SharedTgsEmojiRenderer(
                 scope = scope,
+                mainDispatcher = dispatcher,
+                schedulerDispatcher = dispatcher,
                 workerDispatcher = dispatcher,
                 rasterizer = object : EmojiFrameRasterizer {
                     override suspend fun prepare(path: String, sizePx: Int): Result<PreparedEmojiAnimation> =
@@ -273,6 +285,38 @@ class SharedTgsEmojiRendererTest {
             renderer.updateTarget(target, playing = true, priority = 10)
             assertTrue(renderer.isSchedulerRunning())
             renderer.detach(target)
+        } finally {
+            scope.cancel()
+        }
+    }
+
+    @Test
+    fun attachDoesNotPerformDiskIoAndPeekFirstFrameServesWarmCache() = runTest {
+        val dispatcher = StandardTestDispatcher(testScheduler)
+        val scope = CoroutineScope(SupervisorJob() + dispatcher)
+        try {
+            val renderer = SharedTgsEmojiRenderer(
+                scope = scope,
+                mainDispatcher = dispatcher,
+                schedulerDispatcher = dispatcher,
+                workerDispatcher = dispatcher,
+                rasterizer = object : EmojiFrameRasterizer {
+                    override suspend fun prepare(path: String, sizePx: Int): Result<PreparedEmojiAnimation> =
+                        Result.success(PreparedEmojiAnimation(4, 400L) { fakeFrame(sizePx) })
+                },
+                clockMs = { testScheduler.currentTime }
+            )
+            assertNull(renderer.peekFirstFrame("acc-1", "/tmp/does_not_exist.tgs", 64))
+            val first = renderer.attach("acc-1", "/tmp/does_not_exist.tgs", sizePx = 64, playing = false)
+            runCurrent()
+            assertNotNull(first.frameState.value)
+            renderer.detach(first)
+
+            val peeked = renderer.peekFirstFrame("acc-1", "/tmp/does_not_exist.tgs", 64)
+            assertNotNull(peeked)
+            val second = renderer.attach("acc-1", "/tmp/does_not_exist.tgs", sizePx = 64, playing = false)
+            assertNotNull(second.frameState.value)
+            renderer.detach(second)
         } finally {
             scope.cancel()
         }

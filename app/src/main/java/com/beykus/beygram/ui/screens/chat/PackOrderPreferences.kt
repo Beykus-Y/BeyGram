@@ -31,7 +31,7 @@ internal enum class PackKind(val storageKey: String) {
  */
 internal class PackUsageStore(
     context: Context,
-    accountId: String,
+    private val accountId: String,
     private val kind: PackKind,
     private val now: () -> Long = System::currentTimeMillis,
 ) {
@@ -39,17 +39,35 @@ internal class PackUsageStore(
     private val dynamicKey = "pack_order_dynamic_$accountId"
     private val countsKey = "pack_usage_${kind.storageKey}_$accountId"
     private val usedAtKey = "pack_used_at_${kind.storageKey}_$accountId"
+    private val kindScopeKey = "$accountId:${kind.storageKey}"
+
+    fun peekDynamic(): Boolean? = dynamicCache[accountId]
+
+    suspend fun warmUp() {
+        kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+            isDynamic()
+            counts()
+            lastUsed()
+        }
+    }
 
     /** On by default, as agreed for J2.1; the switch restores the server/manual order. */
-    fun isDynamic(): Boolean = runCatching { preferences.getBoolean(dynamicKey, true) }.getOrDefault(true)
+    fun isDynamic(): Boolean = dynamicCache[accountId] ?: runCatching {
+        preferences.getBoolean(dynamicKey, true)
+    }.getOrDefault(true).also { dynamicCache[accountId] = it }
 
     fun setDynamic(enabled: Boolean) {
+        dynamicCache[accountId] = enabled
         runCatching { preferences.edit().putBoolean(dynamicKey, enabled).apply() }
     }
 
-    fun counts(): Map<Long, Long> = decode(preferences.getString(countsKey, null).orEmpty())
+    fun counts(): Map<Long, Long> = countsCache[kindScopeKey] ?: decode(
+        runCatching { preferences.getString(countsKey, null) }.getOrNull().orEmpty()
+    ).also { countsCache[kindScopeKey] = it }
 
-    fun lastUsed(): Map<Long, Long> = decode(preferences.getString(usedAtKey, null).orEmpty())
+    fun lastUsed(): Map<Long, Long> = usedAtCache[kindScopeKey] ?: decode(
+        runCatching { preferences.getString(usedAtKey, null) }.getOrNull().orEmpty()
+    ).also { usedAtCache[kindScopeKey] = it }
 
     /** One sent sticker or inserted custom emoji counts as usage of its pack. */
     fun record(setId: Long) {
@@ -70,6 +88,8 @@ internal class PackUsageStore(
             usedAt.clear()
             keep.forEach { usedAt[it.key] = it.value }
         }
+        countsCache[kindScopeKey] = counts
+        usedAtCache[kindScopeKey] = usedAt
         runCatching {
             preferences.edit()
                 .putString(countsKey, encode(counts))
@@ -111,8 +131,16 @@ internal class PackUsageStore(
         private const val ENTRY_SEPARATOR = ','
         private const val VALUE_SEPARATOR = ':'
         private const val MAX_TRACKED_PACKS = 200
+        private val dynamicCache = java.util.concurrent.ConcurrentHashMap<String, Boolean>()
+        private val countsCache = java.util.concurrent.ConcurrentHashMap<String, Map<Long, Long>>()
+        private val usedAtCache = java.util.concurrent.ConcurrentHashMap<String, Map<Long, Long>>()
 
         fun clearAccount(context: Context, accountId: String) {
+            dynamicCache.remove(accountId)
+            countsCache.remove("$accountId:${PackKind.Sticker.storageKey}")
+            usedAtCache.remove("$accountId:${PackKind.Sticker.storageKey}")
+            countsCache.remove("$accountId:${PackKind.CustomEmoji.storageKey}")
+            usedAtCache.remove("$accountId:${PackKind.CustomEmoji.storageKey}")
             val prefs = context.applicationContext.getSharedPreferences(PREFERENCES, Context.MODE_PRIVATE)
             prefs.edit().apply {
                 remove("pack_order_dynamic_$accountId")
@@ -121,6 +149,12 @@ internal class PackUsageStore(
                 remove("pack_usage_${PackKind.CustomEmoji.storageKey}_$accountId")
                 remove("pack_used_at_${PackKind.CustomEmoji.storageKey}_$accountId")
             }.apply()
+        }
+
+        internal fun clearMemoryCache() {
+            dynamicCache.clear()
+            countsCache.clear()
+            usedAtCache.clear()
         }
     }
 }

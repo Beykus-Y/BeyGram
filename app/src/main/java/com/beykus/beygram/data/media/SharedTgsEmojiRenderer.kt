@@ -13,7 +13,7 @@ import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asImageBitmap
 import com.airbnb.lottie.LottieDrawable
 import java.io.File
-import java.util.concurrent.atomic.AtomicInteger
+import java.util.concurrent.ConcurrentHashMap
 import kotlin.coroutines.cancellation.CancellationException
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
@@ -48,6 +48,12 @@ internal fun adaptiveEmojiFps(activePlayingContexts: Int, lowRam: Boolean): Int 
 }
 
 internal fun maxConcurrentEmojiAnimations(lowRam: Boolean): Int = if (lowRam) 10 else 16
+
+internal data class EmojiContextKey(
+    val accountId: String,
+    val path: String,
+    val sizePx: Int
+)
 
 internal data class EmojiRenderKey(
     val accountId: String,
@@ -157,7 +163,7 @@ internal class LottieEmojiFrameRasterizer : EmojiFrameRasterizer {
 }
 
 internal class EmojiRenderTarget internal constructor(
-    internal val key: EmojiRenderKey,
+    internal val contextKey: EmojiContextKey,
     internal val handleId: Long,
     val frameState: State<ImageBitmap?>,
     val failedState: State<Boolean>
@@ -166,6 +172,8 @@ internal class EmojiRenderTarget internal constructor(
 @OptIn(ExperimentalCoroutinesApi::class)
 internal class SharedTgsEmojiRenderer(
     private val scope: CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate),
+    private val mainDispatcher: CoroutineDispatcher = Dispatchers.Main.immediate,
+    private val schedulerDispatcher: CoroutineDispatcher = Dispatchers.Default,
     private val workerDispatcher: CoroutineDispatcher = Dispatchers.Default.limitedParallelism(2),
     internal val frameCache: EmojiFrameCache = EmojiFrameCache(),
     private val rasterizer: EmojiFrameRasterizer = LottieEmojiFrameRasterizer(),
@@ -173,17 +181,18 @@ internal class SharedTgsEmojiRenderer(
     private val clockMs: () -> Long = SystemClock::elapsedRealtime
 ) {
     private data class TargetEntry(
-        val key: EmojiRenderKey,
+        val contextKey: EmojiContextKey,
         var playing: Boolean,
         var priority: Int
     )
 
     private class SharedContext(
-        val key: EmojiRenderKey,
+        val contextKey: EmojiContextKey,
         val attachSequence: Long,
         val frameState: MutableState<ImageBitmap?> = mutableStateOf(null),
         val failedState: MutableState<Boolean> = mutableStateOf(false),
         val targets: MutableMap<Long, TargetEntry> = HashMap(),
+        var renderKey: EmojiRenderKey? = null,
         var prepared: PreparedEmojiAnimation? = null,
         var prepJob: Job? = null,
         var rendering: Boolean = false,
@@ -194,12 +203,26 @@ internal class SharedTgsEmojiRenderer(
     }
 
     private val lock = Any()
-    private val contexts = HashMap<EmojiRenderKey, SharedContext>()
+    private val contexts = HashMap<EmojiContextKey, SharedContext>()
     private val targets = HashMap<Long, TargetEntry>()
+    private val lastVersionByPath = ConcurrentHashMap<String, Pair<Long, Long>>()
     private var nextHandleId = 1L
     private var nextSequence = 1L
     private var schedulerJob: Job? = null
 
+    /**
+     * Memory-only first-frame lookup; safe to call during Compose composition without touching disk.
+     */
+    fun peekFirstFrame(accountId: String, path: String, sizePx: Int): ImageBitmap? {
+        val normalizedSize = bucketEmojiSizePx(sizePx)
+        val version = lastVersionByPath[path] ?: return null
+        val renderKey = EmojiRenderKey(accountId, path, version.first, version.second, normalizedSize)
+        return frameCache.getFirstFrame(renderKey)?.bitmap
+    }
+
+    /**
+     * Attaches a consumer target to a shared context. Never performs disk I/O synchronously on the calling thread.
+     */
     fun attach(
         accountId: String,
         path: String,
@@ -208,39 +231,28 @@ internal class SharedTgsEmojiRenderer(
         priority: Int = 0
     ): EmojiRenderTarget {
         val normalizedSize = bucketEmojiSizePx(sizePx)
-        val file = File(path)
-        val key = EmojiRenderKey(
-            accountId = accountId,
-            path = path,
-            fileLength = if (file.exists()) file.length() else 0L,
-            fileMtime = if (file.exists()) file.lastModified() else 0L,
-            sizePx = normalizedSize
-        )
+        val contextKey = EmojiContextKey(accountId = accountId, path = path, sizePx = normalizedSize)
         val handleId: Long
         val ctx: SharedContext
-        var needsPrepare = false
         synchronized(lock) {
             handleId = nextHandleId++
-            ctx = contexts.getOrPut(key) {
-                SharedContext(key = key, attachSequence = nextSequence++, startTimeMs = clockMs())
+            ctx = contexts.getOrPut(contextKey) {
+                SharedContext(contextKey = contextKey, attachSequence = nextSequence++, startTimeMs = clockMs())
             }
-            val entry = TargetEntry(key = key, playing = playing, priority = priority)
+            val entry = TargetEntry(contextKey = contextKey, playing = playing, priority = priority)
             targets[handleId] = entry
             ctx.targets[handleId] = entry
-            val cachedFirst = frameCache.getFirstFrame(key)
-            if (cachedFirst != null && ctx.frameState.value == null) {
-                ctx.frameState.value = cachedFirst.bitmap
+            if (ctx.frameState.value == null) {
+                peekFirstFrame(accountId, path, normalizedSize)?.let { cached ->
+                    ctx.frameState.value = cached
+                }
             }
             if (ctx.prepared == null && ctx.prepJob == null && !ctx.failedState.value) {
-                needsPrepare = true
-                ctx.prepJob = scope.launch { prepareContext(ctx) }
+                ctx.prepJob = scope.launch(workerDispatcher) { prepareContext(ctx) }
             }
             ensureSchedulerLocked()
         }
-        if (!needsPrepare && playing) {
-            synchronized(lock) { ensureSchedulerLocked() }
-        }
-        return EmojiRenderTarget(key, handleId, ctx.frameState, ctx.failedState)
+        return EmojiRenderTarget(contextKey, handleId, ctx.frameState, ctx.failedState)
     }
 
     fun updateTarget(target: EmojiRenderTarget, playing: Boolean, priority: Int = 0) {
@@ -250,9 +262,10 @@ internal class SharedTgsEmojiRenderer(
             entry.playing = playing
             entry.priority = priority
             if (!playing) {
-                val ctx = contexts[entry.key]
-                if (ctx != null && !ctx.isPlaying()) {
-                    frameCache.getFirstFrame(ctx.key)?.let { ctx.frameState.value = it.bitmap }
+                val ctx = contexts[entry.contextKey]
+                val rKey = ctx?.renderKey
+                if (ctx != null && rKey != null && !ctx.isPlaying()) {
+                    frameCache.getFirstFrame(rKey)?.let { ctx.frameState.value = it.bitmap }
                 }
             }
             ensureSchedulerLocked()
@@ -262,12 +275,12 @@ internal class SharedTgsEmojiRenderer(
     fun detach(target: EmojiRenderTarget) {
         synchronized(lock) {
             val entry = targets.remove(target.handleId) ?: return
-            val ctx = contexts[entry.key] ?: return
+            val ctx = contexts[entry.contextKey] ?: return
             ctx.targets.remove(target.handleId)
             if (ctx.targets.isEmpty()) {
                 ctx.prepJob?.cancel()
                 ctx.prepJob = null
-                contexts.remove(entry.key)
+                contexts.remove(entry.contextKey)
             }
             ensureSchedulerLocked()
         }
@@ -285,39 +298,54 @@ internal class SharedTgsEmojiRenderer(
 
     private suspend fun prepareContext(ctx: SharedContext) {
         try {
-            val result = withContext(workerDispatcher) {
-                rasterizer.prepare(ctx.key.path, ctx.key.sizePx)
-            }
+            val file = File(ctx.contextKey.path)
+            val length = if (file.exists()) file.length() else 0L
+            val mtime = if (file.exists()) file.lastModified() else 0L
+            lastVersionByPath[ctx.contextKey.path] = length to mtime
+            val renderKey = EmojiRenderKey(
+                accountId = ctx.contextKey.accountId,
+                path = ctx.contextKey.path,
+                fileLength = length,
+                fileMtime = mtime,
+                sizePx = ctx.contextKey.sizePx
+            )
+            val result = rasterizer.prepare(ctx.contextKey.path, ctx.contextKey.sizePx)
             val prepared = result.getOrNull()
             if (prepared == null) {
-                synchronized(lock) {
-                    if (contexts[ctx.key] === ctx) {
-                        ctx.failedState.value = true
-                        ctx.prepJob = null
+                withContext(mainDispatcher) {
+                    synchronized(lock) {
+                        if (contexts[ctx.contextKey] === ctx) {
+                            ctx.failedState.value = true
+                            ctx.prepJob = null
+                        }
                     }
                 }
                 return
             }
-            val firstFrame = frameCache.getFirstFrame(ctx.key) ?: withContext(workerDispatcher) {
-                prepared.renderFrame(0f)?.also { frameCache.putFirstFrame(ctx.key, it) }
-            }
-            synchronized(lock) {
-                if (contexts[ctx.key] !== ctx) return
-                ctx.prepared = prepared
-                ctx.startTimeMs = clockMs()
-                ctx.prepJob = null
-                if (firstFrame != null) {
-                    ctx.frameState.value = firstFrame.bitmap
+            val firstFrame = frameCache.getFirstFrame(renderKey)
+                ?: prepared.renderFrame(0f)?.also { frameCache.putFirstFrame(renderKey, it) }
+            withContext(mainDispatcher) {
+                synchronized(lock) {
+                    if (contexts[ctx.contextKey] !== ctx) return@withContext
+                    ctx.renderKey = renderKey
+                    ctx.prepared = prepared
+                    ctx.startTimeMs = clockMs()
+                    ctx.prepJob = null
+                    if (firstFrame != null) {
+                        ctx.frameState.value = firstFrame.bitmap
+                    }
+                    ensureSchedulerLocked()
                 }
-                ensureSchedulerLocked()
             }
         } catch (cancelled: CancellationException) {
             throw cancelled
         } catch (_: Throwable) {
-            synchronized(lock) {
-                if (contexts[ctx.key] === ctx) {
-                    ctx.failedState.value = true
-                    ctx.prepJob = null
+            withContext(mainDispatcher) {
+                synchronized(lock) {
+                    if (contexts[ctx.contextKey] === ctx) {
+                        ctx.failedState.value = true
+                        ctx.prepJob = null
+                    }
                 }
             }
         }
@@ -326,7 +354,7 @@ internal class SharedTgsEmojiRenderer(
     private fun ensureSchedulerLocked() {
         val anyPlaying = contexts.values.any { it.isPlaying() }
         if (anyPlaying && schedulerJob?.isActive != true) {
-            schedulerJob = scope.launch { runSchedulerLoop() }
+            schedulerJob = scope.launch(schedulerDispatcher) { runSchedulerLoop() }
         } else if (!anyPlaying && schedulerJob?.isActive == true) {
             schedulerJob?.cancel()
             schedulerJob = null
@@ -346,37 +374,39 @@ internal class SharedTgsEmojiRenderer(
                 activeCount = playing.size
                 val budget = maxConcurrentEmojiAnimations(lowRam)
                 candidates = playing
-                    .filter { it.prepared != null && (it.prepared?.frameCount ?: 0) > 1 && !it.rendering }
+                    .filter { it.prepared != null && it.renderKey != null && (it.prepared?.frameCount ?: 0) > 1 && !it.rendering }
                     .sortedWith(compareByDescending<SharedContext> { it.maxPriority() }.thenBy { it.attachSequence })
                     .take(budget)
             }
             val now = clockMs()
+            val pendingCommits = ArrayList<Pair<SharedContext, ImageBitmap>>()
             for (ctx in candidates) {
                 val prepared = ctx.prepared ?: continue
+                val renderKey = ctx.renderKey ?: continue
                 val frameIndex = (((now - ctx.startTimeMs).coerceAtLeast(0L) % prepared.durationMs) *
                     prepared.frameCount / prepared.durationMs).toInt().coerceIn(0, prepared.frameCount - 1)
-                val cached = frameCache.getFrame(ctx.key, frameIndex)
+                val cached = frameCache.getFrame(renderKey, frameIndex)
                 if (cached != null) {
-                    ctx.frameState.value = cached.bitmap
+                    pendingCommits += ctx to cached.bitmap
                     continue
                 }
                 val shouldRender = synchronized(lock) {
-                    if (contexts[ctx.key] === ctx && !ctx.rendering && ctx.isPlaying()) {
+                    if (contexts[ctx.contextKey] === ctx && !ctx.rendering && ctx.isPlaying()) {
                         ctx.rendering = true
                         true
                     } else false
                 }
                 if (shouldRender) {
-                    scope.launch {
+                    scope.launch(workerDispatcher) {
                         try {
-                            val rendered = withContext(workerDispatcher) {
-                                prepared.renderFrame(frameIndex.toFloat() / prepared.frameCount.toFloat())
-                            }
+                            val rendered = prepared.renderFrame(frameIndex.toFloat() / prepared.frameCount.toFloat())
                             if (rendered != null) {
-                                frameCache.putFrame(ctx.key, frameIndex, rendered)
-                                synchronized(lock) {
-                                    if (contexts[ctx.key] === ctx && ctx.isPlaying()) {
-                                        ctx.frameState.value = rendered.bitmap
+                                frameCache.putFrame(renderKey, frameIndex, rendered)
+                                withContext(mainDispatcher) {
+                                    synchronized(lock) {
+                                        if (contexts[ctx.contextKey] === ctx && ctx.isPlaying()) {
+                                            ctx.frameState.value = rendered.bitmap
+                                        }
                                     }
                                 }
                             }
@@ -385,6 +415,17 @@ internal class SharedTgsEmojiRenderer(
                         } catch (_: Throwable) {
                         } finally {
                             synchronized(lock) { ctx.rendering = false }
+                        }
+                    }
+                }
+            }
+            if (pendingCommits.isNotEmpty()) {
+                withContext(mainDispatcher) {
+                    synchronized(lock) {
+                        for ((ctx, bitmap) in pendingCommits) {
+                            if (contexts[ctx.contextKey] === ctx && ctx.isPlaying()) {
+                                ctx.frameState.value = bitmap
+                            }
                         }
                     }
                 }
