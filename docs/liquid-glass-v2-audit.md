@@ -179,6 +179,7 @@ different window from the host backdrop».
 | E2 | уведомления/ошибки, медиадок, наборы/превью/меню паков | PR #1360 |
 | E3 | меню скрепки (Attachment Menu 2.0) | PR #1360 |
 | E4 | регрессионные тесты, профиль, матрица тем, отчёт | тесты в #1360; профиль и матрица — за владельцем |
+| **F1** | **R1–R3: общая стеклянная шапка, тред, окно пересылки** | **PR #1362** |
 
 ## 8.1. Что сделано в E1–E3 (PR #1360)
 
@@ -193,17 +194,61 @@ different window from the host backdrop».
 | **D8** | `MessageActions` больше не семплирует слой главного окна в `Popup` (`LocalGlassBackdrop provides null`) |
 | **D10** | у модала теперь собственный записываемый backdrop; корневой `glassBackdrop` не тронут |
 
-## 8.2. Остаточные разрывы (не исправлены в E1–E3)
+## 8.2. Остаточные разрывы (после F1 / PR #1362)
 
-| # | Поверхность | Почему не сейчас | Что нужно |
+Закрыты в F1: **R1** (тред и комментарии каналов), **R2** (шапки 44 вторичных экранов), **R3** (`ForwardChatDialog`).
+
+### F1.1. Общий механизм
+
+`ui/components/SecondaryScreenChrome.kt`:
+
+- `GlassScreenScaffold(toolbar, bottomBar, content)` — одна стеклянная шапка (и, при необходимости, нижняя панель) на всё приложение. Записывается только тело; панели — сиблинги, нарисованные после него, поэтому панель не семплирует слой, в который пишется.
+- `ScreenChromeInsets(top, bottom)` — измеренная высота панелей, которую тело кладёт внутрь своего скролла (`contentPadding` / `Spacer`), чтобы строки уходили **под** стекло.
+- `LocalScreenChromeOnGlass`, `Modifier.screenChromeBar()`, `screenChromeBottomInsets()` — бар на панели не рисует свою заливку и не добавляет второй раз IME/навигацию.
+- `ProfileToolbar` в режиме `TopBarVariant.Glass` больше не рисует `panelFill`: на панели он прозрачный.
+- Вне Liquid Glass и вне сэмплирующих режимов (`Lite`, старый Android) структура прежняя: тулбар сверху, тело ниже, ничего не записывается.
+
+### F1.2. R1 — тред и комментарии каналов
+
+`MessageThreadScreen` переведён на «один стеклянный тулбар + один стеклянный composer»: комментарии прокручиваются под обеими панелями, уведомления очереди и ошибки отправки живут в нижней панели над composer, сохранены черновик, `replyTarget`, фокус, `sendGuard`, обратный список, загрузка старых комментариев, реакция-пикер и мини-плеер.
+
+### F1.3. R2 — вторичные экраны (44 файла)
+
+`AccountSecurityScreen`, `ActiveSessionsScreen`, `AppLockSettingsScreen`, `ArchiveScreen`, `AutoDownloadSettingsScreen`, `BlockedSendersScreen`, `ChannelStatisticsScreen`, `ChatMembersScreen`, `ConnectionDiagnosticsScreen`, `CreateChannelScreen`, `DiagnosticsScreen`, `EqualizerScreen`, `ExperimentsScreen`, `FolderManagerScreen`, `GiftsScreen`, `GlobalSearchScreen`, `GroupInvitesScreen`, `GroupJoinRequestsScreen`, `GroupManagementScreen`, `GroupMembersScreen`, `GroupSettingsScreen`, `LanguageScreen`, `LastSeenSettingsScreen`, `MyMusicScreen`, `NavigationSettingsScreen`, `NewChatScreen`, `NotificationSettingsScreen`, `PremiumScreen`, `PrivacySettingsScreen`, `ReportProblemScreen`, `ResourcesScreen`, `StableUpdatesScreen`, `StarsScreen`, `StealthExceptionsScreen`, `StealthSettingsScreen`, `StorageSettingsScreen`, `StoryPublisherScreen`, `ThemeSettingsScreen`, `TriggerMentionsScreen`, `TriggerWordsScreen`, `VideoMessageSettingsScreen`, `YandexSettingsHost`, а также экран редактирования профиля в `ProfileScreen`.
+
+Все — через один `GlassScreenScaffold`: настоящая панель, записанное тело, blur и AGSL-линза из E1, без отдельной реализации стекла на экран.
+
+### F1.4. R3 — окно пересылки
+
+`ForwardChatDialog` больше не `glassEligible = false`: причина (двойной `imePadding`) устранена через `LocalSheetOnGlass`. Внутри панели `Scaffold` прозрачный, IME-вставки остаются только у контента, панель ограничена пространством над клавиатурой. Поиск, выбор получателей, темы, ограничения и отправка не менялись.
+
+### F1.5. R5 — проверка модала в корне окна
+
+| Что проверялось | Результат |
+|---|---|
+| CompositionLocal | контент модала получает значения окна (тема, палитра, motion, дизайн, метрики чата, обои, плотность); чат-скоупные читаются как `false`, что для модала корректно (он не на общей плоскости) |
+| Контекст аккаунта и чата | модал живёт в том же composition и пересоздаётся вместе с `key(selectedAccountId, routeTwoPane)`; при смене аккаунта хост сбрасывается |
+| Lifecycle | маршрут модала снимается через `DisposableEffect`; закрытие экрана при открытом модале убирает модал вместе с вызывающей композицией |
+| Фокус | контент под модалом теряет семантику и фокус, пока модал открыт |
+| Приватность / `FLAG_SECURE` | `secure = true` всегда остаётся в отдельном окне; в модал другого окна ничего не регистрируется (`BeyGramModalHost.ownsWindow`) |
+| Вложенные модальные окна | sheet → dialog рисуются слоями 30/40; модал внутри `Dialog`/`Popup` остаётся в своём окне |
+
+### F1.6. Что осталось
+
+| # | Поверхность | Почему | Что нужно |
 |---|---|---|---|
-| **R1** | Тред/комментарии канала (`MessageThreadScreen.kt:486`–`488`, composer `:713`) | У экрана вообще нет стеклянного chrome: своя шапка и composer с `background(palette.surface)`, нет записываемого backdrop. Перестройка затрагивает клавиатуру, вставки и восстановление скролла в 900-строчном экране | Отдельный PR: backdrop на список, `GlassPanel` для шапки и composer, как в `ChatGlassChrome` |
-| **R2** | Шапки вторичных экранов (`topAppBarSurface()` + `background(palette.surface)`; профиль — `panelFill(surface, Card)` = 0.86) | Это осознанно плотная полоса, а не имитация: у вторичных экранов нет источника под шапкой, и полупрозрачность без blur ухудшила бы читаемость. `TopBarVariant.Glass` объявлен, но реализации «настоящего стекла» у этих экранов нет | Решение владельца: оставить плотную полосу или перевести шапки вторичных экранов на записываемый backdrop (большой объём, ~40 экранов) |
-| **R3** | `ForwardChatDialog` | Собственный полноэкранный `Scaffold` с `imePadding()`; hosted-режим добавил бы отступ клавиатуры дважды | Переработать его IME-вставки и затем включить `glassEligible = true` |
-| **R4** | `SelectionMenuProvider` (панель выделения текста) | Отдельное окно `Popup` с Material `Surface`; не семплирует backdrop и не притворяется стеклом | Решение владельца: это системоподобный контрол, оставлен как есть |
-| **R5** | Контент sheet/dialog компонуется в корне окна | Иначе модал не может семплировать экран | Наследуются локальные значения окна, но не чат-скоупные (`LocalChatChromeOnGlass`, `LocalComposerOnGlassPlane`) — для модала читаются как `false`, что корректно |
+| **R2a** | Карточка профиля (`ProfileScreen` ChatInfo) и `GroupProfile` | Сворачивающаяся шапка со shared-element геометрией (#999): панель требует пере-настройки замеров и проверки на устройстве | Отдельная задача: перенести их на `GlassScreenScaffold` с проверкой collapse/flight на устройстве |
+| **R2b** | `MusicSearchScreen`, `MusicSettingsScreen`, `MusicHomeUi`, `YandexCollectionScreen`, `MusicPlaylistScreen` | Свои `Scaffold`/прозрачные оболочки с собственными вставками; `MyMusicScreen` уже переведён как образец | По одному экрану тем же способом |
+| **R4** | Панель выделения текста | Системоподобный контрол в `Popup`, не притворяется стеклом | Оставлено по решению владельца |
+| **R6** | `ProxyListScreen`, `ProxyConnectScreen` | Своя шапка без `ProfileToolbar` | Перевести на общий механизм, если владелец сочтёт нужным |
 
 ## 9. Проверки E4, которые выполнены и которые остались
+
+### F1 (PR #1362): что добавлено
+
+- `SecondaryScreenChromeTest` (7 тестов): панели — настоящие `GlassPanel`, тело получает их высоту, отсутствие стекла вне Liquid Glass, `Lite` без записи, бар не рисует свою заливку на панели, все пять тем, нижняя панель, пересчёт при изменении высоты шапки.
+- `SecondaryScreenGlassUiTest` (5 тестов): реальный вторичный экран (`PrivacySettingsScreen`) в Liquid Glass (панель + заголовок + Back), Material 3 (панели нет), Default, Material 2, Signature.
+- Локально: `:app:testDevDebugUnitTest` — 4641+ тест, падения только известного baseline (Roborazzi-эталоны + TDLib/Windows + `TextSendCorruptRecoveryTest`).
 
 ### Выполнено (локально, Windows, JDK 17, offline)
 
@@ -212,14 +257,15 @@ different window from the host backdrop».
   - Roborazzi-эталоны (85): `StyleMatrixScreenshotTest` 30, `WideLayoutScreenshotTest` 30, `StylePreviewScreenshotTest` 15, `MusicHomeScreenshotTest` 10 — сравнение с эталонами, снятыми в Linux CI;
   - TDLib (48): `TdSecondarySessionCoordinatorTest`, `TdAccountRegistryTest`, `TdAccountUpdateRoutingTest`, `TdAccountNativeClientOwnerTest`, `TdAccountStorageLayoutTest`, `TdAccountSessionStateTest` — временные каталоги Windows;
   - `ChatMemoryRecorderLifecycleTest` 3 и `TextSendCorruptRecoveryTest` 1 — тот же класс проблем окружения.
-- Ни один тест стекла, модалов, скрепки, уведомлений или медиадока не падает.
+- Ни один тест стекла, модалов, скрепки, уведомлений, шапок или медиадока не падает.
 - `git diff --check` — чисто.
+- screenshot-эталоны **не обновлялись**: сцены набора (`StyleScenes`) рисуют синтетические компоненты, а не мигрированные экраны, поэтому их эталоны не менялись.
 
 ### Не выполнено и почему
 
-- **Реальный blur/AGSL, IME, predictive back, drag, frame time, PSS** — нужен Samsung M21 владельца; эмулятор и CI этого не показывают. CI зелёного статуса здесь недостаточно.
+- **Реальный blur/AGSL, IME, predictive back, drag, frame time, PSS** — нужен Samsung M21 владельца; эмулятор и CI этого не показывают. CI зелёного статуса здесь недостаточно. Для F1 особенно важно проверить: шапку и composer треда с клавиатурой, прокрутку строк под панелью, окно пересылки с поиском и клавиатурой, отсутствие двойного размытия.
 - **Матрица тем × качества × light/dark × ориентация × font scale** — частично покрыта Roborazzi-набором, но эталоны на этой машине не совпадают; сравнение валидно только в CI/Linux. Владельцу нужен проход глазами на устройстве.
-- **Сравнение производительности с актуальной сборкой после D4** — требует инструментированного замера на устройстве (open latency, p95/p99 frame time/jank, PSS/GC, GraphicsLayer и RenderEffect counts, 20–50 циклов открытия/закрытия).
+- **Сравнение производительности с build 832** — требует инструментированного замера на устройстве (open latency, p95/p99 frame time/jank, PSS/GC, GraphicsLayer и RenderEffect counts, 20–50 циклов открытия/закрытия).
 
 ## 10. Что этот документ не утверждает
 
