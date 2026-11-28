@@ -98,7 +98,8 @@ internal fun MessageBubble(message: ChatMessage, observeFile: (Int) -> StateFlow
     paneInset: Boolean = true,
     hideForContextScene: Boolean = false,
     contextTextSelection: MessageContextTextSelection? = null,
-    contextScenePassive: Boolean = false
+    contextScenePassive: Boolean = false,
+    protectedSpeech: Boolean = false
 ) {
     val palette = beyGramPalette()
     val metrics = LocalBubbleMetrics.current
@@ -231,7 +232,11 @@ internal fun MessageBubble(message: ChatMessage, observeFile: (Int) -> StateFlow
                         )
                         ForwardedMessageHeader(message)
                         // Media sits flush against the bubble's top and side edges; text keeps its own padding.
-                        message.media?.let { media ->
+                        message.media?.let { original ->
+                            val isSpeech = original.kind == MediaKind.Voice || original.kind == MediaKind.VideoNote
+                            val media = if (isSpeech && (protectedSpeech || message.isViewOnce)) {
+                                original.copy(isSecret = true)
+                            } else original
                             if (media.kind == MediaKind.VideoNote) VideoNoteBubble(media, observeFile, onDownloadFile,
                                 onPlayed = onPlayed,
                                 onLongPress = if (selectionMode) onToggleSelection else onActions,
@@ -248,7 +253,7 @@ internal fun MessageBubble(message: ChatMessage, observeFile: (Int) -> StateFlow
                                 onTranscribe = onTranscribe,
                                 onRateTranscription = onRateTranscription,
                                 speechRecognitionUi = speechRecognitionUi,
-                                autoDownloadFile = onAutoDownloadFile, outgoing = message.isOutgoing)
+                                autoDownloadFile = onAutoDownloadFile, outgoing = message.isOutgoing, viewOnce = message.isViewOnce)
                             else MediaPreview(media, observeFile, onDownloadFile,
                                 onOpen = if (selectionMode) onToggleSelection else onOpen,
                                 onLongPress = if (selectionMode) onToggleSelection else onActions,

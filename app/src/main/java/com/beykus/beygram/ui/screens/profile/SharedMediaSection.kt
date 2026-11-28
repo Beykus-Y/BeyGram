@@ -453,7 +453,7 @@ private fun SharedMediaList(
                         tab.messages.filter { it.id !in known }.sortedByDescending { it.id }
                     }) }
             } else {
-                SharedMediaRowItem(kind, chatId, message, observeFile, downloadFile, confirmExport, onContentOpened, onOpenMessage, onOpenMessageEntity)
+                SharedMediaRowItem(kind, chatId, message, observeFile, downloadFile, confirmExport, onContentOpened, onOpenMessage, onOpenMessageEntity, protectedContent)
             }
         }
         item(key = "footer") { SharedMediaFooter(tab, onRetry = onMore) }
@@ -466,14 +466,15 @@ internal fun SharedMediaRowItem(
     kind: SharedMediaKind, chatId: Long, message: ChatMessage, observeFile: (Int) -> StateFlow<MediaFileState>,
     downloadFile: (Int) -> Unit, confirmExport: suspend (Long) -> Boolean, onContentOpened: (Long) -> Unit,
     onOpenMessage: (Long) -> Unit,
-    onOpenMessageEntity: ((MessageEntityLink) -> Unit)? = null
+    onOpenMessageEntity: ((MessageEntityLink) -> Unit)? = null,
+    protectedContent: Boolean = false
 ) {
     val you = stringResource(R.string.search_you)
     val meta = listOf(if (message.isOutgoing) you else message.senderName, formatSearchDate(message.dateSeconds)).filter { it.isNotBlank() }.joinToString(" · ")
     when (kind) {
         SharedMediaKind.Files -> message.media?.let { SharedFileRow(message, it, meta, observeFile, downloadFile, confirmExport, onContentOpened, onOpenMessage) }
         SharedMediaKind.Links -> SharedLinkRow(message, meta, onOpenMessage, onOpenMessageEntity)
-        SharedMediaKind.Voice -> message.media?.let { SharedVoiceRow(chatId, message, it, meta, observeFile, downloadFile, onContentOpened, onOpenMessage) }
+        SharedMediaKind.Voice -> message.media?.let { SharedVoiceRow(chatId, message, it, meta, observeFile, downloadFile, onContentOpened, onOpenMessage, protectedContent) }
         SharedMediaKind.Media -> Unit
         // Playlist rows are handled by both group and personal profile containers.
         SharedMediaKind.Music -> Unit
@@ -512,7 +513,8 @@ private fun SharedFileRow(
 @Composable
 private fun SharedVoiceRow(
     chatId: Long, message: ChatMessage, media: MessageMedia, meta: String, observeFile: (Int) -> StateFlow<MediaFileState>,
-    downloadFile: (Int) -> Unit, onContentOpened: (Long) -> Unit, onOpenMessage: (Long) -> Unit
+    downloadFile: (Int) -> Unit, onContentOpened: (Long) -> Unit, onOpenMessage: (Long) -> Unit,
+    protectedContent: Boolean
 ) {
     val context = LocalContext.current
     val accountId = LocalPlaybackAccountId.current
@@ -521,6 +523,10 @@ private fun SharedVoiceRow(
     SharedRow(
         Icons.Rounded.Mic, label + " · " + duration(media.durationSeconds), meta,
         onClick = {
+            if (protectedContent || message.isViewOnce || media.isSecretChat) {
+                onOpenMessage(message.id)
+                return@SharedRow
+            }
             when (val action = sharedRowAction(media, file.localPath)) {
                 SharedRowAction.ShowInChat -> onOpenMessage(message.id)
                 SharedRowAction.Download -> downloadFile(media.fileId)

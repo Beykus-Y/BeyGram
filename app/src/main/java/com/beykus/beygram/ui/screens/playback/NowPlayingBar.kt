@@ -402,7 +402,7 @@ internal fun SpeechTransportBar(
             LaneTransport(
                 title = speechTitle,
                 subtitle = duration((speech.positionMs / 1000).toInt()) + " / " +
-                    duration((speech.durationMs / 1000).toInt()),
+                    duration(totalSeconds(speech)),
                 progress = speech.fraction,
                 playing = speech.intentPlaying,
                 controlLabel = speechTitle,

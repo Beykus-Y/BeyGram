@@ -60,7 +60,8 @@ internal fun VoiceBubble(
     onRateTranscription: ((Boolean) -> Unit)? = null,
     speechRecognitionUi: SpeechRecognitionUi = SpeechRecognitionUi(),
     /** Live growing source for a partially downloaded voice note; null uses the completed file. */
-    growing: GrowingPlaybackSource? = null
+    growing: GrowingPlaybackSource? = null,
+    viewOnce: Boolean = false
 ) {
     val context = LocalContext.current
     val palette = beyGramPalette()
@@ -99,7 +100,7 @@ internal fun VoiceBubble(
     fun startVoice(localPath: String) {
         val state = PlaybackEngine.speechState.value
         val starting = !(state.item?.key == key && state.playing)
-        PlaybackEngine.toggle(context, media.playbackItem(localPath, label, origin, growing = growing, accountId = accountId), onStarted = if (starting) markPlayed else null)
+        PlaybackEngine.toggle(context, media.playbackItem(localPath, label, origin, growing = growing, accountId = accountId, viewOnce = viewOnce), onStarted = if (starting) markPlayed else null)
     }
     // Перемотка по волне: в текущем файле двигает позицию, другой файл начинает с этой точки.
     fun seekVoice(localPath: String, target: Float) {
@@ -114,7 +115,7 @@ internal fun VoiceBubble(
             } else null
             PlaybackEngine.play(
                 context,
-                media.playbackItem(localPath, label, origin, growing = growing, accountId = accountId),
+                media.playbackItem(localPath, label, origin, growing = growing, accountId = accountId, viewOnce = viewOnce),
                 startFraction = 0f,
                 onStarted = markPlayed,
                 startPositionMs = startMs

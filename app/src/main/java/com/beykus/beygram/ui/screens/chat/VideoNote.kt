@@ -154,7 +154,8 @@ internal fun VideoNoteBubble(
     speechRecognitionUi: SpeechRecognitionUi = SpeechRecognitionUi(),
     /** Repository-backed automatic thumbnail download; explicit playback still uses [downloadFile]. */
     autoDownloadFile: ((AutoDownloadRequest) -> Unit)? = null,
-    outgoing: Boolean = false
+    outgoing: Boolean = false,
+    viewOnce: Boolean = false
 ) {
     // The bubble reads [file] without byte counters; the upload ring reads progress through the handle.
     val fileHandle = rememberMediaFile(media.fileId, observeFile)
@@ -206,7 +207,7 @@ internal fun VideoNoteBubble(
         showControls = false
     }
     // Секретный кружок во время проигрывания не должен попасть на скриншот или запись экрана.
-    val secureWhilePlaying = (media.isSecret || media.isSecretChat) && showing
+    val secureWhilePlaying = (media.isSecret || media.isSecretChat || viewOnce) && showing
     SecureWindowWhileVisible(secureWhilePlaying)
     // Секретный кружок не играет, когда пузырь ушёл из списка.
     DisposableEffect(key) {
@@ -232,7 +233,7 @@ internal fun VideoNoteBubble(
     fun startCircle(localPath: String) {
         val state = PlaybackEngine.speechState.value
         val starting = !(state.item?.key == key && state.playing)
-        PlaybackEngine.toggle(hostContext, media.playbackItem(localPath, label, origin, accountId = accountId), onStarted = if (starting) markPlayed else null)
+        PlaybackEngine.toggle(hostContext, media.playbackItem(localPath, label, origin, accountId = accountId, viewOnce = viewOnce), onStarted = if (starting) markPlayed else null)
     }
     fun togglePlay() {
         if (path == null) { pendingPlaybackRow.value = row; downloadFile(media.fileId) } else startCircle(path)

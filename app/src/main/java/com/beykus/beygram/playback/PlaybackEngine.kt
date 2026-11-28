@@ -529,6 +529,7 @@ object PlaybackEngine {
     private var actionFocusGeneration = 0L
     private val recordingOwners = mutableMapOf<Any, CoexistenceAction>()
     private var speechAction: CoexistenceAction? = null
+    private val consumedViewOnceSpeech = mutableSetOf<String>()
     private val coexistencePauseOwner = Any()
     private val speech = SpeechPlayback(scope, canPlay = { !focusSuspended && (focusGain == 0 || focusGranted) }) { item ->
         speechAction = when (item?.kind) {
@@ -622,10 +623,17 @@ object PlaybackEngine {
     ) {
         ensureCoexistence(context)
         if (activeAccountId != null && item.accountId != activeAccountId) return
-        if (recordingOwners.isNotEmpty()) return
+        if (recordingOwners.isNotEmpty() || (item.viewOnce && item.key in consumedViewOnceSpeech)) return
         resumeSpeechOnFocus = null
         val media = mediaItemFor(item)
-        speech.start(context, item, media, positionMs, if (preview) 1f else _state.value.voiceSpeed, onStarted, preview) {
+        val firstStart = if (item.viewOnce) {
+            {
+                consumedViewOnceSpeech.add(item.key)
+                onStarted?.invoke()
+                Unit
+            }
+        } else onStarted
+        speech.start(context, item, media, positionMs, if (preview) 1f else _state.value.voiceSpeed, firstStart, preview) {
             PlaybackSources.register(item.systemMediaId, PlaybackSourceHandle(item, null))
         }
         applySpeechGain()
@@ -2098,6 +2106,7 @@ object PlaybackEngine {
 
     fun stopAll() {
         recordingOwners.clear()
+        consumedViewOnceSpeech.clear()
         resumeSpeechOnFocus = null
         resumeMusicOnFocus = false
         interruption = null

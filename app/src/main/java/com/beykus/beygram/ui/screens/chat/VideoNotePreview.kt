@@ -19,6 +19,9 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -33,6 +36,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.beykus.beygram.R
 import com.beykus.beygram.domain.model.MediaKind
 import com.beykus.beygram.playback.PlaybackEngine
+import com.beykus.beygram.playback.PlaybackItem
 import java.io.File
 
 /**
@@ -54,21 +58,33 @@ import java.io.File
 internal fun VideoNotePreview(
     path: String,
     posterPath: String?,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    item: PlaybackItem? = null,
+    active: Boolean = true,
+    onStarted: () -> Unit = {},
 ) {
     val context = LocalContext.current
-    val previewKey = remember(path) { java.util.UUID.randomUUID().toString() }
+    val previewKey = item?.key ?: remember(path) { java.util.UUID.randomUUID().toString() }
     val owner = remember(previewKey) { Any() }
     val speech by PlaybackEngine.speechState.collectAsStateWithLifecycle()
-    val preview = speech.takeIf { it.item?.key == previewKey }
+    val preview = speech.takeIf { active && it.item?.key == previewKey }
+    var consumed by remember(previewKey) { mutableStateOf(false) }
+    val currentOnStarted by rememberUpdatedState(onStarted)
     val playing = preview?.intentPlaying == true
     val ready = preview?.started == true
     val playbackError = preview?.failed == true || !remember(path) { File(path).isFile }
-    DisposableEffect(previewKey, owner) {
+    val ownsSurface = active && preview != null && !playbackError
+    DisposableEffect(previewKey, owner, ownsSurface) {
+        if (ownsSurface) VideoNoteInlineSurfaceRegistry.register(owner)
         onDispose {
-            PlaybackEngine.detachSpeechVideo(owner)
-            PlaybackEngine.stopPrivateSpeech(previewKey)
+            if (ownsSurface) {
+                PlaybackEngine.detachSpeechVideo(owner)
+                VideoNoteInlineSurfaceRegistry.unregister(owner)
+            }
         }
+    }
+    DisposableEffect(previewKey, active) {
+        onDispose { if (active) PlaybackEngine.stopPrivateSpeech(previewKey) }
     }
     Box(modifier.background(Color.Black), contentAlignment = Alignment.Center) {
         if (!playbackError && preview != null) {
@@ -103,10 +119,17 @@ internal fun VideoNotePreview(
                 modifier = Modifier.padding(12.dp)
             )
         }
-        if (!playbackError) VideoNotePlaybackControl(
+        if (active && !playbackError && !(consumed && preview == null)) VideoNotePlaybackControl(
             playing = playing,
             onToggle = {
-                PlaybackEngine.toggleSpeechPreview(context, previewKey, MediaKind.VideoNote, path, 0)
+                if (item == null) {
+                    PlaybackEngine.toggleSpeechPreview(context, previewKey, MediaKind.VideoNote, path, 0)
+                } else {
+                    PlaybackEngine.toggle(context, item, onStarted = {
+                        if (item.viewOnce) consumed = true
+                        currentOnStarted()
+                    })
+                }
             },
             modifier = Modifier.matchParentSize()
         )

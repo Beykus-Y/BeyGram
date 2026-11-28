@@ -311,6 +311,7 @@ internal fun ChatTimelineList(
                                             onReply = if (swipeReplyAllowed) onSwipeReply else null,
                                             onPlayed = { conversation.openMessageContent(chat.id, message.id) },
                                             musicLinkCards = !chat.isSecret,
+                                            protectedSpeech = chat.hasProtectedContent,
                                             waveAccountId = accountId.takeIf { waveChat },
                                             onRetry = {
                                                 if (localAttempt != null) {
