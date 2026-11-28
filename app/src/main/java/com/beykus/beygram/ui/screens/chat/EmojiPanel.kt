@@ -90,6 +90,18 @@ internal fun EmojiPanel(
             if (top < recentIndex) groups.lastOrNull { (headerIndexes[it.id] ?: 0) <= top }?.id else null
         }
     }
+    val activePackId by remember(customEmoji?.packs, packIndexes) {
+        derivedStateOf {
+            val packs = customEmoji?.packs ?: return@derivedStateOf null
+            val top = gridState.firstVisibleItemIndex
+            packs.lastOrNull { (packIndexes[it.id] ?: Int.MAX_VALUE) <= top }?.id
+        }
+    }
+    val recentCustomSelected by remember(recentCustom, recentIndex, activePackId) {
+        derivedStateOf {
+            recentCustom.isNotEmpty() && activePackId == null && gridState.firstVisibleItemIndex >= recentIndex
+        }
+    }
     Column(modifier) {
         LazyVerticalGrid(
             columns = GridCells.Adaptive(48.dp),
@@ -168,7 +180,8 @@ internal fun EmojiPanel(
             customEmoji = customEmoji,
             recentCustomIndex = recentIndex.takeIf { recentCustom.isNotEmpty() },
             packIndexes = packIndexes,
-            firstVisibleIndex = { gridState.firstVisibleItemIndex },
+            activePackId = activePackId,
+            recentCustomSelected = recentCustomSelected,
             onSelectCustom = { index ->
                 scope.launch { gridState.scrollToItemRespectingMotion(index, motionInstant = listMotionInstant) }
             }
@@ -227,7 +240,8 @@ private fun EmojiGroupStrip(
     customEmoji: DockCustomEmoji?,
     recentCustomIndex: Int?,
     packIndexes: Map<Long, Int>,
-    firstVisibleIndex: () -> Int,
+    activePackId: Long?,
+    recentCustomSelected: Boolean,
     onSelectCustom: (Int) -> Unit
 ) {
     val palette = beyGramPalette()
@@ -243,13 +257,11 @@ private fun EmojiGroupStrip(
                 EmojiGroupButton(group = group, selected = group.id == activeId, onClick = { onSelect(group) })
             }
             if (customEmoji != null) {
-                val top = firstVisibleIndex()
-                val activePack = customEmoji.packs.lastOrNull { (packIndexes[it.id] ?: Int.MAX_VALUE) <= top }?.id
                 if (recentCustomIndex != null) {
                     item(key = "custom-recents") {
                         CustomDockShortcut(
                             label = stringResource(R.string.emoji_custom_recent),
-                            selected = activePack == null && top >= recentCustomIndex,
+                            selected = recentCustomSelected,
                             onClick = { onSelectCustom(recentCustomIndex) }
                         ) { Text("🕘", fontSize = 20.sp) }
                     }
@@ -257,11 +269,11 @@ private fun EmojiGroupStrip(
                 rowItems(customEmoji.packs, key = { "custom-pack-${it.id}" }) { pack ->
                     CustomDockShortcut(
                         label = pack.title,
-                        selected = activePack == pack.id,
+                        selected = activePackId == pack.id,
                         onClick = { packIndexes[pack.id]?.let(onSelectCustom) }
                     ) {
                         val cover = pack.covers.firstOrNull()
-                        if (cover != null) DockCustomEmojiCell(cover, customEmoji, onClick = null)
+                        if (cover != null) DockCustomEmojiCell(cover, customEmoji, animated = false, onClick = null)
                         else Text(pack.title.take(1), fontSize = 16.sp)
                     }
                 }
