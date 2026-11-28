@@ -1,4 +1,4 @@
-﻿package com.beykus.beygram.data.tdlib
+package com.beykus.beygram.data.tdlib
 
 import org.drinkless.tdlib.TdApi
 import org.junit.Assert.assertEquals

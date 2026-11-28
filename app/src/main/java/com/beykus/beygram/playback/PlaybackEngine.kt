@@ -1,4 +1,4 @@
-﻿package com.beykus.beygram.playback
+package com.beykus.beygram.playback
 
 import android.content.BroadcastReceiver
 import android.content.Context
