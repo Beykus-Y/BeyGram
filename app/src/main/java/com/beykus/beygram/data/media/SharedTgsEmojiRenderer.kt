@@ -4,7 +4,6 @@ import android.app.ActivityManager
 import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.Canvas
-import android.os.PowerManager
 import android.os.SystemClock
 import android.util.LruCache
 import androidx.compose.runtime.MutableState
@@ -213,9 +212,25 @@ internal class SharedTgsEmojiRenderer(
     internal val frameCache: EmojiFrameCache = EmojiFrameCache(),
     private val rasterizer: EmojiFrameRasterizer = LottieEmojiFrameRasterizer(),
     private val lowRam: Boolean = false,
-    private val performanceTier: MediaPerformanceTier = if (lowRam) MediaPerformanceTier.Low else MediaPerformanceTier.High,
+    performanceTier: MediaPerformanceTier = if (lowRam) MediaPerformanceTier.Low else MediaPerformanceTier.High,
     private val clockMs: () -> Long = SystemClock::elapsedRealtime
 ) {
+    /**
+     * The tier the scheduler uses now. It is state rather than a constructor constant because the process can enter or
+     * leave battery saver while the renderer lives, and both the weighted budget and the frame rate must follow
+     * without a restart.
+     */
+    @Volatile
+    private var tier: MediaPerformanceTier = performanceTier
+
+    /** Reads the tier the scheduler currently applies. */
+    internal fun currentPerformanceTier(): MediaPerformanceTier = tier
+
+    /** Applies a new tier; the running scheduler loop picks it up on its next tick. */
+    internal fun updatePerformanceTier(next: MediaPerformanceTier) {
+        tier = next
+    }
+
     private data class TargetEntry(
         val contextKey: EmojiContextKey,
         var playing: Boolean,
@@ -408,7 +423,7 @@ internal class SharedTgsEmojiRenderer(
                     return
                 }
                 activeWeightUnits = playing.sumOf { animationCostUnits(it.contextKey.sizePx) }
-                val budgetUnits = maxAnimationBudgetUnits(performanceTier)
+                val budgetUnits = maxAnimationBudgetUnits(tier)
                 val sorted = playing
                     .filter { it.prepared != null && it.renderKey != null && (it.prepared?.frameCount ?: 0) > 1 && !it.rendering }
                     .sortedWith(compareByDescending<SharedContext> { it.maxPriority() }.thenBy { it.attachSequence })
@@ -475,7 +490,7 @@ internal class SharedTgsEmojiRenderer(
                     }
                 }
             }
-            val fps = adaptiveEmojiFps(activeWeightUnits, performanceTier)
+            val fps = adaptiveEmojiFps(activeWeightUnits, tier)
             delay((1000L / fps).coerceAtLeast(16L))
         }
     }
@@ -488,18 +503,17 @@ internal class SharedTgsEmojiRenderer(
             instance?.let { return it }
             return synchronized(this) {
                 instance ?: run {
-                    val appContext = context.applicationContext
-                    val am = appContext.getSystemService(Context.ACTIVITY_SERVICE) as? ActivityManager
-                    val pm = appContext.getSystemService(Context.POWER_SERVICE) as? PowerManager
-                    val tier = detectMediaPerformanceTier(
-                        isLowRam = am?.isLowRamDevice == true,
-                        memoryClassMb = am?.memoryClass ?: 0,
-                        cpuCores = Runtime.getRuntime().availableProcessors(),
-                        powerSaveMode = pm?.isPowerSaveMode == true
-                    )
+                    val appContext = context.applicationContext ?: context
+                    val lowRam = (appContext.getSystemService(Context.ACTIVITY_SERVICE) as? ActivityManager)
+                        ?.isLowRamDevice == true
+                    // Battery saver can be turned on or off while the app runs; the tier follows it instead of being
+                    // frozen at process start (the previous behaviour kept a high budget on saver and a low one after).
+                    val tiers = MediaPerformanceTierSource.of(appContext) { tier ->
+                        instance?.updatePerformanceTier(tier)
+                    }
                     SharedTgsEmojiRenderer(
-                        lowRam = tier == MediaPerformanceTier.Low,
-                        performanceTier = tier
+                        lowRam = lowRam,
+                        performanceTier = tiers.tier
                     ).also { instance = it }
                 }
             }

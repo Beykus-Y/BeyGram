@@ -1,4 +1,4 @@
-﻿package com.beykus.beygram.playback
+package com.beykus.beygram.playback
 
 import java.util.Collections
 import kotlinx.coroutines.CompletableDeferred

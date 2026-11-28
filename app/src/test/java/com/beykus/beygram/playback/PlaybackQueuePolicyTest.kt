@@ -1,4 +1,4 @@
-﻿package com.beykus.beygram.playback
+package com.beykus.beygram.playback
 
 import androidx.media3.common.Player
 import com.beykus.beygram.domain.model.MediaKind

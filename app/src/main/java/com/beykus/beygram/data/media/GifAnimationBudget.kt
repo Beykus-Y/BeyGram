@@ -1,8 +1,6 @@
 package com.beykus.beygram.data.media
 
-import android.app.ActivityManager
 import android.content.Context
-import android.os.PowerManager
 import androidx.compose.runtime.MutableState
 import androidx.compose.runtime.State
 import androidx.compose.runtime.mutableStateOf
@@ -19,7 +17,7 @@ internal class GifAnimationHandle internal constructor(
  * the next highest-priority waiting tile.
  */
 internal class GifAnimationBudget(
-    private val maxConcurrent: Int
+    maxConcurrent: Int
 ) {
     private class SlotEntry(
         val handleId: Long,
@@ -30,6 +28,23 @@ internal class GifAnimationBudget(
     private val lock = Any()
     private val slots = LinkedHashMap<Long, SlotEntry>()
     private var nextHandleId = 1L
+
+    /** The cap the current tier allows. It changes when the device enters or leaves battery saver. */
+    @Volatile
+    private var maxConcurrent: Int = maxConcurrent.coerceAtLeast(1)
+
+    /**
+     * Applies a cap from a new performance tier. Tiles that no longer fit lose their grant immediately and the next
+     * waiting tiles take the freed ones, so a running picker follows battery saver without a restart.
+     */
+    internal fun updateMaxConcurrent(value: Int) {
+        synchronized(lock) {
+            val next = value.coerceAtLeast(1)
+            if (next == maxConcurrent) return
+            maxConcurrent = next
+            recomputeLocked()
+        }
+    }
 
     fun acquire(priority: Int): GifAnimationHandle {
         val entry = synchronized(lock) {
@@ -77,21 +92,13 @@ internal class GifAnimationBudget(
             instance?.let { return it }
             return synchronized(this) {
                 instance ?: run {
-                    val appContext = context.applicationContext
-                    val am = appContext.getSystemService(Context.ACTIVITY_SERVICE) as? ActivityManager
-                    val pm = appContext.getSystemService(Context.POWER_SERVICE) as? PowerManager
-                    val tier = detectMediaPerformanceTier(
-                        isLowRam = am?.isLowRamDevice == true,
-                        memoryClassMb = am?.memoryClass ?: 0,
-                        cpuCores = Runtime.getRuntime().availableProcessors(),
-                        powerSaveMode = pm?.isPowerSaveMode == true
-                    )
-                    val cap = when (tier) {
-                        MediaPerformanceTier.Low -> 2
-                        MediaPerformanceTier.Mid -> 3
-                        MediaPerformanceTier.High -> 4
+                    val application = context.applicationContext ?: context
+                    // The cap follows battery saver: the tier is re-read on every change, not only at process start.
+                    val tiers = MediaPerformanceTierSource.of(application) { tier ->
+                        instance?.updateMaxConcurrent(maxConcurrentGifAnimations(tier))
                     }
-                    GifAnimationBudget(maxConcurrent = cap).also { instance = it }
+                    GifAnimationBudget(maxConcurrent = maxConcurrentGifAnimations(tiers.tier))
+                        .also { instance = it }
                 }
             }
         }
