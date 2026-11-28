@@ -137,8 +137,8 @@ import com.beykus.beygram.ui.components.MainTabsHost
 import com.beykus.beygram.ui.components.LocalMainTabTransitionOrigin
 import com.beykus.beygram.ui.components.LocalBackgroundMediaDownload
 import com.beykus.beygram.ui.components.BeyGramDialog
+import com.beykus.beygram.ui.components.BeyGramModalHost
 import com.beykus.beygram.ui.components.BeyGramModalHostProvider
-import com.beykus.beygram.ui.components.rememberBeyGramModalHost
 import com.beykus.beygram.ui.components.beyGramPalette
 import com.beykus.beygram.ui.screens.auth.LoginCodeScreen
 import com.beykus.beygram.ui.screens.auth.LoginPasswordScreen
@@ -3000,6 +3000,13 @@ GlobalSearchScreen(
     }
     Box(Modifier.fillMaxSize()) {
         PlayerModalUnderlay {
+            // Modal sheets and dialogs are drawn inside this window so their glass samples the screen behind them; a
+            // Material sheet or Dialog window cannot read a backdrop recorded here. The provider wraps the whole
+            // column, the mini player included: a bar left outside it would keep drawing above the scrim and take
+            // taps while a sheet is open (#1363 m-2). The host is per account, so an account switch drops the routes
+            // of the previous one instead of drawing them with the new account's state.
+            val modalHost = remember(selectedAccountId) { BeyGramModalHost() }
+            BeyGramModalHostProvider(host = modalHost) {
             Column(Modifier.fillMaxSize()) {
                 val externalPlayerBar = route !in playerBarHostRoutes
                 val externalPlayerBarVisible = externalPlayerBar &&
@@ -3151,11 +3158,7 @@ GlobalSearchScreen(
                         val lastMountedMainTab = MainTab.entries.firstOrNull { it.name == lastMountedMainTabName } ?: MainTab.Chats
                         val keepPhoneTabsMounted = shouldKeepPhoneTabsMounted(currentFrame, phoneTabsVisited)
                         val phoneTabsCovered = keepPhoneTabsMounted && !usesSharedPhoneTabs(currentFrame)
-                        // Modal sheets and dialogs are drawn inside this window so their glass samples the screen
-                        // behind them; a Material sheet or Dialog window cannot read a backdrop recorded here.
-                        val modalHost = rememberBeyGramModalHost()
                         Box(Modifier.fillMaxSize()) {
-                        BeyGramModalHostProvider(host = modalHost) {
                         if (keepPhoneTabsMounted) {
                             PersistentPhoneTabsBackdrop(covered = phoneTabsCovered) {
                                 MainTabsHost(
@@ -3847,8 +3850,8 @@ GlobalSearchScreen(
                     }
                     }
                     }
-                }
                 if (route !in playerBarHostRoutes) NowPlayingBar(bottomInset = true)
+            }
             }
         }
         PlayerExpansionHost()
