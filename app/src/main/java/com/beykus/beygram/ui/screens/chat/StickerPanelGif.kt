@@ -260,25 +260,34 @@ internal fun GifGrid(
             previousFirst = firstKey
         }
     }
-    LazyVerticalStaggeredGrid(
-        columns = StaggeredGridCells.Adaptive(132.dp),
-        modifier = Modifier.fillMaxSize(),
-        state = gridState,
-        contentPadding = PaddingValues(StickerPickerMetrics.contentPadding),
-        horizontalArrangement = Arrangement.spacedBy(6.dp),
-        verticalItemSpacing = 6.dp
+    val scrolling by remember(gridState) { derivedStateOf { gridState.isScrollInProgress } }
+    val parentPolicy = LocalEmojiAnimationPolicy.current
+    androidx.compose.runtime.CompositionLocalProvider(
+        LocalEmojiAnimationPolicy provides parentPolicy.copy(
+            paused = parentPolicy.paused || scrolling,
+            priority = EmojiAnimationPolicy.PRIORITY_GRID
+        )
     ) {
-        staggeredItems(uniqueAnimations, key = { it.key }) { item ->
-            GifPanelCell(
-                item = item,
-                observeFile = observeFile,
-                downloadFile = downloadFile,
-                onSend = { onSend(item) },
-                onPreview = { onPreview(item) }
-            )
-        }
-        if (footer != null) {
-            item(span = StaggeredGridItemSpan.FullLine, key = "footer") { footer() }
+        LazyVerticalStaggeredGrid(
+            columns = StaggeredGridCells.Adaptive(132.dp),
+            modifier = Modifier.fillMaxSize(),
+            state = gridState,
+            contentPadding = PaddingValues(StickerPickerMetrics.contentPadding),
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
+            verticalItemSpacing = 6.dp
+        ) {
+            staggeredItems(uniqueAnimations, key = { it.key }) { item ->
+                GifPanelCell(
+                    item = item,
+                    observeFile = observeFile,
+                    downloadFile = downloadFile,
+                    onSend = { onSend(item) },
+                    onPreview = { onPreview(item) }
+                )
+            }
+            if (footer != null) {
+                item(span = StaggeredGridItemSpan.FullLine, key = "footer") { footer() }
+            }
         }
     }
 }
@@ -321,13 +330,35 @@ internal fun GifPanelArtwork(
     downloadFile: (Int) -> Unit
 ) {
     val palette = beyGramPalette()
+    val context = LocalContext.current
+    val animPolicy = LocalEmojiAnimationPolicy.current
     val thumbnail = rememberPanelFile(item.thumbnailFileId, observeFile)
     // Use a cached full animation only if already present; never download every GIF merely to draw the grid.
     val fullFile = rememberPanelFile(item.fileId, observeFile)
     LaunchedEffect(item.thumbnailFileId) { item.thumbnailFileId?.let(downloadFile) }
     val path = thumbnail.localPath ?: fullFile.localPath
+    val canAnimate = !animPolicy.paused
     // A GIF animates only after it has been on screen for the autoplay dwell time; until then its first frame shows.
-    val autoplay = rememberAutoplayEligible()
+    val autoplay = rememberAutoplayEligible(enabled = canAnimate)
+    val wantsAnimation = canAnimate && autoplay.eligible.value
+    val budget = remember(context) { com.beykus.beygram.data.media.GifAnimationBudget.default(context) }
+    val slotState = remember(budget) {
+        mutableStateOf<com.beykus.beygram.data.media.GifAnimationHandle?>(null)
+    }
+    androidx.compose.runtime.DisposableEffect(budget, wantsAnimation, animPolicy.priority) {
+        if (!wantsAnimation) {
+            slotState.value = null
+            onDispose {}
+        } else {
+            val acquired = budget.acquire(animPolicy.priority)
+            slotState.value = acquired
+            onDispose {
+                slotState.value = null
+                budget.release(acquired)
+            }
+        }
+    }
+    val slotGranted = slotState.value?.granted?.value == true
     Box(modifier.then(autoplay.modifier), contentAlignment = Alignment.Center) {
         when {
             path != null -> LocalMediaImage(
@@ -335,7 +366,7 @@ internal fun GifPanelArtwork(
                 allowVideoFrame = true,
                 fallbackVideoPath = if (path != fullFile.localPath) fullFile.localPath else null,
                 fallbackMinithumbnail = item.minithumbnail,
-                animate = autoplay.eligible.value
+                animate = wantsAnimation && slotGranted
             )
             item.minithumbnail != null -> MinithumbnailImage(item.minithumbnail, Modifier.fillMaxSize())
             thumbnail.isDownloading -> CircularProgressIndicator(Modifier.size(20.dp), color = palette.accent, strokeWidth = 2.dp)

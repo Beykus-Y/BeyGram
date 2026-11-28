@@ -4,6 +4,7 @@ import android.app.ActivityManager
 import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.Canvas
+import android.os.PowerManager
 import android.os.SystemClock
 import android.util.LruCache
 import androidx.compose.runtime.MutableState
@@ -33,21 +34,55 @@ internal fun bucketEmojiSizePx(rawPx: Int): Int {
     return EMOJI_SIZE_BUCKETS.firstOrNull { it >= clamped } ?: EMOJI_SIZE_BUCKETS.last()
 }
 
-internal fun adaptiveEmojiFps(activePlayingContexts: Int, lowRam: Boolean): Int = if (lowRam) {
-    when {
-        activePlayingContexts <= 8 -> 24
-        activePlayingContexts <= 16 -> 18
+internal enum class MediaPerformanceTier { Low, Mid, High }
+
+internal fun detectMediaPerformanceTier(
+    isLowRam: Boolean,
+    memoryClassMb: Int,
+    cpuCores: Int,
+    powerSaveMode: Boolean
+): MediaPerformanceTier = when {
+    isLowRam || powerSaveMode || (memoryClassMb in 1..192) || (cpuCores in 1..4) -> MediaPerformanceTier.Low
+    memoryClassMb in 193..384 -> MediaPerformanceTier.Mid
+    else -> MediaPerformanceTier.High
+}
+
+internal fun animationCostUnits(sizePx: Int): Int = when {
+    sizePx <= 64 -> 1
+    sizePx <= 96 -> 2
+    sizePx <= 192 -> 3
+    else -> 4
+}
+
+internal fun maxAnimationBudgetUnits(tier: MediaPerformanceTier): Int = when (tier) {
+    MediaPerformanceTier.Low -> 10
+    MediaPerformanceTier.Mid -> 12
+    MediaPerformanceTier.High -> 16
+}
+
+internal fun adaptiveEmojiFps(activeWeightUnits: Int, tier: MediaPerformanceTier): Int = when (tier) {
+    MediaPerformanceTier.Low -> when {
+        activeWeightUnits <= 8 -> 24
+        activeWeightUnits <= 16 -> 18
         else -> 12
     }
-} else {
-    when {
-        activePlayingContexts <= 12 -> 30
-        activePlayingContexts <= 24 -> 24
+    MediaPerformanceTier.Mid -> when {
+        activeWeightUnits <= 8 -> 24
+        activeWeightUnits <= 16 -> 18
+        else -> 12
+    }
+    MediaPerformanceTier.High -> when {
+        activeWeightUnits <= 12 -> 30
+        activeWeightUnits <= 24 -> 24
         else -> 15
     }
 }
 
-internal fun maxConcurrentEmojiAnimations(lowRam: Boolean): Int = if (lowRam) 10 else 16
+internal fun adaptiveEmojiFps(activePlayingContexts: Int, lowRam: Boolean): Int =
+    adaptiveEmojiFps(activePlayingContexts, if (lowRam) MediaPerformanceTier.Low else MediaPerformanceTier.High)
+
+internal fun maxConcurrentEmojiAnimations(lowRam: Boolean): Int =
+    maxAnimationBudgetUnits(if (lowRam) MediaPerformanceTier.Low else MediaPerformanceTier.High)
 
 internal data class EmojiContextKey(
     val accountId: String,
@@ -178,6 +213,7 @@ internal class SharedTgsEmojiRenderer(
     internal val frameCache: EmojiFrameCache = EmojiFrameCache(),
     private val rasterizer: EmojiFrameRasterizer = LottieEmojiFrameRasterizer(),
     private val lowRam: Boolean = false,
+    private val performanceTier: MediaPerformanceTier = if (lowRam) MediaPerformanceTier.Low else MediaPerformanceTier.High,
     private val clockMs: () -> Long = SystemClock::elapsedRealtime
 ) {
     private data class TargetEntry(
@@ -363,7 +399,7 @@ internal class SharedTgsEmojiRenderer(
 
     private suspend fun runSchedulerLoop() {
         while (scope.isActive) {
-            val activeCount: Int
+            val activeWeightUnits: Int
             val candidates: List<SharedContext>
             synchronized(lock) {
                 val playing = contexts.values.filter { it.isPlaying() }
@@ -371,12 +407,21 @@ internal class SharedTgsEmojiRenderer(
                     schedulerJob = null
                     return
                 }
-                activeCount = playing.size
-                val budget = maxConcurrentEmojiAnimations(lowRam)
-                candidates = playing
+                activeWeightUnits = playing.sumOf { animationCostUnits(it.contextKey.sizePx) }
+                val budgetUnits = maxAnimationBudgetUnits(performanceTier)
+                val sorted = playing
                     .filter { it.prepared != null && it.renderKey != null && (it.prepared?.frameCount ?: 0) > 1 && !it.rendering }
                     .sortedWith(compareByDescending<SharedContext> { it.maxPriority() }.thenBy { it.attachSequence })
-                    .take(budget)
+                val selected = ArrayList<SharedContext>(sorted.size)
+                var usedUnits = 0
+                for (ctx in sorted) {
+                    val cost = animationCostUnits(ctx.contextKey.sizePx)
+                    if (selected.isEmpty() || usedUnits + cost <= budgetUnits) {
+                        selected += ctx
+                        usedUnits += cost
+                    }
+                }
+                candidates = selected
             }
             val now = clockMs()
             val pendingCommits = ArrayList<Pair<SharedContext, ImageBitmap>>()
@@ -430,7 +475,7 @@ internal class SharedTgsEmojiRenderer(
                     }
                 }
             }
-            val fps = adaptiveEmojiFps(activeCount, lowRam)
+            val fps = adaptiveEmojiFps(activeWeightUnits, performanceTier)
             delay((1000L / fps).coerceAtLeast(16L))
         }
     }
@@ -443,9 +488,19 @@ internal class SharedTgsEmojiRenderer(
             instance?.let { return it }
             return synchronized(this) {
                 instance ?: run {
-                    val am = context.applicationContext.getSystemService(Context.ACTIVITY_SERVICE) as? ActivityManager
-                    val isLowRam = am?.isLowRamDevice == true
-                    SharedTgsEmojiRenderer(lowRam = isLowRam).also { instance = it }
+                    val appContext = context.applicationContext
+                    val am = appContext.getSystemService(Context.ACTIVITY_SERVICE) as? ActivityManager
+                    val pm = appContext.getSystemService(Context.POWER_SERVICE) as? PowerManager
+                    val tier = detectMediaPerformanceTier(
+                        isLowRam = am?.isLowRamDevice == true,
+                        memoryClassMb = am?.memoryClass ?: 0,
+                        cpuCores = Runtime.getRuntime().availableProcessors(),
+                        powerSaveMode = pm?.isPowerSaveMode == true
+                    )
+                    SharedTgsEmojiRenderer(
+                        lowRam = tier == MediaPerformanceTier.Low,
+                        performanceTier = tier
+                    ).also { instance = it }
                 }
             }
         }
