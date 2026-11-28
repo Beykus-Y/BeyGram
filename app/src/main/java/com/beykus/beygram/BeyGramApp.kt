@@ -2728,6 +2728,17 @@ internal fun BeyGramAppContent(
                 navigate = { routeName = AppRoute.Chat.name }
             ))
         }
+        var chatShowcaseGifts by remember(selectedAccountId, selectedChatId) {
+            mutableStateOf(emptyList<com.beykus.beygram.domain.model.ReceivedGiftItem>())
+        }
+        LaunchedEffect(selectedAccountId, selectedChatId, info.info?.kind) {
+            val targetInfo = info.info
+            if (targetInfo != null && (targetInfo.kind == com.beykus.beygram.domain.model.ProfileKind.Person || targetInfo.kind == com.beykus.beygram.domain.model.ProfileKind.Bot)) {
+                chatShowcaseGifts = loadProfileShowcaseGifts(repository, targetInfo.id)
+            } else {
+                chatShowcaseGifts = emptyList()
+            }
+        }
         ProfileScreen(info, false, repository::observeFile, repository::downloadFile, onOpenMessageEntity = openMessageEntity,
             onBack = { routeName = AppRoute.Chat.name }, onRefresh = { repository.refreshChatInfo(selectedChatId) },
             profileTransition = chatProfileTarget,
@@ -2787,7 +2798,8 @@ internal fun BeyGramAppContent(
                 selectedChatId = chatId
                 chatBackRouteName = AppRoute.Chats.name
                 routeName = AppRoute.Chat.name
-            })
+            },
+            profileGifts = chatShowcaseGifts)
     }
 
     val chatMembersRoute: @Composable () -> Unit = {
@@ -2814,6 +2826,17 @@ internal fun BeyGramAppContent(
         val infoFlow = remember(repository, memberChatId) { repository.observeChatInfo(memberChatId) }
         val info by infoFlow.collectAsStateWithLifecycle()
         LaunchedEffect(repository, memberChatId) { repository.refreshChatInfo(memberChatId) }
+        var memberShowcaseGifts by remember(selectedAccountId, memberChatId) {
+            mutableStateOf(emptyList<com.beykus.beygram.domain.model.ReceivedGiftItem>())
+        }
+        LaunchedEffect(selectedAccountId, memberChatId, info.info?.kind) {
+            val targetInfo = info.info
+            if (targetInfo != null && (targetInfo.kind == com.beykus.beygram.domain.model.ProfileKind.Person || targetInfo.kind == com.beykus.beygram.domain.model.ProfileKind.Bot)) {
+                memberShowcaseGifts = loadProfileShowcaseGifts(repository, targetInfo.id)
+            } else {
+                memberShowcaseGifts = emptyList()
+            }
+        }
         ProfileScreen(info, false, repository::observeFile, repository::downloadFile, onOpenMessageEntity = openMessageEntity,
             onBack = { routeName = memberReturnRouteName }, onRefresh = { repository.refreshChatInfo(memberChatId) },
             onEdit = {}, setPhoto = repository::setMyProfilePhoto,
@@ -2837,7 +2860,8 @@ internal fun BeyGramAppContent(
                 selectedChatId = chatId
                 chatBackRouteName = AppRoute.Chats.name
                 routeName = AppRoute.Chat.name
-            })
+            },
+            profileGifts = memberShowcaseGifts)
     }
 
     CompositionLocalProvider(
@@ -3406,9 +3430,7 @@ GlobalSearchScreen(
                             }
                             LaunchedEffect(selectedAccountId, myProfile.info?.id) {
                                 val id = myProfile.info?.id ?: return@LaunchedEffect
-                                repository.receivedGiftsForUser(id, "").onSuccess { page ->
-                                    myShowcaseGifts = page.gifts
-                                }
+                                myShowcaseGifts = loadProfileShowcaseGifts(repository, id)
                             }
                             ProfileScreen(myProfile, true, repository::observeFile, repository::downloadFile, onOpenMessageEntity = openMessageEntity,
                                 onBack = { routeName = AppRoute.Chats.name }, onRefresh = repository::refreshMyProfile,
@@ -4198,3 +4220,15 @@ internal fun chatProfilePairRoutes(initial: AppRoute, target: AppRoute): Boolean
  */
 internal fun chatProfilePairFades(initial: AppRoute, target: AppRoute, motionEnabled: Boolean, flightEngaged: Boolean): Boolean =
     motionEnabled && flightEngaged && chatProfilePairRoutes(initial, target)
+
+/** Loads up to 2 pages of received gifts so pinned collectible gifts on page 2 are not missed (#1135). */
+private suspend fun loadProfileShowcaseGifts(
+    repository: TelegramRepository,
+    profileId: Long
+): List<com.beykus.beygram.domain.model.ReceivedGiftItem> {
+    val page1 = repository.receivedGiftsForUser(profileId, "").getOrNull() ?: return emptyList()
+    val pinnedCount = page1.gifts.count { it.isPinned && !it.wasRefunded && it.collectible != null }
+    if (pinnedCount >= 6 || page1.nextOffset.isBlank()) return page1.gifts
+    val page2 = repository.receivedGiftsForUser(profileId, page1.nextOffset).getOrNull() ?: return page1.gifts
+    return com.beykus.beygram.domain.model.mergeReceivedGifts(page1.gifts, page2.gifts)
+}

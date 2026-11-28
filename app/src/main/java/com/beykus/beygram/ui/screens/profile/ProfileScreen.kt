@@ -594,6 +594,15 @@ fun ProfileScreen(
                                     modifier = Modifier.size(20.dp)
                                 )
                             }
+                            if (sceneC && info.isPremium) {
+                                Spacer(Modifier.width(6.dp))
+                                Icon(
+                                    Icons.Rounded.Star,
+                                    contentDescription = stringResource(R.string.profile_badge_premium),
+                                    tint = verifiedColor,
+                                    modifier = Modifier.size(20.dp)
+                                )
+                            }
                         }
                     }
                     val statusSlot: @Composable () -> Unit = {
@@ -623,7 +632,7 @@ fun ProfileScreen(
                         Box(Modifier.graphicsLayer {
                             alpha = expandedBadgesAlpha(collapse.value) * (profileTransition?.headerVisibility() ?: 1f)
                         }) {
-                            ProfileBadges(info, includeVerified = !sceneC)
+                            ProfileBadges(info, includeVerified = !sceneC, includePremium = !sceneC)
                         }
                     }
                     if (sceneC) {
@@ -830,7 +839,6 @@ fun ProfileScreen(
                     photo = inlineHistory?.selected?.takeIf { revealActive }?.let {
                         AvatarPhoto(it.smallFileId, it.bigFileId, it.photoId)
                     } ?: info.photo,
-                    pageLabel = photoPosition.takeIf { pagingReady },
                     frame = { sceneFrame },
                     reveal = { if (revealAvailable) reveal.value else 0f },
                     visibility = {
@@ -841,8 +849,9 @@ fun ProfileScreen(
                     loadLargePhoto = revealActive && revealAvailable,
                     observeFile = observeFile,
                     downloadFile = downloadFile,
-                    stretchPx = { stretch.distancePx },
-                    reduceMotion = sceneReduceMotion,
+                    surfaceFadeColor = palette.screen,
+                    photoCount = if (pagingReady && (inlineHistory?.totalCount ?: 0) > 1) inlineHistory!!.totalCount else 0,
+                    photoIndex = inlineHistory?.selectedIndex ?: 0,
                     modifier = Modifier.matchParentSize()
                 )
             }
@@ -874,6 +883,23 @@ fun ProfileScreen(
                     .onSizeChanged { toolbarHeightPx = it.height }
             ) {
                 toolbarComposable()
+            }
+            state.info?.let { info ->
+                if (profileGifts.isNotEmpty() && info.kind != ProfileKind.Group && info.kind != ProfileKind.Channel) {
+                    ProvideGiftFileAccess(GiftFileAccess(observeFile, downloadFile)) {
+                        ProfileHeaderPinnedGifts(
+                            gifts = profileGifts,
+                            emojiStatusUpgradedGiftId = info.emojiStatusUpgradedGiftId,
+                            frame = { sceneFrame },
+                            reveal = { if (revealAvailable) reveal.value else 0f },
+                            preset = scenePreset,
+                            reduceMotion = sceneReduceMotion,
+                            stageTopLocalPx = (sceneHeights.stageTopPx - sceneHeights.windowTopPx).toFloat().coerceAtLeast(0f),
+                            toolbarBottomLocalPx = (sceneHeights.toolbarBottomPx - sceneHeights.windowTopPx).toFloat().coerceAtLeast(0f),
+                            modifier = Modifier.matchParentSize()
+                        )
+                    }
+                }
             }
         } else {
             Column(Modifier.fillMaxSize()) {
@@ -1088,11 +1114,11 @@ internal fun ProfileRowsCard(rows: List<Pair<String, String>>) {
 
 /** Значки подтверждения и Premium под названием. */
 @Composable
-internal fun ProfileBadges(info: ProfileInfo, includeVerified: Boolean = true) {
+internal fun ProfileBadges(info: ProfileInfo, includeVerified: Boolean = true, includePremium: Boolean = true) {
     val palette = beyGramPalette()
     val items = listOfNotNull(
         if (includeVerified && info.isVerified) stringResource(R.string.profile_badge_verified) else null,
-        if (info.isPremium) stringResource(R.string.profile_badge_premium) else null
+        if (includePremium && info.isPremium) stringResource(R.string.profile_badge_premium) else null
     )
     if (items.isNotEmpty()) Text(
         items.joinToString(" · "),

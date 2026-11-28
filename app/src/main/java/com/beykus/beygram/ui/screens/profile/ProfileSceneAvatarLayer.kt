@@ -3,11 +3,14 @@ package com.beykus.beygram.ui.screens.profile
 import android.graphics.ImageDecoder
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.material3.Text
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -30,6 +33,7 @@ import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.clipPath
 import androidx.compose.ui.graphics.drawscope.clipRect
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.layout
 import androidx.compose.ui.layout.onGloballyPositioned
@@ -39,7 +43,6 @@ import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.unit.constrainHeight
 import androidx.compose.ui.unit.constrainWidth
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.beykus.beygram.domain.model.AvatarPhoto
 import com.beykus.beygram.domain.model.MediaFileState
@@ -64,21 +67,12 @@ internal fun ProfileSceneAvatarLayer(
     observeFile: (Int) -> StateFlow<MediaFileState>,
     downloadFile: (Int) -> Unit,
     modifier: Modifier = Modifier,
-    pageLabel: String? = null,
-    stretchPx: () -> Float = { 0f },
-    reduceMotion: Boolean = false
+    surfaceFadeColor: Color = Color.Black,
+    photoCount: Int = 0,
+    photoIndex: Int = 0
 ) {
     var origin by remember { mutableStateOf(Offset.Zero) }
     val mask = remember { Path() }
-    val currentFrame = frame()
-    val morphNow = reveal() * (1f - (currentFrame?.collapse ?: 0f))
-    val shaderEffect = rememberProfileImmersiveShaderEffect(
-        morph = morphNow,
-        stretchPx = stretchPx(),
-        widthPx = currentFrame?.avatarRect?.width ?: 0f,
-        heightPx = currentFrame?.avatarRect?.height ?: 0f,
-        reduceMotion = reduceMotion
-    )
 
     Box(
         modifier
@@ -114,15 +108,19 @@ internal fun ProfileSceneAvatarLayer(
                                 topLeft = Offset(left, top),
                                 size = Size(coverWidth, coverHeight * 0.28f)
                             )
-                            // Bottom scrim keeps integrated name, verified icon & status readable.
+                            // Multi-stop bottom gradient preserves white text contrast and blends naturally into palette.screen.
+                            val scrimStartY = bottom - coverHeight * 0.52f
                             drawRect(
                                 brush = Brush.verticalGradient(
-                                    colors = listOf(Color.Transparent, Color.Black.copy(alpha = 0.66f * morph)),
-                                    startY = bottom - coverHeight * 0.48f,
+                                    0.00f to Color.Transparent,
+                                    0.42f to Color.Black.copy(alpha = 0.34f * morph),
+                                    0.78f to lerp(Color.Black, surfaceFadeColor, 0.45f).copy(alpha = 0.72f * morph),
+                                    1.00f to surfaceFadeColor.copy(alpha = 0.98f * morph),
+                                    startY = scrimStartY,
                                     endY = bottom
                                 ),
-                                topLeft = Offset(left, bottom - coverHeight * 0.48f),
-                                size = Size(coverWidth, coverHeight * 0.48f)
+                                topLeft = Offset(left, scrimStartY),
+                                size = Size(coverWidth, coverHeight * 0.52f)
                             )
                         }
                     }
@@ -170,7 +168,6 @@ internal fun ProfileSceneAvatarLayer(
                     translationX = (rect.left + rect.right) / 2f - origin.x - size.width / 2f
                     translationY = (rect.top + rect.bottom) / 2f - origin.y - size.height / 2f + scene.parallaxPx
                     alpha = visibility()
-                    renderEffect = shaderEffect
                 }
             }.background(color),
             contentAlignment = Alignment.Center
@@ -182,24 +179,34 @@ internal fun ProfileSceneAvatarLayer(
                 Avatar(initials, color, 112.dp)
             }
         }
-        pageLabel?.let {
-            Text(
-                text = it,
-                color = Color.White,
-                fontSize = 13.sp,
-                modifier = Modifier.align(Alignment.TopStart).graphicsLayer {
-                    val scene = frame()
-                    val rect = scene?.avatarRect
-                    if (rect == null) {
-                        alpha = 0f
-                    } else {
-                        translationX = (rect.left + rect.right - size.width) / 2f - origin.x
-                        translationY = (scene.clipTopPx - origin.y) + 60.dp.toPx()
-                        alpha = (1f - scene.collapse * 4f).coerceAtLeast(0f) * visibility()
-                    }
-                }.background(Color.Black.copy(alpha = 0.68f), CircleShape)
-                    .padding(horizontal = 10.dp, vertical = 4.dp)
-            )
+        if (photoCount > 1) {
+            Row(
+                Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp)
+                    .graphicsLayer {
+                        val scene = frame()
+                        if (scene == null) {
+                            alpha = 0f
+                        } else {
+                            translationY = (scene.clipTopPx - origin.y) + 6.dp.toPx()
+                            alpha = (1f - scene.collapse * 4f).coerceAtLeast(0f) * visibility()
+                        }
+                    },
+                horizontalArrangement = Arrangement.spacedBy(4.dp)
+            ) {
+                for (index in 0 until photoCount) {
+                    Box(
+                        Modifier
+                            .weight(1f)
+                            .height(2.5.dp)
+                            .background(
+                                color = Color.White.copy(alpha = if (index == photoIndex) 0.95f else 0.32f),
+                                shape = RoundedCornerShape(2.dp)
+                            )
+                    )
+                }
+            }
         }
     }
 }
