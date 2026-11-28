@@ -73,6 +73,7 @@ import androidx.compose.material3.Text
 import androidx.compose.foundation.horizontalScroll
 import com.beykus.beygram.ui.components.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.ui.layout.onGloballyPositioned
@@ -1374,6 +1375,9 @@ internal fun AttachmentPanel(
     // shows; with a backdrop of its own it becomes a real glass pane; the dense fill is only the fallback when neither
     // is possible, so the imitation never stands in for the material.
     val drawsGlassPanel = drawsOwnSheet && design.usesGlassPanels && !onSharedGlass && LocalGlassBackdrop.current != null
+    // A surface inside the panel's own pane is on glass even though the panel itself is not the shared composer plane:
+    // its children must not open a second pane, which would blur and tint the same backdrop twice.
+    val onGlassSurface = onSharedGlass || drawsGlassPanel
     val containerModifier = if (drawsOwnSheet && !drawsGlassPanel && !onSharedGlass) {
         Modifier.glassSheet(design, palette.surface, palette.textSecondary)
     } else {
@@ -1410,7 +1414,7 @@ internal fun AttachmentPanel(
         state.error?.let { message ->
             GlassNotice(
                 tone = NoticeTone.Danger,
-                onGlassPlane = onSharedGlass,
+                onGlassPlane = onGlassSurface,
                 modifier = Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 4.dp)
             ) {
                 Column(Modifier.fillMaxWidth()) {
@@ -1433,7 +1437,7 @@ internal fun AttachmentPanel(
             if (state.canRetryCapture && !state.importing) {
                 GlassNotice(
                     tone = NoticeTone.Info,
-                    onGlassPlane = onSharedGlass,
+                    onGlassPlane = onGlassSurface,
                     modifier = Modifier.fillMaxWidth().padding(end = 14.dp, bottom = 2.dp)
                 ) {
                     Text(
@@ -1448,7 +1452,7 @@ internal fun AttachmentPanel(
             state.notice?.let { message ->
                 GlassNotice(
                     tone = NoticeTone.Info,
-                    onGlassPlane = onSharedGlass,
+                    onGlassPlane = onGlassSurface,
                     modifier = Modifier.fillMaxWidth().padding(end = 14.dp, bottom = 4.dp)
                 ) {
                     Text(
@@ -1507,7 +1511,11 @@ private fun AttachmentPanelSurface(
             lensOnFreeEdge = true,
             modifier = Modifier.fillMaxWidth()
         ) {
-            Column(Modifier.fillMaxWidth(), content = content)
+            // Everything inside this pane already sits on glass: the action menu, the staged files and the notices must
+            // inherit it instead of opening panes of their own.
+            CompositionLocalProvider(LocalComposerOnGlassPlane provides true) {
+                Column(Modifier.fillMaxWidth(), content = content)
+            }
         }
     } else {
         Column(Modifier.fillMaxWidth().then(modifier), content = content)
