@@ -1,4 +1,4 @@
-package com.beykus.beygram.data.tdlib
+﻿package com.beykus.beygram.data.tdlib
 
 import org.drinkless.tdlib.TdApi
 import org.junit.Assert.assertEquals
@@ -13,8 +13,16 @@ import kotlinx.coroutines.runBlocking
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [34])
 class RecentEmojiRecoveryTest {
-    private fun message(text: String, entities: List<TdApi.TextEntity> = emptyList(), outgoing: Boolean = true): TdApi.Message =
+    private fun message(
+        text: String,
+        entities: List<TdApi.TextEntity> = emptyList(),
+        outgoing: Boolean = true,
+        date: Int = 0,
+        id: Long = 0L
+    ): TdApi.Message =
         TdApi.Message().apply {
+            this.id = id
+            this.date = date
             isOutgoing = outgoing
             content = TdApi.MessageText().apply { this.text = TdApi.FormattedText(text, entities.toTypedArray()) }
         }
@@ -24,8 +32,8 @@ class RecentEmojiRecoveryTest {
 
     @Test
     fun ownTextAndCaptionsGiveUnicodeAndCustomEmoji() {
-        val text = "\u2764\uFE0F \uD83C\uDF89" // РІСњВ¤РїС‘РЏ СЂСџР‹вЂ°
-        val custom = "x\uD83D\uDC68\u200D\uD83D\uDCBB" // xСЂСџвЂРЃРІР‚РЊСЂСџвЂ™В»; the fallback glyph belongs to a custom entity
+        val text = "\u2764\uFE0F \uD83C\uDF89" // heart & party
+        val custom = "x\uD83D\uDC68\u200D\uD83D\uDCBB" // x + technologist; the fallback glyph belongs to a custom entity
         val extracted = extractRecentEmoji(text, emptyList()) // no custom entities
         assertEquals(listOf("\u2764\uFE0F", "\uD83C\uDF89"), extracted.unicode)
 
@@ -46,7 +54,7 @@ class RecentEmojiRecoveryTest {
             chats = listOf(1L, 2L),
             secret = setOf(1L),
             messages = mapOf(
-                1L to listOf(message("\uD83D\uDE00")), // СЂСџВР‚ in a secret chat
+                1L to listOf(message("\uD83D\uDE00")), // grinning face in a secret chat
                 2L to listOf(
                     message("\uD83D\uDE00", outgoing = false),
                     message("\uD83C\uDF89")
@@ -71,15 +79,48 @@ class RecentEmojiRecoveryTest {
     }
 
     @Test
-    fun aFailedReadIsNotFatal() = runBlocking {
+    fun allFailedChatsThrowSoRecoveryIsNotMarkedDone() = runBlocking {
         val source = object : RecentEmojiSource {
             override suspend fun meId(): Long = 7L
             override suspend fun chatIds(limit: Int): List<Long> = listOf(1L, 2L)
-            override suspend fun chatIsSecret(chatId: Long): Boolean = chatId == 1L
+            override suspend fun chatIsSecret(chatId: Long): Boolean = false
             override suspend fun ownMessages(chatId: Long, senderId: Long, limit: Int): List<TdApi.Message> =
                 throw IllegalStateException("offline")
         }
-        assertTrue(RecentEmojiRecovery(source) { 0L }.recover().isEmpty)
+        var failed = false
+        try {
+            RecentEmojiRecovery(source) { 0L }.recover()
+        } catch (_: IllegalStateException) {
+            failed = true
+        }
+        assertTrue(failed)
+    }
+
+    @Test
+    fun partialChatFailureStillReturnsRecoveredEmoji() = runBlocking {
+        val source = object : RecentEmojiSource {
+            override suspend fun meId(): Long = 7L
+            override suspend fun chatIds(limit: Int): List<Long> = listOf(1L, 2L)
+            override suspend fun chatIsSecret(chatId: Long): Boolean = false
+            override suspend fun ownMessages(chatId: Long, senderId: Long, limit: Int): List<TdApi.Message> =
+                if (chatId == 1L) throw IllegalStateException("timeout")
+                else listOf(message("\uD83C\uDF89", date = 100, id = 1L))
+        }
+        val history = RecentEmojiRecovery(source) { 0L }.recover()
+        assertEquals(listOf("\uD83C\uDF89"), history.unicode)
+    }
+
+    @Test
+    fun recoversEmojiInGlobalChronologicalOrderAcrossChats() = runBlocking {
+        val source = FakeSource(
+            chats = listOf(1L, 2L),
+            messages = mapOf(
+                1L to listOf(message("\u2764\uFE0F", date = 100, id = 1L)),
+                2L to listOf(message("\uD83D\uDD25", date = 200, id = 2L))
+            )
+        )
+        val history = RecentEmojiRecovery(source) { 0L }.recover()
+        assertEquals(listOf("\uD83D\uDD25", "\u2764\uFE0F"), history.unicode)
     }
 
     @Test

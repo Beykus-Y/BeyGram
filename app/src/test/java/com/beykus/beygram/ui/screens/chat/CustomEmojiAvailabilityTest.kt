@@ -11,7 +11,7 @@ import org.junit.Test
 class CustomEmojiAvailabilityTest {
     @Test
     fun onlyPremiumOrSavedMessagesMayInsertCustomEmoji() {
-        assertFalse(customEmojiAllowed(premium = null, savedMessages = false))
+        assertTrue(customEmojiAllowed(premium = null, savedMessages = false))
         assertFalse(customEmojiAllowed(premium = false, savedMessages = false))
         assertTrue(customEmojiAllowed(premium = true, savedMessages = false))
         assertTrue(customEmojiAllowed(premium = false, savedMessages = true))
