@@ -165,7 +165,9 @@ class MessageContextGestureTest(private val style: DesignStyle) {
                         message = message,
                         observeFile = { file },
                         onDownloadFile = {},
-                        onOpen = {},n                        onReaction = { _, _ -> },n                        observeCustomEmoji = { emoji },
+                        onOpen = {},
+                        onReaction = { _, _ -> },
+                        observeCustomEmoji = { emoji },
                         onActions = { open = true },
                         onBubblePositioned = {
                             val bounds = it.boundsInWindow()
@@ -179,7 +181,9 @@ class MessageContextGestureTest(private val style: DesignStyle) {
                                 message = message,
                                 observeFile = { file },
                                 onDownloadFile = {},
-                                onOpen = {},n                                onReaction = { _, _ -> },n                                observeCustomEmoji = { emoji },
+                                onOpen = {},
+                                onReaction = { _, _ -> },
+                                observeCustomEmoji = { emoji },
                                 contextScenePassive = true,
                                 contextTextSelection = selection,
                                 paneInset = false
