@@ -683,7 +683,7 @@ internal class TdConversationActions(
         val target = request(TdApi.GetMessage(chatId, replyId))
         val quote = options.replyQuotePayload()
         if (quote != null && (!properties.canBeCopied || !quote.matchesSource(messageFormattedText(target.content)?.text))) {
-            throw UserMessageException(UiText.Res(R.string.err_message_cannot_reply))
+            throw UserMessageException(UiText.Res(R.string.err_message_quote_unavailable))
         }
         return target
     }

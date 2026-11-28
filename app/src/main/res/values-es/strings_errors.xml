@@ -68,6 +68,7 @@
     <string name="err_message_cannot_edit">Este mensaje no se puede editar</string>
     <string name="err_message_cannot_forward">Este mensaje no se puede reenviar</string>
     <string name="err_message_cannot_reply">No puedes responder a este mensaje</string>
+    <string name="err_message_quote_unavailable">No se puede enviar la cita seleccionada porque el mensaje original cambió o está protegido</string>
     <string name="err_message_empty">Escribe un mensaje</string>
     <string name="err_message_original_unavailable">Mensaje original no disponible</string>
     <string name="err_message_too_long">El mensaje es demasiado largo</string>

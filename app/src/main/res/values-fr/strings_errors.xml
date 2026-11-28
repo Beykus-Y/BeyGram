@@ -110,6 +110,7 @@
     <string name="err_messages_cannot_copy">Certains messages sélectionnés ne peuvent pas être copiés</string>
     <string name="err_messages_too_many">Vous pouvez traiter jusqu’à %1$d messages à la fois</string>
     <string name="err_message_cannot_reply">Vous ne pouvez pas répondre à ce message</string>
+    <string name="err_message_quote_unavailable">Impossible d’envoyer la citation sélectionnée car le message d’origine a changé ou est protégé</string>
     <string name="err_message_empty">Saisissez un message</string>
     <string name="err_message_original_unavailable">Message d’origine indisponible</string>
     <string name="err_message_too_long">Le message est trop long</string>
