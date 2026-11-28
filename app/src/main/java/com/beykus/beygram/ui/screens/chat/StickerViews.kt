@@ -28,7 +28,9 @@ import com.airbnb.lottie.compose.LottieConstants
 import com.airbnb.lottie.compose.animateLottieCompositionAsState
 import com.beykus.beygram.R
 import com.beykus.beygram.data.media.AutoDownloadNetworkStatus
+import com.beykus.beygram.data.media.SharedTgsEmojiRenderer
 import com.beykus.beygram.data.media.TgsCompositionCache
+import com.beykus.beygram.data.media.bucketEmojiSizePx
 import com.beykus.beygram.data.settings.AutoDownloadSettingsStore
 import com.beykus.beygram.domain.model.AutoDownloadRequest
 import com.beykus.beygram.domain.model.CustomEmoji
@@ -215,8 +217,47 @@ internal fun CustomEmojiImage(
     val path = file.localPath
     val modifier = Modifier.size(size).then(autoplay.modifier)
     when {
-        path != null && emoji.mimeType == TGS_MIME -> TgsSticker(path, modifier, playing = playing, fallback = fallback)
+        path != null && emoji.mimeType == TGS_MIME -> SharedTgsEmoji(path, size, playing = playing, modifier = modifier, fallback = fallback)
         path != null && emoji.mimeType == WEBP_MIME -> LocalMediaImage(path, modifier, fit = true, maxDimension = maxDimensionPx, animate = playing)
         else -> fallback()
+    }
+}
+
+@Composable
+private fun SharedTgsEmoji(
+    path: String,
+    size: Dp,
+    playing: Boolean,
+    modifier: Modifier,
+    fallback: @Composable () -> Unit
+) {
+    val context = LocalContext.current
+    val accountId = LocalPlaybackAccountId.current
+    val density = androidx.compose.ui.platform.LocalDensity.current
+    val sizePx = remember(density, size) { bucketEmojiSizePx(with(density) { size.roundToPx() }) }
+    val renderer = remember(context) { SharedTgsEmojiRenderer.default(context) }
+    val target = remember(renderer, accountId, path, sizePx) {
+        renderer.attach(accountId = accountId, path = path, sizePx = sizePx, playing = playing)
+    }
+    androidx.compose.runtime.DisposableEffect(renderer, target) {
+        onDispose { renderer.detach(target) }
+    }
+    LaunchedEffect(renderer, target, playing) {
+        renderer.updateTarget(target, playing = playing)
+    }
+    val failed = target.failedState.value
+    if (failed) {
+        Box(modifier, contentAlignment = Alignment.Center) { fallback() }
+        return
+    }
+    androidx.compose.foundation.Canvas(modifier) {
+        val frame = target.frameState.value ?: return@Canvas
+        drawImage(
+            image = frame,
+            dstSize = androidx.compose.ui.unit.IntSize(
+                this.size.width.toInt().coerceAtLeast(1),
+                this.size.height.toInt().coerceAtLeast(1)
+            )
+        )
     }
 }
