@@ -316,8 +316,10 @@ internal abstract class LazyTrackResolver<T : Any>(private val prefix: String, p
                 // Read the version before the check: a change after it must wake this waiter at least once.
                 val version = admissionVersion.value
                 val admitted = synchronized(admissionLock) {
+                    // A request created a moment ago may not have reached this loop yet. It still outranks an older
+                    // waiter: otherwise N+1 could lose its slot to N+2 in the moment a slot is released.
                     val next = entries.values
-                        .filter { it.waiting && it.track == null && !it.failed }
+                        .filter { it.track == null && !it.failed && !it.holdsSlot }
                         .minWithOrNull(compareByDescending<Entry<T>> { it.priority }.thenBy { it.sequence })
                     if (activeFetches < maxConcurrentFetches && (next == null || next === entry)) {
                         activeFetches++
@@ -407,8 +409,8 @@ internal abstract class LazyTrackResolver<T : Any>(private val prefix: String, p
         // A slot that is already being freed is enough: taking a second victim would cancel N+1 needlessly while the
         // first cancellation has not reached its finally yet.
         if (releasingFetches.get() > 0) return
-        val waiting = entries.values.filter { it.waiting && it.track == null && !it.failed }
-        val top = waiting.maxWithOrNull(compareBy<Entry<T>> { it.priority }.thenBy { it.sequence }) ?: return
+        val pending = entries.values.filter { it.track == null && !it.failed && !it.holdsSlot }
+        val top = pending.maxWithOrNull(compareBy<Entry<T>> { it.priority }.thenBy { it.sequence }) ?: return
         val free = synchronized(admissionLock) { activeFetches < maxConcurrentFetches }
         if (free) return
         val victim = entries.entries
