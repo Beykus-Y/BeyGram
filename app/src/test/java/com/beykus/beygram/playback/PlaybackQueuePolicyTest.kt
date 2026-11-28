@@ -1,4 +1,4 @@
-package com.beykus.beygram.playback
+﻿package com.beykus.beygram.playback
 
 import androidx.media3.common.Player
 import com.beykus.beygram.domain.model.MediaKind
@@ -80,7 +80,7 @@ class PlaybackQueuePolicyTest {
         assertTrue(queue.items.isEmpty())
 
         val state = PlaybackState(item = visible, queue = listOf(visible, private), queueIndex = 0)
-        assertTrue(prefetchCandidates(state).isEmpty())
+        assertTrue(prefetchCandidates(state, hasCopy = FAKE_COPY).isEmpty())
     }
 
     @Test
@@ -88,7 +88,7 @@ class PlaybackQueuePolicyTest {
         val visible = track("visible", 1, path = "/visible.mp3")
         val once = track("once", 2).copy(viewOnce = true)
         assertTrue(queueForPlayback(listOf(visible, once), index = 1).items.isEmpty())
-        assertTrue(prefetchCandidates(PlaybackState(item = visible, queue = listOf(visible, once), queueIndex = 0)).isEmpty())
+        assertTrue(prefetchCandidates(PlaybackState(item = visible, queue = listOf(visible, once), queueIndex = 0), hasCopy = FAKE_COPY).isEmpty())
     }
 
     @Test
@@ -104,7 +104,7 @@ class PlaybackQueuePolicyTest {
             queue = listOf(current, first, resolved, secret, third, fourth),
             queueIndex = 0
         )
-        assertEquals(listOf("first", "third"), prefetchCandidates(state).map { it.key })
+        assertEquals(listOf("first", "third"), prefetchCandidates(state, hasCopy = FAKE_COPY).map { it.key })
     }
 
     @Test
@@ -122,7 +122,7 @@ class PlaybackQueuePolicyTest {
         )
         assertEquals(
             listOf("third", "second"),
-            prefetchCandidates(state, playbackOrder = listOf(0, 3, 2, 1, 4)).map { it.key }
+            prefetchCandidates(state, playbackOrder = listOf(0, 3, 2, 1, 4), hasCopy = FAKE_COPY).map { it.key }
         )
     }
 
@@ -141,7 +141,7 @@ class PlaybackQueuePolicyTest {
         )
         assertEquals(
             listOf("third", "second"),
-            prefetchCandidates(state, playbackOrder = listOf(0, 3, 2, 1)).map { it.key }
+            prefetchCandidates(state, playbackOrder = listOf(0, 3, 2, 1), hasCopy = FAKE_COPY).map { it.key }
         )
     }
 
@@ -185,8 +185,8 @@ class PlaybackQueuePolicyTest {
     @Test
     fun prefetchIgnoresNonMusicAndQueueWithoutCurrentIndex() {
         val voice = PlaybackItem("voice", MediaKind.Voice, "/voice.ogg", "Voice", 3)
-        assertTrue(prefetchCandidates(PlaybackState(item = voice, queue = listOf(voice), queueIndex = 0)).isEmpty())
-        assertTrue(prefetchCandidates(PlaybackState(item = track("a", 1), queue = listOf(track("a", 1)), queueIndex = -1)).isEmpty())
+        assertTrue(prefetchCandidates(PlaybackState(item = voice, queue = listOf(voice), queueIndex = 0), hasCopy = FAKE_COPY).isEmpty())
+        assertTrue(prefetchCandidates(PlaybackState(item = track("a", 1), queue = listOf(track("a", 1)), queueIndex = -1), hasCopy = FAKE_COPY).isEmpty())
     }
 
     @Test
@@ -310,3 +310,6 @@ class PlaybackQueuePolicyTest {
     }
 
 }
+
+/** Test fixture: a fake absolute path stands for a local copy that exists. */
+private val FAKE_COPY: (PlaybackItem) -> Boolean = { it.path.isNotBlank() || it.growing != null }

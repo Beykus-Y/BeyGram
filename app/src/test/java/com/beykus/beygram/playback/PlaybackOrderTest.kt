@@ -1,4 +1,4 @@
-package com.beykus.beygram.playback
+﻿package com.beykus.beygram.playback
 
 import androidx.media3.common.util.UnstableApi
 import com.beykus.beygram.domain.model.MediaKind
@@ -136,7 +136,7 @@ class PlaybackOrderTest {
         )
         assertEquals(
             listOf("inserted", "third"),
-            prefetchCandidates(state, result.playbackOrder).map { it.key }
+            prefetchCandidates(state, result.playbackOrder, hasCopy = FAKE_COPY).map { it.key }
         )
     }
 
@@ -215,3 +215,6 @@ class PlaybackOrderTest {
         assertEquals(-1, order.getNextIndex(9))
     }
 }
+
+/** Test fixture: a fake absolute path stands for a local copy that exists. */
+private val FAKE_COPY: (PlaybackItem) -> Boolean = { it.path.isNotBlank() || it.growing != null }

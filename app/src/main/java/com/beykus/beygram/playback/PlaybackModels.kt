@@ -103,6 +103,15 @@ data class PlaybackItem(
     val isMusic: Boolean get() = kind == MediaKind.Audio
     val hasLocalSource: Boolean get() = path.isNotBlank() || growing != null
 
+    /**
+     * A path is only a claim: a cache eviction may remove the file while the queue keeps the old path. Playback,
+     * prefetch and BG Mix must ask [hasReadyLocalCopy] instead of testing [path] itself.
+     */
+    val hasReadyLocalCopy: Boolean get() = localCopyReady(path)
+
+    /** A lazy provider row is always resolved by its provider, whatever path it still carries. */
+    val hasLiveSource: Boolean get() = growing != null || hasReadyLocalCopy || LazyTrackRegistry.isLazyKey(key)
+
     /** Neither secret attachments, secret-chat media nor view-once content may reach queues or system metadata. */
     val systemPrivate: Boolean get() = secret || isSecretChat || viewOnce
 
@@ -528,11 +537,16 @@ internal fun PlaybackItem.systemMetadata(): PlaybackMetadata =
  * Only 1–2 following, still unresolved public tracks are prefetched; never a whole channel and never private items.
  * [playbackOrder] is the actual Media3 order (shuffled when enabled), not the visible original queue. Repeat All scans
  * past the end of that order; Repeat One and Repeat Off do not wrap.
+ *
+ * A queue row stops being a candidate only when a reader can actually open its copy. A non-empty [PlaybackItem.path]
+ * is not proof: a cache eviction leaves the old path in the queue, and such a row must be fetched again instead of
+ * being silently skipped.
  */
 internal fun prefetchCandidates(
     state: PlaybackState,
     playbackOrder: List<Int> = state.queue.indices.toList(),
-    max: Int = 2
+    max: Int = 2,
+    hasCopy: (PlaybackItem) -> Boolean = { it.growing != null || it.hasReadyLocalCopy }
 ): List<PlaybackItem> {
     if (max <= 0 || state.item?.kind != MediaKind.Audio) return emptyList()
     if (state.queue.isEmpty() || state.queueIndex !in state.queue.indices) return emptyList()
@@ -547,15 +561,74 @@ internal fun prefetchCandidates(
     for (queueIndex in following) {
         val item = state.queue[queueIndex]
         if (item.systemPrivate || (item.fileId == null && !LazyTrackRegistry.isLazyKey(item.key))) continue
-        if (item.path.isNotBlank() || item.growing != null) continue
+        if (hasCopy(item)) continue
         result += item
         if (result.size == max) break
     }
     return result
 }
 
+/**
+ * Roles of the rows the playback order needs now: the current row, N+1 (the mandatory next deck), N+2 (bounded
+ * lookahead) and N−1 (keep its existing copy, never fetch again). The actual play order (shuffle) decides the
+ * neighbours; BG Mix has a linear native order, so it passes its own indices. Repeat All wraps, Repeat One does not.
+ */
+internal fun playbackFetchWindow(
+    state: PlaybackState,
+    playbackOrder: List<Int> = state.queue.indices.toList(),
+): LazyFetchWindow {
+    val current = state.item ?: return LazyFetchWindow()
+    val queue = state.queue
+    if (queue.isEmpty() || state.queueIndex !in queue.indices) return LazyFetchWindow(playing = current.key)
+    val order = playbackOrder.filter { it in queue.indices }.distinct()
+    val position = order.indexOf(state.queueIndex)
+    fun keyAt(orderIndex: Int): String? {
+        val index = when {
+            orderIndex in order.indices -> order[orderIndex]
+            state.repeatMode == PlaybackRepeatMode.All && order.isNotEmpty() ->
+                order[((orderIndex % order.size) + order.size) % order.size]
+            else -> return null
+        }
+        return queue[index].key
+    }
+    val next = mutableListOf<String>()
+    val ahead = mutableListOf<String>()
+    if (position >= 0) {
+        keyAt(position + 1)?.takeIf { it != current.key }?.let(next::add)
+        keyAt(position + 2)?.takeIf { it != current.key && it !in next }?.let(ahead::add)
+    }
+    val retained = when {
+        position > 0 -> setOf(queue[order[position - 1]].key)
+        else -> emptySet()
+    }
+    return LazyFetchWindow(playing = current.key, next = next, ahead = ahead, retained = retained)
+}
+
+/**
+ * A local path names a readable copy only while the file is still on disk and is not empty. An evicted copy is an
+ * absent copy again: every readiness decision (playback source, prefetch, BG Mix deck, ownership) must use this and
+ * never [PlaybackItem.path] alone.
+ */
+internal fun localCopyReady(path: String): Boolean {
+    if (path.isBlank()) return false
+    val file = File(path)
+    return file.isFile && file.length() > 0L
+}
+
 /** A prefetch key is remembered only when policy allowed the request and the repository accepted it. */
 internal fun shouldRememberPrefetch(allowed: Boolean, accepted: Boolean): Boolean = allowed && accepted
+
+/**
+ * Whether a queue page that just arrived must start playback. [recoveryPending] is the explicit Play/Next request at the
+ * tail of an endless queue: it clears the ended flag for the UI, so the published state alone would say "nothing to
+ * resume" — the regression of build 815. An automatic wait after a network loss keeps [ended] set.
+ */
+internal fun queuePageResumesPlayback(
+    ended: Boolean,
+    intentPlaying: Boolean,
+    endlessWaiting: Boolean,
+    recoveryPending: Boolean,
+): Boolean = recoveryPending || (ended && (intentPlaying || endlessWaiting))
 
 /**
  * ENDED is delivered asynchronously. A manual Next, a new source or a stop bumps the transition token, so only the

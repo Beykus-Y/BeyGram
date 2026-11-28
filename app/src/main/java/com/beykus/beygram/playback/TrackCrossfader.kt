@@ -63,6 +63,12 @@ internal class TrackCrossfader(
         return mediaId != null && watch.mediaId == mediaId && watch.job?.isActive == true
     }
 
+    /**
+     * True while the overlap already moves the primary's gain. Another owner (the BG Mix handover) must then wait:
+     * cancelling this watch would drop the outgoing tail mid-fade, and two writers would fight over the same level.
+     */
+    fun isOverlapping(): Boolean = current?.volumeTouched == true
+
     /** Starts the watch for the playing track. Called on every progress tick; a watch that is running is left alone. */
     fun watch(primary: ExoPlayer) {
         if (current?.job?.isActive == true) return

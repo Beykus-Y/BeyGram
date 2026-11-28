@@ -91,7 +91,7 @@ class LazyTrackResolverPriorityTest {
             resolver.request("fake:c")
             assertFalse(selectedStarted.isCompleted)
             // The window now contains only C: nobody reads A or B, so their slots belong to the selected row.
-            resolver.prioritize(setOf("fake:c"), urgent = "fake:c")
+            resolver.prioritize(LazyFetchWindow(playing = "fake:c"))
             withTimeout(TEST_TIMEOUT_MS) { cancelledA.await(); cancelledB.await() }
             withTimeout(TEST_TIMEOUT_MS) { selectedStarted.await() }
             assertTrue(resolver.fetchingKeys().contains("fake:c"))
@@ -117,7 +117,7 @@ class LazyTrackResolverPriorityTest {
             withTimeout(TEST_TIMEOUT_MS) { startedA.await() }
             // The data source already opened the growing copy: it is an active reader, not a stale request.
             resolver.published("fake:a")
-            resolver.prioritize(setOf("fake:c"), urgent = "fake:c")
+            resolver.prioritize(LazyFetchWindow(playing = "fake:c"))
             assertFalse(cancelledA.isCompleted)
             assertTrue(resolver.fetchingKeys().contains("fake:a"))
         } finally {
@@ -140,7 +140,7 @@ class LazyTrackResolverPriorityTest {
                 while (!resolver.readyKeys().contains("fake:a")) delay(5)
             }
             // A completed file may be needed again by Previous; only the bounded eviction policy may drop it.
-            resolver.prioritize(setOf("fake:c"), urgent = "fake:c")
+            resolver.prioritize(LazyFetchWindow(playing = "fake:c"))
             assertTrue(resolver.readyKeys().contains("fake:a"))
         } finally {
             resolver.reset()
