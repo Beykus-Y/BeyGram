@@ -35,6 +35,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.beykus.beygram.R
+import com.beykus.beygram.playback.LocalPlaybackAccountId
 import com.beykus.beygram.domain.model.CustomEmoji
 import com.beykus.beygram.domain.model.EmojiPickerSearchResults
 import com.beykus.beygram.domain.model.CustomEmojiSetBrief
@@ -100,21 +101,55 @@ internal fun rememberDockCustomEmoji(
     onPicked: (Long) -> Unit,
 ): DockCustomEmoji {
     val context = LocalContext.current
-    var installed by remember(conversation) { mutableStateOf<List<CustomEmojiSetBrief>>(emptyList()) }
-    var recommended by remember(conversation) { mutableStateOf<List<CustomEmojiSetBrief>>(emptyList()) }
+    val accountId = LocalPlaybackAccountId.current
+    val cachedInstalled = remember(accountId, conversation) {
+        MediaPickerSessionCache.getCustomEmojiInstalled(accountId, conversation)
+    }
+    val cachedRecommended = remember(accountId, conversation) {
+        MediaPickerSessionCache.getCustomEmojiRecommended(accountId, conversation)
+    }
+    var installed by remember(accountId, conversation) {
+        mutableStateOf(cachedInstalled?.value.orEmpty())
+    }
+    var installedLoadedVersion by remember(accountId, conversation) {
+        mutableStateOf(cachedInstalled?.version)
+    }
+    var recommended by remember(accountId, conversation) {
+        mutableStateOf(cachedRecommended.orEmpty())
+    }
+    var recommendedLoaded by remember(accountId, conversation) {
+        mutableStateOf(cachedRecommended != null)
+    }
     var busyPacks by remember(conversation) { mutableStateOf<Set<Long>>(emptySet()) }
     var failedPacks by remember(conversation) { mutableStateOf<Set<Long>>(emptySet()) }
     var failed by remember(conversation) { mutableStateOf(false) }
     var attempt by remember(conversation) { mutableIntStateOf(0) }
     LaunchedEffect(conversation, attempt, packsVersion) {
+        if (attempt == 0 && installedLoadedVersion == packsVersion && installed.isNotEmpty()) {
+            failed = false
+            return@LaunchedEffect
+        }
         failed = false
         conversation.installedCustomEmojiSets().fold(
-            onSuccess = { values -> installed = values.distinctBy { it.id } },
-            onFailure = { failed = true }
+            onSuccess = { values ->
+                val deduped = values.distinctBy { it.id }
+                installed = deduped
+                installedLoadedVersion = packsVersion
+                MediaPickerSessionCache.putCustomEmojiInstalled(accountId, conversation, deduped, packsVersion)
+            },
+            onFailure = {
+                if (installed.isEmpty()) failed = true
+            }
         )
     }
     LaunchedEffect(conversation, attempt) {
-        conversation.recommendedCustomEmojiSets().onSuccess { values -> recommended = values.distinctBy { it.id } }
+        if (attempt == 0 && recommendedLoaded) return@LaunchedEffect
+        conversation.recommendedCustomEmojiSets().onSuccess { values ->
+            val deduped = values.distinctBy { it.id }
+            recommended = deduped
+            recommendedLoaded = true
+            MediaPickerSessionCache.putCustomEmojiRecommended(accountId, conversation, deduped)
+        }
     }
     var reorderBusy by remember(conversation) { mutableStateOf(false) }
     val installedIds = remember(installed) { installed.mapTo(HashSet()) { it.id } }
@@ -138,7 +173,16 @@ internal fun rememberDockCustomEmoji(
             }
         }
     }
-    val loader = remember(scope, conversation) { CustomEmojiSetLoader(scope, load = conversation::customEmojiSetIds) }
+    val loader = remember(scope, accountId, conversation) {
+        CustomEmojiSetLoader(
+            scope = scope,
+            initialLoaded = MediaPickerSessionCache.snapshotCustomEmojiSetIds(accountId, conversation),
+            onLoaded = { setId, ids ->
+                MediaPickerSessionCache.putCustomEmojiSetIds(accountId, conversation, setId, ids)
+            },
+            load = conversation::customEmojiSetIds
+        )
+    }
     val states by loader.states.collectAsStateWithLifecycle()
     val rows = remember(packs, states) { premiumEmojiRows(packs, states) }
     // Which loaded pack each visible custom emoji belongs to: only these picks can credit pack usage.

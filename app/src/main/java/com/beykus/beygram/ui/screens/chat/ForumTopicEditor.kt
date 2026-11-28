@@ -115,10 +115,14 @@ internal sealed interface CustomEmojiSetState {
 internal class CustomEmojiSetLoader(
     private val scope: CoroutineScope,
     private val maxConcurrent: Int = 2,
+    initialLoaded: Map<Long, List<Long>> = emptyMap(),
+    private val onLoaded: (Long, List<Long>) -> Unit = { _, _ -> },
     private val load: suspend (Long) -> Result<List<Long>>
 ) {
     private val permits = Semaphore(maxConcurrent)
-    private val mutableStates = MutableStateFlow<Map<Long, CustomEmojiSetState>>(emptyMap())
+    private val mutableStates = MutableStateFlow<Map<Long, CustomEmojiSetState>>(
+        initialLoaded.mapValues { CustomEmojiSetState.Loaded(it.value) }
+    )
     val states: StateFlow<Map<Long, CustomEmojiSetState>> = mutableStates.asStateFlow()
 
     /** Starts loading [setId] unless it is loading or loaded already. The outcome arrives through [states]. */
@@ -135,7 +139,10 @@ internal class CustomEmojiSetLoader(
                 Result.failure<List<Long>>(error)
             }
             val next: CustomEmojiSetState = outcome.fold(
-                onSuccess = { CustomEmojiSetState.Loaded(it) },
+                onSuccess = {
+                    onLoaded(setId, it)
+                    CustomEmojiSetState.Loaded(it)
+                },
                 onFailure = { CustomEmojiSetState.Failed }
             )
             mutableStates.update { it + (setId to next) }

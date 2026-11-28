@@ -3393,6 +3393,7 @@ override suspend fun isPremiumAccount(): Result<Boolean> = try {
                     runCatching { com.beykus.beygram.ui.screens.chat.RecentEmojiStore.clearAccount(appContext, accountId) }
                     runCatching { com.beykus.beygram.ui.screens.chat.PackUsageStore.clearAccount(appContext, accountId) }
                     runCatching { com.beykus.beygram.data.media.SharedTgsEmojiRenderer.clearAccount(accountId) }
+                    runCatching { com.beykus.beygram.ui.screens.chat.MediaPickerSessionCache.clearAccount(accountId) }
                     // Trigger alerts and mentions show chat titles and senders of the account that left. The shared rules stay.
                     TriggerAlerts.cancelAccount(appContext, accountId)
                     TriggerWordsStore.get(appContext).forgetAccount(accountId)
