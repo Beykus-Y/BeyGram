@@ -137,6 +137,8 @@ import com.beykus.beygram.ui.components.MainTabsHost
 import com.beykus.beygram.ui.components.LocalMainTabTransitionOrigin
 import com.beykus.beygram.ui.components.LocalBackgroundMediaDownload
 import com.beykus.beygram.ui.components.BeyGramDialog
+import com.beykus.beygram.ui.components.BeyGramModalHostProvider
+import com.beykus.beygram.ui.components.rememberBeyGramModalHost
 import com.beykus.beygram.ui.components.beyGramPalette
 import com.beykus.beygram.ui.screens.auth.LoginCodeScreen
 import com.beykus.beygram.ui.screens.auth.LoginPasswordScreen
@@ -3149,7 +3151,11 @@ GlobalSearchScreen(
                         val lastMountedMainTab = MainTab.entries.firstOrNull { it.name == lastMountedMainTabName } ?: MainTab.Chats
                         val keepPhoneTabsMounted = shouldKeepPhoneTabsMounted(currentFrame, phoneTabsVisited)
                         val phoneTabsCovered = keepPhoneTabsMounted && !usesSharedPhoneTabs(currentFrame)
+                        // Modal sheets and dialogs are drawn inside this window so their glass samples the screen
+                        // behind them; a Material sheet or Dialog window cannot read a backdrop recorded here.
+                        val modalHost = rememberBeyGramModalHost()
                         Box(Modifier.fillMaxSize()) {
+                        BeyGramModalHostProvider(host = modalHost) {
                         if (keepPhoneTabsMounted) {
                             PersistentPhoneTabsBackdrop(covered = phoneTabsCovered) {
                                 MainTabsHost(
@@ -3837,6 +3843,7 @@ GlobalSearchScreen(
                     // The shared elements fly above both route contents during a chat ↔ profile flight;
                     // pure draw-phase layers that intercept no touches (#999).
                     ChatProfileTransitionOverlay(chatProfileTransition)
+                    }
                     }
                     }
                     }

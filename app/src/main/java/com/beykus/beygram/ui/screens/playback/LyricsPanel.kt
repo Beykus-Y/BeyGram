@@ -59,7 +59,6 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
-import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.State
@@ -121,6 +120,7 @@ import com.beykus.beygram.domain.music.TrackIdentity
 import com.beykus.beygram.playback.PlaybackEngine
 import kotlinx.coroutines.launch
 import com.beykus.beygram.ui.components.BeyGramSheet
+import com.beykus.beygram.ui.components.rememberBeyGramSheetState
 import com.beykus.beygram.ui.components.TextButton
 import com.beykus.beygram.ui.components.beyGramPalette
 import com.beykus.beygram.ui.design.styledShape
@@ -1355,7 +1355,7 @@ private fun LyricsStyleSheet(
     onDismiss: () -> Unit
 ) {
     val palette = beyGramPalette()
-    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    val sheetState = rememberBeyGramSheetState(skipPartiallyExpanded = true)
     BeyGramSheet(
         onDismissRequest = onDismiss,
         sheetState = sheetState,

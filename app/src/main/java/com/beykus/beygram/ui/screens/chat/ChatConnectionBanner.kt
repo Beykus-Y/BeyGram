@@ -6,6 +6,7 @@ import androidx.compose.animation.ExitTransition
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -37,8 +38,11 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.beykus.beygram.R
+import com.beykus.beygram.ui.design.styledShape
+import com.beykus.beygram.ui.components.noticeIconTint
+import com.beykus.beygram.ui.components.NoticeTone
+import com.beykus.beygram.ui.components.GlassNotice
 import com.beykus.beygram.domain.model.TelegramConnectionState
-import com.beykus.beygram.ui.components.beyGramPalette
 import com.beykus.beygram.ui.motion.MotionToken
 import com.beykus.beygram.ui.motion.fadeEnter
 import com.beykus.beygram.ui.motion.fadeExit
@@ -77,32 +81,30 @@ internal fun ChatConnectionBanner(accountId: String, connection: TelegramConnect
 @Composable
 private fun ConnectionBannerRow(status: ChatsConnectionStatus) {
     if (status == ChatsConnectionStatus.None) return
-    val palette = beyGramPalette()
     // Ожидание сети в чате говорит, что сообщения уйдут после подключения, поэтому текст свой.
     val warning = status == ChatsConnectionStatus.WaitingForNetwork
     val label = stringResource(if (warning) R.string.chat_connection_waiting_network else status.labelResource())
     val spokenLabel = stringResource(R.string.chats_connection_a11y, label)
-    // Ожидание сети — предупреждение; остальные состояния нейтральны и не выглядят как ошибка.
-    val onGlassChrome = LocalChatChromeOnGlass.current
-    val background = when {
-        onGlassChrome && warning -> palette.warningSurface.copy(alpha = 0.65f)
-        onGlassChrome -> Color.Transparent
-        warning -> palette.warningSurface
-        else -> palette.surface2
-    }
-    val color = if (warning) palette.warningText else palette.textSecondary
+    // Ожидание сети — предупреждение; остальные состояния нейтральны и не выглядят как ошибка. The row is its own
+    // notice surface: a real pane of glass next to the composer, a tone wash on the shared plane, the flat strip in
+    // the other styles.
+    val tone = if (warning) NoticeTone.Warning else NoticeTone.Info
+    val color = noticeIconTint(tone)
     val icon = when (status) {
         ChatsConnectionStatus.WaitingForNetwork -> Icons.Rounded.WifiOff
         ChatsConnectionStatus.Connecting -> Icons.Rounded.Schedule
         else -> Icons.Rounded.Refresh
     }
-    Row(
-        Modifier.fillMaxWidth().background(background).semantics(mergeDescendants = true) {
+    GlassNotice(
+        tone = tone,
+        shape = styledShape(0.dp),
+        onGlassPlane = LocalChatChromeOnGlass.current,
+        modifier = Modifier.fillMaxWidth().semantics(mergeDescendants = true) {
             // Строка появляется без действия пользователя: сообщаем её, не уводя фокус с сообщений.
             liveRegion = LiveRegionMode.Polite
             contentDescription = spokenLabel
-        }.padding(horizontal = 16.dp, vertical = 8.dp),
-        verticalAlignment = Alignment.CenterVertically
+        },
+        contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp)
     ) {
         Icon(icon, contentDescription = null, tint = color, modifier = Modifier.size(18.dp))
         Spacer(Modifier.width(8.dp))

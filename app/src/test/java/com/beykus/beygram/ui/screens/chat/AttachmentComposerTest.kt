@@ -31,10 +31,16 @@ class AttachmentComposerTest {
 
     @Test
     fun compactMenuBalancesRowsWithinThePane() {
-        assertEquals(5, attachmentMenuColumns(360f, 1f, 9))
-        assertEquals(3, attachmentMenuColumns(300f, 1f, 9))
-        assertEquals(3, attachmentMenuColumns(360f, 1.5f, 9))
-        assertEquals(9, attachmentMenuColumns(640f, 1f, 9))
+        // A tile needs room for its caption, so the menu is three balanced columns on a phone, five on a wide pane.
+        assertEquals(3, attachmentTileColumns(360f, 1f, 9))
+        assertEquals(3, attachmentTileColumns(300f, 1f, 9))
+        assertEquals(3, attachmentTileColumns(360f, 1.5f, 9))
+        assertEquals(5, attachmentTileColumns(640f, 1f, 9))
+        // A menu that fits on one screen still never turns into a horizontal row of nine.
+        assertTrue(attachmentTileColumns(640f, 1f, 9) <= 6)
+        // Removing an action never leaves a single tile on the last row.
+        assertEquals(4, attachmentTileColumns(360f, 1f, 8))
+        assertEquals(4, attachmentTileColumns(360f, 1f, 7))
     }
 
     @Test

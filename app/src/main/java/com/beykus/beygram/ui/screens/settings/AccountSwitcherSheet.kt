@@ -30,6 +30,7 @@ import com.beykus.beygram.ui.components.BeyGramDialog
 import com.beykus.beygram.ui.components.BeyGramPopover
 import com.beykus.beygram.ui.components.BeyGramPopoverItem
 import com.beykus.beygram.ui.components.BeyGramSheet
+import com.beykus.beygram.ui.components.rememberBeyGramSheetState
 import com.beykus.beygram.ui.components.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -41,7 +42,6 @@ import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import com.beykus.beygram.ui.components.TextButton
-import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -109,7 +109,7 @@ internal fun AccountSwitcherSheet(
     if (!visible) return
     val palette = beyGramPalette()
     val scope = rememberCoroutineScope()
-    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    val sheetState = rememberBeyGramSheetState(skipPartiallyExpanded = true)
 
     LaunchedEffect(sheetState) {
         if (MultiAccountDiagnostics.isVerbose()) {

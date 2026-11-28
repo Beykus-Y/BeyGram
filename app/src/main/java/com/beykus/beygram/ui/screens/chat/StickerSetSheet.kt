@@ -22,7 +22,6 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.Text
 import com.beykus.beygram.ui.components.TextButton
-import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -41,6 +40,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.beykus.beygram.ui.components.BeyGramSheet
+import com.beykus.beygram.ui.components.rememberBeyGramSheetState
 import com.beykus.beygram.R
 import com.beykus.beygram.domain.model.MediaFileState
 import com.beykus.beygram.domain.model.StickerItem
@@ -138,7 +138,7 @@ internal fun StickerSetSheet(
     var premium by remember { mutableStateOf<Boolean?>(null) }
     var notice by remember(setId) { mutableStateOf<String?>(null) }
     val premiumNotice = stringResource(R.string.sticker_picker_premium_locked)
-    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    val sheetState = rememberBeyGramSheetState(skipPartiallyExpanded = true)
 
     LaunchedEffect(setId, retry) {
         if (setId <= 0L) return@LaunchedEffect
