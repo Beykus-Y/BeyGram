@@ -52,6 +52,7 @@ import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.heading
@@ -292,6 +293,7 @@ internal fun HostedSheet(route: SheetRoute) {
 /** Fractions of the window a sheet may take; the rest keeps the screen visible around it. */
 private const val SheetMaxHeightFraction = 0.92f
 private const val SheetScrimAlpha = 0.32f
+private const val DialogMaxHeightFraction = 0.8f
 private const val DismissVelocityPxPerSecond = 1400f
 private const val DismissDistanceFraction = 0.28f
 private val DragHandleBand = 28.dp
@@ -305,8 +307,14 @@ private fun SheetModal(route: SheetRoute) {
     val dismiss = route.dismiss.value
     val state = route.state
     val visible = state.expanded
+    val density = LocalDensity.current
     val screenHeightDp = LocalConfiguration.current.screenHeightDp
-    val maxHeight = (screenHeightDp * SheetMaxHeightFraction).dp
+    // The sheet is bounded by the space that is actually left above the keyboard, not by the window: a tall sheet with
+    // a text field would otherwise push its own top edge off the screen when the IME opens.
+    val screenHeightPx = with(density) { screenHeightDp.dp.toPx() }
+    val imePx = WindowInsets.ime.getBottom(density).toFloat()
+    val availablePx = (screenHeightPx - imePx).coerceAtLeast(screenHeightPx * 0.3f)
+    val maxHeight = with(density) { (availablePx * SheetMaxHeightFraction).toDp() }
     val scope = rememberCoroutineScope()
     val offset = remember { Animatable(0f) }
     var panelHeight by remember { mutableStateOf(0) }
@@ -514,8 +522,12 @@ private fun DialogModal(route: DialogRoute) {
     val design = LocalDesignSystem.current
     val dismiss = route.dismiss.value
     val title = route.title.value
+    val density = LocalDensity.current
     val screenHeightDp = LocalConfiguration.current.screenHeightDp
-    val maxHeight = (screenHeightDp * 0.8f).dp
+    val screenHeightPx = with(density) { screenHeightDp.dp.toPx() }
+    val imePx = WindowInsets.ime.getBottom(density).toFloat()
+    val availablePx = (screenHeightPx - imePx).coerceAtLeast(screenHeightPx * 0.3f)
+    val maxHeight = with(density) { (availablePx * DialogMaxHeightFraction).toDp() }
     BackHandler(enabled = route.backDismiss.value) { dismiss() }
     Box(Modifier.fillMaxSize().zIndex(40f)) {
         Box(

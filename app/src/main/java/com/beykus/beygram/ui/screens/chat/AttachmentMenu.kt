@@ -130,7 +130,7 @@ private const val MAX_ATTACHMENT_COLUMNS = 6
 
 /** The minimum touch target of one action, above the 48dp accessibility floor even before the cell padding. */
 private val ActionTileMinHeight = 60.dp
-private const val PressedWashAlpha = 0.35f
+private const val PressedWashAlpha = 0.08f
 
 /**
  * The attachment menu: one shared compact surface with an icon and a caption per action.
@@ -239,7 +239,7 @@ private fun AttachmentActionTile(
             .heightIn(min = ActionTileMinHeight)
             .motionEntrance(MotionToken.SheetEnter, EntranceRise, delay)
             .clip(shape)
-            .background(palette.textPrimary.copy(alpha = wash * 0.10f))
+            .background(palette.textPrimary.copy(alpha = wash))
             .clickable(
                 enabled = enabled,
                 role = Role.Button,
