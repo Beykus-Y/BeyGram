@@ -1,6 +1,8 @@
 package com.beykus.beygram.ui.screens.chat
 
 import android.app.Application
+import android.view.View
+import android.widget.Magnifier
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
@@ -16,6 +18,7 @@ import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.click
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.semantics.SemanticsActions
 import androidx.compose.ui.text.TextLayoutResult
 import androidx.compose.ui.test.SemanticsMatcher
@@ -50,9 +53,16 @@ import org.junit.runner.RunWith
 import org.robolectric.ParameterizedRobolectricTestRunner
 import org.robolectric.annotation.Config
 import org.robolectric.annotation.GraphicsMode
+import org.robolectric.annotation.Implementation
+import org.robolectric.annotation.Implements
 
 @RunWith(ParameterizedRobolectricTestRunner::class)
-@Config(sdk = [34], qualifiers = "en-rUS-w360dp-h780dp-xhdpi", application = Application::class)
+@Config(
+    sdk = [34],
+    qualifiers = "en-rUS-w360dp-h780dp-xhdpi",
+    application = Application::class,
+    shadows = [ContextGestureMagnifierShadow::class]
+)
 @GraphicsMode(GraphicsMode.Mode.NATIVE)
 class MessageContextGestureTest(private val style: DesignStyle) {
     companion object {
@@ -65,6 +75,9 @@ class MessageContextGestureTest(private val style: DesignStyle) {
 
     private lateinit var quoteLabel: String
     private lateinit var replyLabel: String
+    private lateinit var copyLabel: String
+    private var copiedFragment: String? = null
+    private var popupView: View? = null
     private var quote: SelectedMessageQuote? = null
     private var reaction: ReactionOption? = null
     private val quickReaction = ReactionOption("👍")
@@ -81,6 +94,15 @@ class MessageContextGestureTest(private val style: DesignStyle) {
         editor.performTouchInput { longClick(Offset(9f, center.y)) }
         compose.onNodeWithText(quoteLabel).performTouchInput { click() }
         compose.runOnIdle { assertEquals(SelectedMessageQuote("Repeat", 0), quote) }
+        editor.assertDoesNotExist()
+    }
+
+    @Test fun copyUsesTheSelectedFragment() {
+        render()
+        open()
+        editor.performTouchInput { longClick(Offset(9f, center.y)) }
+        compose.onNodeWithText(copyLabel).performTouchInput { click() }
+        compose.runOnIdle { assertEquals("Repeat", copiedFragment) }
         editor.assertDoesNotExist()
     }
 
@@ -129,10 +151,10 @@ class MessageContextGestureTest(private val style: DesignStyle) {
     }
 
     @Test fun aLongMessageStillExposesSelectableText() {
-        render(tallAnchor = true)
+        render(longMessage = true)
         open()
         editor.assertIsDisplayed()
-        editor.performTouchInput { longClick(Offset(9f, center.y)) }
+        editor.performTouchInput { longClick(Offset(9f, 12f)) }
         compose.onNodeWithText(quoteLabel).assertIsDisplayed()
     }
 
@@ -146,10 +168,13 @@ class MessageContextGestureTest(private val style: DesignStyle) {
 
     private fun open() {
         compose.onNodeWithTag("message-bubble:1").performTouchInput { longClick() }
+        // Robolectric does not deliver a window-focus callback to attached Popup windows.
+        compose.runOnIdle { popupView?.dispatchWindowFocusChanged(true) }
     }
 
-    private fun render(canCopy: Boolean = true, tallAnchor: Boolean = false) {
-        val message = ChatMessage(1, 10, "Repeat repeat repeat", "18:41", isOutgoing = false)
+    private fun render(canCopy: Boolean = true, longMessage: Boolean = false) {
+        val text = if (longMessage) List(80) { "Repeat repeat repeat" }.joinToString("\n") else "Repeat repeat repeat"
+        val message = ChatMessage(1, 10, text, "18:41", isOutgoing = false)
         val file = MutableStateFlow(MediaFileState(id = 1))
         val emoji = MutableStateFlow<CustomEmoji?>(null)
         compose.setContent {
@@ -158,6 +183,7 @@ class MessageContextGestureTest(private val style: DesignStyle) {
             val context = LocalContext.current
             quoteLabel = context.getString(R.string.chat_quote_action)
             replyLabel = context.getString(R.string.message_action_reply)
+            copyLabel = context.getString(R.string.message_action_copy_text)
             val design = remember { designFor(style, GlassQuality.Balanced, NavigationPlacement.Pinned) }
             BeyGramTheme(design = design) {
                 Box(Modifier.fillMaxSize().padding(top = 180.dp)) {
@@ -169,14 +195,12 @@ class MessageContextGestureTest(private val style: DesignStyle) {
                         onReaction = { _, _ -> },
                         observeCustomEmoji = { emoji },
                         onActions = { open = true },
-                        onBubblePositioned = {
-                            val bounds = it.boundsInWindow()
-                            anchor = if (tallAnchor) bounds.copy(bottom = bounds.top + 2000) else bounds
-                        }
+                        onBubblePositioned = { anchor = it.boundsInWindow() }
                     )
                     if (open) MessageContextPopover(
                         anchorBounds = anchor,
                         foreground = { selection ->
+                            popupView = LocalView.current
                             MessageBubble(
                                 message = message,
                                 observeFile = { file },
@@ -191,6 +215,7 @@ class MessageContextGestureTest(private val style: DesignStyle) {
                         },
                         foregroundText = message.text,
                         onQuoteFragment = { quote = it; open = false },
+                        onCopyFragment = { copiedFragment = it; open = false },
                         isOutgoing = false,
                         capabilities = MessageCapabilities(canReply = true, canCopy = canCopy),
                         error = null,
@@ -216,4 +241,20 @@ class MessageContextGestureTest(private val style: DesignStyle) {
             }
         }
     }
+}
+
+// Robolectric lacks the native Surface used by Magnifier's separate window.
+@Implements(Magnifier::class)
+class ContextGestureMagnifierShadow {
+    @Implementation
+    protected fun show(sourceX: Float, sourceY: Float) = Unit
+
+    @Implementation
+    protected fun show(sourceX: Float, sourceY: Float, windowX: Float, windowY: Float) = Unit
+
+    @Implementation
+    protected fun update() = Unit
+
+    @Implementation
+    protected fun dismiss() = Unit
 }
