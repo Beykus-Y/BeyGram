@@ -525,7 +525,7 @@ private fun SharedVoiceRow(
                 SharedRowAction.ShowInChat -> onOpenMessage(message.id)
                 SharedRowAction.Download -> downloadFile(media.fileId)
                 is SharedRowAction.Open -> {
-                    val state = PlaybackEngine.state.value
+                    val state = PlaybackEngine.speechState.value
                     val origin = PlaybackOrigin(chatId, message.id, accountId)
                     // Голосовое отмечаем прослушанным, когда плеер сообщит о старте, как в пузыре чата. Пауза не отмечает.
                     val pausing = state.item?.key == media.playbackKey(accountId, origin) && state.playing

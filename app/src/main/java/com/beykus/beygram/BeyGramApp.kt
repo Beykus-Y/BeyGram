@@ -791,7 +791,7 @@ internal fun BeyGramAppContent(
     }
 
     fun resetAccountScopedState() {
-        PlaybackEngine.stop()
+        PlaybackEngine.stopAll()
         selectedChatId = 0L
         linkReturnChatId = 0L
         threadChannelChatId = 0L
@@ -910,7 +910,7 @@ internal fun BeyGramAppContent(
     // «Показать в чате» из мини-плеера открывает сообщение, из которого запущен файл. Назад из чата: из архива — в архив, из контактов — в контакты, иначе — в список чатов.
     val currentAuthState by rememberUpdatedState(authState)
     // Выход из аккаунта останавливает общий плеер: его файл и «Показать в чате» относятся к прошлой сессии.
-    LaunchedEffect(authState) { if (authState != AuthState.Ready) PlaybackEngine.stop() }
+    LaunchedEffect(authState) { if (authState != AuthState.Ready) PlaybackEngine.stopAll() }
     val readyAccountsForLyricsCleanup = remember { mutableSetOf<String>() }
     LaunchedEffect(selectedAccountId, authState) {
         when (authState) {

@@ -112,6 +112,7 @@ import com.beykus.beygram.data.settings.ChatOverridesStore
 import com.beykus.beygram.data.settings.ForumNavigationMode
 import com.beykus.beygram.data.settings.TranslationSettingsStore
 import com.beykus.beygram.data.settings.translationTargetLanguage
+import com.beykus.beygram.playback.CoexistenceAction
 import com.beykus.beygram.playback.PlaybackEngine
 import com.beykus.beygram.playback.PlaybackItem
 import com.beykus.beygram.playback.PlaybackQueueSource
@@ -790,29 +791,22 @@ fun ChatScreen(
         if (granted) Toast.makeText(context, context.getString(R.string.voice_recorder_permission_granted_retry), Toast.LENGTH_SHORT).show()
         else error = context.getString(R.string.voice_recorder_permission_denied)
     }
-    // Recording takes the microphone, so music pauses for it and continues after the message is sent or cancelled.
-    val recordingInterruptionOwner = remember { Any() }
-    val recordingActive = videoNote.active || audioNote.active
-    LaunchedEffect(recordingActive) {
-        if (recordingActive) {
-            PlaybackEngine.beginRecordingFocus(context)
-        } else {
-            PlaybackEngine.endRecordingFocus(context)
-            PlaybackEngine.endInterruption(recordingInterruptionOwner)
-        }
+    val recordingOwner = remember(chat.id) { Any() }
+    val recordingAction = when {
+        videoNote.active -> CoexistenceAction.RecordVideoNote
+        audioNote.active -> CoexistenceAction.RecordVoice
+        else -> null
     }
-    DisposableEffect(recordingInterruptionOwner) {
-        onDispose {
-            PlaybackEngine.endRecordingFocus(context)
-            PlaybackEngine.endInterruption(recordingInterruptionOwner)
-        }
+    LaunchedEffect(recordingOwner, recordingAction) {
+        PlaybackEngine.updateRecording(context, recordingOwner, recordingAction)
+    }
+    DisposableEffect(recordingOwner) {
+        onDispose { PlaybackEngine.updateRecording(context, recordingOwner, null) }
     }
     fun startRecording() {
         if (videoNote.active || audioNote.active) return
-        // Микрофон записывает и звук из общего плеера, поэтому музыку ставим на паузу, когда запись начинается.
         if (recordingMode == ComposerRecordingMode.Voice) {
             if (androidx.core.content.ContextCompat.checkSelfPermission(context, android.Manifest.permission.RECORD_AUDIO) == android.content.pm.PackageManager.PERMISSION_GRANTED) {
-                PlaybackEngine.beginInterruption(recordingInterruptionOwner)
                 audioNote.press()
             } else {
                 AppLockManager.get(context).expectExternalActivity()
@@ -821,7 +815,6 @@ fun ChatScreen(
         } else if (!VIDEO_NOTE_RECORDING_ENABLED) {
             error = context.getString(R.string.recorder_video_note_unavailable)
         } else if (videoNoteAllowed(context)) {
-            PlaybackEngine.beginInterruption(recordingInterruptionOwner)
             videoNote.press()
         } else {
             AppLockManager.get(context).expectExternalActivity()

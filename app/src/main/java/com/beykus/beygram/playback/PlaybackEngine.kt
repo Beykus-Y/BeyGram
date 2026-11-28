@@ -1,4 +1,4 @@
-﻿package com.beykus.beygram.playback
+package com.beykus.beygram.playback
 
 import android.content.BroadcastReceiver
 import android.content.Context
@@ -378,25 +378,23 @@ object PlaybackEngine {
 
     /** Lowers the volume smoothly, then pauses. The queue and the saved place stay, so the music can continue later. */
     private suspend fun fadeOutAndPause(fadeMs: Long) {
-        val target = exo
-        if (target == null || bgMixActive() || !(_state.value.playing || _state.value.intentPlaying)) {
+        if (!(_state.value.playing || _state.value.intentPlaying)) {
             pause()
             return
         }
-        val original = target.volume
         val steps = (fadeMs / SLEEP_FADE_STEP_MS).toInt().coerceAtLeast(1)
         try {
             for (step in 1..steps) {
-                target.volume = original * (1f - step.toFloat() / steps)
+                sleepGain = 1f - step.toFloat() / steps
+                applyMusicGain()
                 delay(SLEEP_FADE_STEP_MS)
             }
             pause()
         } finally {
-            // A cancelled fade or a finished one both give the volume back, so the next play is not silent.
-            target.volume = original
+            sleepGain = 1f
+            applyMusicGain()
         }
     }
-
     fun cancelSleepTimer() {
         sleepTimerJob?.cancel()
         sleepTimerJob = null
@@ -464,7 +462,6 @@ object PlaybackEngine {
     private val bgMixListeners = mutableSetOf<Player.Listener>()
     /** Session listener -> the copy that drops ExoPlayer events while BG Mix plays. */
     private val bgMixFiltered = mutableMapOf<Player.Listener, Player.Listener>()
-    private var bgFocusRequest: AudioFocusRequest? = null
     private var bgNoisyRegistered = false
     private var bgMixJob: Job? = null
     private var bgMixSeekJob: Job? = null
@@ -516,6 +513,123 @@ object PlaybackEngine {
     private var trailingSkippedKey: String? = null
 
     /** Overlaps the end of a music track with the start of the next one, when the crossfade setting is on. */
+    private val musicEnvelopes = java.util.WeakHashMap<ExoPlayer, Float>()
+    private var coexistenceGain = 1f
+    private var sleepGain = 1f
+    private var systemFocusGain = 1f
+    private var coexistenceTarget = 1f
+    private var gainRamp: Job? = null
+    private var preferencesJob: Job? = null
+    private var coexistenceContext: Context? = null
+    private var actionFocus: AudioFocusRequest? = null
+    private var focusGain = 0
+    private var focusGranted = false
+    private var musicWantsFocus = false
+    private var focusSuspended = false
+    private var resumeMusicOnFocus = false
+    private var resumeSpeechOnFocus: String? = null
+    private var actionFocusGeneration = 0L
+    private val recordingOwners = mutableMapOf<Any, CoexistenceAction>()
+    private var speechAction: CoexistenceAction? = null
+    private val coexistencePauseOwner = Any()
+    private val speech = SpeechPlayback(scope, canPlay = { !focusSuspended && (focusGain == 0 || focusGranted) }) { item ->
+        speechAction = when (item?.kind) {
+            MediaKind.Voice -> CoexistenceAction.PlayVoice
+            MediaKind.VideoNote -> CoexistenceAction.PlayVideoNote
+            else -> null
+        }
+        refreshCoexistence()
+    }
+    val speechState = speech.state
+
+    private fun ensureCoexistence(context: Context) {
+        coexistenceContext = context.applicationContext
+        AudioCoexistenceSettings.load(context)
+        if (preferencesJob != null) return
+        preferencesJob = scope.launch {
+            AudioCoexistenceSettings.state.collect {
+                speech.setGain(it.speechPercent / 100f)
+                refreshCoexistence()
+                applyMusicGain()
+            }
+        }
+    }
+
+    private fun refreshCoexistence() {
+        val preferences = AudioCoexistenceSettings.state.value
+        val policies = (recordingOwners.values + listOfNotNull(speechAction)).map(preferences::policy)
+        if (policies.any { it.music == MusicInterference.Pause }) beginInterruption(coexistencePauseOwner)
+        else endInterruption(coexistencePauseOwner)
+        val external = policies.maxOfOrNull { it.external } ?: ExternalAudioInterference.Continue
+        reconcileFocus(external)
+        val target = policies.minOfOrNull { it.musicAttenuation } ?: 1f
+        if (target == coexistenceTarget) return
+        coexistenceTarget = target
+        gainRamp?.cancel()
+        val from = coexistenceGain
+        val steps = if (target < from) 10 else 16
+        gainRamp = scope.launch {
+            for (step in 1..steps) {
+                delay(20)
+                coexistenceGain = from + (target - from) * step / steps
+                applyMusicGain()
+            }
+        }
+    }
+
+    internal fun updateRecording(context: Context, owner: Any, action: CoexistenceAction?) {
+        ensureCoexistence(context)
+        if (action == null) recordingOwners.remove(owner)
+        else {
+            recordingOwners[owner] = action
+            if (speechState.value.intentPlaying) speechState.value.item?.key?.let(speech::toggle)
+        }
+        refreshCoexistence()
+    }
+
+    private fun musicGain(): Float =
+        AudioCoexistenceSettings.state.value.musicPercent / 100f * coexistenceGain * sleepGain * systemFocusGain
+
+    private var bgEnvelope = 1f
+
+    private fun applyMusicGain() {
+        for ((renderer, envelope) in musicEnvelopes) renderer.volume = envelope * musicGain()
+        bgMix?.let(::applyBgGain)
+    }
+
+    private fun applyBgGain(driver: BgMixQueueDriver) {
+        driver.setVolume(bgEnvelope * musicGain())
+    }
+
+    private fun setMusicEnvelope(renderer: ExoPlayer, envelope: Float) {
+        musicEnvelopes[renderer] = envelope
+        renderer.volume = envelope * musicGain()
+    }
+
+    private fun startSpeech(context: Context, item: PlaybackItem, positionMs: Long, onStarted: (() -> Unit)?) {
+        ensureCoexistence(context)
+        if (activeAccountId != null && item.accountId != activeAccountId) return
+        if (recordingOwners.isNotEmpty()) return
+        val media = mediaItemFor(item)
+        speech.start(context, item, media, positionMs, _state.value.voiceSpeed, onStarted) {
+            PlaybackSources.register(item.systemMediaId, PlaybackSourceHandle(item, null))
+        }
+    }
+
+    internal fun toggleSpeech(key: String): Boolean {
+        if (recordingOwners.isNotEmpty()) return false
+        resumeSpeechOnFocus = null
+        return speech.toggle(key)
+    }
+    internal fun seekSpeech(key: String, positionMs: Long) = speech.seek(key, positionMs)
+    internal fun attachSpeechVideo(key: String, owner: Any, view: TextureView) = speech.attach(key, owner, view)
+    internal fun detachSpeechVideo(owner: Any) = speech.detach(owner)
+    internal fun stopPrivateSpeech(key: String) {
+        if (speechState.value.item?.let { it.key == key && it.systemPrivate } == true) speech.stop()
+    }
+
+    private fun PlaybackItem.isSpeech(): Boolean = kind == MediaKind.Voice || kind == MediaKind.VideoNote
+
     private val crossfader = TrackCrossfader(
         scope = scope,
         enabled = { TrackTransitionSettings.crossfade.value },
@@ -524,6 +638,11 @@ object PlaybackEngine {
         trailingMs = { mediaId -> crossfadeTrailingMs(mediaId) },
         nextAfter = { primary, mediaId -> crossfadeNextAfter(primary, mediaId) },
         overlapMs = { TrackTransitionSettings.crossfadeSeconds.value * 1_000L },
+        setEnvelope = ::setMusicEnvelope,
+        releaseTail = {
+            musicEnvelopes.remove(it)
+            it.release()
+        },
     )
 
     /**
@@ -561,7 +680,7 @@ object PlaybackEngine {
         if (!sameSource && index == target.currentMediaItemIndex) {
             // A genuinely different source for the playing item is reopened at the same position.
             target.seekTo(position)
-            if (wasPlaying) target.play()
+            if (wasPlaying) playPrimary(target)
         }
     }
 
@@ -576,18 +695,20 @@ object PlaybackEngine {
     /** Единственный ExoPlayer процесса. Создаётся на главном потоке при первом обращении. */
     @OptIn(UnstableApi::class)
     private fun createPlayer(context: Context): Player {
+        ensureCoexistence(context)
         val created = ExoPlayer.Builder(context.applicationContext)
             .setRenderersFactory(BgWaveRenderersFactory(context.applicationContext))
             .setMediaSourceFactory(DefaultMediaSourceFactory(PlaybackDataSourceFactory(context.applicationContext)))
             .setAudioAttributes(
                 AudioAttributes.Builder().setUsage(C.USAGE_MEDIA).setContentType(C.AUDIO_CONTENT_TYPE_MUSIC).build(),
-                /* handleAudioFocus = */ true
+                /* handleAudioFocus = */ false
             )
             .setHandleAudioBecomingNoisy(true)
             // Keeps the CPU and Wi-Fi awake while a track plays or loads, so a locked screen cannot stall the queue.
             .setWakeMode(C.WAKE_MODE_NETWORK)
             .build()
             .also {
+                setMusicEnvelope(it, 1f)
                 it.addListener(listener)
                 it.repeatMode = _state.value.repeatMode.toPlayerRepeatMode()
                 it.shuffleModeEnabled = _state.value.shuffleEnabled
@@ -622,11 +743,13 @@ object PlaybackEngine {
                 // Повтор доигравшего файла снимает отметку конца сразу, чтобы возврат музыки не сработал до первого события плеера.
                 _state.update { it.copy(ended = false, failed = false, intentPlaying = true) }
                 if (_state.value.item?.systemPrivate != true) startPlaybackService()
-                super.play()
+                if (requestPrimaryFocus()) super.play()
                 prefetchNext()
             }
 
             override fun pause() {
+                invalidateInterruptionResume()
+                releasePrimaryFocus()
                 if (bgMixActive()) {
                     pauseBgMix()
                     return
@@ -927,6 +1050,13 @@ object PlaybackEngine {
         onStarted: (() -> Unit)?,
         startPositionMs: Long? = null
     ) {
+        if (item.isSpeech()) {
+            if (speechState.value.item?.key == item.key && startPositionMs != null) {
+                speech.seek(item.key, startPositionMs)
+            }
+            if (!toggleSpeech(item.key)) startSpeech(context, item, startPositionMs ?: 0L, onStarted)
+            return
+        }
         YandexTrackResolver.ensureConfigured(context)
         if (onStarted != null) startedCallback = item.key to onStarted
         val currentState = _state.value
@@ -1043,6 +1173,7 @@ object PlaybackEngine {
     /** Приложение ушло в фон или вернулось на передний план. Отметка, которую файл начал в фоне, уходит на возврате. */
     fun setForeground(active: Boolean) {
         foreground = active
+        speech.setForeground(active)
         if (active) fireStartedCallback()
     }
 
@@ -1054,6 +1185,10 @@ object PlaybackEngine {
         if (accountId.isBlank()) return
         val previous = activeAccountId
         activeAccountId = accountId
+        if (speechState.value.item?.accountId?.let { it != accountId } == true) {
+            interruption = null
+            speech.stop()
+        }
         if (previous == null || previous == accountId) return
         val item = _state.value.item ?: return
         if (item.accountId != accountId) stop()
@@ -1070,6 +1205,10 @@ object PlaybackEngine {
         onStarted: (() -> Unit)? = null,
         startPositionMs: Long? = null
     ) {
+        if (item.isSpeech()) {
+            startSpeech(context, item, startPositionMs ?: (startFraction * item.durationSeconds * 1000).toLong(), onStarted)
+            return
+        }
         if (onStarted != null) startedCallback = item.key to onStarted
         val current = _state.value
         val waiting = interruptedMusic
@@ -1124,7 +1263,7 @@ object PlaybackEngine {
         _queuePageLoading.value = false
         prefetchedKeys.clear()
 
-        PlaybackSources.clear()
+        PlaybackSources.clearExcept(speechState.value.item?.systemMediaId)
         queue.items.forEach { registerSource(it, source) }
         val item = resolvedItem(selected)
         val resolvedQueue = queue.items.map { if (it.key == item.key) item else it }
@@ -1169,7 +1308,7 @@ object PlaybackEngine {
             return
         }
         pendingStartFraction = if (startPositionMs == null) startFraction.coerceIn(0f, 1f) else 0f
-        target.play()
+        playPrimary(target)
         if (!item.systemPrivate) startPlaybackService()
         startProgress()
         prefetchNext()
@@ -1194,7 +1333,7 @@ object PlaybackEngine {
         startedCallback = startedCallback?.takeIf { it.first == item.key }
         prefetchedKeys.clear()
 
-        PlaybackSources.clear()
+        PlaybackSources.clearExcept(speechState.value.item?.systemMediaId)
         registerSource(item, queueSource)
         val resolved = resolvedItem(item)
         val requestedStart = (startPositionMs ?: 0L).coerceAtLeast(0L)
@@ -1228,7 +1367,7 @@ object PlaybackEngine {
             return
         }
         pendingStartFraction = if (startPositionMs == null) startFraction.coerceIn(0f, 1f) else 0f
-        target.play()
+        playPrimary(target)
         if (resolved.systemPrivate) stopPlaybackService() else startPlaybackService()
         startProgress()
     }
@@ -1432,7 +1571,7 @@ object PlaybackEngine {
                 .setUsage(C.USAGE_MEDIA)
                 .setContentType(if (speech) C.AUDIO_CONTENT_TYPE_SPEECH else C.AUDIO_CONTENT_TYPE_MUSIC)
                 .build(),
-            /* handleAudioFocus = */ true
+            /* handleAudioFocus = */ false
         )
     }
 
@@ -1514,14 +1653,14 @@ object PlaybackEngine {
             }
         }
         val target = rawPlayer(appContext ?: return)
-        PlaybackSources.clear()
+        PlaybackSources.clearExcept(speechState.value.item?.systemMediaId)
         registerSource(completed, queueSource)
         target.setMediaItems(listOf(mediaItemFor(completed)), 0, positionMs)
         applyPlayerModes(target, music = completed.isMusic)
         applySpeed(target, completed)
         target.prepare()
         if (resume) {
-            target.play()
+            playPrimary(target)
             if (completed.systemPrivate) stopPlaybackService() else startPlaybackService()
             startProgress()
         } else {
@@ -1559,7 +1698,7 @@ object PlaybackEngine {
         clearDeferredSeek()
         pendingStartFraction = 0f
         prefetchedKeys.clear()
-        PlaybackSources.clear()
+        PlaybackSources.clearExcept(speechState.value.item?.systemMediaId)
         queue.forEach { registerSource(it, queueSource) }
         val item = resolvedItem(queue[index])
         val resolvedQueue = queue.map { if (it.key == item.key) item else it }
@@ -1576,7 +1715,7 @@ object PlaybackEngine {
             deferredSeek = DeferredGrowingSeek(item.key, requestedStart, resume = play)
             startDeferredSeekWatcher()
         } else if (play) {
-            target.play()
+            playPrimary(target)
             if (item.systemPrivate) stopPlaybackService() else startPlaybackService()
             startProgress()
         } else {
@@ -1654,7 +1793,7 @@ object PlaybackEngine {
         // intentPlaying=true; calling togglePlayPause() here would pause it instead of letting it continue.
         _state.update { it.copy(failed = false, intentPlaying = true) }
         if (_state.value.item?.systemPrivate != true) startPlaybackService()
-        target.play()
+        playPrimary(target)
         prefetchNext()
     }
 
@@ -1684,7 +1823,7 @@ object PlaybackEngine {
             }
             _state.update { it.copy(failed = false, intentPlaying = true) }
             if (_state.value.item?.systemPrivate != true) startPlaybackService()
-            target.play()
+            playPrimary(target)
             prefetchNext()
             return
         }
@@ -1695,13 +1834,19 @@ object PlaybackEngine {
         }
         _state.update { it.copy(failed = false, ended = false, intentPlaying = true) }
         if (_state.value.item?.systemPrivate != true) startPlaybackService()
-        target.play()
+        playPrimary(target)
         prefetchNext()
         loadNextQueuePage()
     }
 
     /** Пауза без сброса файла: так голосовое или кружок могут остановить музыку, не теряя её места. Состояние меняем сразу: если файл ещё буферизуется, плеер не пришлёт событие о паузе. */
     fun pause() {
+        invalidateInterruptionResume()
+        releasePrimaryFocus()
+        pauseMusicForInterruption()
+    }
+
+    private fun pauseMusicForInterruption() {
         endlessWaitingForRecovery = false
         endlessRecovery = null
         if (bgMixActive()) {
@@ -1717,12 +1862,16 @@ object PlaybackEngine {
 
     private class Interruption(
         val owners: MutableSet<Any>,
-        val wasPlaying: Boolean,
+        var wasPlaying: Boolean,
         val startedAt: Long,
-        val itemKey: String?
+        var itemKey: String?
     )
 
     private var interruption: Interruption? = null
+
+    private fun invalidateInterruptionResume() {
+        interruption?.wasPlaying = false
+    }
 
     /**
      * A video, a story with sound or a recording needs the speakers or the microphone for a while. Music that was
@@ -1741,7 +1890,7 @@ object PlaybackEngine {
         val music = item != null && item.isMusic && !item.systemPrivate
         val wasPlaying = music && (state.playing || state.intentPlaying) && !state.waitingForNetwork
         interruption = Interruption(mutableSetOf(owner), wasPlaying, now, item?.key)
-        if (wasPlaying) pause()
+        if (wasPlaying) pauseMusicForInterruption()
     }
 
     fun endInterruption(owner: Any) {
@@ -1752,53 +1901,158 @@ object PlaybackEngine {
         val state = _state.value
         val longBreak = SystemClock.elapsedRealtime() - current.startedAt > INTERRUPTION_RESUME_LIMIT_MS
         if (longBreak || state.item?.key != current.itemKey || state.intentPlaying || state.playing) return
+        if (bgMixActive()) {
+            bgMixPlay()
+            return
+        }
         val target = exo ?: return
         // The music returns with a short fade-in, so it does not hit the ears at full volume.
-        val original = target.volume
-        target.volume = 0f
+        val original = musicEnvelopes[target] ?: 1f
+        setMusicEnvelope(target, 0f)
         controls?.play()
         scope.launch {
             try {
                 val steps = INTERRUPTION_FADE_IN_MS / SLEEP_FADE_STEP_MS
                 for (step in 1..steps) {
-                    target.volume = original * step.toFloat() / steps
+                    setMusicEnvelope(target, original * step.toFloat() / steps)
                     delay(SLEEP_FADE_STEP_MS)
                 }
             } finally {
-                target.volume = original
+                setMusicEnvelope(target, original)
             }
         }
     }
 
-    private var recordingFocus: AudioFocusRequest? = null
-
-    /**
-     * While a voice message or a video note is recorded, other apps are asked to stop their sound for a moment, so music
-     * from elsewhere does not end up in the recording. [endRecordingFocus] gives the focus back.
-     */
-    fun beginRecordingFocus(context: Context) {
-        if (recordingFocus != null) return
-        val audio = context.applicationContext.getSystemService(AudioManager::class.java) ?: return
-        val request = AudioFocusRequest.Builder(AudioManager.AUDIOFOCUS_GAIN_TRANSIENT_EXCLUSIVE)
+    private fun reconcileFocus(
+        mode: ExternalAudioInterference = (recordingOwners.values + listOfNotNull(speechAction))
+            .maxOfOrNull { AudioCoexistenceSettings.state.value.policy(it).external }
+            ?: ExternalAudioInterference.Continue,
+    ): Boolean {
+        val audio = coexistenceContext?.getSystemService(AudioManager::class.java) ?: return false
+        val gain = when {
+            musicWantsFocus -> AudioManager.AUDIOFOCUS_GAIN
+            mode == ExternalAudioInterference.Pause -> AudioManager.AUDIOFOCUS_GAIN_TRANSIENT
+            mode == ExternalAudioInterference.Duck -> AudioManager.AUDIOFOCUS_GAIN_TRANSIENT_MAY_DUCK
+            else -> 0
+        }
+        if (focusSuspended) {
+            if (resumeMusicOnFocus || resumeSpeechOnFocus != null || gain != 0) return false
+            focusSuspended = false
+        }
+        if (gain == focusGain && (gain == 0 || focusGranted)) return true
+        val generation = ++actionFocusGeneration
+        actionFocus?.let(audio::abandonAudioFocusRequest)
+        actionFocus = null
+        focusGain = gain
+        focusGranted = false
+        systemFocusGain = 1f
+        applyMusicGain()
+        if (gain == 0) return true
+        val request = AudioFocusRequest.Builder(gain)
             .setAudioAttributes(
                 android.media.AudioAttributes.Builder()
-                    .setUsage(android.media.AudioAttributes.USAGE_VOICE_COMMUNICATION)
-                    .setContentType(android.media.AudioAttributes.CONTENT_TYPE_SPEECH)
+                    .setUsage(android.media.AudioAttributes.USAGE_MEDIA)
+                    .setContentType(
+                        if (musicWantsFocus) android.media.AudioAttributes.CONTENT_TYPE_MUSIC
+                        else android.media.AudioAttributes.CONTENT_TYPE_SPEECH
+                    )
                     .build()
             )
-            .setOnAudioFocusChangeListener { }
+            .setOnAudioFocusChangeListener({ change ->
+                if (generation == actionFocusGeneration) onAudioFocusChanged(change)
+            }, android.os.Handler(android.os.Looper.getMainLooper()))
             .build()
-        if (audio.requestAudioFocus(request) == AudioManager.AUDIOFOCUS_REQUEST_GRANTED) recordingFocus = request
+        focusGranted = audio.requestAudioFocus(request) == AudioManager.AUDIOFOCUS_REQUEST_GRANTED
+        if (focusGranted) actionFocus = request
+        return focusGranted
     }
 
-    fun endRecordingFocus(context: Context) {
-        val request = recordingFocus ?: return
-        recordingFocus = null
-        context.applicationContext.getSystemService(AudioManager::class.java)?.abandonAudioFocusRequest(request)
+    private fun onAudioFocusChanged(change: Int) {
+        when (change) {
+            AudioManager.AUDIOFOCUS_GAIN -> {
+                focusGranted = true
+                focusSuspended = false
+                systemFocusGain = 1f
+                applyMusicGain()
+                val restoreMusic = resumeMusicOnFocus
+                val restoreSpeech = resumeSpeechOnFocus
+                resumeMusicOnFocus = false
+                resumeSpeechOnFocus = null
+                if (restoreSpeech != null && recordingOwners.isEmpty()) speech.toggle(restoreSpeech)
+                if (restoreMusic) {
+                    if (bgMixActive()) bgMixPlay() else controls?.play()
+                }
+                reconcileFocus()
+            }
+            AudioManager.AUDIOFOCUS_LOSS_TRANSIENT_CAN_DUCK -> {
+                // On Android versions that apply automatic ducking this callback is suppressed.
+                systemFocusGain = BG_DUCK_VOLUME
+                applyMusicGain()
+            }
+            AudioManager.AUDIOFOCUS_LOSS_TRANSIENT, AudioManager.AUDIOFOCUS_LOSS -> {
+                val transient = change == AudioManager.AUDIOFOCUS_LOSS_TRANSIENT
+                focusGranted = false
+                focusSuspended = true
+                resumeMusicOnFocus = transient && (musicWantsFocus || interruption?.wasPlaying == true)
+                resumeSpeechOnFocus = speechState.value.item?.key?.takeIf {
+                    transient && speechState.value.intentPlaying
+                }
+                invalidateInterruptionResume()
+                musicWantsFocus = false
+                if (bgMixHandoverFading) {
+                    stopBgMix()
+                    exo?.let { setMusicEnvelope(it, 1f) }
+                }
+                pauseMusicForInterruption()
+                speech.pause()
+                if (!transient) {
+                    actionFocusGeneration++
+                    actionFocus?.let { request ->
+                        coexistenceContext?.getSystemService(AudioManager::class.java)?.abandonAudioFocusRequest(request)
+                    }
+                    actionFocus = null
+                    focusGain = 0
+                    focusSuspended = false
+                }
+            }
+        }
     }
 
+    private fun requestPrimaryFocus(): Boolean {
+        val blocked = interruption?.takeIf { coexistencePauseOwner in it.owners }
+        if (blocked != null) {
+            blocked.wasPlaying = true
+            blocked.itemKey = _state.value.item?.key
+            _state.update { it.copy(playing = false, intentPlaying = false) }
+            return false
+        }
+        musicWantsFocus = true
+        if (reconcileFocus()) return true
+        musicWantsFocus = false
+        _state.update { it.copy(playing = false, intentPlaying = false) }
+        return false
+    }
+
+    private fun playPrimary(target: ExoPlayer) {
+        if (requestPrimaryFocus()) target.play()
+    }
+
+    private fun releasePrimaryFocus() {
+        musicWantsFocus = false
+        resumeMusicOnFocus = false
+        reconcileFocus()
+    }
     /** Account the shared player is bound to. Profile music uses it to hide "add to profile" for another account's tracks. */
     fun activeAccount(): String? = activeAccountId
+
+    fun stopAll() {
+        recordingOwners.clear()
+        resumeSpeechOnFocus = null
+        resumeMusicOnFocus = false
+        interruption = null
+        speech.stop()
+        stop()
+    }
 
     /** Explicit user stop: closes the session, clears the queue and removes the notification. */
     fun stop() {
@@ -1988,45 +2242,6 @@ object PlaybackEngine {
     }
 
     /** Pauses BG Mix when another app takes audio focus or the output becomes noisy (headphones unplugged). */
-    /** True while BG Mix is paused only because another app took focus for a moment, so it may resume on its own. */
-    private var bgResumeOnFocusGain = false
-
-    /** True while a short sound asked BG Mix to duck; the level is restored with the focus. */
-    private var bgDucked = false
-
-    private val bgFocusListener = AudioManager.OnAudioFocusChangeListener { change ->
-        if (!bgMixActive()) return@OnAudioFocusChangeListener
-        when (change) {
-            AudioManager.AUDIOFOCUS_LOSS -> {
-                bgResumeOnFocusGain = false
-                pauseBgMix()
-            }
-            // A navigator prompt asks to duck: the output is lowered and restored when the focus returns.
-            AudioManager.AUDIOFOCUS_LOSS_TRANSIENT_CAN_DUCK -> {
-                bgMix?.setVolume(BG_DUCK_VOLUME)
-                bgDucked = true
-            }
-            // A call or another short sound pauses the music and it returns when the focus does.
-            AudioManager.AUDIOFOCUS_LOSS_TRANSIENT -> {
-                val playing = _state.value.intentPlaying && !_state.value.ended
-                if (playing) {
-                    pauseBgMix()
-                    bgResumeOnFocusGain = true
-                }
-            }
-            AudioManager.AUDIOFOCUS_GAIN -> {
-                if (bgDucked) {
-                    bgDucked = false
-                    bgMix?.setVolume(1f)
-                }
-                if (bgResumeOnFocusGain) {
-                    bgResumeOnFocusGain = false
-                    bgMixPlay()
-                }
-            }
-        }
-    }
-
     private var bgWakeLock: PowerManager.WakeLock? = null
 
     /** BG Mix has its own output thread, so it holds the CPU awake while it plays; the regular player does it by itself. */
@@ -2048,48 +2263,22 @@ object PlaybackEngine {
 
     private val bgNoisyReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context, intent: Intent) {
-            if (bgMixActive()) pauseBgMix()
+            if (bgMixActive()) pause()
         }
     }
 
-    /** Requests audio focus and the becoming-noisy receiver. Returns true when focus was granted. */
-    private fun requestBgFocus(context: Context): Boolean {
-        var granted = false
-        val audio = context.getSystemService(AudioManager::class.java)
-        if (audio != null) {
-            // One request serves the whole session; asking again with the same object refreshes the focus
-            // instead of leaving the previous request behind.
-            val request = bgFocusRequest ?: AudioFocusRequest.Builder(AudioManager.AUDIOFOCUS_GAIN)
-                .setAudioAttributes(
-                    android.media.AudioAttributes.Builder()
-                        .setUsage(android.media.AudioAttributes.USAGE_MEDIA)
-                        .setContentType(android.media.AudioAttributes.CONTENT_TYPE_MUSIC)
-                        .build()
-                )
-                .setOnAudioFocusChangeListener(bgFocusListener)
-                .build()
-            granted = audio.requestAudioFocus(request) == AudioManager.AUDIOFOCUS_REQUEST_GRANTED
-            if (granted) bgFocusRequest = request
-        }
-        if (!bgNoisyRegistered) {
-            ContextCompat.registerReceiver(
-                context.applicationContext,
-                bgNoisyReceiver,
-                IntentFilter(AudioManager.ACTION_AUDIO_BECOMING_NOISY),
-                ContextCompat.RECEIVER_NOT_EXPORTED
-            )
-            bgNoisyRegistered = true
-        }
-        return granted
+    private fun registerBgNoisyReceiver(context: Context) {
+        if (bgNoisyRegistered) return
+        ContextCompat.registerReceiver(
+            context.applicationContext,
+            bgNoisyReceiver,
+            IntentFilter(AudioManager.ACTION_AUDIO_BECOMING_NOISY),
+            ContextCompat.RECEIVER_NOT_EXPORTED,
+        )
+        bgNoisyRegistered = true
     }
-
-    private fun releaseBgFocus() {
+    private fun unregisterBgNoisyReceiver() {
         val context = appContext
-        val request = bgFocusRequest
-        bgFocusRequest = null
-        if (context != null && request != null) {
-            context.getSystemService(AudioManager::class.java)?.abandonAudioFocusRequest(request)
-        }
         if (context != null && bgNoisyRegistered) {
             runCatching { context.unregisterReceiver(bgNoisyReceiver) }
             bgNoisyRegistered = false
@@ -2137,12 +2326,10 @@ object PlaybackEngine {
             crossfader.cancel(it)
             it.stop()
             // The handover took ExoPlayer's level down; it comes back for its next playback.
-            it.volume = 1f
+            setMusicEnvelope(it, 1f)
             it.clearMediaItems()
             // A paused placeholder keeps the session's current item (title, duration) and notification alive.
             it.playWhenReady = false
-            // Focus handling returns only after the pause: while ExoPlayer still asks to play, it takes the focus from BG Mix.
-            setExoFocusHandling(it, handle = true)
             it.setMediaItem(placeholderItem(item))
             it.prepare()
         }
@@ -2484,30 +2671,27 @@ object PlaybackEngine {
             driver.discardStaged()
             return false
         }
-        // ExoPlayer must not pause for the focus change that BG Mix causes: the crossfade takes its level down instead.
-        setExoFocusHandling(target, handle = false)
-        if (!stillPreparing() || !requestBgFocus(context)) {
-            setExoFocusHandling(target, handle = true)
+        if (!stillPreparing() || !requestPrimaryFocus()) {
             driver.discardStaged()
             return false
         }
+        registerBgNoisyReceiver(context)
         // An overlap that already moves the primary's level keeps both players of this occurrence: cancelling it here
         // would cut the outgoing tail audibly, and two owners would write the same gain. The next track is worth
         // handing over instead; the queue is not lost, BG Mix is offered it again.
         if (crossfader.isOverlapping()) {
             Log.i("BgMixHandover", "handover_deferred stage=crossfade")
-            releaseBgFocus()
-            setExoFocusHandling(target, handle = true)
+            unregisterBgNoisyReceiver()
             driver.discardStaged()
             return null
         }
         // From here the ordinary crossfade must not write any gain: the handover owns the primary level.
         bgMixHandoverFading = true
+        bgEnvelope = 0f
         if (!driver.commitStaged()) {
             bgMixHandoverFading = false
             driver.discardStaged()
-            releaseBgFocus()
-            setExoFocusHandling(target, handle = true)
+            unregisterBgNoisyReceiver()
             return false
         }
         // Suppress ExoPlayer's tap before attaching BG Mix's tap so both never push PCM simultaneously.
@@ -2538,8 +2722,7 @@ object PlaybackEngine {
                     val occurrenceChanged = !sameOccurrence()
                     stopBgMix()
                     if (exo === target) {
-                        target.volume = 1f
-                        setExoFocusHandling(target, handle = true)
+                        setMusicEnvelope(target, 1f)
                         if (occurrenceChanged) {
                             listener.onMediaItemTransition(target.currentMediaItem, Player.MEDIA_ITEM_TRANSITION_REASON_AUTO)
                         }
@@ -2587,19 +2770,21 @@ object PlaybackEngine {
      * Hands the sound from ExoPlayer to BG Mix over [BG_HANDOVER_FADE_MS], while both play the same occurrence.
      */
     private suspend fun crossfadeIntoBgMix(target: ExoPlayer, driver: BgMixQueueDriver, stillOwnsFade: () -> Boolean): Boolean {
-        val from = target.volume
+        val from = musicEnvelopes[target] ?: 1f
         val quarterTurn = (kotlin.math.PI / 2).toFloat()
         val step = BG_HANDOVER_FADE_MS / BG_HANDOVER_FADE_STEPS
         for (n in 1..BG_HANDOVER_FADE_STEPS) {
             if (!stillOwnsFade()) return false
             val t = n.toFloat() / BG_HANDOVER_FADE_STEPS
-            target.volume = from * kotlin.math.cos(t * quarterTurn).toFloat()
-            driver.setVolume(kotlin.math.sin(t * quarterTurn).toFloat())
+            setMusicEnvelope(target, from * kotlin.math.cos(t * quarterTurn).toFloat())
+            bgEnvelope = kotlin.math.sin(t * quarterTurn).toFloat()
+            applyBgGain(driver)
             delay(step)
         }
         if (!stillOwnsFade()) return false
-        target.volume = 0f
-        driver.setVolume(1f)
+        setMusicEnvelope(target, 0f)
+        bgEnvelope = 1f
+        applyBgGain(driver)
         return true
     }
 
@@ -2651,16 +2836,6 @@ object PlaybackEngine {
         }
 
     /** Switches ExoPlayer's own audio-focus handling; the audio kind it plays with is kept. */
-    private fun setExoFocusHandling(target: ExoPlayer, handle: Boolean) {
-        target.setAudioAttributes(
-            AudioAttributes.Builder()
-                .setUsage(C.USAGE_MEDIA)
-                .setContentType(if (speechAttributes == true) C.AUDIO_CONTENT_TYPE_SPEECH else C.AUDIO_CONTENT_TYPE_MUSIC)
-                .build(),
-            handle
-        )
-    }
-
     /** The queue in ExoPlayer's shuffle order from [currentIndex] on; with Repeat All, the tracks before it follow. */
     private fun bgMixShuffleOrder(items: List<PlaybackItem>, currentIndex: Int, repeat: PlaybackRepeatMode): List<PlaybackItem> {
         val order = exo?.let { target -> runCatching { target.shuffleOrder.toIndexOrder() }.getOrNull() }
@@ -2850,7 +3025,8 @@ object PlaybackEngine {
             return
         }
         if (reportFinished && !before.ended) {
-            releaseBgFocus()
+            unregisterBgNoisyReceiver()
+            releasePrimaryFocus()
             releaseBgWakeLock()
         }
         notifyChanges(before, _state.value)
@@ -2891,8 +3067,10 @@ object PlaybackEngine {
             return
         }
         val context = appContext
-        if (context != null && !requestBgFocus(context)) return
+        if (context == null || !requestPrimaryFocus()) return
+        registerBgNoisyReceiver(context)
         val before = _state.value
+        bgMix?.let(::applyBgGain)
         bgMix?.resume()
         holdBgWakeLock()
         _state.update { it.copy(intentPlaying = true, ended = false) }
@@ -2901,8 +3079,6 @@ object PlaybackEngine {
     }
 
     private fun pauseBgMix() {
-        // Any pause but the focus listener's transient one is final: a later focus gain must not restart playback.
-        bgResumeOnFocusGain = false
         endlessWaitingForRecovery = false
         endlessRecovery = null
         val before = _state.value
@@ -2928,11 +3104,10 @@ object PlaybackEngine {
         bgMix?.attachWaveTap(0L)
         BgWaveHostTap.exoSuppressedForBgMix = false
         bgMix?.stop()
+        bgEnvelope = 1f
         _bgMixTransition.value = null
-        releaseBgFocus()
+        unregisterBgNoisyReceiver()
         releaseBgWakeLock()
-        bgResumeOnFocusGain = false
-        bgDucked = false
         if (wasActive && (before.playing || before.intentPlaying)) {
             notifyChanges(before, before.copy(playing = false, intentPlaying = false))
         }
@@ -2964,6 +3139,7 @@ object PlaybackEngine {
     }
 
     private fun haltPlayer() {
+        releasePrimaryFocus()
         stopBgMix()
         endlessRecovery = null
         endlessWaitingForRecovery = false
@@ -2979,7 +3155,7 @@ object PlaybackEngine {
         prefetchPolicyJob?.cancel()
         prefetchPolicyJob = null
         prefetchPolicyAccount = null
-        PlaybackSources.clear()
+        PlaybackSources.clearExcept(speechState.value.item?.systemMediaId)
         exo?.let {
             crossfader.cancel(it)
             it.stop()
@@ -2999,6 +3175,7 @@ object PlaybackEngine {
 
     /** Останавливает секретный/view-once файл или медиа из секретного чата, когда пользователь ушёл из чата или свернул приложение. Остальные файлы играют дальше. */
     fun stopSecret() {
+        if (speechState.value.item?.systemPrivate == true) speech.stop()
         if (_state.value.item?.systemPrivate != true) return
         val music = interruptedMusic
         val context = appContext
@@ -3072,7 +3249,7 @@ object PlaybackEngine {
         if (wasPlaying) {
             if (target.playbackState == Player.STATE_IDLE) target.prepare()
             if (state.item?.systemPrivate != true) startPlaybackService()
-            target.play()
+            playPrimary(target)
             startProgress()
         }
         loadNextQueuePage()
@@ -3094,6 +3271,8 @@ object PlaybackEngine {
             // A prepared row switches in the native session at once, without a crossfade. An explicit row pick plays,
             // as it always did, so play is requested after the switch. Otherwise the regular player takes over below.
             if (index in _state.value.queue.indices && bgMix?.manualSelect(index) == true) {
+                if (!requestPrimaryFocus()) return
+                bgMix?.let(::applyBgGain)
                 bgMix?.resume()
                 _state.update { it.copy(ended = false, failed = false, intentPlaying = true) }
                 return
@@ -3116,7 +3295,7 @@ object PlaybackEngine {
         _state.update { it.copy(ended = false, failed = false, intentPlaying = true) }
         target.seekTo(index, 0L)
         if (target.playbackState == Player.STATE_IDLE || target.playbackState == Player.STATE_ENDED) target.prepare()
-        target.play()
+        playPrimary(target)
         startPlaybackService()
         startProgress()
         prefetchNext()
@@ -3163,7 +3342,7 @@ object PlaybackEngine {
             if (resume) {
                 if (target.playbackState == Player.STATE_IDLE) target.prepare()
                 if (state.item?.systemPrivate != true) startPlaybackService()
-                target.play()
+                playPrimary(target)
                 startProgress()
             }
             _state.update {
@@ -3208,7 +3387,7 @@ object PlaybackEngine {
         if (wasPlaying) {
             if (target.playbackState == Player.STATE_IDLE) target.prepare()
             if (state.item?.systemPrivate != true) startPlaybackService()
-            target.play()
+            playPrimary(target)
             startProgress()
         }
     }
@@ -3434,7 +3613,7 @@ object PlaybackEngine {
             if (ended) {
                 target.seekTo(base.size, 0L)
                 if (target.playbackState == Player.STATE_IDLE || target.playbackState == Player.STATE_ENDED) target.prepare()
-                target.play()
+                playPrimary(target)
                 startPlaybackService()
                 startProgress()
             }
@@ -3627,6 +3806,7 @@ object PlaybackEngine {
     }
 
     fun setVoiceSpeed(speed: Float) {
+        speech.setSpeed(speed)
         if (speed !in PLAYBACK_SPEED_OPTIONS) return
         val current = _state.value
         val item = current.item
@@ -3719,6 +3899,10 @@ object PlaybackEngine {
 
         override fun onPlayWhenReadyChanged(playWhenReady: Boolean, reason: Int) {
             if (bgMixActive()) return
+            if (!playWhenReady && reason == Player.PLAY_WHEN_READY_CHANGE_REASON_AUDIO_BECOMING_NOISY) {
+                invalidateInterruptionResume()
+                releasePrimaryFocus()
+            }
             val pendingDeferredResume = deferredSeek?.resume == true &&
                 reason == Player.PLAY_WHEN_READY_CHANGE_REASON_USER_REQUEST
             _state.update {
@@ -3753,6 +3937,7 @@ object PlaybackEngine {
             }
             // Следующий файл ставим после того, как плеер закончит обрабатывать конец файла, а не внутри его обработчика.
             if (endedNow) {
+                releasePrimaryFocus()
                 val key = _state.value.item?.key
                 val token = transitionToken
                 scope.launch { handleEnded(key, token) }
@@ -3914,7 +4099,7 @@ object PlaybackEngine {
                 return@launch
             }
             target.prepare()
-            target.play()
+            playPrimary(target)
         }
     }
 
@@ -3927,7 +4112,7 @@ object PlaybackEngine {
         val keepPlaying = target.playWhenReady
         target.seekToNextMediaItem()
         target.prepare()
-        if (keepPlaying) target.play()
+        if (keepPlaying) playPrimary(target)
     }
 
     private fun durationNow(): Long = exo?.duration?.takeIf { it != C.TIME_UNSET && it > 0L } ?: 0L
@@ -4166,7 +4351,7 @@ object PlaybackEngine {
                     // Android 12+ refuses a background foreground-service start. Audio must never begin without the
                     // notification and its controls: the new page stays queued and the listener resumes it in the app.
                     if (startPlaybackService()) {
-                        target.play()
+                        playPrimary(target)
                         startProgress()
                     } else {
                         _state.update { it.copy(ended = true, isBuffering = false, intentPlaying = true) }
@@ -4350,7 +4535,7 @@ object PlaybackEngine {
         _state.update { it.copy(intentPlaying = resume).withTimelineNavigation(targetPlayer) }
         if (resume) {
             if (!current.systemPrivate) startPlaybackService()
-            targetPlayer.play()
+            playPrimary(targetPlayer)
             startProgress()
         }
         loadNextQueuePage()

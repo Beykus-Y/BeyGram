@@ -170,7 +170,7 @@ internal fun VideoNoteBubble(
     val autoDownload = autoDownloadFile ?: LocalAutoDownloadFile.current
     val label = media.kind.label(hostContext)
     val key = media.playbackKey(accountId, origin)
-    val playbackState = PlaybackEngine.state.collectAsStateWithLifecycle()
+    val playbackState = PlaybackEngine.speechState.collectAsStateWithLifecycle()
     // Общий плеер читает только кружок, который играет: у остальных значение null, и на каждом шаге прогресса они не перерисовываются.
     val circle = remember(key) { derivedStateOf { playbackState.value.takeIf { it.item?.key == key } } }.value
     val started = circle?.started == true
@@ -187,12 +187,12 @@ internal fun VideoNoteBubble(
     val seekEnabled = showing && path != null && circle != null && circle.durationMs > 0L
     var scrubFraction by remember(key, seekEnabled) { mutableStateOf<Float?>(null) }
     val seek: (Float) -> Boolean = { requested ->
-        val current = PlaybackEngine.state.value
+        val current = PlaybackEngine.speechState.value
         val item = current.item
         if (item?.key == key && item.accountId == accountId && current.started &&
             !current.ended && !current.failed && current.durationMs > 0L && requested.isFinite()
         ) {
-            PlaybackEngine.seekToPosition((requested.coerceIn(0f, 1f) * current.durationMs).toLong())
+            PlaybackEngine.seekSpeech(key, (requested.coerceIn(0f, 1f) * current.durationMs).toLong())
             true
         } else false
     }
@@ -206,11 +206,11 @@ internal fun VideoNoteBubble(
         showControls = false
     }
     // Секретный кружок во время проигрывания не должен попасть на скриншот или запись экрана.
-    val secureWhilePlaying = media.isSecret && showing
+    val secureWhilePlaying = (media.isSecret || media.isSecretChat) && showing
     SecureWindowWhileVisible(secureWhilePlaying)
     // Секретный кружок не играет, когда пузырь ушёл из списка.
     DisposableEffect(key) {
-        onDispose { if (media.isSecret && PlaybackEngine.state.value.item?.key == key) PlaybackEngine.stopSecret() }
+        onDispose { PlaybackEngine.stopPrivateSpeech(key) }
     }
     // Миниатюра лежит под кадрами видео: пока кадра нет, например сразу после старта или возврата в ленту, виден не чёрный круг. У секретного кружка её не грузим.
     val thumbnailId = media.thumbnailFileId?.takeUnless { media.isSecret }
@@ -230,7 +230,7 @@ internal fun VideoNoteBubble(
     }
     // Запуск заменяет файл в общем плеере, а тот же кружок ставит на паузу или продолжает.
     fun startCircle(localPath: String) {
-        val state = PlaybackEngine.state.value
+        val state = PlaybackEngine.speechState.value
         val starting = !(state.item?.key == key && state.playing)
         PlaybackEngine.toggle(hostContext, media.playbackItem(localPath, label, origin, accountId = accountId), onStarted = if (starting) markPlayed else null)
     }
@@ -301,11 +301,11 @@ internal fun VideoNoteBubble(
                         factory = { TextureView(it).apply { setOpaque(false) } },
                         update = {
                             VideoNoteInlineSurfaceRegistry.register(row)
-                            PlaybackEngine.attachVideo(row, it)
+                            PlaybackEngine.attachSpeechVideo(key, row, it)
                         },
                         onRelease = {
                             VideoNoteInlineSurfaceRegistry.unregister(row)
-                            PlaybackEngine.detachVideo(row)
+                            PlaybackEngine.detachSpeechVideo(row)
                         },
                         modifier = Modifier.fillMaxSize()
                     )

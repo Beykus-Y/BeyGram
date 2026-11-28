@@ -214,8 +214,10 @@ internal object PlaybackSources {
         handles.remove(mediaId)
     }
 
-    fun clear() {
-        handles.clear()
+    fun clear() = clearExcept(null)
+
+    fun clearExcept(mediaId: String?) {
+        if (mediaId == null) handles.clear() else handles.keys.removeAll { it != mediaId }
     }
 
     fun uri(mediaId: String): Uri = Uri.Builder().scheme(SCHEME).authority(AUTHORITY).appendPath(mediaId).build()
