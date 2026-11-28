@@ -197,6 +197,13 @@
     <string name="gifts_received_empty">Noch keine Geschenke erhalten.</string>
     <string name="gifts_received_error">Erhaltene Geschenke konnten nicht geladen werden</string>
     <string name="gifts_collections_title">Sammlungen</string>
+    <string name="gifts_tab_received">Geschenke</string>
+    <string name="gifts_tab_shop">Senden</string>
+    <string name="gifts_received_filter_collectible">Sammlerstücke</string>
+    <string name="gifts_received_filter_regular">Normal</string>
+    <string name="gifts_received_filter_saved">Sichtbar</string>
+    <string name="gifts_received_filter_unsaved">Ausgeblendet</string>
+    <string name="gifts_received_sort_price">Nach Preis</string>
     <string name="gifts_collections_empty">Noch keine Sammlungen.</string>
     <string name="gifts_collections_error">Sammlungen konnten nicht geladen werden</string>
     <plurals name="gifts_collection_count">

@@ -1063,6 +1063,7 @@ internal fun BeyGramAppContent(
     var giftsProfileId by rememberSaveable { mutableStateOf(0L) }
     var giftsProfileSelf by rememberSaveable { mutableStateOf(false) }
     var giftsProfileTitle by rememberSaveable { mutableStateOf("") }
+    var giftsInitialTab by rememberSaveable { mutableStateOf(com.beykus.beygram.domain.model.GiftsScreenTab.Received) }
     val openPremium: (AppRoute) -> Unit = { returnTo ->
         monetizationReturnRouteName = returnTo.name
         routeName = AppRoute.Premium.name
@@ -1075,6 +1076,15 @@ internal fun BeyGramAppContent(
         giftsProfileId = profileId
         giftsProfileSelf = self
         giftsProfileTitle = title
+        giftsInitialTab = com.beykus.beygram.domain.model.GiftsScreenTab.Received
+        giftsReturnRouteName = returnTo.name
+        routeName = AppRoute.Gifts.name
+    }
+    val openGiftShop: (Long, String, AppRoute) -> Unit = { profileId, title, returnTo ->
+        giftsProfileId = profileId
+        giftsProfileSelf = false
+        giftsProfileTitle = title
+        giftsInitialTab = com.beykus.beygram.domain.model.GiftsScreenTab.Shop
         giftsReturnRouteName = returnTo.name
         routeName = AppRoute.Gifts.name
     }
@@ -2791,6 +2801,7 @@ internal fun BeyGramAppContent(
                 routeName = AppRoute.Chat.name
             },
             onGifts = { profileId, self, title -> openGifts(profileId, self, title, AppRoute.ChatInfo) },
+            onSendGift = { profileId, title -> openGiftShop(profileId, title, AppRoute.ChatInfo) },
             autoDownloadFile = repository::autoDownloadFile,
             protectedContent = chatInfoSecure,
             startSecretChat = repository::createSecretChat,
@@ -2854,6 +2865,7 @@ internal fun BeyGramAppContent(
             },
             lastSeenStyle = lastSeenStyle,
             onGifts = { profileId, self, title -> openGifts(profileId, self, title, AppRoute.MemberProfile) },
+            onSendGift = { profileId, title -> openGiftShop(profileId, title, AppRoute.MemberProfile) },
             autoDownloadFile = repository::autoDownloadFile,
             startSecretChat = repository::createSecretChat,
             onSecretChatOpened = { chatId ->
@@ -3478,8 +3490,19 @@ GlobalSearchScreen(
                                 profileId = giftsProfileId,
                                 profileTitle = giftsProfileTitle,
                                 isSelf = giftsProfileSelf,
+                                initialTab = giftsInitialTab,
                                 load = { repository.giftsInfo(giftsProfileId, giftsProfileSelf) },
                                 loadMoreReceived = repository::receivedGifts,
+                                loadReceivedPage = { collectionId, filter, sort, offset ->
+                                    repository.receivedGiftsForOwner(
+                                        profileId = giftsProfileId,
+                                        isSelf = giftsProfileSelf,
+                                        collectionId = collectionId,
+                                        filter = filter,
+                                        sort = sort,
+                                        offset = offset
+                                    )
+                                },
                                 loadAuction = repository::giftAuctionQuote,
                                 loadAuctionHistory = repository::giftAuctionHistory,
                                 submitBid = repository::submitGiftAuctionBid,

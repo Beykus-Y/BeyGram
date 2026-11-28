@@ -1880,6 +1880,15 @@ class TdLibTelegramRepository private constructor(
     override suspend fun receivedGifts(offset: String): Result<ReceivedGiftsPage> = payments.receivedGifts(offset)
     override suspend fun receivedGiftsForUser(userId: Long, offset: String): Result<ReceivedGiftsPage> =
         payments.receivedGiftsForUser(userId, offset)
+    override suspend fun receivedGiftsForOwner(
+        profileId: Long,
+        isSelf: Boolean,
+        collectionId: Int,
+        filter: com.beykus.beygram.domain.model.ReceivedGiftFilter,
+        sort: com.beykus.beygram.domain.model.ReceivedGiftSort,
+        offset: String
+    ): Result<ReceivedGiftsPage> =
+        payments.receivedGiftsForOwner(profileId, isSelf, collectionId, filter, sort, offset)
     override suspend fun toggleGiftSaved(receivedGiftId: String, isSaved: Boolean): Result<Unit> =
         payments.toggleGiftSaved(receivedGiftId, isSaved)
     override suspend fun setPinnedGifts(receivedGiftIds: List<String>): Result<Unit> =

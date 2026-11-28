@@ -843,6 +843,10 @@ fun sortProfileShowcaseGifts(gifts: List<ReceivedGiftItem>, limit: Int = 6): Lis
     return (pinned + unpinned).take(limit)
 }
 
+enum class ReceivedGiftFilter { All, Collectible, Regular, Saved, Unsaved }
+enum class ReceivedGiftSort { Date, Price }
+enum class GiftsScreenTab { Received, Shop }
+
 /**
  * Selects only real pinned collectible gifts for the Profile C header/cover showcase (#1135),
  * preserving server pin order and excluding any gift already used as the user's emoji status.
