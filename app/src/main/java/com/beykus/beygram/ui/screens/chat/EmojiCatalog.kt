@@ -181,13 +181,17 @@ internal fun List<String>.withRecentEmoji(emoji: String): List<String> =
  * clear suppresses recovery for good, while a failed attempt is retried only after a pause, so opening the dock never
  * starts a scan on every tap.
  */
-internal class RecentEmojiStore(context: Context, accountId: String) {
+internal class RecentEmojiStore(context: Context, private val accountId: String) {
     private val recentKey = "recent_$accountId"
     private val customKey = "custom_recent_$accountId"
     private val restoreDoneKey = "restore_done_$accountId"
     private val restoreSuppressedKey = "restore_suppressed_$accountId"
     private val restoreAttemptKey = "restore_attempt_$accountId"
     private val preferences = context.applicationContext.getSharedPreferences(PREFERENCES, Context.MODE_PRIVATE)
+
+    init {
+        migrateLegacyIfNeeded()
+    }
 
     fun load(): List<String> = try {
         preferences.getString(recentKey, null).orEmpty()
@@ -229,6 +233,7 @@ internal class RecentEmojiStore(context: Context, accountId: String) {
      * already present is not duplicated and does not move.
      */
     fun mergeRecovered(history: RecentEmojiHistory): List<String> {
+        if (restoreSuppressed()) return emptyList()
         if (history.unicode.isEmpty()) return load()
         val merged = (load() + history.unicode).distinct().take(RECENT_EMOJI_LIMIT)
         persist(recentKey, merged.joinToString(SEPARATOR))
@@ -237,6 +242,7 @@ internal class RecentEmojiStore(context: Context, accountId: String) {
 
     /** Appends recovered custom emoji after the local ones, without duplicates or reordering the local entries. */
     fun mergeRecoveredCustom(ids: List<Long>): List<Long> {
+        if (restoreSuppressed()) return emptyList()
         if (ids.isEmpty()) return loadCustom()
         val merged = (loadCustom() + ids.filter { it > 0L }).distinct().take(RECENT_CUSTOM_EMOJI_LIMIT)
         persist(customKey, merged.joinToString(SEPARATOR))
@@ -258,7 +264,19 @@ internal class RecentEmojiStore(context: Context, accountId: String) {
     fun restoreDone(): Boolean = preferences.getBoolean(restoreDoneKey, false)
 
     fun markRestoreDone() {
+        if (restoreSuppressed()) return
         preferences.edit().putBoolean(restoreDoneKey, true).apply()
+    }
+
+    private fun migrateLegacyIfNeeded() {
+        if (accountId != LEGACY_ACCOUNT_ID || restoreSuppressed() || preferences.contains(recentKey)) return
+        val legacyValue = runCatching { preferences.getString(LEGACY_RECENT_KEY, null) }.getOrNull() ?: return
+        runCatching {
+            preferences.edit()
+                .putString(recentKey, legacyValue)
+                .remove(LEGACY_RECENT_KEY)
+                .apply()
+        }
     }
 
     /** A failed or cancelled attempt is retried only after [RESTORE_RETRY_MS], not on every dock opening. */
@@ -280,9 +298,23 @@ internal class RecentEmojiStore(context: Context, accountId: String) {
         }
     }
 
-    private companion object {
-        const val PREFERENCES = "emoji_panel"
-        const val SEPARATOR = ","
-        const val RESTORE_RETRY_MS = 15 * 60_000L
+    companion object {
+        private const val PREFERENCES = "emoji_panel"
+        private const val SEPARATOR = ","
+        private const val RESTORE_RETRY_MS = 15 * 60_000L
+        private const val LEGACY_ACCOUNT_ID = "legacy"
+        private const val LEGACY_RECENT_KEY = "recent"
+
+        fun clearAccount(context: Context, accountId: String) {
+            val prefs = context.applicationContext.getSharedPreferences(PREFERENCES, Context.MODE_PRIVATE)
+            prefs.edit().apply {
+                remove("recent_$accountId")
+                remove("custom_recent_$accountId")
+                remove("restore_done_$accountId")
+                remove("restore_suppressed_$accountId")
+                remove("restore_attempt_$accountId")
+                if (accountId == LEGACY_ACCOUNT_ID) remove(LEGACY_RECENT_KEY)
+            }.apply()
+        }
     }
 }

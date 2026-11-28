@@ -83,4 +83,19 @@ class PackUsageStoreTest {
         store.record(99L)
         assertEquals(listOf(10L, 20L), store.ordered(listOf(10L, 20L)) { it })
     }
+
+    @Test
+    fun negativeSetIdsArePreservedAndClearAccountIsScoped() {
+        val negId = -9876543210L
+        val store1 = PackUsageStore(context, "1", PackKind.Sticker)
+        val store2 = PackUsageStore(context, "2", PackKind.Sticker)
+        store1.record(negId)
+        store2.record(42L)
+
+        assertEquals(1L, store1.counts()[negId])
+
+        PackUsageStore.clearAccount(context, "1")
+        assertTrue(store1.counts().isEmpty())
+        assertEquals(1L, store2.counts()[42L])
+    }
 }

@@ -3390,6 +3390,8 @@ override suspend fun isPremiumAccount(): Result<Boolean> = try {
                     stealthSettings.update { it.copy(chats = emptyMap()) }
                     // Queued messages were typed for the account that is leaving, so they are not sent after a later sign-in.
                     DelayedSendQueue.forAccount(appContext, accountId).clear()
+                    runCatching { com.beykus.beygram.ui.screens.chat.RecentEmojiStore.clearAccount(appContext, accountId) }
+                    runCatching { com.beykus.beygram.ui.screens.chat.PackUsageStore.clearAccount(appContext, accountId) }
                     // Trigger alerts and mentions show chat titles and senders of the account that left. The shared rules stay.
                     TriggerAlerts.cancelAccount(appContext, accountId)
                     TriggerWordsStore.get(appContext).forgetAccount(accountId)
