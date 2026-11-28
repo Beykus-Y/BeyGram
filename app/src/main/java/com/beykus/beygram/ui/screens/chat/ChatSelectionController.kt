@@ -242,6 +242,7 @@ internal class ChatSelectionController(
 @Composable
 internal fun rememberChatSelectionController(
     chatId: Long,
+    forumTopicId: Long = 0L,
     accountId: String,
     conversation: ConversationRepository,
     context: Context,
@@ -253,26 +254,28 @@ internal fun rememberChatSelectionController(
     closeActions: () -> Unit
 ): ChatSelectionController {
     // Multi-select is a separate mode from the single-message action bar. Albums are selected as one group.
-    val selectionModeState = rememberSaveable(chatId) { mutableStateOf(false) }
+    val selectionModeState = rememberSaveable(chatId, forumTopicId) { mutableStateOf(false) }
     val selectionSaver = remember {
         listSaver<Set<Long>, Long>(save = { it.toList() }, restore = { it.toSet() })
     }
-    val selectionIdsState = rememberSaveable(chatId, stateSaver = selectionSaver) { mutableStateOf(emptySet<Long>()) }
+    val selectionIdsState = rememberSaveable(chatId, forumTopicId, stateSaver = selectionSaver) { mutableStateOf(emptySet<Long>()) }
     // The message the user long-pressed to start selection; its one-message actions stay reachable while the selection is still just it.
-    val selectionAnchorIdState = rememberSaveable(chatId) { mutableStateOf<Long?>(null) }
+    val selectionAnchorIdState = rememberSaveable(chatId, forumTopicId) { mutableStateOf<Long?>(null) }
     val selectionBusyState = remember { mutableStateOf(false) }
     val selectionErrorState = remember { mutableStateOf<String?>(null) }
-    val selectionForwardOpenState = rememberSaveable(chatId) { mutableStateOf(false) }
-    val frozenForwardSelectionState = rememberSaveable(accountId, chatId) { mutableStateOf(longArrayOf()) }
-    val selectionDeleteOpenState = rememberSaveable(chatId) { mutableStateOf(false) }
+    val selectionForwardOpenState = rememberSaveable(chatId, forumTopicId) { mutableStateOf(false) }
+    val frozenForwardSelectionState = rememberSaveable(accountId, chatId, forumTopicId) { mutableStateOf(longArrayOf()) }
+    val selectionDeleteOpenState = rememberSaveable(chatId, forumTopicId) { mutableStateOf(false) }
     val selectionDeleteRightsState = remember { mutableStateOf<BatchDeleteRights?>(null) }
     val selectionDeleteEveryoneState = remember { mutableStateOf(false) }
     val selectionDeleteBusyState = remember { mutableStateOf(false) }
     val selectionDeleteErrorState = remember { mutableStateOf<String?>(null) }
 
     val messagesState = androidx.compose.runtime.rememberUpdatedState(messages)
+    val currentObserveFile = androidx.compose.runtime.rememberUpdatedState(observeFile)
+    val currentOnDownloadFile = androidx.compose.runtime.rememberUpdatedState(onDownloadFile)
     val currentCloseActions = androidx.compose.runtime.rememberUpdatedState(closeActions)
-    val controller = remember(chatId, accountId, conversation, context, clipboard, scope) {
+    val controller = remember(chatId, forumTopicId, accountId, conversation, context, clipboard, scope) {
         ChatSelectionController(
             chatId = chatId,
             conversation = conversation,
@@ -280,8 +283,8 @@ internal fun rememberChatSelectionController(
             clipboard = clipboard,
             scope = scope,
             messagesProvider = { messagesState.value },
-            observeFile = observeFile,
-            onDownloadFile = onDownloadFile,
+            observeFile = { currentObserveFile.value(it) },
+            onDownloadFile = { currentOnDownloadFile.value(it) },
             closeActions = { currentCloseActions.value() },
             selectionModeState = selectionModeState,
             selectionIdsState = selectionIdsState,

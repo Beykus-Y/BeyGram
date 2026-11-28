@@ -453,6 +453,7 @@ fun ChatScreen(
     val messages = history.messages
     val selection = rememberChatSelectionController(
         chatId = chat.id,
+        forumTopicId = forumTopicId,
         accountId = accountId,
         conversation = conversation,
         context = context,
