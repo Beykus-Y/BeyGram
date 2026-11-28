@@ -176,6 +176,41 @@ class YandexWaveTest {
     }
 
     @Test
+    fun networkFailureKeepsTheLiveSessionForFeedback() = runTest {
+        val session = YandexWaveSession(
+            seeds = listOf(YandexWave.MY_WAVE_SEED),
+            start = { _, _ -> batch("1", session = "s1", batchId = "b1") },
+            next = { _, _ -> ProviderResult.Failure(MusicProviderFailure.Network) },
+        )
+        session.first()
+        try {
+            session.more()
+            fail("expected a failure")
+        } catch (e: YandexWaveException) {
+            assertEquals(MusicProviderFailure.Network, e.failure)
+        }
+        // A failed request does not end the session: the queued feedback of its tracks stays addressable.
+        assertEquals("s1", session.currentSessionId)
+        assertEquals(WaveTrackOrigin("1:a1", "s1", "b1"), session.originOf("ym:1"))
+    }
+
+    @Test
+    fun emptyBatchesKeepTheLiveSessionAsTheFeedbackTarget() = runTest {
+        var nextCalls = 0
+        val session = YandexWaveSession(
+            seeds = listOf(YandexWave.MY_WAVE_SEED),
+            start = { _, _ -> batch("1", session = "s1") },
+            next = { _, _ -> nextCalls++; batch(session = "s1") },
+        )
+        session.first()
+        assertTrue(session.more().isEmpty())
+        assertEquals(YandexWave.MAX_EMPTY_BATCHES, nextCalls)
+        // The session still exists, only the next request will open a fresh one; feedback may still go to it meanwhile.
+        assertEquals("s1", session.currentSessionId)
+        assertEquals("s1", session.originOf("ym:1")?.sessionId)
+    }
+
+    @Test
     fun forgottenSessionStopsTakingFeedbackButItsTracksStillPlay() = runTest {
         val session = YandexWaveSession(
             seeds = listOf(YandexWave.MY_WAVE_SEED),
