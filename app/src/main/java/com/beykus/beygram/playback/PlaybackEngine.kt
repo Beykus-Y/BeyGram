@@ -1104,8 +1104,6 @@ object PlaybackEngine {
         offerBgMix: Boolean = true
     ) {
         val selected = queue.items.getOrNull(queue.index) ?: return
-        YandexTrackResolver.evictOutside(queue.items.mapTo(HashSet()) { it.key }, includePlayback = true)
-        appContext?.let { YandexTrackResolver.pruneUnused(it) }
         restoredRadioStart = null
         // The queue always starts on ExoPlayer, which plays a local file at once and streams one that is still downloading.
         // With BG Mix on, the handover below moves the queue into BG Mix once the track is ready for it (see
@@ -1153,6 +1151,11 @@ object PlaybackEngine {
             speed = speed
         )
         updateAudioSessionId()
+        // The new queue is the published ownership now: only then may the old copies outside it be dropped. Evicting
+        // before the state change let a prune read the previous queue and keep or delete the wrong files.
+        if (YandexTrackResolver.evictOutside(queue.items.mapTo(HashSet()) { it.key }, includePlayback = true)) {
+            appContext?.let { YandexTrackResolver.pruneUnused(it) }
+        }
         // A new queue replaces the playback window at once: abandoned fetches must not hold the slots of its rows.
         reprioritizeLazyRows()
         if (offerBgMix) scheduleBgMixHandover()
@@ -2201,6 +2204,7 @@ object PlaybackEngine {
     private fun startBgMixFeed() {
         bgMixFeedJob?.cancel()
         bgMixFeedJob = scope.launch {
+            var loggedPending: Pair<Int, Int>? = null
             while (true) {
                 val driver = bgMix?.takeIf { it.isActive } ?: return@launch
                 if (driver.pendingIndex == null) return@launch
@@ -2212,20 +2216,40 @@ object PlaybackEngine {
                     // deleted by this very loop while the regular ownership window still names it.
                     val keepEnd = bgMixWindowEndExclusive(driver.queueItems.size, currentIndex, MUSIC_RETENTION_AHEAD)
                     val keep = driver.queueItems.subList(keepStart, keepEnd).mapTo(HashSet()) { it.key }
+                    // A staged handover deck is prepared but not in the queue window yet: its copy must survive.
+                    keep += driver.keysInUse()
                     if (YandexTrackResolver.evictOutside(keep)) {
                         appContext?.let { YandexTrackResolver.pruneUnused(it) }
                     }
                     // The native queue needs its next files at once: keep their fetches ahead of stale ones.
                     reprioritizeLazyRows()
                 }
-                driver.appendReady(currentIndex, ::bgMixFileFor)
-                val first = driver.pendingIndex ?: return@launch
+                val appended = driver.appendReady(currentIndex, ::bgMixFileFor)
+                val pending = driver.pendingIndex
+                // Privacy-safe readiness trace: where the next deck waits, without titles, paths or service ids.
+                val marker = pending?.let { currentIndex to it }
+                if (appended > 0 || (marker != null && marker != loggedPending)) {
+                    loggedPending = marker
+                    recordAppEvent(
+                        kind = EventKind.PERFORMANCE,
+                        code = "bgmix_deck_feed",
+                        text = "Музыка: очередь BG Mix получила готовые файлы",
+                        attrs = mapOf(
+                            "queue_index" to currentIndex.toString(),
+                            "pending_offset" to ((pending ?: currentIndex) - currentIndex).toString(),
+                            "native_tracks" to driver.nativeCount.toString(),
+                            "appended" to appended.toString(),
+                            "download_ahead" to BG_MIX_DOWNLOAD_AHEAD.toString(),
+                        )
+                    )
+                }
+                if (pending == null) return@launch
                 // Only the track right after the playing one is part of playback; the rows after it follow the policy.
                 val playingNext = currentIndex + 1
                 val context = appContext
                 val source = queueSource
                 if (context != null) {
-                    for (index in first until downloadEnd) {
+                    for (index in pending until downloadEnd) {
                         // Speculative traffic goes through the automatic-download policy, like the regular prefetch.
                         prefetchItem(context, source, driver.queueItems[index], playbackNext = index == playingNext)
                     }
@@ -3198,13 +3222,7 @@ object PlaybackEngine {
             val end = (idx + 2).coerceAtMost(it.queue.size)
             listOf(it.item) + if (start < end) it.queue.subList(start, end) else emptyList()
         }.orEmpty()
-        val bgMixPaths = bgMix?.let { driver ->
-            val idx = current.queueIndex
-            val start = (idx - 1).coerceAtLeast(0)
-            val end = bgMixWindowEndExclusive(driver.queueItems.size, idx, BG_MIX_DOWNLOAD_AHEAD)
-            if (start < end) driver.queueItems.subList(start, end).mapNotNull { it.path.takeIf(String::isNotBlank) }.toSet()
-            else emptySet()
-        }.orEmpty()
+        val bgMixPaths = bgMix?.pathsInUse().orEmpty()
         return activeMusicOwnershipPaths(current, waiting, bgMixPaths)
     }
 
@@ -4457,6 +4475,8 @@ object PlaybackEngine {
         val candidates = prefetchCandidates(state, playbackOrder)
         val keep = playbackRetentionKeys(state, playbackOrder).toMutableSet()
         state.item?.key?.let(keep::add)
+        // A BG Mix handover may be preparing a deck outside the regular lookahead: keep its copy too.
+        bgMix?.keysInUse()?.let(keep::addAll)
         if (YandexTrackResolver.evictOutside(keep)) {
             YandexTrackResolver.pruneUnused(context)
         }

@@ -69,6 +69,30 @@ internal class BgMixQueueDriver(private val cacheDir: File) {
     /** Queue snapshot the current session was started with. */
     val queueItems: List<PlaybackItem> get() = items
 
+    /** Tracks in the native queue right now (the playing one and the prepared successor). */
+    val nativeCount: Int get() = nativeIndexById.size
+
+    /**
+     * Local files the native session still needs: everything in its queue and the staged deck of a handover in
+     * progress. Cache pruning and eviction must keep these, or a copy disappears under a deck that is being prepared.
+     */
+    fun pathsInUse(): Set<String> {
+        val paths = HashSet<String>()
+        items.forEach { item -> item.path.takeIf(::localCopyReady)?.let(paths::add) }
+        staged?.items?.forEach { item -> item.path.takeIf(::localCopyReady)?.let(paths::add) }
+        return paths
+    }
+
+    /** Keys of the active and staged native queue, for an eviction window that must not drop a prepared deck. */
+    fun keysInUse(): Set<String> {
+        val keys = HashSet<String>()
+        nativeIndexById.values.forEach { index -> items.getOrNull(index)?.key?.let(keys::add) }
+        staged?.let { session ->
+            session.nativeIndexById.values.forEach { index -> session.items.getOrNull(index)?.key?.let(keys::add) }
+        }
+        return keys
+    }
+
     fun itemAt(index: Int): PlaybackItem? = items.getOrNull(index)
 
     /**
