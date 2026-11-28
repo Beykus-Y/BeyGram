@@ -460,7 +460,8 @@ internal class TdPayments(
             symbolRarityTier = symbolRarity.toRarityTier(),
             backdropName = gift.backdrop?.name.orEmpty(),
             backdropRarityPerMille = (backdropRarity as? TdApi.UpgradedGiftAttributeRarityPerMille)?.perMille,
-            backdropRarityTier = backdropRarity.toRarityTier()
+            backdropRarityTier = backdropRarity.toRarityTier(),
+            upgradedGiftId = gift.id.takeIf { it > 0L }
         )
     }
 

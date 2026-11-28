@@ -29,6 +29,7 @@ import com.beykus.beygram.data.appearance.DesignStyle
 import com.beykus.beygram.data.appearance.GlassQuality
 import com.beykus.beygram.data.presence.LastSeenStyle
 import com.beykus.beygram.domain.model.AvatarPhoto
+import com.beykus.beygram.domain.model.GiftCollectibleDetails
 import com.beykus.beygram.domain.model.MediaFileState
 import com.beykus.beygram.domain.model.ProfileAccentTheme
 import com.beykus.beygram.domain.model.ProfileInfo
@@ -36,6 +37,7 @@ import com.beykus.beygram.domain.model.ProfilePresence
 import com.beykus.beygram.domain.model.ProfilePhotoMedia
 import com.beykus.beygram.domain.model.ProfilePhotosPage
 import com.beykus.beygram.domain.model.ProfileState
+import com.beykus.beygram.domain.model.ReceivedGiftItem
 import com.beykus.beygram.ui.design.designFor
 import com.beykus.beygram.ui.theme.BeyGramTheme
 import com.github.takahirom.roborazzi.captureRoboImage
@@ -83,6 +85,33 @@ class ProfileSceneUiCapture {
                 darkPalette = listOf(0x70A1FF)
             )
         ))
+        val pinnedGifts = (1..4).map { idx ->
+            ReceivedGiftItem(
+                id = "pinned_$idx",
+                senderName = "Sender",
+                dateSeconds = 1_700_000_000,
+                emoji = "\uD83C\uDF81",
+                starCount = 100L,
+                name = "Crystal #$idx",
+                text = "",
+                isPrivate = false,
+                isSaved = true,
+                isUpgraded = true,
+                wasRefunded = false,
+                isPinned = true,
+                collectible = GiftCollectibleDetails(
+                    number = idx * 11,
+                    symbol = null,
+                    backdropCenterColor = 0x3867D6,
+                    backdropEdgeColor = 0x1E2F5C,
+                    backdropSymbolColor = 0x90B4FF,
+                    backdropTextColor = 0xFFFFFF,
+                    modelRarityPerMille = 15,
+                    modelRarityTier = null,
+                    upgradedGiftId = idx.toLong()
+                )
+            )
+        }
         ProfileSceneSettings.load(context)
         ProfileSceneSettings.setEnabled(context, true)
         var exits = 0
@@ -98,7 +127,8 @@ class ProfileSceneUiCapture {
                         onRefresh = {},
                         onEdit = {},
                         setPhoto = { Result.success(Unit) },
-                        lastSeenStyle = LastSeenStyle.Relative
+                        lastSeenStyle = LastSeenStyle.Relative,
+                        profileGifts = pinnedGifts
                     )
                 }
             }
@@ -131,7 +161,7 @@ class ProfileSceneUiCapture {
             capture(output, "03-c-revealed")
 
             val expandedHeight = avatar.getUnclippedBoundsInRoot().let { it.bottom - it.top }
-            val content = compose.onNode(hasScrollAction())
+            val content = compose.onNode(SemanticsMatcher.keyIsDefined(SemanticsProperties.VerticalScrollAxisRange))
             content.performTouchInput {
                 down(center)
                 moveBy(Offset(0f, 180f))

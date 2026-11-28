@@ -875,6 +875,23 @@ fun ProfileScreen(
             ) {
                 toolbarComposable()
             }
+            state.info?.let { info ->
+                if (profileGifts.isNotEmpty() && info.kind != ProfileKind.Group && info.kind != ProfileKind.Channel) {
+                    ProvideGiftFileAccess(GiftFileAccess(observeFile, downloadFile)) {
+                        ProfileHeaderPinnedGifts(
+                            gifts = profileGifts,
+                            emojiStatusUpgradedGiftId = info.emojiStatusUpgradedGiftId,
+                            frame = { sceneFrame },
+                            reveal = { if (revealAvailable) reveal.value else 0f },
+                            preset = scenePreset,
+                            reduceMotion = sceneReduceMotion,
+                            stageTopLocalPx = (sceneHeights.stageTopPx - sceneHeights.windowTopPx).toFloat().coerceAtLeast(0f),
+                            toolbarBottomLocalPx = (sceneHeights.toolbarBottomPx - sceneHeights.windowTopPx).toFloat().coerceAtLeast(0f),
+                            modifier = Modifier.matchParentSize()
+                        )
+                    }
+                }
+            }
         } else {
             Column(Modifier.fillMaxSize()) {
                 toolbarComposable()

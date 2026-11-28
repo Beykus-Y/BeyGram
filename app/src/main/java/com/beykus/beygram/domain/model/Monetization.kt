@@ -555,7 +555,8 @@ data class GiftCollectibleDetails(
     val symbolRarityTier: GiftRarityTier? = null,
     val backdropName: String = "",
     val backdropRarityPerMille: Int? = null,
-    val backdropRarityTier: GiftRarityTier? = null
+    val backdropRarityTier: GiftRarityTier? = null,
+    val upgradedGiftId: Long? = null
 )
 
 data class GiftCatalogItem(
@@ -840,6 +841,27 @@ fun sortProfileShowcaseGifts(gifts: List<ReceivedGiftItem>, limit: Int = 6): Lis
     val pinned = visible.filter { it.isPinned }
     val unpinned = visible.filterNot { it.isPinned }
     return (pinned + unpinned).take(limit)
+}
+
+/**
+ * Selects only real pinned collectible gifts for the Profile C header/cover showcase (#1135),
+ * preserving server pin order and excluding any gift already used as the user's emoji status.
+ */
+fun selectPinnedHeaderGifts(
+    gifts: List<ReceivedGiftItem>,
+    emojiStatusUpgradedGiftId: Long? = null,
+    maxCount: Int = 6
+): List<ReceivedGiftItem> {
+    if (maxCount <= 0) return emptyList()
+    return gifts
+        .asSequence()
+        .filter { it.isPinned && !it.wasRefunded && it.collectible != null }
+        .filter { gift ->
+            val statusId = emojiStatusUpgradedGiftId ?: return@filter true
+            gift.collectible?.upgradedGiftId != statusId
+        }
+        .take(maxCount)
+        .toList()
 }
 
 fun togglePinnedGiftIds(
