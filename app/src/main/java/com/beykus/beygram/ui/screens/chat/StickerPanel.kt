@@ -769,13 +769,18 @@ private fun StickerPanel(
             trackColor = palette.surface2
         )
         if (displayError != null) PanelNotice(displayError)
+        val panelCovered = overlay != null || confirmClearEmoji || confirmClearRecent || packOrderDialog
+        val parentEmojiPolicy = LocalEmojiAnimationPolicy.current
         Column(
             Modifier
                 .fillMaxWidth()
                 .weight(1f)
                 .graphicsLayer { alpha = tabSwitch.value }
         ) {
-            tabState.SaveableStateProvider(view.tab.name) {
+            androidx.compose.runtime.CompositionLocalProvider(
+                LocalEmojiAnimationPolicy provides parentEmojiPolicy.copy(paused = parentEmojiPolicy.paused || panelCovered)
+            ) {
+                tabState.SaveableStateProvider(view.tab.name) {
                 when (view.tab) {
                     StickerPanelTab.Emoji -> {
                         val customEmojiAvailable = customEmojiAllowed(premium, savedMessages)
@@ -976,6 +981,7 @@ locked = customEmojiLocked(premium, savedMessages),
                     }
                 }
             }
+            }
         }
     }
     if (design.usesGlassPanels && !onSharedGlass) {
@@ -1051,7 +1057,10 @@ if (confirmClearEmoji) {
             packState.readyValue()?.takeIf { it.id == item.setId }?.title
                 ?: setsState.readyValue()?.firstOrNull { it.id == item.setId }?.title
         }
-        StickerPanelOverlayContent(
+        androidx.compose.runtime.CompositionLocalProvider(
+            LocalEmojiAnimationPolicy provides EmojiAnimationPolicy(paused = false, priority = EmojiAnimationPolicy.PRIORITY_PREVIEW)
+        ) {
+            StickerPanelOverlayContent(
             overlay = currentOverlay,
             packTitle = overlayPackTitle,
             sending = sending,
@@ -1101,6 +1110,7 @@ if (confirmClearEmoji) {
                 selectPack(setId)
             }
         )
+        }
     }
 }
 

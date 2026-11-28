@@ -102,13 +102,21 @@ internal fun EmojiPanel(
             recentCustom.isNotEmpty() && activePackId == null && gridState.firstVisibleItemIndex >= recentIndex
         }
     }
+    val scrolling by remember(gridState) { derivedStateOf { gridState.isScrollInProgress } }
+    val parentPolicy = LocalEmojiAnimationPolicy.current
     Column(modifier) {
-        LazyVerticalGrid(
-            columns = GridCells.Adaptive(48.dp),
-            modifier = Modifier.fillMaxWidth().weight(1f),
-            state = gridState,
-            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp)
+        androidx.compose.runtime.CompositionLocalProvider(
+            LocalEmojiAnimationPolicy provides parentPolicy.copy(
+                paused = parentPolicy.paused || scrolling,
+                priority = EmojiAnimationPolicy.PRIORITY_GRID
+            )
         ) {
+            LazyVerticalGrid(
+                columns = GridCells.Adaptive(48.dp),
+                modifier = Modifier.fillMaxWidth().weight(1f),
+                state = gridState,
+                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp)
+            ) {
             groups.forEach { group ->
                 item(span = { GridItemSpan(maxLineSpan) }, key = "header-${group.id}") {
                     if (group.id == RECENT_EMOJI_GROUP_ID && onClearRecent != null) {
@@ -168,6 +176,7 @@ internal fun EmojiPanel(
                         }
                     }
                 }
+            }
             }
         }
         EmojiGroupStrip(

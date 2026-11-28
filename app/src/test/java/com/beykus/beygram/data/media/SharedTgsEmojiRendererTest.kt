@@ -211,4 +211,70 @@ class SharedTgsEmojiRendererTest {
             scope.cancel()
         }
     }
+
+    @Test
+    fun previewPriorityTargetIsAdmittedAheadOfGridTargetsWhenBudgetExceeded() = runTest {
+        val dispatcher = StandardTestDispatcher(testScheduler)
+        val scope = CoroutineScope(SupervisorJob() + dispatcher)
+        val renderedPaths = mutableListOf<String>()
+        try {
+            val renderer = SharedTgsEmojiRenderer(
+                scope = scope,
+                workerDispatcher = dispatcher,
+                lowRam = false,
+                rasterizer = object : EmojiFrameRasterizer {
+                    override suspend fun prepare(path: String, sizePx: Int): Result<PreparedEmojiAnimation> =
+                        Result.success(
+                            PreparedEmojiAnimation(4, 400L) {
+                                renderedPaths += path
+                                fakeFrame(sizePx)
+                            }
+                        )
+                },
+                clockMs = { testScheduler.currentTime }
+            )
+            val gridTargets = (1..20).map { i ->
+                renderer.attach("acc-1", "/tmp/grid_$i.tgs", sizePx = 64, playing = true, priority = 0)
+            }
+            val previewTarget = renderer.attach("acc-1", "/tmp/preview.tgs", sizePx = 64, playing = true, priority = 10)
+            runCurrent()
+            advanceTimeBy(150L)
+            runCurrent()
+
+            assertTrue(renderedPaths.count { it == "/tmp/preview.tgs" } >= 2)
+            gridTargets.forEach { renderer.detach(it) }
+            renderer.detach(previewTarget)
+        } finally {
+            scope.cancel()
+        }
+    }
+
+    @Test
+    fun pausingTargetStopsSchedulerAndResumingRestartsIt() = runTest {
+        val dispatcher = StandardTestDispatcher(testScheduler)
+        val scope = CoroutineScope(SupervisorJob() + dispatcher)
+        try {
+            val renderer = SharedTgsEmojiRenderer(
+                scope = scope,
+                workerDispatcher = dispatcher,
+                rasterizer = object : EmojiFrameRasterizer {
+                    override suspend fun prepare(path: String, sizePx: Int): Result<PreparedEmojiAnimation> =
+                        Result.success(PreparedEmojiAnimation(10, 1000L) { fakeFrame(sizePx) })
+                },
+                clockMs = { testScheduler.currentTime }
+            )
+            val target = renderer.attach("acc-1", "/tmp/a.tgs", sizePx = 64, playing = true, priority = 0)
+            runCurrent()
+            assertTrue(renderer.isSchedulerRunning())
+
+            renderer.updateTarget(target, playing = false, priority = 0)
+            assertFalse(renderer.isSchedulerRunning())
+
+            renderer.updateTarget(target, playing = true, priority = 10)
+            assertTrue(renderer.isSchedulerRunning())
+            renderer.detach(target)
+        } finally {
+            scope.cancel()
+        }
+    }
 }
