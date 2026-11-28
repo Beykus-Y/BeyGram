@@ -1,5 +1,6 @@
 package com.beykus.beygram.ui.screens.chat
 
+import androidx.compose.ui.unit.isFinite
 import android.view.TextureView
 import com.beykus.beygram.ui.design.styledShape
 import androidx.compose.animation.core.animateDpAsState
@@ -264,7 +265,7 @@ internal fun VideoNoteBubble(
         TranslationPolicy.isTranscriptionRefusalLifted(transcriptFailure, speechRecognitionUi.trial, speechRecognitionUi.isPremiumAccount))
     val circleDescription = stringResource(R.string.a11y_video_note_message, duration(shownSeconds))
     BoxWithConstraints {
-        val availableWidth = maxWidth
+        val availableWidth = if (maxWidth.isFinite) maxWidth else IDLE_SIZE
         val expandMotion = rememberMotionSpec(MotionToken.MediaExpand)
         val size by animateDpAsState(
             targetValue = if (showing) availableWidth else minOf(availableWidth, IDLE_SIZE),

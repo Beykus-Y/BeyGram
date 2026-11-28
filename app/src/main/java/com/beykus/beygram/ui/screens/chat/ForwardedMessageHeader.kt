@@ -23,7 +23,7 @@ internal fun ForwardedMessageHeader(message: ChatMessage) {
         stringResource(R.string.chat_message_forwarded)
     }
     val palette = beyGramPalette()
-    val dark = androidx.compose.foundation.isSystemInDarkTheme()
+    val dark = com.beykus.beygram.ui.theme.LocalBeyGramDarkTheme.current
     val textColor = message.forwardedAccentColor?.authorColor(dark, palette.surface, palette.accentInk) ?: palette.accentInk
     Text(
         text = label,

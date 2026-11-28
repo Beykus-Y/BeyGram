@@ -47,7 +47,7 @@ internal fun ReplyQuote(
 ) {
     val palette = beyGramPalette()
     val metrics = LocalBubbleMetrics.current
-    val dark = androidx.compose.foundation.isSystemInDarkTheme()
+    val dark = com.beykus.beygram.ui.theme.LocalBeyGramDarkTheme.current
     val stripeColor = reply.senderAccentColor?.authorColor(dark, palette.surface, palette.accent) ?: palette.accent
     Column(
         modifier.fillMaxWidth()

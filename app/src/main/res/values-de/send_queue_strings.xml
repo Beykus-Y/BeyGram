@@ -1,0 +1,6 @@
+<resources>
+    <string name="chat_send_recovery_notice">Das Senden wurde durch einen Neustart unterbrochen. Prüfen Sie den Verlauf vor einem neuen Versuch: Die Nachricht wurde möglicherweise bereits zugestellt.</string>
+    <string name="chat_send_queue_storage_failed">Die Nachrichtenwarteschlange konnte nicht gelesen oder gespeichert werden. Prüfen Sie den freien Speicherplatz. Nicht eingereihter Text bleibt im Eingabefeld.</string>
+    <string name="chat_send_queue_corrupt_notice">Die Datei der ausstehenden Nachrichtenwarteschlange ist beschädigt. Setzen Sie die Warteschlange zurück, um eine beschädigte Kopie separat zu sichern und weiter zu senden.</string>
+    <string name="chat_send_queue_reset_action">Warteschlange zurücksetzen</string>
+</resources>

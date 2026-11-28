@@ -168,7 +168,7 @@ internal fun GroupMemberRow(
                 .padding(start = 16.dp, end = 4.dp, top = 8.dp, bottom = 8.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            val dark = androidx.compose.foundation.isSystemInDarkTheme()
+            val dark = com.beykus.beygram.ui.theme.LocalBeyGramDarkTheme.current
             val avatarColor = member.accentColor?.avatarColor(dark)
                 ?: Color(member.avatarColorArgb)
             TelegramAvatar(member.initials, avatarColor, 44.dp, member.photo, observeFile, downloadFile, Modifier.clearAndSetSemantics {})

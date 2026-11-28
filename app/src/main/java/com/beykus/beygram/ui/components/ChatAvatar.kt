@@ -1,7 +1,6 @@
 package com.beykus.beygram.ui.components
 
 import androidx.compose.foundation.background
-import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
@@ -36,7 +35,7 @@ fun ChatAvatar(
 ) {
     if (chat.isSavedMessages) SavedMessagesAvatar(size, modifier)
     else {
-        val fallbackColor = chat.accentColor?.avatarColor(isSystemInDarkTheme()) ?: Color(chat.avatarColorArgb)
+        val fallbackColor = chat.accentColor?.avatarColor(com.beykus.beygram.ui.theme.LocalBeyGramDarkTheme.current) ?: Color(chat.avatarColorArgb)
         TelegramAvatar(chat.initials, fallbackColor, size, chat.photo, observeFile, downloadFile, modifier)
     }
 }
