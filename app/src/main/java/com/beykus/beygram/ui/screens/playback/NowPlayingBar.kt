@@ -386,7 +386,7 @@ internal fun SpeechTransportBar(
         ) {
             if (music != null) {
                 LaneTransport(
-                    title = music.item?.title.orEmpty(),
+                    title = music.item?.trackTitle.orEmpty(),
                     subtitle = music.item?.performer.orEmpty(),
                     progress = music.fraction,
                     playing = music.intentPlaying,
@@ -1066,7 +1066,13 @@ internal fun NowPlayingControls(
             value = dragFraction ?: state.fraction,
             onValueChange = { dragFraction = it },
             onValueChangeFinished = {
-                dragFraction?.let { PlaybackEngine.seekTo(it, fallbackDurationMs = item.durationSeconds * 1000L) }
+                dragFraction?.let {
+                    if (item.kind == MediaKind.Voice || item.kind == MediaKind.VideoNote) {
+                        PlaybackEngine.seekSpeech(item.key, (it * totalMs).toLong())
+                    } else {
+                        PlaybackEngine.seekTo(it, fallbackDurationMs = item.durationSeconds * 1000L)
+                    }
+                }
                 dragFraction = null
             },
             enabled = enabled && (state.durationMs > 0L || item.durationSeconds > 0),

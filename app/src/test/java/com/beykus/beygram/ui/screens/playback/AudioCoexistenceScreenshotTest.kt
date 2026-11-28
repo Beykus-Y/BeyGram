@@ -6,12 +6,15 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.onRoot
 import androidx.test.core.app.ApplicationProvider
 import com.beykus.beygram.R
 import com.beykus.beygram.domain.model.MediaKind
 import com.beykus.beygram.playback.PlaybackItem
 import com.beykus.beygram.playback.PlaybackState
 import com.beykus.beygram.ui.theme.BeyGramTheme
+import com.github.takahirom.roborazzi.captureRoboImage
+import java.io.File
 import org.junit.Assert.assertEquals
 import org.junit.Rule
 import org.junit.Test
@@ -48,6 +51,11 @@ class AudioCoexistenceScreenshotTest {
                     onOpenSpeech = {},
                 )
             }
+        }
+        System.getenv("BEYGRAM_AUDIO_COEXISTENCE_CAPTURE_DIR")?.let { directory ->
+            val target = File(directory, "audio-coexistence-compact.png")
+            target.parentFile?.mkdirs()
+            compose.onRoot().captureRoboImage(target.absolutePath)
         }
         val musicControl = context.getString(R.string.coexistence_pause_lane, context.getString(R.string.coexistence_internal))
         val voiceControl = context.getString(R.string.coexistence_play_lane, context.getString(R.string.media_kind_voice))

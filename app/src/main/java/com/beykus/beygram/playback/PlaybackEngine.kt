@@ -419,8 +419,6 @@ object PlaybackEngine {
     private var pendingStartFraction = 0f
     private var deferredSeek: DeferredGrowingSeek? = null
     private var deferredSeekJob: Job? = null
-    private var videoOwner: Any? = null
-    private var videoView: TextureView? = null
     /** Музыка, которая ждёт, пока голосовое или кружок доиграет. Очищается при остановке и при новом запуске музыки. */
     private var interruptedMusic: InterruptedMusic? = null
     /** Lazily resolves not-yet-downloaded queue items for the current account. */
@@ -659,8 +657,14 @@ object PlaybackEngine {
     internal fun seekSpeech(key: String, positionMs: Long) = speech.seek(key, positionMs)
     internal fun attachSpeechVideo(key: String, owner: Any, view: TextureView) = speech.attach(key, owner, view)
     internal fun detachSpeechVideo(owner: Any) = speech.detach(owner)
+    internal fun stopSpeech(key: String) {
+        if (speechState.value.item?.key != key) return
+        resumeSpeechOnFocus = null
+        speech.stop()
+    }
+
     internal fun stopPrivateSpeech(key: String) {
-        if (speechState.value.item?.let { it.key == key && it.systemPrivate } == true) speech.stop()
+        if (speechState.value.item?.systemPrivate == true) stopSpeech(key)
     }
 
     private fun PlaybackItem.isSpeech(): Boolean = kind == MediaKind.Voice || kind == MediaKind.VideoNote
@@ -3871,24 +3875,6 @@ object PlaybackEngine {
     /** Просит открыть чат с сообщением, из которого запущен файл. Экран приложения переходит к этому сообщению. */
     fun requestShowInChat(origin: PlaybackOrigin) {
         _showInChat.tryEmit(origin)
-    }
-
-    /** Выводит видео текущего файла на [view]. Пузырь кружка вызывает это, пока кружок показан: без экрана звук продолжает играть. */
-    fun attachVideo(owner: Any, view: TextureView) {
-        val target = exo ?: return
-        if (videoOwner === owner && videoView === view) return
-        videoView?.let { target.clearVideoTextureView(it) }
-        videoOwner = owner
-        videoView = view
-        target.setVideoTextureView(view)
-    }
-
-    /** Снимает видео, если его держит [owner]. Чужой пузырь ничего не снимает, поэтому порядок ухода с экрана не важен. */
-    fun detachVideo(owner: Any) {
-        if (videoOwner !== owner) return
-        videoView?.let { exo?.clearVideoTextureView(it) }
-        videoOwner = null
-        videoView = null
     }
 
     /** Сервис нужен для уведомления и экрана блокировки. Фоновый запуск может не пройти, тогда звук всё равно играет. */

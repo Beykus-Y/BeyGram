@@ -2478,7 +2478,13 @@ private fun AudioInPlayer(
         accountId = accountId,
         viewOnce = viewOnce
     )
-    val state by PlaybackEngine.state.collectAsStateWithLifecycle()
+    val speech = item.kind == MediaKind.Voice
+    val state by (if (speech) PlaybackEngine.speechState else PlaybackEngine.state).collectAsStateWithLifecycle()
+    DisposableEffect(item.key, active) {
+        onDispose {
+            if (speech && active && item.systemPrivate) PlaybackEngine.stopPrivateSpeech(item.key)
+        }
+    }
     val currentOnViewed by rememberUpdatedState(onViewed)
     // Файл отмечается просмотренным, когда начинает играть: открытие просмотрщика само по себе ничего не запускает.
     val playingHere = state.item?.key == item.key && state.playing
