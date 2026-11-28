@@ -184,6 +184,7 @@ internal fun DockCustomEmojiCell(
     id: Long,
     dock: DockCustomEmoji,
     modifier: Modifier = Modifier,
+    animated: Boolean = true,
     onClick: ((CustomEmoji) -> Unit)? = dock.onPick
 ) {
     val current by remember(id, dock.observeCustomEmoji) {
@@ -197,14 +198,21 @@ internal fun DockCustomEmojiCell(
         contentAlignment = Alignment.Center
     ) {
 if (emoji != null) {
-            CustomEmojiImage(emoji, 28.dp, dock.observeFile, dock.downloadFile) {
-                Text(
-                    emojiPresentation(emoji.emoji),
-                    fontSize = 24.sp,
-                    lineHeight = 24.sp,
-                    fontFamily = SystemEmojiFont
-                )
-            }
+            CustomEmojiImage(
+                emoji = emoji,
+                size = 28.dp,
+                observeFile = dock.observeFile,
+                downloadFile = dock.downloadFile,
+                fallback = {
+                    Text(
+                        emojiPresentation(emoji.emoji),
+                        fontSize = 24.sp,
+                        lineHeight = 24.sp,
+                        fontFamily = SystemEmojiFont
+                    )
+                },
+                animated = animated
+            )
             if (dock.locked) {
                 Icon(
                     Icons.Rounded.Lock,

@@ -403,7 +403,7 @@ internal fun ForumTopicIconTile(
     ) {
         val current = emoji
         if (current != null) {
-            CustomEmojiImage(current, size * 0.64f, observeFile, downloadFile, fallback)
+            CustomEmojiImage(current, size * 0.64f, observeFile, downloadFile, fallback = fallback)
         } else {
             fallback()
         }
