@@ -36,11 +36,9 @@ import com.beykus.beygram.ui.design.GlassPanel
 import com.beykus.beygram.ui.design.LocalDesignSystem
 import com.beykus.beygram.ui.design.LocalGlassBackdrop
 import com.beykus.beygram.ui.design.glassBackdropSource
-import com.beykus.beygram.ui.design.glassScreenBackground
 import com.beykus.beygram.ui.design.recordsGlassBackdrop
 import com.beykus.beygram.ui.design.rememberGlassBackdrop
 import com.beykus.beygram.ui.design.usesGlassPanels
-import com.beykus.beygram.ui.components.GlassScreenScaffold
 
 /**
  * True while a toolbar or a composer is drawn inside the glass pane of a screen. The bar then skips its own opaque
@@ -195,14 +193,6 @@ private fun ChromeSurface(
             content()
         }
     }
-}
-
-/** The background of a screen that uses [GlassScreenScaffold], so the Body and the panes agree on the base colour. */
-@Composable
-fun Modifier.glassChromeScreenBackground(): Modifier {
-    val design = LocalDesignSystem.current
-    val palette = beyGramPalette()
-    return background(palette.screen).glassScreenBackground(design, palette.screen)
 }
 
 /**
