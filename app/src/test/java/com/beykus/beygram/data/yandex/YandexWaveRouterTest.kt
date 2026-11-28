@@ -70,4 +70,18 @@ class YandexWaveRouterTest {
         assertEquals(WaveTrackOrigin("1:a1", "s1", "b1"), router.current.originOf("ym:1"))
         assertEquals("2:a2" to "b2", router.current.trackOf("ym:2"))
     }
+
+    @Test
+    fun supersededSwapDoesNotReplaceTheSession() = runTest {
+        val initial = session(ok("1"))
+        var looked = false
+        val router = YandexWaveRouter(initial) { _, _, _ ->
+            session(ok("2", session = "s2")).also { looked = true }
+        }
+        initial.first()
+        // A newer settings change finished first; this one returns later and must not take the radio back.
+        assertNull(router.swap(listOf("old")) { false })
+        assertTrue(looked)
+        assertSame(initial, router.current)
+    }
 }

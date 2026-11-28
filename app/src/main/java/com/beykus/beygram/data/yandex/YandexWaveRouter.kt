@@ -23,12 +23,21 @@ internal class YandexWaveRouter(
     /** The next tracks of the radio, from whichever session is current. */
     suspend fun more(): List<ProviderTrack> = current.more()
 
-    /** The first batch of a session for [seeds]; on success that session becomes the current one. */
-    suspend fun swap(seeds: List<String>): ProviderResult<List<ProviderTrack>> {
+    /**
+     * The first batch of a session for [seeds]; on success that session becomes the current one. [isCurrent] is asked
+     * after the request returned: a swap superseded by a newer one (fast settings changes) returns null and leaves the
+     * session of the newer choice in place.
+     */
+    suspend fun swap(
+        seeds: List<String>,
+        isCurrent: () -> Boolean = { true },
+    ): ProviderResult<List<ProviderTrack>>? {
         val base = current
         val fresh = openSession(seeds, base.givenIds(), base.origins())
         val first = fresh.first()
-        if (first is ProviderResult.Success) current = fresh
+        if (first !is ProviderResult.Success) return first
+        if (!isCurrent()) return null
+        current = fresh
         return first
     }
 }

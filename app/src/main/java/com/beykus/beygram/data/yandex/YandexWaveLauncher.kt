@@ -41,6 +41,10 @@ internal object YandexWaveLauncher {
         initialOrigins = origins,
     )
 
+    /** The settings change started last; an older one that returns later must not replace it. */
+    @Volatile
+    private var settingsChange = 0
+
     /**
      * Changes the seeds of the radio that plays: the upcoming tracks are replaced, the playing one keeps playing. The
      * header caption becomes [subtitle], and the saved wave keeps the new seeds. [onDone] gets true once the new tracks
@@ -49,15 +53,24 @@ internal object YandexWaveLauncher {
     fun changeSeeds(context: Context, seeds: List<String>, subtitle: String, onDone: (Boolean) -> Unit) {
         val router = active
         val radio = activeRadio
-        if (router == null || radio == null || !PlaybackEngine.currentQueueIsEndless()) {
+        if (router == null || radio == null ||
+            PlaybackEngine.activeRadio !== radio || !PlaybackEngine.currentQueueIsEndless()
+        ) {
             onDone(false)
             return
         }
+        val mine = ++settingsChange
         val app = context.applicationContext
         scope.launch {
-            when (val result = router.swap(seeds)) {
+            // A newer settings change (or a new radio) supersedes this one; its request may finish later.
+            when (val result = router.swap(seeds) { mine == settingsChange }) {
+                null -> onDone(false)
                 is ProviderResult.Failure -> onDone(false)
                 is ProviderResult.Success -> {
+                    if (PlaybackEngine.activeRadio !== radio) {
+                        onDone(false)
+                        return@launch
+                    }
                     val fresh = result.value.filter { it.isAvailable }
                     if (fresh.isEmpty()) {
                         onDone(false)
