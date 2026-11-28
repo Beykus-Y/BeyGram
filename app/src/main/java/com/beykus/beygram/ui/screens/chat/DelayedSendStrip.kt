@@ -187,12 +187,15 @@ internal class DelayedSendController(
     }
 
     /** Takes a waiting message back into the composer. The caller has checked that the composer is empty. */
-    private fun restore(id: String, onRestoreDraft: (MessageDraft) -> Unit) {
+    private fun restore(id: String, onRestoreDraft: (MessageDraft, com.beykus.beygram.domain.model.OutgoingReplyQuote?) -> Unit) {
         scope.launch {
             // Not cancellable: once the entry is removed from the queue its text must reach the draft, or it is lost.
             withContext(NonCancellable) {
                 val entry = withContext(Dispatchers.IO) { queue?.cancel(id) } ?: return@withContext
-                onRestoreDraft(MessageDraft(entry.text, entry.entities, entry.replyToMessageId.takeIf { it > 0L }))
+                onRestoreDraft(
+                    MessageDraft(entry.text, entry.entities, entry.replyToMessageId.takeIf { it > 0L }),
+                    entry.quote
+                )
             }
         }
     }
@@ -202,7 +205,7 @@ internal class DelayedSendController(
      * text back into the composer only when it is empty; otherwise the message stays and a short notice says why.
      */
     @Composable
-    fun Strip(composerEmpty: Boolean, onRestoreDraft: (MessageDraft) -> Unit) {
+    fun Strip(composerEmpty: Boolean, onRestoreDraft: (MessageDraft, com.beykus.beygram.domain.model.OutgoingReplyQuote?) -> Unit) {
         val all by (queue?.entries ?: NoDelayedSendEntries).collectAsStateWithLifecycle()
         val rows = all.filter { it.chatId == chatId && it.topicId == forumTopicId }
         if (rows.isEmpty()) return

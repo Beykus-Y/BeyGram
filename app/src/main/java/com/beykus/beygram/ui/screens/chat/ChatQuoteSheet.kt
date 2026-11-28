@@ -61,6 +61,18 @@ internal class ChatQuoteState {
         if (quote?.messageId != replyId) clear()
     }
 
+    fun clearFor(replyId: Long?) {
+        if (replyId != null && quote?.messageId == replyId) clear()
+    }
+
+    fun restore(replyId: Long?, payload: com.beykus.beygram.domain.model.OutgoingReplyQuote?) {
+        if (replyId != null && payload != null) {
+            select(replyId, payload.text, payload.position, restoreAfterRecreation = true, entities = payload.entities)
+        } else {
+            clear()
+        }
+    }
+
     fun clear() {
         quote = null
     }

@@ -236,6 +236,7 @@ fun ChatScreen(
         updateDraft { it.copy(replyToMessageId = messageId) }
     }
     fun clearReply() { setReplyTarget(null) }
+    LaunchedEffect(replyId) { quoteState.keepOnlyFor(replyId) }
     // The all-messages feed has no topic of its own. A reply goes into the topic of the message it answers, and any other message
     // goes to the General topic; the composer waits when that topic is hidden or cannot take messages.
     val feedGeneralTopic = remember(forumTopicsById) { forumTopicsById.values.firstOrNull { it.isGeneral } }
@@ -453,6 +454,7 @@ fun ChatScreen(
     val messages = history.messages
     val selection = rememberChatSelectionController(
         chatId = chat.id,
+        forumTopicId = forumTopicId,
         accountId = accountId,
         conversation = conversation,
         context = context,
@@ -1491,7 +1493,10 @@ fun ChatScreen(
             attachments.send(
                 draft, draftEntities, replyId, sendForumTopicId, effectiveOptions,
                 onCaptionConsumed = { sentCaption -> updateDraft { it.withAttachmentCaptionConsumed(sentCaption) } },
-                onReplyConsumed = { sentReplyId -> updateDraft { it.withAttachmentReplyConsumed(sentReplyId) } }
+                onReplyConsumed = { sentReplyId ->
+                    quoteState.clearFor(sentReplyId)
+                    updateDraft { it.withAttachmentReplyConsumed(sentReplyId) }
+                }
             )
             return
         }
@@ -1510,7 +1515,11 @@ fun ChatScreen(
                 // Only the text that was stored leaves the composer: text typed while the write ran stays.
                 // Snapshot now: draft is a live derived state, and the callback runs after the write.
                 val storedText = draft
-                delayed.enqueue(outgoing.text, outgoing.entities, replyId, sendForumTopicId, effectiveOptions, onQueued = { updateDraft { current -> draftAfterDelayedQueue(current, storedText = storedText) } })
+                val storedReplyId = replyId
+                delayed.enqueue(outgoing.text, outgoing.entities, replyId, sendForumTopicId, effectiveOptions, onQueued = {
+                    quoteState.clearFor(storedReplyId)
+                    updateDraft { current -> draftAfterDelayedQueue(current, storedText = storedText) }
+                })
                 return
             }
             DelayedSendRoute.SendNow -> Unit
@@ -1574,7 +1583,14 @@ fun ChatScreen(
                     error = queueStorageFailureText
                     return@launchComposerWrite
                 }
-                updateDraft { current -> if (current == submittedDraft) MessageDraft() else current }
+                var clearedDraft = false
+                updateDraft { current ->
+                    if (current == submittedDraft) {
+                        clearedDraft = true
+                        MessageDraft()
+                    } else current
+                }
+                if (clearedDraft) quoteState.clearFor(replySnapshot)
                 launch?.let(composerLaunch::releaseDraft)
             }
             return
@@ -1589,7 +1605,14 @@ fun ChatScreen(
                     clearDraft = false, options = effectiveOptions
                 )
                 if (result.isSuccess) {
-                    updateDraft { current -> if (current == submitted) MessageDraft() else current }
+                    var clearedDraft = false
+                    updateDraft { current ->
+                        if (current == submitted) {
+                            clearedDraft = true
+                            MessageDraft()
+                        } else current
+                    }
+                    if (clearedDraft) quoteState.clearFor(submitted.replyToMessageId)
                     botKeyboard?.takeIf { it.forceReply }?.let { conversation.dismissBotKeyboard(chat.id, it.messageId) }
                     if (effectiveOptions.scheduledAtSeconds != null) {
                         Toast.makeText(context, context.getString(R.string.chat_schedule_success), Toast.LENGTH_SHORT).show()
@@ -2177,7 +2200,13 @@ fun ChatScreen(
                 if (replyId != null) clearReply()
             }
         )
-        delayed.Strip(composerEmpty = draft.isEmpty() && replyId == null, onRestoreDraft = { restored -> updateDraft { restored } })
+        delayed.Strip(
+            composerEmpty = draft.isEmpty() && replyId == null,
+            onRestoreDraft = { restored, restoredQuote ->
+                quoteState.restore(restored.replyToMessageId, restoredQuote)
+                updateDraft { restored }
+            }
+        )
         val embeddedAttachments = !editing && attachments.active && !attachments.menuOpen && !stickerPanelOpen
         AttachmentComposerContainer(embeddedAttachments) {
         if (!editing && !stickerPanelOpen) {

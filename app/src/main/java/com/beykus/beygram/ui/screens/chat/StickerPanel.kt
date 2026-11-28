@@ -229,6 +229,7 @@ internal fun StickerPanelHost(
             scope = scope,
             composerReserve = composerReserve,
             keyboardHeightHint = keyboardHeightHint,
+            stickerUsage = packUsage,
             onSendSticker = { item ->
                 if (!sending) {
                     val targetReplyId = replyId
@@ -303,6 +304,7 @@ private fun StickerPanel(
     scope: CoroutineScope,
     composerReserve: androidx.compose.ui.unit.Dp,
     keyboardHeightHint: androidx.compose.ui.unit.Dp,
+    stickerUsage: PackUsageStore,
     onSendSticker: (StickerItem) -> Unit,
     onStickerOptions: (StickerItem) -> Unit,
     onSendAnimation: (AnimationItem) -> Unit,
@@ -359,7 +361,6 @@ private fun StickerPanel(
     var searchGeneration by remember { mutableIntStateOf(0) }
     var overlay by remember { mutableStateOf<StickerPanelOverlay?>(null) }
     val accountId = LocalPlaybackAccountId.current
-    val stickerUsage = remember(context, accountId) { PackUsageStore(context, accountId, PackKind.Sticker) }
     val emojiUsage = remember(context, accountId) { PackUsageStore(context, accountId, PackKind.CustomEmoji) }
     var dynamicPacks by remember { mutableStateOf(stickerUsage.isDynamic()) }
     var packOrderDialog by remember { mutableStateOf(false) }
@@ -368,6 +369,7 @@ private fun StickerPanel(
         .collectAsStateWithLifecycle(StickerShelfVersions())
     var recentEmoji by remember(emojiStore) { mutableStateOf(emojiStore.load()) }
     var recentCustomEmoji by remember(emojiStore) { mutableStateOf(emojiStore.loadCustom()) }
+    var emojiClearGeneration by remember(emojiStore) { mutableIntStateOf(0) }
     var confirmClearEmoji by remember { mutableStateOf(false) }
 
     val premiumNotice = stringResource(R.string.sticker_panel_premium_locked)
@@ -400,24 +402,33 @@ private fun StickerPanel(
         favoriteBusyKeys = emptySet()
     }
     LaunchedEffect(conversation, recentRetry, shelfVersions.recentStickers) {
-        recentState = PickerLoad.Loading
+        recentState = recentState.beginRefresh()
         conversation.recentStickers().fold(
             onSuccess = { recentState = PickerLoad.Ready(it.distinctBy { sticker -> sticker.key }) },
-            onFailure = { recentState = PickerLoad.Failed(it.userMessage(context, R.string.sticker_panel_load_failed)) }
+            onFailure = {
+                val msg = it.userMessage(context, R.string.sticker_panel_load_failed)
+                if (recentState is PickerLoad.Ready) notice = msg else recentState = PickerLoad.Failed(msg)
+            }
         )
     }
     LaunchedEffect(conversation, favoritesRetry, shelfVersions.favoriteStickers) {
-        favoritesState = PickerLoad.Loading
+        favoritesState = favoritesState.beginRefresh()
         conversation.favoriteStickers().fold(
             onSuccess = { favoritesState = PickerLoad.Ready(it.distinctBy { sticker -> sticker.key }) },
-            onFailure = { favoritesState = PickerLoad.Failed(it.userMessage(context, R.string.sticker_panel_load_failed)) }
+            onFailure = {
+                val msg = it.userMessage(context, R.string.sticker_panel_load_failed)
+                if (favoritesState is PickerLoad.Ready) notice = msg else favoritesState = PickerLoad.Failed(msg)
+            }
         )
     }
     LaunchedEffect(conversation, setsRetry, shelfVersions.stickerPacks) {
-        setsState = PickerLoad.Loading
+        setsState = setsState.beginRefresh()
         conversation.installedStickerSets().fold(
             onSuccess = { setsState = PickerLoad.Ready(it) },
-            onFailure = { setsState = PickerLoad.Failed(it.userMessage(context, R.string.sticker_panel_load_failed)) }
+            onFailure = {
+                val msg = it.userMessage(context, R.string.sticker_panel_load_failed)
+                if (setsState is PickerLoad.Ready) notice = msg else setsState = PickerLoad.Failed(msg)
+            }
         )
     }
     LaunchedEffect(conversation) {
@@ -433,18 +444,26 @@ private fun StickerPanel(
         if (view.tab != StickerPanelTab.Emoji) return@LaunchedEffect
         val now = System.currentTimeMillis()
         if (!emojiStore.mayAttemptRestore(now)) return@LaunchedEffect
+        val generation = emojiClearGeneration
         emojiStore.markRestoreAttempt(now)
-        val history = conversation.recoverRecentEmoji().getOrNull() ?: return@LaunchedEffect
-        recentEmoji = emojiStore.mergeRecovered(history)
-        recentCustomEmoji = emojiStore.mergeRecoveredCustom(history.customEmojiIds)
-        emojiStore.markRestoreDone()
+        conversation.recoverRecentEmoji().onSuccess { history ->
+            if (generation != emojiClearGeneration || emojiStore.restoreSuppressed()) return@LaunchedEffect
+            recentEmoji = emojiStore.mergeRecovered(history)
+            recentCustomEmoji = emojiStore.mergeRecoveredCustom(history.customEmojiIds)
+            emojiStore.markRestoreDone()
+        }
     }
     LaunchedEffect(conversation, view.selectedSetId, packRetry) {
         val setId = view.selectedSetId ?: return@LaunchedEffect
-        packState = PickerLoad.Loading
+        if (packState.readyValue()?.id != setId) {
+            packState = PickerLoad.Loading
+        }
         conversation.stickerSet(setId).fold(
             onSuccess = { packState = PickerLoad.Ready(it.copy(stickers = it.stickers.distinctBy { sticker -> sticker.key })) },
-            onFailure = { packState = PickerLoad.Failed(it.userMessage(context, R.string.sticker_panel_load_failed)) }
+            onFailure = {
+                val msg = it.userMessage(context, R.string.sticker_panel_load_failed)
+                if (packState.readyValue()?.id == setId) notice = msg else packState = PickerLoad.Failed(msg)
+            }
         )
     }
     LaunchedEffect(conversation, view.tab, gifRecentRetry) {
@@ -770,7 +789,11 @@ locked = customEmojiLocked(premium, savedMessages),
                             packUsage = emojiUsage,
                             dynamicOrder = dynamicPacks,
                             onPackOrder = { packOrderDialog = true },
+                            onReorderError = { notice = it },
                             onPick = { emoji ->
+                                if (premium == null && !savedMessages) {
+                                    scope.launch { conversation.isPremiumAccount().onSuccess { premium = it } }
+                                }
                                 if (customEmojiAvailable) onInsertCustomEmoji(emoji)
                                 else notice = premiumNotice
                                 customEmojiAvailable
@@ -1004,6 +1027,7 @@ if (confirmClearEmoji) {
             onDismiss = { confirmClearEmoji = false },
             onConfirm = {
                 confirmClearEmoji = false
+                emojiClearGeneration++
                 val (unicode, custom) = emojiStore.clearAll()
                 recentEmoji = unicode
                 recentCustomEmoji = custom
@@ -1641,7 +1665,7 @@ private fun StickerPanelArtwork(
         // WebM stickers and strip covers cannot be drawn by the picker; their still thumbnail is enough.
         if (!thumbnailOnly && item.format != StickerFileFormat.Webm) downloadFile(item.fileId)
     }
-    val emoji = item.emoji.ifBlank { "СЂСџв„ўвЂљ" }
+    val emoji = item.emoji.ifBlank { "\uD83D\uDE42" }
     val thumbnailPath = thumbnail.localPath.takeIf { item.thumbnailIsStatic }
     val fullPath = file.localPath
     Box(modifier.clipToBounds().then(autoplay.modifier), contentAlignment = Alignment.Center) {
@@ -1668,6 +1692,12 @@ private fun StickerPanelArtwork(
 
 @Suppress("UNCHECKED_CAST")
 internal fun <T> PickerLoad<T>.readyValue(): T? = (this as? PickerLoad.Ready<T>)?.value
+
+internal fun <T> PickerLoad<T>.beginRefresh(): PickerLoad<T> =
+    if (this is PickerLoad.Ready) this else PickerLoad.Loading
+
+internal fun <T> PickerLoad<T>.failRefresh(message: String): PickerLoad<T> =
+    if (this is PickerLoad.Ready) this else PickerLoad.Failed(message)
 
 @Composable
 internal fun <T> PickerLoadContent(

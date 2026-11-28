@@ -75,4 +75,48 @@ class RecentEmojiStoreTest {
         assertTrue(RecentEmojiStore(context, "2").load().isEmpty())
         assertEquals(listOf("🎉"), RecentEmojiStore(context, "1").load())
     }
+
+    @Test
+    fun legacyRecentsMigrateOnceOnlyToLegacyAccount() {
+        context.getSharedPreferences("emoji_panel", Context.MODE_PRIVATE)
+            .edit()
+            .putString("recent", "🔥,🎉")
+            .commit()
+
+        val secondary = RecentEmojiStore(context, "2")
+        assertTrue(secondary.load().isEmpty())
+
+        val legacy = RecentEmojiStore(context, "legacy")
+        assertEquals(listOf("🔥", "🎉"), legacy.load())
+        assertFalse(context.getSharedPreferences("emoji_panel", Context.MODE_PRIVATE).contains("recent"))
+    }
+
+    @Test
+    fun suppressedClearBlocksLateMergeAndMarkDone() {
+        val store = RecentEmojiStore(context, "1")
+        store.clearAll()
+        assertTrue(store.mergeRecovered(RecentEmojiHistory(unicode = listOf("🔥"))).isEmpty())
+        assertTrue(store.mergeRecoveredCustom(listOf(42L)).isEmpty())
+        store.markRestoreDone()
+        assertFalse(store.restoreDone())
+        assertTrue(store.load().isEmpty())
+        assertTrue(store.loadCustom().isEmpty())
+    }
+
+    @Test
+    fun clearAccountResetsRecentsAndRestoreFlagsForSlotReuse() {
+        val store = RecentEmojiStore(context, "1")
+        store.record("🎉")
+        store.recordCustom(10L)
+        store.markRestoreDone()
+
+        RecentEmojiStore.clearAccount(context, "1")
+
+        val reused = RecentEmojiStore(context, "1")
+        assertTrue(reused.load().isEmpty())
+        assertTrue(reused.loadCustom().isEmpty())
+        assertFalse(reused.restoreDone())
+        assertFalse(reused.restoreSuppressed())
+        assertTrue(reused.mayAttemptRestore(1_000L))
+    }
 }
