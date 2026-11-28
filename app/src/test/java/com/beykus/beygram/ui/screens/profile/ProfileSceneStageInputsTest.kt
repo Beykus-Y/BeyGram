@@ -16,9 +16,9 @@ class ProfileSceneStageInputsTest {
             hasPhoto = false, reduceMotion = false,
             compactAvatar = compact, compactTitle = compact, compactStatus = compact,
         )
-        assertEquals(20f, inputs.contentLeftPx, 0f)
-        assertEquals(380f, inputs.contentRightPx, 0f)
-        assertEquals(0f, inputs.marginPx, 0f)
+        assertEquals(0f, inputs.contentLeftPx, 0f)
+        assertEquals(400f, inputs.contentRightPx, 0f)
+        assertEquals(20f, inputs.marginPx, 0f)
 
         val frame = profileSceneFrame(inputs)
         // Centre 200, avatar 112 px: left 144, top at the stage top.

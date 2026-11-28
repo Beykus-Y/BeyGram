@@ -2,6 +2,7 @@ package com.beykus.beygram.data.tdlib
 
 import com.beykus.beygram.domain.model.GroupAuthorEmojiStatus
 import com.beykus.beygram.domain.model.PeerAccentColor
+import com.beykus.beygram.domain.model.ProfileAccentTheme
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
@@ -38,6 +39,20 @@ internal class TdPeerColors {
 
     fun profilePalette(id: Int): ProfileColorThemes? = profiles[id]
 
+    fun profileAccentTheme(id: Int?): ProfileAccentTheme? {
+        if (id == null || id < 0) return null
+        val theme = profiles[id] ?: return null
+        if (theme.light.background.isEmpty() && theme.dark.background.isEmpty() &&
+            theme.light.palette.isEmpty() && theme.dark.palette.isEmpty()
+        ) return null
+        return ProfileAccentTheme(
+            lightBackground = theme.light.background,
+            darkBackground = theme.dark.background,
+            lightPalette = theme.light.palette,
+            darkPalette = theme.dark.palette
+        )
+    }
+
     private fun TdApi.ProfileAccentColors?.toPalette(): ProfileColorPalette = ProfileColorPalette(
         this?.paletteColors?.validRgb().orEmpty(),
         this?.backgroundColors?.validRgb().orEmpty(),
@@ -60,6 +75,20 @@ internal class TdPeerColors {
 
 internal data class ProfileColorThemes(val light: ProfileColorPalette, val dark: ProfileColorPalette)
 internal data class ProfileColorPalette(val palette: List<Int>, val background: List<Int>, val story: List<Int>)
+
+internal fun TdApi.UpgradedGiftColors.toProfileAccentTheme(): ProfileAccentTheme? {
+    val lightBg = lightThemeColors?.take(3)?.filter { it in 0..0xFFFFFF }.orEmpty()
+    val darkBg = darkThemeColors?.take(3)?.filter { it in 0..0xFFFFFF }.orEmpty()
+    val lightPal = listOfNotNull(lightThemeAccentColor.takeIf { it in 0..0xFFFFFF })
+    val darkPal = listOfNotNull(darkThemeAccentColor.takeIf { it in 0..0xFFFFFF })
+    if (lightBg.isEmpty() && darkBg.isEmpty() && lightPal.isEmpty() && darkPal.isEmpty()) return null
+    return ProfileAccentTheme(
+        lightBackground = lightBg,
+        darkBackground = darkBg,
+        lightPalette = lightPal,
+        darkPalette = darkPal
+    )
+}
 
 internal fun groupAuthorEmojiStatus(status: TdApi.EmojiStatus?): GroupAuthorEmojiStatus? {
     status ?: return null

@@ -20,10 +20,13 @@ import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.RoundRect
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ImageBitmap
-import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.clipPath
 import androidx.compose.ui.graphics.drawscope.clipRect
 import androidx.compose.ui.graphics.graphicsLayer
@@ -44,11 +47,11 @@ import com.beykus.beygram.ui.components.Avatar
 import com.beykus.beygram.ui.components.LocalBackgroundMediaDownload
 import java.io.File
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.withContext
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.withContext
 import kotlin.math.roundToInt
 
-/** One square image layer covers the changing avatar mask from the profile stage to the toolbar. */
+/** One square image layer morphs continuously from circular avatar to edge-to-edge full-bleed cover and into toolbar. */
 @Composable
 internal fun ProfileSceneAvatarLayer(
     initials: String,
@@ -61,10 +64,22 @@ internal fun ProfileSceneAvatarLayer(
     observeFile: (Int) -> StateFlow<MediaFileState>,
     downloadFile: (Int) -> Unit,
     modifier: Modifier = Modifier,
-    pageLabel: String? = null
+    pageLabel: String? = null,
+    stretchPx: () -> Float = { 0f },
+    reduceMotion: Boolean = false
 ) {
     var origin by remember { mutableStateOf(Offset.Zero) }
     val mask = remember { Path() }
+    val currentFrame = frame()
+    val morphNow = reveal() * (1f - (currentFrame?.collapse ?: 0f))
+    val shaderEffect = rememberProfileImmersiveShaderEffect(
+        morph = morphNow,
+        stretchPx = stretchPx(),
+        widthPx = currentFrame?.avatarRect?.width ?: 0f,
+        heightPx = currentFrame?.avatarRect?.height ?: 0f,
+        reduceMotion = reduceMotion
+    )
+
     Box(
         modifier
             .onGloballyPositioned { origin = it.positionInWindow() }
@@ -77,15 +92,48 @@ internal fun ProfileSceneAvatarLayer(
                 val right = rect.right - origin.x
                 val bottom = rect.bottom - origin.y
                 val circleRadius = minOf(rect.width, rect.height) / 2f
-                val photoRadius = minOf(24.dp.toPx(), circleRadius)
                 val morph = reveal() * (1f - scene.collapse)
-                val radius = circleRadius + (photoRadius - circleRadius) * morph
+                val radius = circleRadius * (1f - morph)
                 val clipTop = (scene.clipTopPx - origin.y).coerceAtLeast(0f)
                 if (bottom <= clipTop || right <= left || bottom <= top) return@drawWithContent
                 mask.rewind()
                 mask.addRoundRect(RoundRect(left, top, right, bottom, CornerRadius(radius)))
                 clipRect(top = clipTop) {
-                    clipPath(mask) { this@drawWithContent.drawContent() }
+                    clipPath(mask) {
+                        this@drawWithContent.drawContent()
+                        if (morph > 0.01f) {
+                            val coverHeight = (bottom - top).coerceAtLeast(1f)
+                            val coverWidth = (right - left).coerceAtLeast(1f)
+                            // Top scrim keeps overlaid back button & menu readable.
+                            drawRect(
+                                brush = Brush.verticalGradient(
+                                    colors = listOf(Color.Black.copy(alpha = 0.44f * morph), Color.Transparent),
+                                    startY = top,
+                                    endY = top + coverHeight * 0.28f
+                                ),
+                                topLeft = Offset(left, top),
+                                size = Size(coverWidth, coverHeight * 0.28f)
+                            )
+                            // Bottom scrim keeps integrated name, verified icon & status readable.
+                            drawRect(
+                                brush = Brush.verticalGradient(
+                                    colors = listOf(Color.Transparent, Color.Black.copy(alpha = 0.66f * morph)),
+                                    startY = bottom - coverHeight * 0.48f,
+                                    endY = bottom
+                                ),
+                                topLeft = Offset(left, bottom - coverHeight * 0.48f),
+                                size = Size(coverWidth, coverHeight * 0.48f)
+                            )
+                        }
+                    }
+                    val haloAlpha = ((1f - reveal()) * (1f - scene.collapse) * visibility()).coerceIn(0f, 1f)
+                    if (haloAlpha > 0.01f) {
+                        drawPath(
+                            path = mask,
+                            color = Color.White.copy(alpha = 0.22f * haloAlpha),
+                            style = Stroke(width = 2.dp.toPx())
+                        )
+                    }
                 }
             }
     ) {
@@ -122,6 +170,7 @@ internal fun ProfileSceneAvatarLayer(
                     translationX = (rect.left + rect.right) / 2f - origin.x - size.width / 2f
                     translationY = (rect.top + rect.bottom) / 2f - origin.y - size.height / 2f + scene.parallaxPx
                     alpha = visibility()
+                    renderEffect = shaderEffect
                 }
             }.background(color),
             contentAlignment = Alignment.Center
@@ -145,17 +194,16 @@ internal fun ProfileSceneAvatarLayer(
                         alpha = 0f
                     } else {
                         translationX = (rect.left + rect.right - size.width) / 2f - origin.x
-                        translationY = rect.bottom - origin.y - size.height - 12.dp.toPx()
+                        translationY = (scene.clipTopPx - origin.y) + 60.dp.toPx()
                         alpha = (1f - scene.collapse * 4f).coerceAtLeast(0f) * visibility()
                     }
-                }.background(Color.Black.copy(alpha = 0.74f), CircleShape)
+                }.background(Color.Black.copy(alpha = 0.68f), CircleShape)
                     .padding(horizontal = 10.dp, vertical = 4.dp)
             )
         }
     }
 }
 
-// An AndroidView over the scroll content would intercept taps before they reach the avatar's in-flow control.
 @Composable
 private fun rememberProfileSceneBitmap(path: String?, maxDimension: Int): ImageBitmap? {
     if (path == null) return null

@@ -143,11 +143,11 @@ class ProfileSceneModelTest {
 
     @Test
     fun photoSizeIsBoundedByWidthAndHeight() {
-        // Portrait 360 dp wide: width min(360 - 40, 420) = 320, height min(320, 0.42 * 800) = 320.
+        // Portrait 360 dp wide: full-bleed width 360, height min(360, 0.42 * 800) = 336.
         val portrait = profileSceneFrame(inputs(width = 360f, height = 800f))
-        assertClose(320f, portrait.photoWidthPx)
-        assertClose(320f, portrait.photoHeightPx)
-        // Landscape 800 wide, 360 high: width min(760, 420) = 420, height min(420, 0.42 * 360) = 151.2.
+        assertClose(360f, portrait.photoWidthPx)
+        assertClose(336f, portrait.photoHeightPx)
+        // Landscape 800 wide, 360 high: width min(800, 420) = 420, height min(420, 0.42 * 360) = 151.2.
         val landscape = profileSceneFrame(inputs(width = 800f, height = 360f))
         assertClose(420f, landscape.photoWidthPx)
         assertClose(151.2f, landscape.photoHeightPx)
@@ -178,8 +178,8 @@ class ProfileSceneModelTest {
         for (reveal in listOf(0f, 0.5f, 1f)) {
             for (scroll in listOf(0f, 100f, 400f, 2_000f)) {
                 val frame = profileSceneFrame(inputs(scroll = scroll, reveal = reveal))
-                val layerW = frame.photoWidthPx * frame.layerScale
-                val layerH = frame.photoHeightPx * frame.layerScale
+                val layerW = frame.layerSidePx * frame.layerScale
+                val layerH = frame.layerSidePx * frame.layerScale
                 assertTrue("width covers at reveal=$reveal scroll=$scroll", layerW + 0.01f >= frame.avatarRect.width)
                 assertTrue("height covers at reveal=$reveal scroll=$scroll", layerH + 0.01f >= frame.avatarRect.height)
             }
@@ -190,7 +190,7 @@ class ProfileSceneModelTest {
     fun noExtraZoomAtRestWithoutReveal() {
         // Reveal 0, photo present: the layer scale is exactly the cover scale (overscale not applied).
         val frame = profileSceneFrame(inputs(scroll = 0f, reveal = 0f))
-        assertClose(112f / 320f, frame.layerScale, 0.001f)
+        assertClose(112f / 360f, frame.layerScale, 0.001f)
         assertClose(0f, frame.parallaxPx, 0f)
     }
 

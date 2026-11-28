@@ -592,6 +592,11 @@ internal class TdProfiles(private val client: () -> Client, private val files: M
     }
     private fun userInfo(user: TdApi.User): ProfileInfo {
         val full = userFull[user.id]
+        val accentTheme = user.upgradedGiftColors?.toProfileAccentTheme()
+            ?: peerColors.profileAccentTheme(user.profileAccentColorId)
+        val bgCustomEmojiId = user.profileBackgroundCustomEmojiId.takeIf { it > 0L } ?: 0L
+        val statusUpgradedGiftId = (user.emojiStatus?.type as? TdApi.EmojiStatusTypeUpgradedGift)
+            ?.upgradedGiftId?.takeIf { it > 0L }
         return ProfileInfo(
             id = user.id, title = listOf(user.firstName, user.lastName).filter { it.isNotBlank() }.joinToString(" "),
             kind = if (user.type is TdApi.UserTypeBot) ProfileKind.Bot else ProfileKind.Person,
@@ -606,7 +611,10 @@ internal class TdProfiles(private val client: () -> Client, private val files: M
             personalChatTitle = full?.personalChatId?.let { chats[it]?.title }.orEmpty(),
             isSelf = user.id == myId, isPremium = user.isPremium, isVerified = user.verificationStatus?.isVerified == true,
             isBlocked = user.id != myId && full?.blockList is TdApi.BlockListMain,
-            profileAudios = profileAudios[user.id].orEmpty()
+            profileAudios = profileAudios[user.id].orEmpty(),
+            profileAccentTheme = accentTheme,
+            profileBackgroundCustomEmojiId = bgCustomEmojiId,
+            emojiStatusUpgradedGiftId = statusUpgradedGiftId
         )
     }
     private fun chatInfo(id: Long): ProfileInfo? = chatProfile(id)?.copy(
@@ -614,7 +622,20 @@ internal class TdProfiles(private val client: () -> Client, private val files: M
     )
     private fun chatProfile(id: Long): ProfileInfo? {
         val chat = chats[id] ?: return null
-        val base = ProfileInfo(id, chat.title, photo = photo(chat.photo), onlineMemberCount = onlineCounts[id]?.takeIf { it > 0 })
+        val chatAccentTheme = chat.upgradedGiftColors?.toProfileAccentTheme()
+            ?: peerColors.profileAccentTheme(chat.profileAccentColorId)
+        val chatBgEmojiId = chat.profileBackgroundCustomEmojiId.takeIf { it > 0L } ?: 0L
+        val chatStatusGiftId = (chat.emojiStatus?.type as? TdApi.EmojiStatusTypeUpgradedGift)
+            ?.upgradedGiftId?.takeIf { it > 0L }
+        val base = ProfileInfo(
+            id = id,
+            title = chat.title,
+            photo = photo(chat.photo),
+            onlineMemberCount = onlineCounts[id]?.takeIf { it > 0 },
+            profileAccentTheme = chatAccentTheme,
+            profileBackgroundCustomEmojiId = chatBgEmojiId,
+            emojiStatusUpgradedGiftId = chatStatusGiftId
+        )
         return when (val type = chat.type) {
             is TdApi.ChatTypePrivate -> users[type.userId]?.let { userInfo(it).copy(id = id, title = chat.title, photo = photo(chat.photo) ?: it.profilePhoto?.let { p -> photo(p.small, p.big) }) } ?: base
             is TdApi.ChatTypeSecret -> users[type.userId]?.let { userInfo(it).copy(id = id, title = chat.title, kind = ProfileKind.Secret) } ?: base.copy(kind = ProfileKind.Secret)

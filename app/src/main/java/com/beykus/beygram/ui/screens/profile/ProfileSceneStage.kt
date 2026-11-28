@@ -1,30 +1,30 @@
 package com.beykus.beygram.ui.screens.profile
 
 import androidx.compose.runtime.Composable
-import androidx.compose.ui.geometry.Rect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.layout.Layout
-import androidx.compose.ui.layout.positionInWindow
 import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.positionInWindow
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.Constraints
 import kotlin.math.roundToInt
 
-/** Gaps and sizes of the identity block in dp, as in the screen: avatar to name 16, name to status 4, status to badges 0. */
+/** Gaps and sizes of the identity block in dp. */
 private const val SceneMarginDp = 20f
 private const val SceneAvatarDp = 112f
 private const val SceneGapAvatarTitleDp = 16f
 private const val SceneGapTitleStatusDp = 4f
 private const val SceneGapStatusBadgesDp = 0f
-/** Upper bound of the revealed photo width, and its share of the viewport height (as in the model). */
-private const val SceneMaxPhotoDp = 420f
-private const val ScenePhotoHeightFraction = 0.42f
+private const val SceneImmersiveBottomPadDp = 18f
+/** Full-bleed cover spans up to viewport width and up to 54% of viewport height. */
+private const val ScenePhotoHeightFraction = 0.54f
 
 /**
- * Heights measured by [ProfileSceneStage] and read by the screen (P2b, #1138). Written in the layout pass only,
+ * Heights measured by [ProfileSceneStage] and read by the screen (#1138). Written in the layout pass only,
  * so the screen recomposes when a measurement changes. Used by variant C alone.
  */
 internal class ProfileSceneHeights {
@@ -36,9 +36,11 @@ internal class ProfileSceneHeights {
     var titleHeightPx by mutableIntStateOf(0)
     var statusHeightPx by mutableIntStateOf(0)
     var badgesHeightPx by mutableIntStateOf(0)
-    /** Window y of the bottom of the toolbar: the top of the fixed viewport that wraps the scroll column. */
+    /** Window y of the top of the root profile container (where the full-bleed cover starts). */
+    var windowTopPx by mutableIntStateOf(0)
+    /** Window y of the bottom of the overlaid toolbar. */
     var toolbarBottomPx by mutableIntStateOf(0)
-    /** Height of that fixed viewport; the scroll content is at least this tall plus the stage travel. */
+    /** Height of the fixed viewport; the scroll content is at least this tall plus the stage travel. */
     var viewportHeightPx by mutableIntStateOf(0)
 
     /** True once the stage has been laid out at least once; until then the screen must not report or collapse. */
@@ -46,11 +48,8 @@ internal class ProfileSceneHeights {
 }
 
 /**
- * The identity stage for variant C (P2b, #1138; P3b reveal). It measures the avatar, name, status and badges in one
- * pass, asks the scene model for the rectangles at the current reveal, and places every child at its rectangle. The
- * stage height is the model's height, so the block has no empty gap. [reveal] is read in the layout pass only, so a
- * reveal animation re-lays out the stage without recomposing the screen. The children must be given in this order:
- * avatar, name, status, badges.
+ * The identity stage for variant C (#1138, #1235). Measures avatar, name, status and badges in one pass,
+ * asks the scene model for the rectangles at the current reveal, and places every child at its rectangle.
  */
 @Composable
 internal fun ProfileSceneStage(
@@ -73,16 +72,16 @@ internal fun ProfileSceneStage(
             heights.stageWidthPx = coordinates.size.width
         },
     ) { measurables, constraints ->
-        // The stage sits inside the identity column, which already has the 20 dp side padding: no margin here.
         val width = constraints.maxWidth
         val avatarPx = SceneAvatarDp * density
+        val marginPx = SceneMarginDp * density
         val revealNow = if (hasPhoto) reveal().coerceIn(0f, 1f) else 0f
-        // Texts take their natural width (up to the stage width) and are centred, as in the screen.
-        val title = measurables[1].measure(Constraints(maxWidth = width))
-        val status = measurables[2].measure(Constraints(maxWidth = width))
-        val badges = measurables[3].measure(Constraints(maxWidth = width))
+        val textMaxWidth = (width - (2f * marginPx).roundToInt()).coerceAtLeast(1)
+        val title = measurables[1].measure(Constraints(maxWidth = textMaxWidth))
+        val status = measurables[2].measure(Constraints(maxWidth = textMaxWidth))
+        val badges = measurables[3].measure(Constraints(maxWidth = textMaxWidth))
 
-        // Geometry at scroll 0 for the current reveal: the photo grows the avatar block, and the texts move down with it.
+        val relativeWindowTop = (heights.windowTopPx - heights.stageTopPx).toFloat().coerceAtMost(0f)
         val frame = profileSceneFrame(
             ProfileSceneInputs(
                 scrollPx = 0f,
@@ -91,11 +90,13 @@ internal fun ProfileSceneStage(
                 viewportHeightPx = heights.viewportHeightPx.toFloat(),
                 contentLeftPx = 0f,
                 contentRightPx = width.toFloat(),
-                marginPx = 0f,
-                maxPhotoWidthPx = SceneMaxPhotoDp * density,
+                marginPx = marginPx,
+                maxPhotoWidthPx = width.toFloat(),
                 photoHeightFraction = ScenePhotoHeightFraction,
                 stageTopPx = 0f,
                 toolbarBottomPx = 0f,
+                windowTopPx = relativeWindowTop,
+                immersiveOverlayBottomPaddingPx = SceneImmersiveBottomPadDp * density,
                 avatarPx = avatarPx,
                 titleHeightPx = title.height.toFloat(),
                 statusHeightPx = status.height.toFloat(),
@@ -131,8 +132,7 @@ internal fun ProfileSceneStage(
 }
 
 /**
- * Inputs for the screen's collapse in C, from the measured stage and the compact toolbar geometry. The stage sits in
- * the identity column, whose 20 dp side padding gives the content edges; the margin is therefore zero.
+ * Inputs for the screen's collapse in C, from the measured stage and the compact toolbar geometry.
  */
 internal fun profileSceneScreenInputs(
     density: Float,
@@ -141,6 +141,7 @@ internal fun profileSceneScreenInputs(
     scrollPx: Float,
     stageTopPx: Float,
     toolbarBottomPx: Float,
+    windowTopPx: Float = toolbarBottomPx,
     titleHeightPx: Float,
     statusHeightPx: Float,
     badgesHeightPx: Float,
@@ -151,19 +152,21 @@ internal fun profileSceneScreenInputs(
     compactStatus: SceneRect,
     revealFraction: Float = 0f,
 ): ProfileSceneInputs {
-    val sidePx = SceneMarginDp * density
+    val marginPx = SceneMarginDp * density
     return ProfileSceneInputs(
         scrollPx = scrollPx,
         revealFraction = revealFraction,
         viewportWidthPx = windowWidthPx,
         viewportHeightPx = windowHeightPx,
-        contentLeftPx = sidePx,
-        contentRightPx = windowWidthPx - sidePx,
-        marginPx = 0f,
-        maxPhotoWidthPx = SceneMaxPhotoDp * density,
+        contentLeftPx = 0f,
+        contentRightPx = windowWidthPx,
+        marginPx = marginPx,
+        maxPhotoWidthPx = windowWidthPx,
         photoHeightFraction = ScenePhotoHeightFraction,
         stageTopPx = stageTopPx,
         toolbarBottomPx = toolbarBottomPx,
+        windowTopPx = windowTopPx,
+        immersiveOverlayBottomPaddingPx = SceneImmersiveBottomPadDp * density,
         avatarPx = SceneAvatarDp * density,
         titleHeightPx = titleHeightPx,
         statusHeightPx = statusHeightPx,

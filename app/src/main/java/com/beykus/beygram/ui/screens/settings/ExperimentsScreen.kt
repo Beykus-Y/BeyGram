@@ -1,7 +1,10 @@
 package com.beykus.beygram.ui.screens.settings
 
 import androidx.activity.compose.BackHandler
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -17,6 +20,7 @@ import androidx.compose.material.icons.rounded.Person
 import androidx.compose.material.icons.rounded.SkipNext
 import androidx.compose.material.icons.rounded.SmartToy
 import androidx.compose.material.icons.rounded.SwapHoriz
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -35,6 +39,7 @@ import com.beykus.beygram.playback.TrackTransitionSettings
 import com.beykus.beygram.ui.components.beyGramPalette
 import com.beykus.beygram.ui.design.LocalDesignSystem
 import com.beykus.beygram.ui.design.glassScreenBackground
+import com.beykus.beygram.ui.screens.profile.ProfileSceneDensity
 import com.beykus.beygram.ui.screens.profile.ProfileSceneSettings
 import com.beykus.beygram.ui.screens.profile.ProfileToolbar
 import com.beykus.beygram.ui.components.GlassScreenScaffold
@@ -63,7 +68,7 @@ fun ExperimentsScreen(onBack: () -> Unit, onMusicAccount: () -> Unit = {}) {
     remember(context) { TrackTransitionSettings.load(context) }
     remember(context) { ProfileSceneSettings.load(context) }
     val profileScene by ProfileSceneSettings.enabled.collectAsStateWithLifecycle()
-    val expressiveProfileCover by ProfileSceneSettings.expressiveCover.collectAsStateWithLifecycle()
+    val profileDensity by ProfileSceneSettings.density.collectAsStateWithLifecycle()
     val skipSilence by TrackTransitionSettings.skipSilence.collectAsStateWithLifecycle()
     val crossfade by TrackTransitionSettings.crossfade.collectAsStateWithLifecycle()
     GlassScreenScaffold(
@@ -127,12 +132,9 @@ fun ExperimentsScreen(onBack: () -> Unit, onMusicAccount: () -> Unit = {}) {
                 )
                 if (profileScene) {
                     SettingsRowDivider()
-                    SettingsToggle(
-                        icon = Icons.Rounded.Person,
-                        title = stringResource(R.string.settings_profile_cover_title),
-                        subtitle = stringResource(R.string.settings_profile_cover_desc),
-                        checked = expressiveProfileCover,
-                        onCheckedChange = { ProfileSceneSettings.setExpressiveCover(context, it) }
+                    ProfileSceneDensityRow(
+                        selected = profileDensity,
+                        onSelect = { ProfileSceneSettings.setDensity(context, it) }
                     )
                 }
             }
@@ -165,6 +167,51 @@ fun ExperimentsScreen(onBack: () -> Unit, onMusicAccount: () -> Unit = {}) {
                 color = palette.textSecondary, fontSize = 13.sp,
                 modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 4.dp)
             )
+        }
+    }
+}
+
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun ProfileSceneDensityRow(
+    selected: ProfileSceneDensity,
+    onSelect: (ProfileSceneDensity) -> Unit
+) {
+    val palette = beyGramPalette()
+    val descriptionRes = when (selected) {
+        ProfileSceneDensity.Calm -> R.string.settings_profile_density_calm_desc
+        ProfileSceneDensity.Balanced -> R.string.settings_profile_density_balanced_desc
+        ProfileSceneDensity.Rich -> R.string.settings_profile_density_rich_desc
+    }
+    Column(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 12.dp)) {
+        Text(
+            stringResource(R.string.settings_profile_density_title),
+            color = palette.textPrimary,
+            fontSize = 15.sp
+        )
+        Spacer(Modifier.height(4.dp))
+        Text(
+            stringResource(descriptionRes),
+            color = palette.textSecondary,
+            fontSize = 13.sp
+        )
+        Spacer(Modifier.height(8.dp))
+        FlowRow(
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalArrangement = Arrangement.spacedBy(6.dp)
+        ) {
+            ProfileSceneDensity.entries.forEach { preset ->
+                val labelRes = when (preset) {
+                    ProfileSceneDensity.Calm -> R.string.settings_profile_density_calm
+                    ProfileSceneDensity.Balanced -> R.string.settings_profile_density_balanced
+                    ProfileSceneDensity.Rich -> R.string.settings_profile_density_rich
+                }
+                FilterChip(
+                    selected = selected == preset,
+                    onClick = { onSelect(preset) },
+                    label = { Text(stringResource(labelRes)) }
+                )
+            }
         }
     }
 }
